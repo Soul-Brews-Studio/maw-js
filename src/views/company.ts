@@ -189,6 +189,24 @@ function companyBody(): string {
     .family-bar[hidden] { display:none; }
     .family-bar .fam-root { color:var(--epic); }
     .family-clear { font-size:11px; padding:2px 9px; border-radius:8px; color:var(--accent); }
+    /* kobo-128 — @mentions decision queue at the board head (Tony's reply inbox). */
+    .mentions-bar { margin-bottom:var(--s-4); border:1px solid var(--bd-warn); border-radius:var(--r-lg); background:var(--col); padding:var(--s-4) var(--s-5); }
+    .mentions-bar[hidden] { display:none; }
+    .mentions-bar .mentions-head { display:flex; align-items:center; gap:var(--s-3); color:var(--warn); font-weight:600; font-size:var(--t-sm); margin-bottom:var(--s-3); }
+    .mentions-bar .mentions-head .count { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .mention-row { display:flex; align-items:center; gap:var(--s-2); flex-wrap:wrap; padding:var(--s-2) 0; border-top:1px dashed var(--line); }
+    .mention-row:first-of-type { border-top:0; }
+    .mention-id { font-family:var(--font-mono); font-size:var(--t-xs); color:var(--accent); }
+    .mention-who { font-size:var(--t-xs); color:var(--warn); font-weight:600; }
+    .mention-txt { flex:1 1 240px; min-width:0; color:var(--fg); font-size:var(--t-sm); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mention-reply-in { flex:1 1 160px; min-width:120px; }
+    .mention-reply-btn { font-size:var(--t-xs); padding:3px 10px; border-radius:8px; border:1px solid var(--bd-warn); color:var(--warn); background:var(--field-bg); cursor:pointer; }
+    .mention-reply-btn:hover { border-color:var(--warn); }
+    .mention-reply-btn:disabled { opacity:.55; cursor:default; }
+    /* kobo-128 — parent-badge: open ask-subcards routed to Tony (⧉ N open →tony);
+       once answered (done) the badge flips to a review-colored "answered ✓". */
+    .pill.q-open { color:var(--warn); border-color:var(--bd-warn); }
+    .pill.q-answered { color:var(--ok); border-color:var(--bd-ok); }
     .timeline { max-height:72vh; overflow:auto; }
     /* kobo-63 — worklog timeline aligned to Foundation tokens (--s-*/--t-*/--r-*)
        + the maw-pane palette (kobo-71). Each row carries its author's pane color as
@@ -406,6 +424,7 @@ function companyBody(): string {
   <main>
     <section class="tabpanel" data-tab="kanban" role="tabpanel">
       <div class="card">
+        <div class="mentions-bar" id="mentions-bar" hidden></div>
         <div class="family-bar" id="family-bar" hidden></div>
         <div class="assignee-bar" id="assignee-bar" hidden></div>
         <div class="attention" id="attention-panel" hidden>
@@ -702,6 +721,21 @@ function taskCard(task, opts) {
     const badge = el('span', 'pill epic-badge' + (roll.allDone ? ' all-done' : ''), '▣ ' + roll.done + '/' + roll.total);
     badge.title = roll.allDone ? 'epic — ลูกครบ รอปิด (' + roll.done + '/' + roll.total + ' children done)' : 'epic rollup — ' + roll.done + '/' + roll.total + ' children done · click to filter family';
     makeChip(badge, () => setFamilyFilter(task.id)); // filter-family stays reachable from the board
+    meta.appendChild(badge);
+  }
+  // kobo-128 — parent-badge: open ask-subcards (questions routed to Tony) on this
+  // card. Open → "⧉ N open →tony" (warn); all answered (done) → "⧉ answered ✓" (ok)
+  // so the parent's owner knows to come review + close. Click = filter the family.
+  const q = questionSubcards(task);
+  if (q.length) {
+    const open = q.filter((c) => c.state !== 'done');
+    const badge = open.length
+      ? el('span', 'pill q-open', '⧉ ' + open.length + ' open →tony')
+      : el('span', 'pill q-answered', '⧉ answered ✓');
+    badge.title = open.length
+      ? open.length + ' open question' + (open.length === 1 ? '' : 's') + ' routed to Tony · click to filter family'
+      : 'question' + (q.length === 1 ? '' : 's') + ' answered — review + close · click to filter family';
+    makeChip(badge, () => setFamilyFilter(task.id));
     meta.appendChild(badge);
   }
   if (task.checklist && task.checklist.total) meta.appendChild(checklistBar(task.checklist.done, task.checklist.total));
@@ -1062,6 +1096,79 @@ function closeDetail() {
   detailReturnFocus = null;
 }
 
+// ── kobo-128 — @mentions queue + ask-subcard (question) helpers ───────────────
+// Client-side mirrors of store.mentionKey / parseMentions / pendingMentions so the
+// board's mentions queue matches "maw task mentions" (UI↔CLI parity, Board Truth 7).
+// @tony and @human collapse to one canonical key (head Q3).
+const HUMAN_ALIASES = { tony: 1, human: 1 };
+function mentionKey(name) { const n = String(name == null ? '' : name).trim().toLowerCase().replace(/^@/, ''); return HUMAN_ALIASES[n] ? 'tony' : n; }
+function parseMentions(t) { const out = new Set(); const re = /@([a-z0-9_-]+)/gi; let m; while ((m = re.exec(String(t || '')))) out.add(mentionKey(m[1])); return Array.from(out); }
+// Unanswered @mentions across on-board cards: a mention of X is pending until X
+// notes on that card after it. Mirrors store.pendingMentions (kobo-126).
+function pendingMentions(tasks) {
+  const out = [];
+  for (const t of tasks) {
+    const notes = t.notes || [];
+    if (!notes.length) continue;
+    const latest = new Map();
+    notes.forEach((n, i) => {
+      for (const who of parseMentions(n.text)) {
+        // answered if a LATER note (by append order, not ts — same-ms collision safe) is by who
+        const answered = notes.slice(i + 1).some((n2) => mentionKey(n2.by) === who);
+        if (answered) latest.delete(who); else latest.set(who, n);
+      }
+    });
+    for (const [who, n] of latest) out.push({ id: t.id, title: t.title, who: who, by: n.by, ts: n.ts, text: n.text });
+  }
+  out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return out;
+}
+// ask-subcards (questions routed to a person) = DIRECT children carrying an
+// assignee in the tony queue. +subtask children are created unassigned, so a
+// tony-assigned child is an ask output — the signal the parent-badge reads.
+function questionSubcards(task) {
+  const kids = taskIndex.childrenOf.get(task.id) || [];
+  return kids.filter((c) => c.assignee && mentionKey(c.assignee) === 'tony');
+}
+
+// kobo-128 — the @mention decision queue at the board head: pending @tony/@human
+// mentions, each with a quick reply that appends a note (POST /api/tasks/note,
+// actor=tony — the ONLY write this UI makes; state/assignee/archive are untouched).
+function renderMentions(tasks) {
+  const bar = $('mentions-bar');
+  const pend = pendingMentions(tasks).filter((m) => m.who === 'tony'); // Tony's board = his decision queue
+  if (!pend.length) { bar.hidden = true; bar.replaceChildren(); return; }
+  bar.replaceChildren();
+  const head = el('div', 'mentions-head');
+  head.appendChild(el('span', '', '@ mentions · รอ Tony reply'));
+  head.appendChild(el('span', 'count', String(pend.length)));
+  bar.appendChild(head);
+  for (const m of pend) {
+    const row = el('div', 'mention-row');
+    const idc = el('span', 'mention-id', m.id);
+    makeChip(idc, () => { const t = taskIndex.byId.get(m.id); if (t) openDetail(t); }); // click id → open the card
+    row.appendChild(idc);
+    row.appendChild(el('span', 'mention-who', 'by ' + (m.by || '?')));
+    const one = String(m.text || '').replace(/\\s+/g, ' ').trim();
+    const txt = el('span', 'mention-txt', one); txt.title = m.text || '';
+    row.appendChild(txt);
+    const rin = el('input'); rin.type = 'text'; rin.className = 'mention-reply-in'; rin.placeholder = 'reply…';
+    const rbtn = el('button', 'mention-reply-btn', 'reply'); rbtn.type = 'button';
+    const send = async () => {
+      const val = rin.value.trim();
+      if (!currentCompany() || !val) return;
+      rbtn.disabled = true;
+      try { await postJson('/api/tasks/note', { company: currentCompany(), id: m.id, text: val }); rin.value = ''; await load(); }
+      catch (err) { rbtn.disabled = false; statusEl.textContent = 'reply failed: ' + errMsg(err); statusEl.className = 'error'; }
+    };
+    rbtn.addEventListener('click', send);
+    rin.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
+    row.appendChild(rin); row.appendChild(rbtn);
+    bar.appendChild(row);
+  }
+  bar.hidden = false;
+}
+
 const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
 const COLS = ['backlog', 'todo', 'in-progress', 'review', 'done', 'rejected']; // board columns = flow + Rejected terminal lane (kobo-101)
 
@@ -1086,7 +1193,8 @@ function renderBoard(tasks) {
   // Family/assignee filters are display-only — taskIndex stays built over the FULL
   // list so rollup / parent-chip / family membership still resolve against every card.
   updateFamilyBar();
-  updateAssigneeBar();
+  updateAssigneeBar(); // kobo-127 — owner filter clear bar
+  renderMentions(tasks); // kobo-128 — @mention decision queue at the board head
   const fam = familyFilter ? familyMembers(familyFilter) : null;
   let shown = fam ? tasks.filter((t) => fam.has(t.id)) : tasks;
   if (assigneeFilter) shown = shown.filter((t) => t.assignee === assigneeFilter); // kobo-127 — owner filter

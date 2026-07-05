@@ -588,15 +588,17 @@ export function pendingMentions(company: string, forWho?: string): PendingMentio
     const notes = t.notes;
     // per person, keep only the LATEST still-unanswered mention on this card
     const latest = new Map<string, TaskNote>();
-    for (const n of notes) {
+    notes.forEach((n, i) => {
       for (const who of parseMentions(n.text)) {
-        if (want && who !== want) continue;
-        // answered once the mentioned person notes after this mention
-        const answered = notes.some((n2) => n2.ts > n.ts && mentionKey(n2.by) === who);
-        if (answered) { latest.delete(who); continue; }
+        if (want && who !== want) return;
+        // answered once the mentioned person notes AFTER this mention. Compare by
+        // append ORDER (index), not ts — two notes can share a millisecond (a fast
+        // reply on CI) and ts-strict-greater would miss the answer (kobo-126 flake).
+        const answered = notes.slice(i + 1).some((n2) => mentionKey(n2.by) === who);
+        if (answered) { latest.delete(who); return; }
         latest.set(who, n);
       }
-    }
+    });
     for (const [who, n] of latest) {
       out.push({ id: t.id, title: t.title, who, by: n.by, ts: n.ts, iso: n.iso, text: n.text });
     }
