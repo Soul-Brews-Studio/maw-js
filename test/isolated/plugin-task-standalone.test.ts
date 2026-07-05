@@ -29,7 +29,7 @@ describe("task command plugin standalone boundary", () => {
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "resolve"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "resolve"', 'subcmd === "migrate-comments"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("setTaskDep"); // kobo-134: dep add/rm — edit parentIds post-create
@@ -47,6 +47,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("notifyTaskComment"); // kobo-46: a note by a non-author pokes the assignee (comment = poke) on task-events
     expect(src).toContain("commentTask"); // kobo-140: threaded ask/answer comment (the ask channel — thread/resolve/@mention)
     expect(src).toContain("resolveComment"); // kobo-140: resolve a comment thread → drops it from the mentions queue
+    expect(src).toContain("migrateQuestionNotesToComments"); // kobo-142: one-shot copy question-notes → comments (active cards, idempotent)
     expect(src).toContain("startTask"); // eq3-007: assignee picks up own work (todo → in-progress)
     expect(src).toContain("claimTask");
     expect(src).toContain("assignTask"); // mawjs-5: pass-the-ball — set assignee=ball-holder without taking it

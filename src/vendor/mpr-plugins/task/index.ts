@@ -56,6 +56,7 @@ import {
   parentStateResolver,
   parseMentions,
   parsePrNumber,
+  migrateQuestionNotesToComments,
   parsePrRepo,
   readTask,
   rejectTask,
@@ -684,8 +685,23 @@ export async function runTask(
       const t = resolveComment(company, id, commentId, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[32m✔ resolved\x1b[0m ${t.id} \x1b[90m(${commentId})\x1b[0m: ${t.title}`);
+    } else if (subcmd === "migrate-comments") {
+      // One-shot migration (kobo-142, Phase C C3): copy question-notes (notes with
+      // an @mention — the old ask channel) into comments[] on ACTIVE cards. COPY
+      // (note kept), idempotent (fromNote marker), already-answered → resolved.
+      // `maw company task migrate-comments [--dry-run]`.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--dry-run": Boolean }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const dryRun = flags["--dry-run"] === true;
+      const res = migrateQuestionNotesToComments(company, { dryRun, by: me });
+      console.log(`${dryRun ? "\x1b[33mDRY-RUN\x1b[0m " : ""}\x1b[36m↦ migrate\x1b[0m question-notes → comments: \x1b[32m${res.migrated} migrated\x1b[0m, ${res.skipped} already present \x1b[90m(${res.cards} card(s) with question-notes)\x1b[0m`);
+      for (const o of res.outcomes) {
+        console.log(`  \x1b[90m${o.id}\x1b[0m +${o.migrated}${o.skipped ? ` \x1b[90m(${o.skipped} skipped)\x1b[0m` : ""}`);
+      }
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|review|hold|pr|done|note|epic|dep|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|migrate-comments|review|hold|pr|done|note|epic|dep|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

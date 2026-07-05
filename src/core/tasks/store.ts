@@ -93,6 +93,7 @@ export interface TaskComment {
   resolved?: boolean; // answered/closed — clears it from the mentions queue
   resolvedBy?: string; // who resolved it
   resolvedTs?: number; // when (epoch ms)
+  fromNote?: number; // origin note ts when copied from a question-note (kobo-142 migration) — idempotency marker + provenance
 }
 
 /** Card role (kobo-45). `epic` = a container card; children point up to it via
@@ -688,6 +689,96 @@ export function resolveComment(company: string, id: string, commentId: string, b
     emit(task, by, "task-comment", `resolved ${task.id} (${commentId})`);
   }
   return task;
+}
+
+export interface CommentMigrateOutcome {
+  id: string; // card id
+  migrated: number; // question-notes copied to comments this run
+  skipped: number; // question-notes already migrated (idempotent)
+}
+export interface CommentMigrateResult {
+  cards: number; // active cards that had question-notes
+  migrated: number; // total comments created
+  skipped: number; // total already-present (idempotent)
+  outcomes: CommentMigrateOutcome[];
+}
+
+/**
+ * One-shot migration (kobo-142, Phase C C3): copy "question-notes" — notes that
+ * carry an @mention, the OLD ask channel — into the comments[] channel (the NEW
+ * one, kobo-140), so the repointed mentions queue (which now reads comments) keeps
+ * showing the questions that used to live in notes.
+ *
+ * Rules (per the card):
+ *   - ACTIVE cards only — state not done/rejected (archived cards aren't in
+ *     listTasks anyway). Closed history is left untouched.
+ *   - COPY, never delete — the original note stays (dual-keep: safe rollback,
+ *     Principle 1). Only notes with an @mention migrate; plain log-notes stay notes.
+ *   - Idempotent — each migrated comment stamps `fromNote` (the origin note ts),
+ *     so a re-run skips notes already copied (no duplicates).
+ *   - Queue truth preserved — a question-note whose EVERY @mentioned person
+ *     replied later on the card (the old "answered" test) migrates as RESOLVED, so
+ *     the repointed queue doesn't resurface an already-answered old question.
+ *
+ * `dryRun` counts what WOULD migrate without writing. Emits one worklog event per
+ * card actually changed.
+ */
+export function migrateQuestionNotesToComments(
+  company: string,
+  opts: { dryRun?: boolean; by?: string } = {},
+): CommentMigrateResult {
+  const dryRun = opts.dryRun ?? false;
+  const actor = opts.by ?? "system";
+  const outcomes: CommentMigrateOutcome[] = [];
+  let totalMigrated = 0;
+  let totalSkipped = 0;
+  let cards = 0;
+
+  for (const task of listTasks(company)) {
+    if (task.state === "done" || task.state === "rejected") continue; // active only
+    const notes = task.notes ?? [];
+    const questionNotes = notes
+      .map((n, i) => ({ n, i }))
+      .filter(({ n }) => parseMentions(n.text).length > 0);
+    if (!questionNotes.length) continue;
+    cards++;
+
+    const comments = [...(task.comments ?? [])];
+    let migrated = 0;
+    let skipped = 0;
+    for (const { n, i } of questionNotes) {
+      // idempotency: this exact note already copied? (ts + author + text)
+      if (comments.some((c) => c.fromNote === n.ts && c.by === n.by && c.text === n.text)) {
+        skipped++;
+        continue;
+      }
+      const mentions = parseMentions(n.text);
+      // old "answered" test: every mentioned person noted AFTER this note on the card
+      const answered = mentions.every((who) => notes.slice(i + 1).some((n2) => mentionKey(n2.by) === who));
+      const comment: TaskComment = { id: `c${comments.length + 1}`, ts: n.ts, iso: n.iso, by: n.by, text: n.text, fromNote: n.ts };
+      if (answered) {
+        const replies = notes.slice(i + 1).filter((n2) => mentions.includes(mentionKey(n2.by)));
+        const last = replies[replies.length - 1];
+        comment.resolved = true;
+        comment.resolvedBy = last?.by ?? n.by;
+        comment.resolvedTs = last?.ts ?? n.ts;
+      }
+      comments.push(comment);
+      migrated++;
+    }
+
+    if (migrated && !dryRun) {
+      task.comments = comments;
+      task.updatedTs = Date.now();
+      writeTaskRecord(task);
+      emit(task, actor, "task-comment", `migrated ${migrated} question-note(s) → comments on ${task.id}`);
+    }
+    totalMigrated += migrated;
+    totalSkipped += skipped;
+    outcomes.push({ id: task.id, migrated, skipped });
+  }
+
+  return { cards, migrated: totalMigrated, skipped: totalSkipped, outcomes };
 }
 
 // ── @mentions + ask (kobo-126) ───────────────────────────────────────────────

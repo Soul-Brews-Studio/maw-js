@@ -269,6 +269,27 @@ describe("maw company task runner (runTask)", () => {
     expect((await run(["comment", "pgw-1", "x", "--reply-to", "c99", "--company", "pgw"])).error).toContain("reply target not found");
   });
 
+  test("migrate-comments copies @-notes → comments (note kept), dry-run + idempotent (kobo-142)", async () => {
+    await run(["add", "card A", "--company", "pgw", "--assignee", "patchwork"]);
+    await run(["note", "pgw-1", "@tony", "rename?", "--company", "pgw"]);
+    // dry-run reports the count but writes nothing
+    const dry = await run(["migrate-comments", "--dry-run", "--company", "pgw"]);
+    expect(dry.output).toContain("DRY-RUN");
+    expect(dry.output).toContain("1 migrated");
+    expect((await run(["comments", "pgw-1", "--company", "pgw"])).output).toContain("no comments");
+    // real run: the @-note becomes a comment; the note stays; the queue surfaces it
+    const run1 = await run(["migrate-comments", "--company", "pgw"]);
+    expect(run1.output).toContain("1 migrated");
+    expect((await run(["comments", "pgw-1", "--company", "pgw"])).output).toContain("@tony rename?");
+    expect(readTask("pgw", "pgw-1")!.notes!.length).toBe(1); // note KEPT
+    expect((await run(["mentions", "--for", "tony", "--company", "pgw"])).output).toContain("pgw-1");
+    // idempotent: re-run migrates nothing more
+    const rerun = (await run(["migrate-comments", "--company", "pgw"])).output;
+    expect(rerun).toContain("0 migrated");
+    expect(rerun).toContain("1 already present");
+    expect(readTask("pgw", "pgw-1")!.comments!.length).toBe(1);
+  });
+
   test("add rejects a flag-shaped ref value — no corrupt epic:\"--add\" (kobo-126, pgw-35 root cause)", async () => {
     // the `=` form binds "--add" as the epic value in arg(permissive); reject it
     const r = await run(["add", "corrupt", "--company", "pgw", "--epic=--add"]);

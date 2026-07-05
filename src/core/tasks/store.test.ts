@@ -20,6 +20,7 @@ import {
   checklistProgress,
   claimTask,
   commentTask,
+  migrateQuestionNotesToComments,
   completeTask,
   resolveComment,
   isStaleDecisionCard,
@@ -1120,6 +1121,65 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(readTask("pgw", card.id)!.comments![0].resolvedBy).toBe("tony");
     expect(() => resolveComment("pgw", card.id, "c99", "eq3")).toThrow();
     expect(resolveComment("pgw", "pgw-nope", "c1", "eq3")).toBeNull();
+  });
+
+  // kobo-142 (C3): migrate question-notes (notes with @mentions — the old ask
+  // channel) into comments[] on ACTIVE cards. COPY (note kept), idempotent, and
+  // already-answered questions migrate as resolved so the queue isn't resurfaced.
+  test("migrateQuestionNotesToComments copies @-notes to comments (note kept), skips plain notes + done/rejected cards", () => {
+    const a = addTask({ company: "pgw", title: "card A", by: "eq3", assignee: "patchwork" });
+    noteTask("pgw", a.id, "eq3", "@tony rename to Foo?"); // question-note → migrates
+    noteTask("pgw", a.id, "patchwork", "plain progress, no mention"); // stays a note only
+    const done = addTask({ company: "pgw", title: "closed", by: "eq3", assignee: "patchwork" });
+    noteTask("pgw", done.id, "eq3", "@tony old question");
+    completeTask("pgw", done.id, "patchwork"); // done → untouched
+
+    const res = migrateQuestionNotesToComments("pgw");
+    expect(res.migrated).toBe(1); // only A's @-note
+    expect(res.outcomes.find((o) => o.id === a.id)!.migrated).toBe(1);
+
+    const ca = readTask("pgw", a.id)!;
+    expect(ca.comments!.length).toBe(1);
+    expect(ca.comments![0].text).toBe("@tony rename to Foo?");
+    expect(ca.comments![0].fromNote).toBe(ca.notes![0].ts); // provenance marker
+    expect(ca.comments![0].resolved).toBeUndefined(); // unanswered → open
+    expect(ca.notes!.length).toBe(2); // both notes KEPT (dual-keep, nothing deleted)
+    // the queue (repointed to comments) now surfaces the migrated question
+    expect(pendingMentions("pgw", "tony").map((m) => m.id)).toEqual([a.id]);
+    // done card never gained a comment
+    expect(readTask("pgw", done.id)!.comments ?? []).toEqual([]);
+  });
+
+  test("migrateQuestionNotesToComments marks an ANSWERED question-note as resolved (queue not resurfaced)", () => {
+    const b = addTask({ company: "pgw", title: "card B", by: "eq3" });
+    noteTask("pgw", b.id, "eq3", "@tony ship X or Y?");
+    noteTask("pgw", b.id, "tony", "Y please"); // tony replied later → answered
+
+    migrateQuestionNotesToComments("pgw");
+    const cb = readTask("pgw", b.id)!;
+    expect(cb.comments![0].resolved).toBe(true);
+    expect(cb.comments![0].resolvedBy).toBe("tony");
+    expect(pendingMentions("pgw", "tony")).toEqual([]); // stays out of the queue
+  });
+
+  test("migrateQuestionNotesToComments is idempotent (fromNote marker) and dry-run writes nothing", () => {
+    const a = addTask({ company: "pgw", title: "card A", by: "eq3" });
+    noteTask("pgw", a.id, "eq3", "@tony ok?");
+
+    const dry = migrateQuestionNotesToComments("pgw", { dryRun: true });
+    expect(dry.migrated).toBe(1);
+    expect(readTask("pgw", a.id)!.comments ?? []).toEqual([]); // dry-run: no write
+
+    expect(migrateQuestionNotesToComments("pgw").migrated).toBe(1);
+    const rerun = migrateQuestionNotesToComments("pgw");
+    expect(rerun.migrated).toBe(0); // nothing new
+    expect(rerun.skipped).toBe(1); // recognised as already migrated
+    expect(readTask("pgw", a.id)!.comments!.length).toBe(1); // no duplicate
+
+    // a native post-migration comment is never disturbed by a later re-run
+    commentTask("pgw", a.id, "patchwork", "native");
+    migrateQuestionNotesToComments("pgw");
+    expect(readTask("pgw", a.id)!.comments!.length).toBe(2);
   });
 
   // kobo-135 (B3): completing an ask-subcard runs the parent-notify hook. The poke
