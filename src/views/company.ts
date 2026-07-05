@@ -372,6 +372,21 @@ function companyBody(): string {
     .ft-node .ft-state { flex:0 0 auto; color:var(--muted); font-size:var(--t-xs); }
     .ft-node .ft-title { flex:1 1 auto; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .ft-node.current .ft-title { color:var(--fg); }
+    /* kobo-143 v2 — breadcrumb path (root › … › current) */
+    .fam-tree .ft-crumb { display:flex; flex-wrap:wrap; align-items:center; gap:var(--s-2); margin-bottom:var(--s-3); font-family:var(--font-mono); font-size:var(--t-xs); }
+    .ft-crumb .ft-crumb-sep { color:var(--muted); }
+    .ft-crumb .ft-crumb-id { color:var(--accent); border-radius:var(--r-xs); padding:0 4px; }
+    .ft-crumb .ft-crumb-id.current { color:var(--fg); font-weight:700; background:var(--field-bg); }
+    .ft-crumb .ft-crumb-id[role=button]:hover, .ft-crumb .ft-crumb-id[role=button]:focus-visible { background:var(--field-bg); outline:none; }
+    /* kobo-143 v2 — collapse toggle + nested children container + owner/comment badges */
+    .ft-node .ft-toggle { flex:0 0 auto; width:12px; text-align:center; color:var(--muted); cursor:pointer; user-select:none; font-size:10px; }
+    .ft-node .ft-toggle.ft-toggle-spacer { cursor:default; }
+    .ft-node .ft-toggle[role=button]:hover, .ft-node .ft-toggle[role=button]:focus-visible { color:var(--fg); outline:none; }
+    .ft-children[hidden] { display:none; }
+    .ft-node .ft-owner { flex:0 0 auto; font-size:var(--t-xs); border:1px solid var(--line); border-radius:999px; padding:0 7px; color:var(--fg); }
+    .ft-node .ft-owner.unassigned { color:var(--muted); border-style:dashed; }
+    .ft-node .ft-cmt { flex:0 0 auto; font-size:var(--t-xs); color:var(--muted); }
+    .ft-node .ft-cmt.has-open { color:var(--warn); font-weight:600; }
     /* kobo-48 web write — +subtask + comment box inside the modal. */
     .detail-write { margin-top:14px; border-top:1px solid var(--line); padding-top:12px; display:flex; flex-direction:column; gap:12px; }
     .write-row { display:flex; flex-direction:column; gap:6px; }
@@ -987,10 +1002,11 @@ function renderDetailDeps(task) {
   bar.hidden = !bar.childNodes.length;
 }
 
-// kobo-136 — family tree in the drawer: climb containment ancestors to the family
-// ROOT, then render the whole tree (DFS over taskIndex.childrenOf), the open card
-// marked. Hidden for a loner card (no parent, no children). Click a node = open
-// that card in place (same drawer, reversible via its own tree).
+// kobo-136 → kobo-143 (v2) — family tree in the drawer: climb containment ancestors
+// to the family ROOT, then render the whole RECURSIVE subtree (DFS), the open card
+// marked. v2 adds: a breadcrumb path (root → … → current), per-node COLLAPSE of a
+// subtree, a 💬 comment count, and a prominent 🎯 owner. Hidden for a loner card (no
+// parent, no children). Click a node = open that card in place (same drawer).
 function familyRootOf(task) {
   let cur = task;
   const seen = new Set([cur.id]);
@@ -1002,6 +1018,19 @@ function familyRootOf(task) {
   }
   return cur;
 }
+// Containment path root → … → task (for the breadcrumb). Climbs epic parents,
+// cycle/missing-safe, returns oldest-first so the crumb reads left→right.
+function familyPathOf(task) {
+  const path = [];
+  let cur = task;
+  const seen = new Set();
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    path.unshift(cur);
+    cur = cur.epic ? taskIndex.byId.get(cur.epic) : null;
+  }
+  return path;
+}
 function renderDetailFamily(task) {
   const host = $('detail-family');
   host.replaceChildren();
@@ -1010,19 +1039,65 @@ function renderDetailFamily(task) {
   if (root.id === task.id && !hasKids) { host.hidden = true; return; }
   const box = el('div', 'fam-tree');
   box.appendChild(el('div', 'ft-head', '👪 family · ' + root.id));
+
+  // breadcrumb: root › … › current (each crumb but the current opens that card)
+  const path = familyPathOf(task);
+  if (path.length > 1) {
+    const crumb = el('div', 'ft-crumb');
+    path.forEach((t, i) => {
+      if (i) crumb.appendChild(el('span', 'ft-crumb-sep', '›'));
+      const c = el('span', 'ft-crumb-id' + (t.id === task.id ? ' current' : ''), t.id);
+      c.title = t.title || '';
+      if (t.id !== task.id) makeChip(c, () => openDetail(t));
+      crumb.appendChild(c);
+    });
+    box.appendChild(crumb);
+  }
+
+  // recursive subtree — each node is a branch {row + collapsible children box}
   const addNode = (t, depth) => {
-    const node = el('div', 'ft-node' + (t.id === task.id ? ' current' : ''));
-    node.style.paddingLeft = (6 + depth * 14) + 'px';
-    node.appendChild(el('span', 'ft-dot st-' + (t.state || 'todo')));
-    node.appendChild(el('span', 'ft-id', t.id));
-    node.appendChild(el('span', 'ft-title', t.title || '(untitled)'));
-    node.appendChild(el('span', 'ft-state', t.state || ''));
-    node.title = t.id + ' · ' + (t.title || '');
-    if (t.id !== task.id) makeChip(node, () => openDetail(t));
-    box.appendChild(node);
-    for (const c of (taskIndex.childrenOf.get(t.id) || [])) addNode(c, depth + 1);
+    const branch = el('div', 'ft-branch');
+    const kids = taskIndex.childrenOf.get(t.id) || [];
+    const row = el('div', 'ft-node' + (t.id === task.id ? ' current' : ''));
+    row.style.paddingLeft = (6 + depth * 14) + 'px';
+    // collapse toggle (only when there are children) — spacer keeps alignment otherwise
+    let childBox = null; let toggle = null;
+    if (kids.length) { toggle = el('span', 'ft-toggle', '▾'); toggle.tabIndex = 0; toggle.setAttribute('role', 'button'); toggle.setAttribute('aria-label', 'collapse subtree'); row.appendChild(toggle); }
+    else { row.appendChild(el('span', 'ft-toggle ft-toggle-spacer', '')); }
+    row.appendChild(el('span', 'ft-dot st-' + (t.state || 'todo')));
+    row.appendChild(el('span', 'ft-id', t.id));
+    row.appendChild(el('span', 'ft-title', t.title || '(untitled)'));
+    // 🎯 owner — prominent assignee chip (per-person color), dim when unassigned
+    const owner = el('span', 'ft-owner' + (t.assignee ? '' : ' unassigned'), '🎯 ' + (t.assignee || '—'));
+    if (t.assignee) { owner.style.borderColor = authorColor(t.assignee); owner.style.color = authorColor(t.assignee); }
+    row.appendChild(owner);
+    // 💬 comment count (from c1 comments[]) — unresolved emphasized in the tooltip
+    const nCmt = (t.comments || []).length;
+    if (nCmt) {
+      const nOpen = (t.comments || []).filter((c) => !c.resolved).length;
+      const badge = el('span', 'ft-cmt' + (nOpen ? ' has-open' : ''), '💬 ' + nCmt);
+      badge.title = nOpen ? (nOpen + ' unresolved of ' + nCmt) : (nCmt + ' resolved');
+      row.appendChild(badge);
+    }
+    row.appendChild(el('span', 'ft-state', t.state || ''));
+    row.title = t.id + ' · ' + (t.title || '');
+    if (t.id !== task.id) makeChip(row, () => openDetail(t));
+    branch.appendChild(row);
+    if (kids.length) {
+      childBox = el('div', 'ft-children');
+      for (const c of kids) childBox.appendChild(addNode(c, depth + 1));
+      branch.appendChild(childBox);
+      // toggle collapses this subtree. stopPropagation so it doesn't also open the card.
+      toggle.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        childBox.hidden = !childBox.hidden;
+        toggle.textContent = childBox.hidden ? '▸' : '▾';
+      });
+      toggle.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggle.click(); } });
+    }
+    return branch;
   };
-  addNode(root, 0);
+  box.appendChild(addNode(root, 0));
   host.appendChild(box);
   host.hidden = false;
 }
