@@ -64,7 +64,7 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
     // kobo-134: dep verb — op add|rm + exactly one parent id, maps to
@@ -97,6 +97,13 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // canonical company surface (`maw company task note <id> <text>`).
     expect(tools).toContain('["company", "task", "note", nid');
     expect(server).toContain('"note"'); // enum + title advertise the verb
+    // kobo-140: comment/comments/resolve — threaded ask channel. comment maps to
+    // `comment <id> <text> [--reply-to cid]`, resolve to `resolve <id> <commentId>`.
+    expect(tools).toContain('["company", "task", "comment", cid, input.text');
+    expect(tools).toContain('["company", "task", "comments", needId("comments")');
+    expect(tools).toContain('["company", "task", "resolve", rid, input.commentId');
+    expect(server).toContain('"comment"'); // enum + title advertise the verbs
+    expect(server).toContain('"resolve"');
     // cli-reorg kobo-24: targets the canonical `maw company task`, NOT the
     // `maw task` deprecation shim (so no "moved" notice leaks into MCP output).
     expect(tools).toContain('["company", "task"');

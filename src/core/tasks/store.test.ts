@@ -19,7 +19,9 @@ import {
   blockTask,
   checklistProgress,
   claimTask,
+  commentTask,
   completeTask,
+  resolveComment,
   isStaleDecisionCard,
   lastActivityByOracle,
   STALE_DECISION_MS,
@@ -1015,21 +1017,56 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(askTask("pgw", "pgw-nope", "q?", "tony", "patchwork")).toBeNull(); // no parent → null
   });
 
-  test("pendingMentions lists unanswered @mentions and drops answered ones", () => {
+  test("pendingMentions reads unresolved COMMENTS with @mentions and drops resolved ones (kobo-140 repoint)", () => {
     const a = addTask({ company: "pgw", title: "card A", by: "eq3" });
-    noteTask("pgw", a.id, "eq3", "@tony rename to Foo?");
+    commentTask("pgw", a.id, "eq3", "@tony rename to Foo?");
     const b = addTask({ company: "pgw", title: "card B", by: "eq3" });
-    noteTask("pgw", b.id, "eq3", "@patchwork bump dep");
+    commentTask("pgw", b.id, "eq3", "@patchwork bump dep");
 
     const all = pendingMentions("pgw");
     expect(all.map((m) => m.id).sort()).toEqual([a.id, b.id].sort());
+    expect(all.every((m) => m.commentId === "c1")).toBe(true); // carries the resolve target
     // --for filters (and @human aliases to tony)
     expect(pendingMentions("pgw", "human").map((m) => m.id)).toEqual([a.id]);
 
-    // Tony replies on A → its mention is answered and drops out
-    noteTask("pgw", a.id, "tony", "yes, Foo it is");
+    // resolving A's comment drops it from the queue (explicit resolve, not "noted after")
+    resolveComment("pgw", a.id, "c1", "tony");
     expect(pendingMentions("pgw", "tony")).toEqual([]);
     expect(pendingMentions("pgw", "patchwork").map((m) => m.id)).toEqual([b.id]); // B still pending
+  });
+
+  test("pendingMentions ignores @mentions inside NOTES (notes are log/evidence, not asks — rule 10)", () => {
+    const a = addTask({ company: "pgw", title: "card A", by: "eq3" });
+    noteTask("pgw", a.id, "eq3", "log: pinged @tony out of band");
+    expect(pendingMentions("pgw", "tony")).toEqual([]); // a note @ does NOT enter the queue
+  });
+
+  test("commentTask threads via replyTo, stamps stable c<n> ids, rejects a dangling reply", () => {
+    const card = addTask({ company: "pgw", title: "card", by: "eq3", assignee: "patchwork" });
+    const t1 = commentTask("pgw", card.id, "eq3", "@patchwork can you look?")!;
+    expect(t1.comments![0].id).toBe("c1");
+    expect(t1.comments![0].resolved).toBeUndefined();
+    const t2 = commentTask("pgw", card.id, "patchwork", "on it", "c1")!;
+    expect(t2.comments![1].id).toBe("c2");
+    expect(t2.comments![1].replyTo).toBe("c1");
+    // dangling reply target → throws (no orphan threads)
+    expect(() => commentTask("pgw", card.id, "eq3", "x", "c99")).toThrow();
+    // absent card → null (matches note/ask contract)
+    expect(commentTask("pgw", "pgw-nope", "eq3", "x")).toBeNull();
+  });
+
+  test("resolveComment flips the flag once (idempotent, Principle 1: text kept), throws on a bad id", () => {
+    const card = addTask({ company: "pgw", title: "card", by: "eq3" });
+    commentTask("pgw", card.id, "eq3", "@tony ok?");
+    const r = resolveComment("pgw", card.id, "c1", "tony")!;
+    expect(r.comments![0].resolved).toBe(true);
+    expect(r.comments![0].resolvedBy).toBe("tony");
+    expect(r.comments![0].text).toBe("@tony ok?"); // text never removed
+    // idempotent — resolving again keeps the original resolver
+    resolveComment("pgw", card.id, "c1", "eq3");
+    expect(readTask("pgw", card.id)!.comments![0].resolvedBy).toBe("tony");
+    expect(() => resolveComment("pgw", card.id, "c99", "eq3")).toThrow();
+    expect(resolveComment("pgw", "pgw-nope", "c1", "eq3")).toBeNull();
   });
 
   // kobo-135 (B3): completing an ask-subcard runs the parent-notify hook. The poke

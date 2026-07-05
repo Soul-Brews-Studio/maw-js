@@ -245,6 +245,33 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "dep", id: "kobo-3", op: "add", parent: ["a", "b"] })).toThrow(/exactly one parent/);
   });
 
+  test("comment: id + text + optional --reply-to (kobo-140)", () => {
+    expect(taskArgs({ action: "comment", id: "kobo-3", text: "@tony ok?" })).toEqual([
+      "company", "task", "comment", "kobo-3", "@tony ok?",
+    ]);
+    expect(taskArgs({ action: "comment", id: "kobo-3", text: "on it", replyTo: "c1", company: "kobo" })).toEqual([
+      "company", "task", "comment", "kobo-3", "on it", "--reply-to", "c1", "--company", "kobo",
+    ]);
+  });
+
+  test("comments: id only (kobo-140)", () => {
+    expect(taskArgs({ action: "comments", id: "kobo-3" })).toEqual(["company", "task", "comments", "kobo-3"]);
+  });
+
+  test("resolve: id + commentId (kobo-140)", () => {
+    expect(taskArgs({ action: "resolve", id: "kobo-3", commentId: "c2" })).toEqual([
+      "company", "task", "resolve", "kobo-3", "c2",
+    ]);
+  });
+
+  test("comment/comments/resolve: missing required parts throw (kobo-140)", () => {
+    expect(() => taskArgs({ action: "comment", id: "kobo-3" })).toThrow(/text/);
+    expect(() => taskArgs({ action: "comment", text: "x" })).toThrow(/requires an id/);
+    expect(() => taskArgs({ action: "comments" })).toThrow(/requires an id/);
+    expect(() => taskArgs({ action: "resolve", id: "kobo-3" })).toThrow(/commentId/);
+    expect(() => taskArgs({ action: "resolve", commentId: "c1" })).toThrow(/requires an id/);
+  });
+
   test("archive: bare + --days + --company", () => {
     expect(taskArgs({ action: "archive" })).toEqual(["company", "task", "archive"]);
     expect(taskArgs({ action: "archive", days: 7, company: "kobo" })).toEqual([

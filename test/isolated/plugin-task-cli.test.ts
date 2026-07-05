@@ -230,15 +230,43 @@ describe("maw company task runner (runTask)", () => {
     expect((await run(["ask", "pgw-999", "q?", "--to", "patchwork", "--company", "pgw", "--from", "patchwork"])).error).toContain("parent card not found");
   });
 
-  test("mentions lists unanswered @mentions and clears once replied", async () => {
-    await run(["add", "card A", "--company", "pgw"]); // unassigned → note pokes no one
-    await run(["note", "pgw-1", "@tony", "please", "rename", "--company", "pgw"]);
+  test("mentions reads @mentions from COMMENTS and clears once resolved (kobo-140 repoint)", async () => {
+    await run(["add", "card A", "--company", "pgw"]);
+    await run(["comment", "pgw-1", "@tony", "rename", "please?", "--company", "pgw"]);
     const q = await run(["mentions", "--for", "tony", "--company", "pgw"]);
     expect(q.output).toContain("pgw-1");
     expect(q.output).toContain("@tony");
-    // Tony replies → the mention is answered and drops out
-    await run(["note", "pgw-1", "ok", "done", "--from", "tony", "--company", "pgw"]);
+    expect(q.output).toContain("c1"); // the resolve target rides the queue line
+    // resolve the comment → the mention drops out (explicit, not "noted after")
+    await run(["resolve", "pgw-1", "c1", "--from", "tony", "--company", "pgw"]);
     expect((await run(["mentions", "--for", "tony", "--company", "pgw"])).output).toContain("no pending mentions");
+  });
+
+  test("a @mention inside a NOTE does NOT enter the mentions queue (rule 10 — notes are log, not asks)", async () => {
+    await run(["add", "card A", "--company", "pgw"]);
+    await run(["note", "pgw-1", "logged:", "pinged", "@tony", "elsewhere", "--company", "pgw"]);
+    expect((await run(["mentions", "--for", "tony", "--company", "pgw"])).output).toContain("no pending mentions");
+  });
+
+  test("comment threads (--reply-to), comments lists them, resolve marks the thread (kobo-140)", async () => {
+    await run(["add", "card A", "--company", "pgw", "--assignee", "patchwork"]);
+    const c1 = await run(["comment", "pgw-1", "can you look?", "--from", "eq3", "--company", "pgw"]);
+    expect(c1.ok).toBe(true);
+    expect(c1.output).toContain("c1");
+    const c2 = await run(["comment", "pgw-1", "on it", "--reply-to", "c1", "--from", "patchwork", "--company", "pgw"]);
+    expect(c2.output).toContain("c2 ↳ c1");
+    const list = await run(["comments", "pgw-1", "--company", "pgw"]);
+    expect(list.output).toContain("can you look?");
+    expect(list.output).toContain("on it");
+    // resolve → the list shows it resolved
+    await run(["resolve", "pgw-1", "c1", "--from", "patchwork", "--company", "pgw"]);
+    expect((await run(["comments", "pgw-1", "--company", "pgw"])).output).toContain("resolved");
+    // usage / not-found errors are clean
+    expect((await run(["comment", "pgw-1", "--company", "pgw"])).error).toContain("usage");
+    expect((await run(["comment", "pgw-999", "hi", "--company", "pgw"])).error).toContain("task not found");
+    expect((await run(["resolve", "pgw-1", "--company", "pgw"])).error).toContain("usage");
+    expect((await run(["resolve", "pgw-1", "c99", "--company", "pgw"])).error).toContain("comment not found");
+    expect((await run(["comment", "pgw-1", "x", "--reply-to", "c99", "--company", "pgw"])).error).toContain("reply target not found");
   });
 
   test("add rejects a flag-shaped ref value — no corrupt epic:\"--add\" (kobo-126, pgw-35 root cause)", async () => {

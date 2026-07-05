@@ -73,6 +73,28 @@ export interface TaskNote {
   text: string; // note content (rendered escape-first on the web)
 }
 
+/**
+ * Threaded comment on a card (kobo-140, Phase C). The 4-way split (Board Truth
+ * rule 10): a NOTE logs event/evidence (append-only, no questions); a COMMENT is
+ * the ask/answer channel — it threads (`replyTo`), resolves (`resolved`), and
+ * carries @mentions. The mentions queue reads UNRESOLVED comments with an @ (not
+ * notes anymore). Like notes, comments are never edited/deleted (Principle 1);
+ * `resolve` only FLIPS the flag (the text stays). `id` is a per-card stable key
+ * (`c<n>`, append order) so a reply/resolve can target one comment without ts
+ * collisions (the kobo-126 flake).
+ */
+export interface TaskComment {
+  id: string; // per-card stable id "c<n>" — reply/resolve target
+  ts: number; // epoch ms (sort key)
+  iso: string; // ISO-8601 timestamp
+  by: string; // author (oracle / human)
+  text: string; // comment content (rendered escape-first on the web)
+  replyTo?: string; // parent comment id — a reply in the thread (kobo-140)
+  resolved?: boolean; // answered/closed — clears it from the mentions queue
+  resolvedBy?: string; // who resolved it
+  resolvedTs?: number; // when (epoch ms)
+}
+
 /** Card role (kobo-45). `epic` = a container card; children point up to it via
  * the `epic` field. Absent/`task` = a normal card. epic is NOT a new entity — it
  * reuses TaskRecord, so it gets timeline/comment/state for free (spec). */
@@ -103,6 +125,7 @@ export interface TaskRecord {
   parentIds?: string[]; // card→card deps (ADR 0003 A) — blocked-by-dependency is DERIVED, never stored
   body?: string; // free text: why/detail + markdown checklist (ADR 0003 C) — git-diff'able
   notes?: TaskNote[]; // append-only notes (kobo-39) — mid-flight truth, oldest first, NEVER mutated/deleted
+  comments?: TaskComment[]; // threaded ask/answer comments (kobo-140) — resolve flips a flag, never deleted
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -562,6 +585,61 @@ export function noteTask(company: string, id: string, by: string, text: string):
   return task;
 }
 
+/**
+ * Add a threaded comment to a card (kobo-140) — the ask/answer channel (Board
+ * Truth rule 10). Unlike a note, a comment can be a reply (`replyTo`) and can be
+ * resolved. Stamps a per-card stable id (`c<n>`, append order) so replies/resolves
+ * target it without ts collisions. Returns null if the card is absent; throws if
+ * `replyTo` names a comment that doesn't exist on this card (no dangling threads).
+ * Emits a `task-comment` worklog event. @mentions in the text are surfaced by the
+ * mentions queue (pendingMentions) until the comment is resolved.
+ */
+export function commentTask(
+  company: string,
+  id: string,
+  by: string,
+  text: string,
+  replyTo?: string,
+): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  const existing = task.comments ?? [];
+  if (replyTo && !existing.some((c) => c.id === replyTo)) {
+    throw new Error(`reply target not found on ${id}: ${replyTo}`);
+  }
+  const comment: TaskComment = { id: `c${existing.length + 1}`, ts: Date.now(), iso: nowIso(), by, text };
+  if (replyTo) comment.replyTo = replyTo;
+  task.comments = [...existing, comment]; // append-only — prior comments untouched
+  task.updatedTs = comment.ts;
+  writeTaskRecord(task);
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  emit(task, by, "task-comment", `comment ${task.id} (${comment.id}): ${oneLine.length > 60 ? oneLine.slice(0, 57) + "…" : oneLine}`);
+  return task;
+}
+
+/**
+ * Resolve a comment (kobo-140) — mark an ask/answer thread closed so it drops out
+ * of the mentions queue. FLIPS a flag only (Principle 1: the text is never
+ * removed); stamps who/when. Idempotent — resolving an already-resolved comment is
+ * a no-op that still returns the card. Returns null if the card is absent; throws
+ * if the comment id doesn't exist. Emits a `task-comment` worklog event.
+ */
+export function resolveComment(company: string, id: string, commentId: string, by: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  const comment = task.comments?.find((c) => c.id === commentId);
+  if (!comment) throw new Error(`comment not found on ${id}: ${commentId}`);
+  if (!comment.resolved) {
+    comment.resolved = true;
+    comment.resolvedBy = by;
+    comment.resolvedTs = Date.now();
+    task.updatedTs = comment.resolvedTs;
+    writeTaskRecord(task);
+    emit(task, by, "task-comment", `resolved ${task.id} (${commentId})`);
+  }
+  return task;
+}
+
 // ── @mentions + ask (kobo-126) ───────────────────────────────────────────────
 
 /**
@@ -586,40 +664,33 @@ export interface PendingMention {
   id: string; // card id the mention is on
   title: string;
   who: string; // canonical mentioned key (e.g. "tony")
-  by: string; // who wrote the mentioning note
-  ts: number; // mention note ts
+  by: string; // who wrote the mentioning comment
+  ts: number; // mention comment ts
   iso: string;
-  text: string; // the mentioning note text
+  text: string; // the mentioning comment text
+  commentId: string; // the comment carrying the mention (resolve target — kobo-140)
 }
 
 /**
- * Unanswered @mentions across the on-board cards (kobo-126 — the "mentions" queue
- * that heads the board). A mention of X on a card is PENDING until X adds a note
- * on that card AFTER it (their reply). `forWho` filters to one person's queue
- * (canonicalized, so --for tony also catches @human). Read-only derivation —
- * never mutates; both CLI `mentions` and the web queue read this one source.
+ * Unanswered @mentions across the on-board cards (kobo-126 → repointed kobo-140).
+ * Phase C moved the ask/answer channel from notes to COMMENTS (Board Truth rule
+ * 10), so the queue now reads unresolved COMMENTS that carry an @mention — a
+ * mention is PENDING until its comment is `resolve`d (explicit, not "someone noted
+ * after"). `forWho` filters to one person's queue (canonicalized, so --for tony
+ * also catches @human). Read-only derivation — never mutates; both CLI `mentions`
+ * and the web queue read this one source.
  */
 export function pendingMentions(company: string, forWho?: string): PendingMention[] {
   const want = forWho ? mentionKey(forWho) : null;
   const out: PendingMention[] = [];
   for (const t of listTasks(company)) {
-    if (!isOnBoard(t) || !t.notes?.length) continue;
-    const notes = t.notes;
-    // per person, keep only the LATEST still-unanswered mention on this card
-    const latest = new Map<string, TaskNote>();
-    notes.forEach((n, i) => {
-      for (const who of parseMentions(n.text)) {
-        if (want && who !== want) return;
-        // answered once the mentioned person notes AFTER this mention. Compare by
-        // append ORDER (index), not ts — two notes can share a millisecond (a fast
-        // reply on CI) and ts-strict-greater would miss the answer (kobo-126 flake).
-        const answered = notes.slice(i + 1).some((n2) => mentionKey(n2.by) === who);
-        if (answered) { latest.delete(who); return; }
-        latest.set(who, n);
+    if (!isOnBoard(t) || !t.comments?.length) continue;
+    for (const c of t.comments) {
+      if (c.resolved) continue; // resolved thread → out of the queue
+      for (const who of parseMentions(c.text)) {
+        if (want && who !== want) continue;
+        out.push({ id: t.id, title: t.title, who, by: c.by, ts: c.ts, iso: c.iso, text: c.text, commentId: c.id });
       }
-    });
-    for (const [who, n] of latest) {
-      out.push({ id: t.id, title: t.title, who, by: n.by, ts: n.ts, iso: n.iso, text: n.text });
     }
   }
   return out.sort((a, b) => b.ts - a.ts);

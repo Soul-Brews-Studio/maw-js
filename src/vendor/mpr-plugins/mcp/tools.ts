@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "review" | "pr" | "done" | "note" | "epic" | "dep" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "pr" | "done" | "note" | "epic" | "dep" | "block" | "unblock" | "archive";
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -48,7 +48,9 @@ export interface TaskInput {
   reason?: string;     // review / block
   kind?: string;       // block (required)
   days?: number;       // archive
-  text?: string;       // note (required) — append-only note content
+  text?: string;       // note/comment (required) — note or comment content
+  replyTo?: string;    // comment: thread under this comment id
+  commentId?: string;  // resolve (required): the comment id to resolve
 }
 
 export interface DeptInput {
@@ -210,6 +212,23 @@ export function taskArgs(input: TaskInput): string[] {
       const nid = needId("note");
       if (!input.text) throw new Error("task note requires text");
       return ["company", "task", "note", nid, input.text, ...common()];
+    }
+    case "comment": {
+      // kobo-140 — threaded ask/answer comment. id=card, text=body, optional
+      // replyTo threads under an existing comment id.
+      const cid = needId("comment");
+      if (!input.text) throw new Error("task comment requires text");
+      const argv = ["company", "task", "comment", cid, input.text];
+      if (input.replyTo) argv.push("--reply-to", input.replyTo);
+      return [...argv, ...common()];
+    }
+    case "comments":
+      return ["company", "task", "comments", needId("comments"), ...common()];
+    case "resolve": {
+      // kobo-140 — resolve a comment thread. id=card, commentId=the comment.
+      const rid = needId("resolve");
+      if (!input.commentId) throw new Error("task resolve requires commentId");
+      return ["company", "task", "resolve", rid, input.commentId, ...common()];
     }
     case "epic": {
       // kobo-72 — set/clear containment parent. epic set → re-link; omit → --clear.

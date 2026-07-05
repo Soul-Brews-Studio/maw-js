@@ -41,6 +41,7 @@ import {
   blockTask,
   checklistProgress,
   claimTask,
+  commentTask,
   completeTask,
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
@@ -52,10 +53,12 @@ import {
   noteTask,
   pendingMentions,
   parentStateResolver,
+  parseMentions,
   parsePrNumber,
   parsePrRepo,
   readTask,
   rejectTask,
+  resolveComment,
   reviewTask,
   setTaskDep,
   setTaskEpic,
@@ -595,11 +598,74 @@ export async function runTask(
         console.log(`\x1b[1m@mentions\x1b[0m \x1b[90m(${pending.length}${flags["--for"] ? ` → ${flags["--for"]}` : ""})\x1b[0m`);
         for (const p of pending) {
           const one = p.text.replace(/\s+/g, " ").trim();
-          console.log(`  \x1b[90m${p.id}\x1b[0m →\x1b[32m@${p.who}\x1b[0m \x1b[90m(by ${p.by})\x1b[0m: ${one.length > 70 ? one.slice(0, 67) + "…" : one}`);
+          console.log(`  \x1b[90m${p.id} ${p.commentId}\x1b[0m →\x1b[32m@${p.who}\x1b[0m \x1b[90m(by ${p.by})\x1b[0m: ${one.length > 70 ? one.slice(0, 67) + "…" : one}`);
         }
       }
+    } else if (subcmd === "comment") {
+      // Threaded ask/answer comment (kobo-140, Board Truth rule 10). id = card,
+      // text = the rest joined (unquoted multi-word works, mirroring `note`).
+      // `--reply-to <cid>` threads under an existing comment. @mentions in the text
+      // ping the mentioned people (the ask channel) AND poke the assignee.
+      // `maw company task comment <id> "<text>" [--reply-to c2]`.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reply-to": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const text = flags._.slice(1).join(" ").trim();
+      if (!id || !text) return { ok: false, error: 'usage: maw company task comment <id> "<text>" [--reply-to <cid>]' };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = commentTask(company, id, me, text, flags["--reply-to"]);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      const added = t.comments![t.comments!.length - 1];
+      console.log(`\x1b[36m💬 comment\x1b[0m ${t.id} \x1b[90m(${added.id}${added.replyTo ? ` ↳ ${added.replyTo}` : ""})\x1b[0m: ${t.title}`);
+      // @mentions route the ask (kobo-140): ping each mentioned person (not self).
+      for (const who of parseMentions(text)) {
+        if (who === me) continue;
+        ping(who, `[task] ${me} @${who} on ${t.id} (${added.id}): ${text}`);
+        console.log(`  \x1b[36m→ pinged @${who}\x1b[0m`);
+      }
+      // and poke the assignee (comment = nudge, kobo-46) unless they were @mentioned already or are self
+      if (t.assignee && t.assignee !== me && !parseMentions(text).includes(t.assignee)) {
+        if (notifyTaskComment(t, me, text)) console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
+      }
+    } else if (subcmd === "comments") {
+      // List a card's comment thread (kobo-140), oldest first, resolved marked.
+      // `maw company task comments <id>`.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: "usage: maw company task comments <id>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = readTask(company, id);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      const comments = t.comments ?? [];
+      if (!comments.length) {
+        console.log(`\x1b[90m○ no comments\x1b[0m on ${t.id}`);
+      } else {
+        console.log(`\x1b[1mcomments\x1b[0m \x1b[90m(${comments.length}) on ${t.id}\x1b[0m: ${t.title}`);
+        for (const c of comments) {
+          const one = c.text.replace(/\s+/g, " ").trim();
+          const mark = c.resolved ? `\x1b[32m✓ resolved${c.resolvedBy ? ` by ${c.resolvedBy}` : ""}\x1b[0m` : "";
+          const thread = c.replyTo ? `\x1b[90m↳${c.replyTo}\x1b[0m ` : "";
+          console.log(`  \x1b[90m${c.id}\x1b[0m ${thread}\x1b[90m(${c.by})\x1b[0m ${mark}: ${one.length > 70 ? one.slice(0, 67) + "…" : one}`);
+        }
+      }
+    } else if (subcmd === "resolve") {
+      // Resolve a comment thread (kobo-140) — drops it from the mentions queue.
+      // `maw company task resolve <id> <commentId>`.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const commentId = flags._[1];
+      if (!id || !commentId) return { ok: false, error: "usage: maw company task resolve <id> <commentId>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = resolveComment(company, id, commentId, me);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[32m✔ resolved\x1b[0m ${t.id} \x1b[90m(${commentId})\x1b[0m: ${t.title}`);
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|review|pr|done|note|epic|dep|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|review|pr|done|note|epic|dep|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

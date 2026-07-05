@@ -34,6 +34,7 @@ export type WorklogKind =
   | "task-blocked"
   | "task-unblocked"
   | "task-note"
+  | "task-comment" // threaded ask/answer comment on a card (kobo-140 — the ask channel, split from task-note)
   | "task-updated"
   | "interrupt"
   | "idle" // pane went idle (CC Stop hook) — durable per-pane state (kobo-109)
