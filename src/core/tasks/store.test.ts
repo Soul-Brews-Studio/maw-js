@@ -8,7 +8,11 @@ import {
   archivedTaskFilePath,
   archiveOldDone,
   archiveTask,
+  askTask,
   assignTask,
+  mentionKey,
+  parseMentions,
+  pendingMentions,
   BLOCK_KINDS,
   blockNextAction,
   archiveTask,
@@ -860,5 +864,55 @@ describe("backlog state (kobo-70)", () => {
     expect(needsOwner(readTask("pgw", b.id)!)).toBe(false); // backlog exempt
     // for contrast: an unassigned TODO does need an owner
     expect(needsOwner(addTask({ company: "pgw", title: "todo no owner", by: "eq3" }))).toBe(true);
+  });
+});
+
+describe("@mentions + ask (kobo-126)", () => {
+  test("mentionKey collapses @tony/@human/tony/human to one canonical queue", () => {
+    expect(mentionKey("@tony")).toBe("tony");
+    expect(mentionKey("human")).toBe("tony");
+    expect(mentionKey("HUMAN")).toBe("tony");
+    expect(mentionKey("@patchwork")).toBe("patchwork"); // others pass through, lowercased
+    expect(mentionKey("EQ3")).toBe("eq3");
+  });
+
+  test("parseMentions pulls distinct canonical @mentions out of a note", () => {
+    expect(parseMentions("hey @tony and @human, ask @eq3 too @tony").sort()).toEqual(["eq3", "tony"]);
+    expect(parseMentions("no mentions here")).toEqual([]);
+  });
+
+  test("askTask creates a subcard assigned to the answerer + parent-linked (one shot)", () => {
+    const parent = addTask({ company: "pgw", title: "epic parent", by: "eq3", kind: "epic" });
+    const q = askTask("pgw", parent.id, "ship X or Y?", "tony", "patchwork");
+    expect(q).not.toBeNull();
+    expect(q!.title).toBe("ship X or Y?");
+    expect(q!.epic).toBe(parent.id); // containment link → subcard
+    expect(q!.assignee).toBe("tony"); // answerer
+    expect(q!.state).toBe("todo");
+    // routed through addTask → persisted like any card (single write path)
+    expect(readTask("pgw", q!.id)!.epic).toBe(parent.id);
+  });
+
+  test("askTask normalizes @human answerer to the tony queue + rejects missing parent", () => {
+    const parent = addTask({ company: "pgw", title: "p", by: "eq3" });
+    expect(askTask("pgw", parent.id, "q?", "human", "patchwork")!.assignee).toBe("tony");
+    expect(askTask("pgw", "pgw-nope", "q?", "tony", "patchwork")).toBeNull(); // no parent → null
+  });
+
+  test("pendingMentions lists unanswered @mentions and drops answered ones", () => {
+    const a = addTask({ company: "pgw", title: "card A", by: "eq3" });
+    noteTask("pgw", a.id, "eq3", "@tony rename to Foo?");
+    const b = addTask({ company: "pgw", title: "card B", by: "eq3" });
+    noteTask("pgw", b.id, "eq3", "@patchwork bump dep");
+
+    const all = pendingMentions("pgw");
+    expect(all.map((m) => m.id).sort()).toEqual([a.id, b.id].sort());
+    // --for filters (and @human aliases to tony)
+    expect(pendingMentions("pgw", "human").map((m) => m.id)).toEqual([a.id]);
+
+    // Tony replies on A → its mention is answered and drops out
+    noteTask("pgw", a.id, "tony", "yes, Foo it is");
+    expect(pendingMentions("pgw", "tony")).toEqual([]);
+    expect(pendingMentions("pgw", "patchwork").map((m) => m.id)).toEqual([b.id]); // B still pending
   });
 });

@@ -543,6 +543,80 @@ export function noteTask(company: string, id: string, by: string, text: string):
   return task;
 }
 
+// ── @mentions + ask (kobo-126) ───────────────────────────────────────────────
+
+/**
+ * @tony and @human are the SAME person (Tony at the board). Every mention/ask
+ * queue collapses them to one canonical key so a note that says "@tony" and a
+ * hand-off to "human" land in the same decision queue (head Q3, kobo-126).
+ */
+const HUMAN_ALIASES = new Set(["tony", "human"]);
+export function mentionKey(name: string): string {
+  const n = name.trim().toLowerCase().replace(/^@/, "");
+  return HUMAN_ALIASES.has(n) ? "tony" : n;
+}
+
+/** Distinct @-mentions in a note body, canonicalized (kobo-126). */
+export function parseMentions(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of text.matchAll(/@([a-z0-9_-]+)/gi)) out.add(mentionKey(m[1]));
+  return [...out];
+}
+
+export interface PendingMention {
+  id: string; // card id the mention is on
+  title: string;
+  who: string; // canonical mentioned key (e.g. "tony")
+  by: string; // who wrote the mentioning note
+  ts: number; // mention note ts
+  iso: string;
+  text: string; // the mentioning note text
+}
+
+/**
+ * Unanswered @mentions across the on-board cards (kobo-126 — the "mentions" queue
+ * that heads the board). A mention of X on a card is PENDING until X adds a note
+ * on that card AFTER it (their reply). `forWho` filters to one person's queue
+ * (canonicalized, so --for tony also catches @human). Read-only derivation —
+ * never mutates; both CLI `mentions` and the web queue read this one source.
+ */
+export function pendingMentions(company: string, forWho?: string): PendingMention[] {
+  const want = forWho ? mentionKey(forWho) : null;
+  const out: PendingMention[] = [];
+  for (const t of listTasks(company)) {
+    if (!isOnBoard(t) || !t.notes?.length) continue;
+    const notes = t.notes;
+    // per person, keep only the LATEST still-unanswered mention on this card
+    const latest = new Map<string, TaskNote>();
+    for (const n of notes) {
+      for (const who of parseMentions(n.text)) {
+        if (want && who !== want) continue;
+        // answered once the mentioned person notes after this mention
+        const answered = notes.some((n2) => n2.ts > n.ts && mentionKey(n2.by) === who);
+        if (answered) { latest.delete(who); continue; }
+        latest.set(who, n);
+      }
+    }
+    for (const [who, n] of latest) {
+      out.push({ id: t.id, title: t.title, who, by: n.by, ts: n.ts, iso: n.iso, text: n.text });
+    }
+  }
+  return out.sort((a, b) => b.ts - a.ts);
+}
+
+/**
+ * Ask (kobo-126, ask-Tony 3-tier level 1): a substantive question becomes its own
+ * SUBCARD — a real todo assigned to the answerer (default Tony), linked under the
+ * parent via containment (epic=parentId) so the parent shows "⧉ open →who" and,
+ * when the subcard closes, its owner returns to it. One shot: create + parent +
+ * assign. Routes through addTask — the SAME write path as every other card (no
+ * parallel writer). Returns null if the parent card doesn't exist.
+ */
+export function askTask(company: string, parentId: string, question: string, to: string, by: string): TaskRecord | null {
+  if (!readTask(company, parentId)) return null; // parent must exist to hang the subcard under
+  return addTask({ company, title: question, by, epic: parentId, assignee: mentionKey(to) });
+}
+
 export interface BlockInput {
   kind: BlockKind;
   reason?: string;

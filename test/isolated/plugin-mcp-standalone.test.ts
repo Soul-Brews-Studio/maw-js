@@ -64,12 +64,18 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
     // mawjs-5: assign = pass-the-ball. maps to `maw company task assign <id> --to <who>`.
     expect(tools).toContain('["company", "task", "assign", aid, "--to", input.to');
     expect(server).toContain('"assign"'); // enum + title advertise the verb
+    // kobo-126: ask = question → subcard (parent id + question text [+ --to answerer]);
+    // mentions = the @mention decision queue ([--for who]). Both map to the canonical surface.
+    expect(tools).toContain('["company", "task", "ask", askParent, input.text');
+    expect(tools).toContain('["company", "task", "mentions"');
+    expect(server).toContain('"ask"'); // enum + title advertise the verbs
+    expect(server).toContain('"mentions"');
     // kobo-72: epic verb sets/clears containment; epic present → re-link, omit → --clear.
     expect(tools).toContain('["company", "task", "epic", eid, input.epic');
     expect(tools).toContain('["company", "task", "epic", eid, "--clear"');

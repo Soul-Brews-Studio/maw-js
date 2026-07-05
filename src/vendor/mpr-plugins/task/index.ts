@@ -8,6 +8,8 @@
  *   maw company task start <id>
  *   maw company task claim <id>
  *   maw company task assign <id> --to <who>  # pass the ball — set assignee=<who> (e.g. human) without taking it; by stays the real actor (mawjs-5)
+ *   maw company task ask <parentId> "<question>" [--to who]  # substantive question → subcard assigned to answerer (default tony) + parent-linked, one shot (kobo-126)
+ *   maw company task mentions [--for who]    # unanswered @tony/@human mentions across the board — the decision queue (kobo-126)
  *   maw company task pr <id> <pr-number>   # worker links the PR → card.pr + review (pr-watch drives merge→done)
  *   maw company task done <id>             # also clears an explicit block
  *   maw company task note <id> "<text>"    # append-only note — mid-flight truth (kobo-39)
@@ -30,6 +32,7 @@ import {
   addTask,
   archiveOldDone,
   archiveTask,
+  askTask,
   assignTask,
   BLOCK_KINDS,
   blockNextAction,
@@ -45,6 +48,7 @@ import {
   listTasks,
   needsOwner,
   noteTask,
+  pendingMentions,
   parentStateResolver,
   parsePrNumber,
   parsePrRepo,
@@ -106,6 +110,20 @@ async function resolveActor(from?: string): Promise<string> {
 
 function resolveCompany(flag: string | undefined, me: string): string | null {
   return flag ?? companyOfOracle(me) ?? ((loadConfig() as Record<string, unknown>).company as string) ?? null;
+}
+
+/**
+ * kobo-126 — arg(permissive) binds the NEXT token to a string flag even when that
+ * token is itself a flag: `--epic --add` silently sets epic="--add" (the real
+ * corruption on pgw-35). A card id / oracle / repo never starts with "-", so a
+ * flag-shaped value means the user dropped the real value — reject it instead of
+ * persisting garbage. Returns an error string (caller returns it) or null if ok.
+ */
+function badFlagValue(label: string, value: string | undefined): string | null {
+  if (typeof value === "string" && value.startsWith("-")) {
+    return `missing value for ${label} (got "${value}" — looks like another flag)`;
+  }
+  return null;
 }
 
 /**
@@ -241,8 +259,15 @@ export async function runTask(
       if (addState && addState !== "backlog" && addState !== "todo") {
         return { ok: false, error: `--state must be backlog or todo (in-progress/review/done via start/review/done)` };
       }
+      // Reject flag-shaped ref values (kobo-126) before they persist as corrupt data.
+      for (const [label, v] of [["--epic", flags["--epic"]], ["--assignee", flags["--assignee"]], ["--repo", flags["--repo"]], ["--dept", flags["--dept"]]] as const) {
+        const err = badFlagValue(label, v as string | undefined);
+        if (err) return { ok: false, error: err };
+      }
       // --parent repeatable AND comma-separated: --parent a,b --parent c → [a,b,c]
       const parentIds = (flags["--parent"] ?? []).flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
+      const badParent = parentIds.find((p) => p.startsWith("-"));
+      if (badParent) return { ok: false, error: badFlagValue("--parent", badParent)! };
       const t = addTask({
         company, title, by: me, kind: addKind,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
@@ -492,6 +517,7 @@ export async function runTask(
       const clear = flags["--clear"] === true;
       const epicId = clear ? undefined : flags._[1];
       if (!id || (!clear && !epicId)) return { ok: false, error: "usage: maw company task epic <id> <epicId|--clear>" };
+      const badEpic = badFlagValue("epicId", epicId); if (badEpic) return { ok: false, error: badEpic };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = setTaskEpic(company, id, epicId, me);
@@ -499,8 +525,47 @@ export async function runTask(
       console.log(epicId
         ? `\x1b[36m↳ epic\x1b[0m ${t.id} ↳ ${epicId}: ${t.title}`
         : `\x1b[36m↳ epic\x1b[0m ${t.id} \x1b[90m(cleared)\x1b[0m: ${t.title}`);
+    } else if (subcmd === "ask") {
+      // ask-Tony 3-tier level 1 (kobo-126): a substantive question → its own
+      // SUBCARD assigned to the answerer (default tony) + parent-linked, one shot.
+      // `maw company task ask <parentId> "<question>" [--to who]`. Routes through
+      // askTask → addTask (single write path). @tony/@human collapse to one queue.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--to": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const parentId = flags._[0];
+      const question = flags._.slice(1).join(" ").trim();
+      if (!parentId || !question) return { ok: false, error: 'usage: maw company task ask <parentId> "<question>" [--to tony]' };
+      const badTo = badFlagValue("--to", flags["--to"]); if (badTo) return { ok: false, error: badTo };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const to = flags["--to"] || "tony"; // questions default to Tony's queue
+      const t = askTask(company, parentId, question, to, me);
+      if (!t) return { ok: false, error: `parent card not found: ${parentId}` };
+      console.log(`\x1b[36m❓ ask\x1b[0m ${t.id} \x1b[90m↳ ${parentId}\x1b[0m → \x1b[32m@${t.assignee}\x1b[0m: ${t.title}`);
+      if (t.assignee && t.assignee !== me) {
+        ping(t.assignee, `[task] ${me} asks on ${parentId} (${t.id}): ${question}`);
+        console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
+      }
+    } else if (subcmd === "mentions") {
+      // The @mention decision queue (kobo-126): unanswered @tony/@human (or --for
+      // <who>) mentions across the board. Read-only — the SAME source the web
+      // "mentions" badge reads. `maw company task mentions [--for tony]`.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--for": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const pending = pendingMentions(company, flags["--for"]);
+      if (!pending.length) {
+        console.log(`\x1b[90m○ no pending mentions\x1b[0m${flags["--for"] ? ` for ${flags["--for"]}` : ""}`);
+      } else {
+        console.log(`\x1b[1m@mentions\x1b[0m \x1b[90m(${pending.length}${flags["--for"] ? ` → ${flags["--for"]}` : ""})\x1b[0m`);
+        for (const p of pending) {
+          const one = p.text.replace(/\s+/g, " ").trim();
+          console.log(`  \x1b[90m${p.id}\x1b[0m →\x1b[32m@${p.who}\x1b[0m \x1b[90m(by ${p.by})\x1b[0m: ${one.length > 70 ? one.slice(0, 67) + "…" : one}`);
+        }
+      }
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|review|pr|done|note|epic|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|review|pr|done|note|epic|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

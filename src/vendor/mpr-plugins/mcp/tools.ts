@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "review" | "pr" | "done" | "note" | "epic" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "review" | "pr" | "done" | "note" | "epic" | "block" | "unblock" | "archive";
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -185,6 +185,21 @@ export function taskArgs(input: TaskInput): string[] {
       const aid = needId("assign");
       if (!input.to) throw new Error("task assign requires --to <who>");
       return ["company", "task", "assign", aid, "--to", input.to, ...common()];
+    }
+    case "ask": {
+      // Substantive question → subcard (kobo-126). id=parent card, text=question,
+      // to=answerer (default tony, handled by the CLI verb).
+      const askParent = needId("ask");
+      if (!input.text) throw new Error("task ask requires text (the question)");
+      const argv = ["company", "task", "ask", askParent, input.text];
+      if (input.to) argv.push("--to", input.to);
+      return [...argv, ...common()];
+    }
+    case "mentions": {
+      // Unanswered @mention decision queue (kobo-126). Optional --for <who>.
+      const argv = ["company", "task", "mentions", ...common()];
+      if (input.for) argv.push("--for", input.for);
+      return argv;
     }
     case "done":
       return ["company", "task", "done", needId("done"), ...common()];

@@ -144,14 +144,14 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
   server.registerTool(
     "maw_task",
     {
-      title: "Company task board — add/ls/start/move/claim/assign/review/pr/done/note/epic/block/unblock/archive",
+      title: "Company task board — add/ls/start/move/claim/assign/ask/mentions/review/pr/done/note/epic/block/unblock/archive",
       description:
-        "Company task board ops (maw task <verb>). action=add (title required · [--state backlog|todo]) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · assign (<id> --to who = hand the ball to the current holder without taking it; assignee=human when the next move is Tony's — the pass-ball gesture for no-PR decision/gate cards) · move (<id> + state backlog|todo — re-file parking states) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · note (<id> + text = append-only note, mid-flight truth) · epic (<id> + epic = set containment parent, re-links a same-id dep; omit epic = clear it) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive (<id> = archive ONE reviewed done card off the board; OR [--days N] = bulk-sweep done cards older than N days). --company/--from apply to any verb.",
+        "Company task board ops (maw task <verb>). action=add (title required · [--state backlog|todo]) · ls ([--mine] [--for who]) · start/claim/done/unblock (<id>) · assign (<id> --to who = hand the ball to the current holder without taking it; assignee=human when the next move is Tony's — the pass-ball gesture for no-PR decision/gate cards) · ask (<id>=parent + text=question [--to who] = a substantive question becomes its own subcard assigned to the answerer, default tony, linked under the parent — one shot) · mentions ([--for who] = list unanswered @tony/@human mentions across the board, the decision queue; read-only) · move (<id> + state backlog|todo — re-file parking states) · review (<id> [--to oracle] [--reason]) · pr (<id> + pr number) · note (<id> + text = append-only note, mid-flight truth) · epic (<id> + epic = set containment parent, re-links a same-id dep; omit epic = clear it) · block (<id> --kind <dependency|needs_input|capability|transient> [--reason] [--for]) · archive (<id> = archive ONE reviewed done card off the board; OR [--days N] = bulk-sweep done cards older than N days). --company/--from apply to any verb.",
       inputSchema: {
         action: z
-          .enum(["add", "ls", "start", "move", "claim", "assign", "review", "pr", "done", "note", "epic", "block", "unblock", "archive"])
+          .enum(["add", "ls", "start", "move", "claim", "assign", "ask", "mentions", "review", "pr", "done", "note", "epic", "block", "unblock", "archive"])
           .describe("task board action"),
-        id: z.string().optional().describe("card id (start/claim/assign/done/review/pr/block/unblock; archive = per-card by id)"),
+        id: z.string().optional().describe("card id (start/claim/assign/done/review/pr/block/unblock; archive = per-card by id; ask = parent card id)"),
         title: z.string().optional().describe("card title (required for add)"),
         pr: z.number().optional().describe("PR number (required for pr)"),
         company: z.string().optional().describe("company (else resolved from config)"),
@@ -164,10 +164,10 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
         parent: z.array(z.string()).optional().describe("add: parent/dep card ids"),
         body: z.string().optional().describe("add: markdown body (supports checklist)"),
         mine: z.boolean().optional().describe("ls: only my cards"),
-        for: z.string().optional().describe("ls: decision queue for who · block: --for"),
-        to: z.string().optional().describe("review: reviewer oracle · assign: target ball-holder (e.g. human)"),
+        for: z.string().optional().describe("ls: decision queue for who · block: --for · mentions: filter to one person's queue"),
+        to: z.string().optional().describe("review: reviewer oracle · assign: target ball-holder (e.g. human) · ask: answerer (default tony)"),
         reason: z.string().optional().describe("review/block: reason text"),
-        text: z.string().optional().describe("note: append-only note text (required for note)"),
+        text: z.string().optional().describe("note: append-only note text (required for note) · ask: the question (required for ask)"),
         kind: z
           .enum(["dependency", "needs_input", "capability", "transient"])
           .optional()

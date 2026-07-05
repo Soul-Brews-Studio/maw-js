@@ -189,4 +189,44 @@ describe("maw company task runner (runTask)", () => {
     expect((await run(["reject", "pgw-999", "--reason", "x", "--company", "pgw"])).error).toContain("not found");
     expect(listTasks("pgw")).toEqual([]);
   });
+
+  // ── kobo-126: ask / mentions / flag-shaped-value guard ─────────────────────
+
+  test("ask creates a parent-linked subcard assigned to the answerer (no ping when to===me)", async () => {
+    await run(["add", "parent epic", "--company", "pgw", "--kind", "epic", "--from", "patchwork"]);
+    // --from patchwork --to patchwork → assignee === actor → no ping fires (hermetic)
+    const r = await run(["ask", "pgw-1", "ship X or Y?", "--to", "patchwork", "--company", "pgw", "--from", "patchwork"]);
+    expect(r.ok).toBe(true);
+    const sub = readTask("pgw", "pgw-2")!;
+    expect(sub.title).toBe("ship X or Y?");
+    expect(sub.epic).toBe("pgw-1"); // hung under the parent
+    expect(sub.assignee).toBe("patchwork");
+    expect((await run(["ask", "pgw-999", "q?", "--to", "patchwork", "--company", "pgw", "--from", "patchwork"])).error).toContain("parent card not found");
+  });
+
+  test("mentions lists unanswered @mentions and clears once replied", async () => {
+    await run(["add", "card A", "--company", "pgw"]); // unassigned → note pokes no one
+    await run(["note", "pgw-1", "@tony", "please", "rename", "--company", "pgw"]);
+    const q = await run(["mentions", "--for", "tony", "--company", "pgw"]);
+    expect(q.output).toContain("pgw-1");
+    expect(q.output).toContain("@tony");
+    // Tony replies → the mention is answered and drops out
+    await run(["note", "pgw-1", "ok", "done", "--from", "tony", "--company", "pgw"]);
+    expect((await run(["mentions", "--for", "tony", "--company", "pgw"])).output).toContain("no pending mentions");
+  });
+
+  test("add rejects a flag-shaped ref value — no corrupt epic:\"--add\" (kobo-126, pgw-35 root cause)", async () => {
+    // the `=` form binds "--add" as the epic value in arg(permissive); reject it
+    const r = await run(["add", "corrupt", "--company", "pgw", "--epic=--add"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("--epic");
+    expect(listTasks("pgw")).toEqual([]); // nothing persisted
+  });
+
+  test("epic verb rejects a flag-shaped epicId (positional stray flag)", async () => {
+    await run(["add", "real card", "--company", "pgw"]);
+    const r = await run(["epic", "pgw-1", "--add", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(readTask("pgw", "pgw-1")!.epic).toBeUndefined(); // never set to garbage
+  });
 });
