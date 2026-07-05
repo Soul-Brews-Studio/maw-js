@@ -283,6 +283,7 @@ export interface AddTaskInput {
   requestId?: string; // dispatch correlation id (auto-create idempotency)
   parentIds?: string[]; // card→card deps (ADR 0003 A) — child is blocked until each parent is done/archived
   body?: string; // free text / markdown checklist (ADR 0003 C)
+  reviewer?: string; // kobo-144: persistent per-card reviewer (resolve chain head)
 }
 
 /**
@@ -311,6 +312,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.requestId) task.requestId = input.requestId;
   if (input.parentIds?.length) task.parentIds = [...new Set(input.parentIds)]; // dedupe, drop if empty
   if (input.body?.length) task.body = input.body;
+  if (input.reviewer) task.reviewer = input.reviewer; // kobo-144: persistent per-card reviewer
 
   // kobo-133: born ready — a todo card whose deps are ALL already done/archived
   // skips the todo lane. Without this it would strand: the parent-done event that
@@ -407,6 +409,22 @@ export function moveTask(company: string, id: string, state: TaskState, by: stri
   return task;
 }
 
+/**
+ * Resolve who reviews a card (kobo-144, Board Truth rule 12 + kobo-124 addendum) —
+ * the chain:
+ *   reviewer field  →  creator (`by`)  →  "human"
+ * The creator (=requester who knows the AC) reviews by DEFAULT — but is skipped
+ * when creator === the doer (assignee): nobody reviews their own work, so it falls
+ * through to the human (Tony). This is the SINGLE source of the chain — CLI/MCP/
+ * pr-watch all resolve the review target through here so the board never disagrees
+ * on "who's up to review this".
+ */
+export function resolveReviewer(task: TaskRecord): string {
+  if (task.reviewer) return task.reviewer;
+  if (task.by && task.by !== task.assignee) return task.by; // creator reviews — unless they're the doer
+  return "human"; // creator is the doer (self-review banned) → the human
+}
+
 export interface ReviewInput {
   to?: string; // requested reviewer / next person (optional → anyone)
   reason?: string;
@@ -420,11 +438,33 @@ export function reviewTask(company: string, id: string, by: string, opts: Review
   const task = readTask(company, id);
   if (!task) return null;
   task.state = "review";
-  if (opts.to) task.reviewer = opts.to; else delete task.reviewer;
+  // kobo-144: --to overrides the reviewer, but a plain `review` KEEPS the card's
+  // persistent reviewer field (set at add) instead of clearing it — the resolve
+  // chain needs that field to survive a review with no explicit --to.
+  if (opts.to) task.reviewer = opts.to;
   if (opts.reason) task.reviewReason = opts.reason; else delete task.reviewReason;
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-review", `review ${task.id}${opts.to ? ` → ${opts.to}` : ""}: ${task.title}`);
+  return task;
+}
+
+/**
+ * Hold = the reviewer's brake (kobo-144, Board Truth rule 12). Pulls a card into
+ * review from ANY state so it can't proceed until looked at — used when the doer
+ * is unsure or the change is "big" (money/hash/live-infra/deploy/schema/cross-
+ * company). Unlike `review --to` this doesn't reassign the reviewer: the card's
+ * persistent reviewer field (or the resolve chain) still names who's up. Records
+ * why (`reason`, default "held"). Returns null if absent.
+ */
+export function holdTask(company: string, id: string, by: string, reason?: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.state = "review";
+  task.reviewReason = reason || "held";
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-review", `hold ${task.id} → ${resolveReviewer(task)}: ${task.title}`);
   return task;
 }
 
@@ -467,23 +507,33 @@ export function setTaskRepoIfMissing(company: string, id: string, repo: string):
 }
 
 /**
- * PR opened → drive the linked card to review, owned by the PR author, reviewer
- * = the human (eq3-011 kobo-13). Driven by PR-watch off the card.pr link (the
- * SAME link merge→done uses) so the board tracks the PR (truth), not a manual
- * step. Idempotent: a card already review-by-this-author-for-this-reviewer is a
- * no-op, and a done card is never resurrected — so re-polls never churn.
+ * PR opened → drive the linked card to review, owned by the PR author (eq3-011
+ * kobo-13). Driven by PR-watch off the card.pr link (the SAME link merge→done
+ * uses) so the board tracks the PR (truth), not a manual step. Idempotent: a card
+ * already review-by-this-author-for-this-reviewer is a no-op, and a done card is
+ * never resurrected — so re-polls never churn.
+ *
+ * kobo-144 addendum (Tony grill r2): the reviewer is no longer hardcoded to the
+ * human. It resolves through the chain — persistent reviewer field → creator (`by`)
+ * → human — so by DEFAULT the requester who wrote the AC reviews their own PR,
+ * falling to the human only when the creator is the PR author (self-review banned).
+ * An explicit `reviewer` arg still overrides (kept for callers/tests that pin it).
  */
-export function prOpenedReview(company: string, id: string, author: string, reviewer = "human"): TaskRecord | null {
+export function prOpenedReview(company: string, id: string, author: string, reviewer?: string): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   if (task.state === "done") return task; // never resurrect a merged/closed card
-  if (task.state === "review" && task.assignee === author && task.reviewer === reviewer) return task; // idempotent
+  // Resolve the reviewer as if the author already owns it (doer=author): explicit
+  // arg wins, else reviewer field, else creator (unless creator IS the author) →
+  // human. Reuses the same chain resolveReviewer encodes, computed against `author`.
+  const target = reviewer ?? task.reviewer ?? (task.by && task.by !== author ? task.by : "human");
+  if (task.state === "review" && task.assignee === author && task.reviewer === target) return task; // idempotent
   task.state = "review";
   task.assignee = author;
-  task.reviewer = reviewer;
+  task.reviewer = target;
   task.updatedTs = Date.now();
   writeTaskRecord(task);
-  emit(task, author, "task-review", `review ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} → ${reviewer}: ${task.title}`);
+  emit(task, author, "task-review", `review ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} → ${target}: ${task.title}`);
   return task;
 }
 

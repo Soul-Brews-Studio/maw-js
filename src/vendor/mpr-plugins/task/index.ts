@@ -45,6 +45,7 @@ import {
   completeTask,
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
+  holdTask,
   isOnBoard,
   isStaleDecisionCard,
   lastActivityByOracle,
@@ -59,6 +60,7 @@ import {
   readTask,
   rejectTask,
   resolveComment,
+  resolveReviewer,
   reviewTask,
   setTaskDep,
   setTaskEpic,
@@ -74,7 +76,7 @@ import {
   type TaskRecord,
   type TaskState,
 } from "../../../core/tasks/store";
-import { notifyTaskComment } from "../../../core/tasks/notify";
+import { notifyReviewer, notifyTaskComment } from "../../../core/tasks/notify";
 
 /**
  * Best-effort `owner/repo` of the git repo at CWD (kobo-80). The worker links a PR
@@ -247,7 +249,7 @@ export async function runTask(
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
@@ -267,7 +269,7 @@ export async function runTask(
         return { ok: false, error: `--state must be backlog or todo (in-progress/review/done via start/review/done)` };
       }
       // Reject flag-shaped ref values (kobo-126) before they persist as corrupt data.
-      for (const [label, v] of [["--epic", flags["--epic"]], ["--assignee", flags["--assignee"]], ["--repo", flags["--repo"]], ["--dept", flags["--dept"]]] as const) {
+      for (const [label, v] of [["--epic", flags["--epic"]], ["--assignee", flags["--assignee"]], ["--repo", flags["--repo"]], ["--dept", flags["--dept"]], ["--reviewer", flags["--reviewer"]]] as const) {
         const err = badFlagValue(label, v as string | undefined);
         if (err) return { ok: false, error: err };
       }
@@ -278,7 +280,7 @@ export async function runTask(
       const t = addTask({
         company, title, by: me, kind: addKind,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
-        parentIds, body: flags["--body"], state: addState,
+        parentIds, body: flags["--body"], state: addState, reviewer: flags["--reviewer"],
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
       const addProg = checklistProgress(t.body);
@@ -416,10 +418,25 @@ export async function runTask(
       const t = reviewTask(company, id, me, { to: flags["--to"], reason: flags["--reason"] });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
-      if (flags["--to"] && flags["--to"] !== me) {
-        ping(flags["--to"], `[task] ${me} ขอให้ review ${t.id}: ${t.title}${flags["--reason"] ? ` — ${flags["--reason"]}` : ""}`);
-        console.log(`  \x1b[36m→ pinged ${flags["--to"]}\x1b[0m`);
-      }
+      // kobo-144: notify the RESOLVED reviewer (reviewer field → creator → human),
+      // not only an explicit --to — a plain `review` still pokes whoever's up.
+      const rv = notifyReviewer(t, me);
+      if (rv) console.log(`  \x1b[36m→ pinged ${rv}\x1b[0m`);
+    } else if (subcmd === "hold") {
+      // kobo-144: reviewer's brake — pull a card into review from any state so it
+      // can't proceed until looked at (big change / unsure). Reviewer stays the
+      // resolved chain (reviewer field → creator → human); notify them.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reason": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: 'usage: maw company task hold <id> [--reason "<text>"]' };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = holdTask(company, id, me, flags["--reason"]);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[35m⏸ hold\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)}\x1b[0m: ${t.title}${flags["--reason"] ? ` \x1b[90m(${flags["--reason"]})\x1b[0m` : ""}`);
+      const hrv = notifyReviewer(t, me);
+      if (hrv) console.log(`  \x1b[36m→ pinged ${hrv}\x1b[0m`);
     } else if (subcmd === "pr") {
       // Worker links the PR to the card directly (eq3-013): the ONLY prod path
       // that sets card.pr — `maw reply` can't (replier≠requester bug), so
@@ -449,6 +466,9 @@ export async function runTask(
       const t = setTaskPr(company, id, pr, me, linkRepo);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[33m(PR #${pr})\x1b[0m${t.repo ? ` \x1b[90m${t.repo}\x1b[0m` : ""} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
+      // kobo-144: PR up = card in review → poke the resolved reviewer to look.
+      const prRv = notifyReviewer(t, me);
+      if (prRv) console.log(`  \x1b[36m→ pinged ${prRv}\x1b[0m`);
     } else if (subcmd === "archive") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--days": Number }, 0);
       const me = await resolveActor(flags["--from"]);
@@ -665,7 +685,7 @@ export async function runTask(
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[32m✔ resolved\x1b[0m ${t.id} \x1b[90m(${commentId})\x1b[0m: ${t.title}`);
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|review|pr|done|note|epic|dep|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|review|hold|pr|done|note|epic|dep|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

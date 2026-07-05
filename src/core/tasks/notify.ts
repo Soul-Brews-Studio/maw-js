@@ -17,7 +17,7 @@
  */
 
 import { CHANNEL_TASK_EVENTS } from "../pane-routes";
-import type { TaskRecord } from "./store";
+import { resolveReviewer, type TaskRecord } from "./store";
 
 function spawnHey(args: string[]): void {
   if (process.env.MAW_TEST_MODE === "1") return; // don't fire real subprocesses under test
@@ -44,6 +44,29 @@ export function notifyTaskComment(
     return true;
   } catch {
     return false; // best-effort — the note is already stored
+  }
+}
+
+/**
+ * Poke the resolved reviewer when a card enters the review lane (kobo-144, Board
+ * Truth rule 12). The target comes from resolveReviewer (reviewer field → creator
+ * → tony) so review/hold/pr/pr-watch all notify the SAME person the board shows.
+ * No self-poke (the actor pulling the card in is skipped). Returns the pinged
+ * reviewer, or null when skipped (resolved to the actor). `send` injectable for tests.
+ */
+export function notifyReviewer(
+  task: TaskRecord,
+  actor: string,
+  send: (args: string[]) => void = spawnHey,
+): string | null {
+  const reviewer = resolveReviewer(task);
+  if (!reviewer || reviewer === actor) return null; // resolved to the actor → nothing to poke
+  const why = task.reviewReason ? ` — ${task.reviewReason}` : "";
+  try {
+    send(["--channel", CHANNEL_TASK_EVENTS, reviewer, `[task] review ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} → รอคุณตรวจ: ${task.title}${why}`]);
+    return reviewer;
+  } catch {
+    return null; // best-effort — the state change is already durably stored
   }
 }
 

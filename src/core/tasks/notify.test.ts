@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { notifyParentOfSubcardDone, notifyTaskComment } from "./notify";
+import { notifyParentOfSubcardDone, notifyReviewer, notifyTaskComment } from "./notify";
 import type { TaskRecord } from "./store";
 
 const mk = (over: Partial<TaskRecord>): TaskRecord =>
@@ -80,5 +80,41 @@ describe("notifyParentOfSubcardDone (kobo-135 B3 — answered subcard pokes the 
   test("a spawn failure is swallowed (best-effort) → returns false", () => {
     const sent = notifyParentOfSubcardDone(child(), parent(), "tony", () => { throw new Error("spawn failed"); });
     expect(sent).toBe(false);
+  });
+});
+
+describe("notifyReviewer (kobo-144 — review lane pokes the resolved reviewer)", () => {
+  test("explicit reviewer field is pinged on task-events", () => {
+    const calls: string[][] = [];
+    const r = notifyReviewer(mk({ state: "review", reviewer: "somsri" }), "patchwork", (a) => calls.push(a));
+    expect(r).toBe("somsri");
+    expect(calls[0]).toEqual(["--channel", "task-events", "somsri", expect.stringContaining("[task] review kobo-1")]);
+  });
+
+  test("no reviewer field → falls to the creator (by), who reviews the doer's work", () => {
+    const calls: string[][] = [];
+    const r = notifyReviewer(mk({ state: "review", by: "eq3", assignee: "patchwork" }), "patchwork", (a) => calls.push(a));
+    expect(r).toBe("eq3"); // creator ≠ doer → creator reviews
+    expect(calls).toHaveLength(1);
+  });
+
+  test("creator IS the actor being pinged is skipped (no self-poke)", () => {
+    const calls: string[][] = [];
+    // resolved reviewer = creator "eq3"; the actor pulling review is also eq3 → skip
+    const r = notifyReviewer(mk({ state: "review", by: "eq3", assignee: "patchwork" }), "eq3", (a) => calls.push(a));
+    expect(r).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("creator is the doer → resolves to human (self-review banned)", () => {
+    const calls: string[][] = [];
+    const r = notifyReviewer(mk({ state: "review", by: "patchwork", assignee: "patchwork" }), "patchwork", (a) => calls.push(a));
+    expect(r).toBe("human"); // by === assignee → fall through to human, pinged (actor is patchwork, not human)
+    expect(calls[0][2]).toBe("human");
+  });
+
+  test("a spawn failure is swallowed (best-effort) → returns null", () => {
+    const r = notifyReviewer(mk({ state: "review", reviewer: "somsri" }), "patchwork", () => { throw new Error("boom"); });
+    expect(r).toBeNull();
   });
 });

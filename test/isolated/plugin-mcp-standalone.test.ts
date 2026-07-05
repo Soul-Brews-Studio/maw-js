@@ -64,7 +64,7 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"hold"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
     // kobo-134: dep verb — op add|rm + exactly one parent id, maps to
@@ -110,6 +110,13 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(tools).not.toMatch(/\[\s*"task"\s*,/);
     // kobo-35: archive accepts a per-card id (positional), not only the bulk --days sweep.
     expect(tools).toContain('["company", "task", "archive", id');
+    // kobo-144: reviewer system — `hold` = the reviewer's brake (id + optional
+    // --reason), and `add` accepts a persistent per-card `--reviewer`. Both map to
+    // the canonical company surface + are advertised in the server enum/schema.
+    expect(tools).toContain('["company", "task", "hold", needId("hold")');
+    expect(tools).toContain('argv.push("--reviewer", input.reviewer)');
+    expect(server).toContain('"hold"'); // enum + title advertise the verb
+    expect(server).toContain("reviewer:"); // add: persistent per-card reviewer input
   });
 
   // eq3-020: the maw_hey `target` describe must document every routing format the

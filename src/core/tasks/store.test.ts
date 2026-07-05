@@ -47,7 +47,9 @@ import {
   rejectTask,
   parsePrRepo,
   resolveEpicParent,
+  resolveReviewer,
   reviewTask,
+  holdTask,
   moveTask,
   createsDepLoop,
   setTaskDep,
@@ -741,14 +743,26 @@ describe("pr-link repo binding (kobo-80 — enforce/backfill card.repo so pr-wat
 });
 
 describe("prOpenedReview (eq3-011 kobo-13 — PR open drives the linked card to review + owner)", () => {
-  test("linked card → review, assignee=author, reviewer=human + emits task-review", () => {
+  test("linked card → review, assignee=author, reviewer=creator (kobo-144 addendum) + emits task-review", () => {
     const t = addTask({ company: "pgw", title: "ship it", by: "eq3" }); // todo, unassigned
     setTaskPr("pgw", t.id, 77, "patchwork"); // worker attaches PR at open (the card.pr link)
     const r = prOpenedReview("pgw", t.id, "patchwork")!;
     expect(r.state).toBe("review");
     expect(r.assignee).toBe("patchwork"); // owner = PR author
-    expect(r.reviewer).toBe("human"); // Tony reviews
+    expect(r.reviewer).toBe("eq3"); // kobo-144: creator (who wrote the AC) reviews, not hardcoded human
     expect(readWorklog("pgw").some((e) => e.kind === "task-review" && e.task === t.id)).toBe(true);
+  });
+
+  test("creator IS the PR author → self-review banned → reviewer=human (kobo-144 addendum)", () => {
+    const t = addTask({ company: "pgw", title: "solo card", by: "patchwork" }); // creator = the doer
+    const r = prOpenedReview("pgw", t.id, "patchwork")!; // same person opens the PR
+    expect(r.reviewer).toBe("human"); // can't review own work → falls through to the human
+  });
+
+  test("explicit reviewer field wins over the creator default (kobo-144)", () => {
+    const t = addTask({ company: "pgw", title: "pinned reviewer", by: "eq3", reviewer: "somsri" });
+    const r = prOpenedReview("pgw", t.id, "patchwork")!;
+    expect(r.reviewer).toBe("somsri"); // the card named its reviewer → kept on the PR-open flip
   });
 
   test("idempotent — re-run leaves the card exactly as-is (PR-watch re-polls don't churn)", () => {
@@ -768,6 +782,45 @@ describe("prOpenedReview (eq3-011 kobo-13 — PR open drives the linked card to 
 
   test("missing id → null (no throw)", () => {
     expect(prOpenedReview("pgw", "pgw-999", "x")).toBeNull();
+  });
+});
+
+describe("resolveReviewer (kobo-144 — reviewer field → creator → human)", () => {
+  const mk = (over: Partial<TaskRecord>): TaskRecord =>
+    ({ id: "x", title: "t", company: "pgw", state: "review", by: "eq3", assignee: "patchwork", ts: 1, ...over });
+  test("explicit reviewer field wins", () => expect(resolveReviewer(mk({ reviewer: "somsri" }))).toBe("somsri"));
+  test("no field → creator, when creator ≠ doer", () => expect(resolveReviewer(mk({ by: "eq3", assignee: "patchwork" }))).toBe("eq3"));
+  test("creator IS the doer → human (self-review banned)", () => expect(resolveReviewer(mk({ by: "patchwork", assignee: "patchwork" }))).toBe("human"));
+  test("no assignee yet → creator still reviews", () => expect(resolveReviewer(mk({ by: "eq3", assignee: null }))).toBe("eq3"));
+});
+
+describe("holdTask (kobo-144 — reviewer's brake, any state → review)", () => {
+  test("pulls an in-progress card into review with a reason, keeps reviewer chain", () => {
+    const t = addTask({ company: "hold", title: "big schema change", by: "eq3", assignee: "patchwork", state: "todo" });
+    startTask("hold", t.id, "patchwork"); // in-progress
+    const held = holdTask("hold", t.id, "eq3", "schema change — needs a look")!;
+    expect(held.state).toBe("review");
+    expect(held.reviewReason).toBe("schema change — needs a look");
+    expect(resolveReviewer(held)).toBe("eq3"); // creator reviews (no explicit field)
+    expect(readWorklog("hold").some((e) => e.kind === "task-review" && e.task === t.id)).toBe(true);
+  });
+  test("default reason is 'held'; missing card → null", () => {
+    const t = addTask({ company: "hold", title: "x", by: "eq3", assignee: "carol" });
+    expect(holdTask("hold", t.id, "eq3")!.reviewReason).toBe("held");
+    expect(holdTask("hold", "hold-999", "eq3")).toBeNull();
+  });
+});
+
+describe("reviewTask persists the reviewer field (kobo-144 — plain review keeps it)", () => {
+  test("a card with a persistent reviewer keeps it through a plain review (no --to)", () => {
+    const t = addTask({ company: "rev", title: "t", by: "eq3", assignee: "patchwork", reviewer: "somsri" });
+    const r = reviewTask("rev", t.id, "patchwork")!; // no opts.to
+    expect(r.reviewer).toBe("somsri"); // NOT cleared — the field survives
+  });
+  test("--to overrides the reviewer field", () => {
+    const t = addTask({ company: "rev", title: "t2", by: "eq3", assignee: "patchwork", reviewer: "somsri" });
+    const r = reviewTask("rev", t.id, "patchwork", { to: "nao" })!;
+    expect(r.reviewer).toBe("nao");
   });
 });
 

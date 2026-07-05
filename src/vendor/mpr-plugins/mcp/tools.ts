@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "pr" | "done" | "note" | "epic" | "dep" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "pr" | "done" | "note" | "epic" | "dep" | "block" | "unblock" | "archive";
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -45,7 +45,8 @@ export interface TaskInput {
   mine?: boolean;      // ls
   for?: string;        // ls (decision queue) / block (--for)
   to?: string;         // review / assign (target ball-holder)
-  reason?: string;     // review / block
+  reviewer?: string;   // add (persistent per-card reviewer, kobo-144)
+  reason?: string;     // review / hold / block
   kind?: string;       // block (required)
   days?: number;       // archive
   text?: string;       // note/comment (required) — note or comment content
@@ -165,6 +166,7 @@ export function taskArgs(input: TaskInput): string[] {
       if (input.epic) argv.push("--epic", input.epic);
       if (input.state) argv.push("--state", input.state);
       if (input.assignee) argv.push("--assignee", input.assignee);
+      if (input.reviewer) argv.push("--reviewer", input.reviewer);
       for (const p of input.parent ?? []) argv.push("--parent", p);
       if (input.body) argv.push("--body", input.body);
       return [...argv, ...common()];
@@ -250,6 +252,12 @@ export function taskArgs(input: TaskInput): string[] {
     case "review": {
       const argv = ["company", "task", "review", needId("review")];
       if (input.to) argv.push("--to", input.to);
+      if (input.reason) argv.push("--reason", input.reason);
+      return [...argv, ...common()];
+    }
+    case "hold": {
+      // kobo-144: reviewer's brake — pull card into review from any state.
+      const argv = ["company", "task", "hold", needId("hold")];
       if (input.reason) argv.push("--reason", input.reason);
       return [...argv, ...common()];
     }

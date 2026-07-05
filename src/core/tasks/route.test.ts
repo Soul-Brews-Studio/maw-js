@@ -65,7 +65,7 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     const card = body.tasks.find((c) => c.title === "ship feature")!;
     expect(card.state).toBe("review"); // board no longer says "todo รอคนหยิบ"
     expect(card.assignee).toBe("patchwork"); // owner = PR author
-    expect(card.reviewer).toBe("human"); // waiting on the human
+    expect(card.reviewer).toBe("eq3"); // kobo-144 addendum: creator reviews their PR (not hardcoded human)
     expect(card.pr).toBe(88);
     expect(card.nextAction).toContain("PR #88"); // "รอ merge PR #88 → done"
   });

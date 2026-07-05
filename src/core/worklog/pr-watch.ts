@@ -21,6 +21,7 @@ import { scanWorktrees } from "../fleet/worktrees";
 import { loadConfig } from "../../config";
 import { appendWorklog } from "./store";
 import { completeTask, findTasksByPr, prOpenedReview, setTaskRepoIfMissing, listTasks, listCompanies } from "../tasks/store";
+import { notifyReviewer } from "../tasks/notify";
 import { pingOnMerge } from "./ping";
 import { scopeOfOracle, companyOfOracle } from "./company-scope";
 import type { WorklogEntry } from "./types";
@@ -224,7 +225,8 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         try {
           if (author) for (const hit of cardHits) {
             setTaskRepoIfMissing(hit.company, hit.taskId, repo); // kobo-80: bind repo on the open→review flip → merge poll is guaranteed later
-            prOpenedReview(hit.company, hit.taskId, author);
+            const reviewed = prOpenedReview(hit.company, hit.taskId, author);
+            if (reviewed) notifyReviewer(reviewed, author); // kobo-144: poke the resolved reviewer that a PR is up
           }
         } catch { /* never let task lifecycle break PR-watch */ }
       }
