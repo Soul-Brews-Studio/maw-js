@@ -27,6 +27,16 @@ description: Spin up a 3-role warroom — human/lead .0 | coord (raw pane) | wor
 
 **Model: push the SIGNAL, pull the STATE** (เดิม) + **N hands 1 soul** (จาก crew) — coord/worker = มือของ eq3 แยก pane, เสียบ infra eq3 ฟรี.
 
+## Lead Discipline (pane .0) ⭐ — lead ห้ามทัก peer ตรง
+
+> lead (.0) = คุย **human ล้วน**. การคุย peer/federation (oracle อื่น) → **delegate coord**. เหตุผล (2026-07-05): lead ที่ทัก peer เองทำให้ reply เด้งกลับเข้า pane 0 = federation noise บนจอที่ควรเป็น human↔AI. รากไม่ใช่ routing bug — คือ lead ไม่ delegate.
+
+- **routine peer comm** (progress · status · dispatch · coordinate · ไม่ด่วน) → **สั่ง coord ทัก** ห้าม `maw hey` peer ตรงจาก lead. coord จัดการ + escalate lead **สรุปพร้อม (conclusion-ready, ไม่ให้ human ไป ground ต่อ)**
+- **ยกเว้น decision-gate** (ด่วน + human ต้องเห็น/ตัดสิน: round-trip verify · restart-green · merge relay · blocker-needs-human) → lead ทัก peer **ตรงได้** (เร็ว+แม่น ไม่ผ่าน relay)
+- **default = delegate · gate = exception จงใจ**
+
+(crew **ไม่ใช้**กฎนี้ — crew .0 = coord เอง คุย human + coordinate รวมกัน, ยอมรับ noise ตามโครงสร้าง. กฎนี้เฉพาะ warroom ที่แยก human/coord.)
+
 Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `coord.md` (roster+state) · `digest.md` (coord รวมให้ lead) · `worker-N.md`
 
 ## Spawn (lead ทำครั้งเดียว — จากนั้น coord คุม)
