@@ -82,9 +82,12 @@ describe("crew-skills global asset contract", () => {
     expect(hook).not.toContain("state: ψ/active/crew/$CREW_ROLE.md");
   });
 
-  test("crew skill relies on the default state dir (no override needed)", () => {
+  // kobo-150: crew SKILL forwards CREW_STATE_DIR (default ψ/active/crew, warroom
+  // overrides to ψ/active/warroom) so the same spawn form works under บานพับ.
+  test("crew skill forwards CREW_STATE_DIR with the default state dir", () => {
     const crew = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    expect(crew).not.toContain("CREW_STATE_DIR=");
+    expect(crew).toContain("${CREW_STATE_DIR:-ψ/active/crew}");
+    expect(crew).toContain("CREW_STATE_DIR=");
   });
 });
 
