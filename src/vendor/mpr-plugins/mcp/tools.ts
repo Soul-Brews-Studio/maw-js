@@ -43,7 +43,7 @@ export interface TaskInput {
   pr?: number;         // pr
   company?: string;
   from?: string;
-  repo?: string;       // add
+  repo?: string;       // add / pr (owner/name — pr stamps card.repo)
   dept?: string;       // add
   epic?: string;       // add
   state?: string;      // add (backlog|todo) / move (target flow state)
@@ -279,9 +279,15 @@ export function taskArgs(input: TaskInput): string[] {
       return [...argv, ...common()];
     }
     case "pr": {
+      // kobo-147: forward --repo. MCP has no CWD git remote to fall back on, so
+      // without this the CLI stamps card.repo from the maw subprocess CWD (the
+      // wrong repo — the bug both Phase-C workers hit). An explicit repo names
+      // the repo the PR actually lives in so pr-watch can poll it.
       const pid = needId("pr");
       if (input.pr === undefined) throw new Error("task pr requires a pr number");
-      return ["company", "task", "pr", pid, String(input.pr), ...common()];
+      const argv = ["company", "task", "pr", pid, String(input.pr)];
+      if (input.repo) argv.push("--repo", input.repo);
+      return [...argv, ...common()];
     }
     case "block": {
       const bid = needId("block");

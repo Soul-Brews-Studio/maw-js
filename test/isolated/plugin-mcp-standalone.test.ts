@@ -104,6 +104,11 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(tools).toContain('["company", "task", "resolve", rid, input.commentId');
     expect(server).toContain('"comment"'); // enum + title advertise the verbs
     expect(server).toContain('"resolve"');
+    // kobo-147: pr forwards --repo. MCP has no CWD git remote, so without this the
+    // CLI stamps card.repo from the subprocess CWD (wrong repo). Pin that taskArgs
+    // emits --repo and the schema advertises repo for pr (not add-only).
+    expect(tools).toContain('argv.push("--repo", input.repo)');
+    expect(server).toContain("add / pr: repo");
     // cli-reorg kobo-24: targets the canonical `maw company task`, NOT the
     // `maw task` deprecation shim (so no "moved" notice leaks into MCP output).
     expect(tools).toContain('["company", "task"');

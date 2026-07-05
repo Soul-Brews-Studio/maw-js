@@ -214,6 +214,11 @@ describe("taskArgs", () => {
     expect(taskArgs({ action: "pr", id: "kobo-3", pr: 66 })).toEqual(["company", "task", "pr", "kobo-3", "66"]);
   });
 
+  test("pr: forwards --repo (kobo-147 — no CWD remote in MCP)", () => {
+    expect(taskArgs({ action: "pr", id: "kobo-3", pr: 66, repo: "meganechan/maw-js" }))
+      .toEqual(["company", "task", "pr", "kobo-3", "66", "--repo", "meganechan/maw-js"]);
+  });
+
   test("pr: missing pr number throws", () => {
     expect(() => taskArgs({ action: "pr", id: "kobo-3" })).toThrow(/pr number/);
   });

@@ -156,7 +156,7 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
         pr: z.number().optional().describe("PR number (required for pr)"),
         company: z.string().optional().describe("company (else resolved from config)"),
         from: z.string().optional().describe("acting oracle override (else inherited from env)"),
-        repo: z.string().optional().describe("add: repo"),
+        repo: z.string().optional().describe("add / pr: repo (owner/name — pr stamps card.repo for pr-watch)"),
         dept: z.string().optional().describe("add: department"),
         epic: z.string().optional().describe("add: epic · epic action: containment parent id (omit = clear)"),
         state: z.enum(["backlog", "todo", "ready"]).optional().describe("add: start state (backlog|todo, default todo) · move: target parking state (backlog|todo|ready)"),
