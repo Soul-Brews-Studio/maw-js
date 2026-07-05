@@ -138,8 +138,22 @@ function companyBody(): string {
     /* kobo-62 — progressive card face: title + assignee avatar on one row. */
     .task .t-head { display:flex; align-items:flex-start; gap:var(--s-3); }
     .task .t-title { color:var(--fg); flex:1 1 auto; min-width:0; }
+    /* kobo-127 — collapse: title clamps to ONE line (ellipsis); full text in title=+modal. */
+    .task .t-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .task .t-avatar { flex:0 0 auto; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:var(--t-xs); font-weight:700; letter-spacing:.02em; }
     .task .t-avatar.unassigned { background:var(--field-bg); border:1px dashed var(--line); color:var(--muted); }
+    /* kobo-127 — assignee CHIP (full name + per-person color, click = filter). */
+    .task .assignee-chip { flex:0 0 auto; max-width:44%; overflow:hidden; text-overflow:ellipsis; font-weight:600; font-size:var(--t-xs); border:1px solid transparent; }
+    .task .assignee-chip.unassigned { background:var(--field-bg); border:1px dashed var(--line); color:var(--muted); font-weight:400; }
+    /* kobo-127 — note surfacing on the face: collapsed = latest 1 faint line;
+       Blocked lane = every note in full (Tony's decision queue). */
+    .task .t-note-latest { margin-top:var(--s-2); color:var(--muted); font-size:var(--t-sm); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.75; }
+    .task .t-notes-full { margin-top:var(--s-2); display:flex; flex-direction:column; gap:var(--s-1); }
+    .task .t-notes-full .t-note { color:var(--fg); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; border-left:2px solid var(--line); padding-left:var(--s-3); }
+    .task .t-note-by { color:var(--muted); font-weight:600; }
+    /* kobo-127 — Done-lane fold control ("show all N" / "collapse"). */
+    .done-fold { grid-column:1 / -1; margin-top:var(--s-2); font-size:var(--t-xs); color:var(--muted); background:none; border:1px dashed var(--line); border-radius:var(--r-md); padding:var(--s-2) var(--s-4); cursor:pointer; width:100%; }
+    .done-fold:hover { color:var(--fg); border-color:var(--accent); }
     .task .t-meta { color:var(--muted); font-size:var(--t-sm); margin-top:var(--s-2); display:flex; gap:var(--s-2); flex-wrap:wrap; align-items:center; }
     .task .t-id { margin-left:auto; font-family:var(--font-mono); font-size:var(--t-xs); color:var(--muted); opacity:.8; }
     /* kobo-62 — checklist mini progress bar (was ☑N/M text). */
@@ -385,6 +399,7 @@ function companyBody(): string {
   </header>
   <nav class="tabs" role="tablist" aria-label="views">
     <button type="button" class="tab active" data-tab="kanban" role="tab" aria-selected="true">Kanban</button>
+    <button type="button" class="tab" data-tab="state" role="tab" aria-selected="false">State<span class="tab-count" id="tab-count-state"></span></button>
     <button type="button" class="tab" data-tab="worklog" role="tab" aria-selected="false">Worklog<span class="tab-count" id="tab-count-worklog"></span></button>
     <button type="button" class="tab" data-tab="presence" role="tab" aria-selected="false">Presence<span class="tab-count" id="tab-count-presence"></span></button>
   </nav>
@@ -392,6 +407,7 @@ function companyBody(): string {
     <section class="tabpanel" data-tab="kanban" role="tabpanel">
       <div class="card">
         <div class="family-bar" id="family-bar" hidden></div>
+        <div class="assignee-bar" id="assignee-bar" hidden></div>
         <div class="attention" id="attention-panel" hidden>
           <h2><span>⚑ Blocked <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-blocked">0</span></h2>
           <div class="lane" id="blocked"></div>
@@ -405,7 +421,9 @@ function companyBody(): string {
           <div class="col col-rejected"><h2><span>Rejected</span><span class="count" id="c-rejected">0</span></h2><div id="rejected"></div></div>
         </div>
       </div>
-      <div class="card" id="state-panel" style="margin-top:16px" hidden>
+    </section>
+    <section class="tabpanel" data-tab="state" role="tabpanel" hidden>
+      <div class="card" id="state-panel">
         <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted)">coordination state</h2>
         <div class="md" id="state-md"></div>
       </div>
@@ -478,7 +496,10 @@ let lastEntries = []; // cached worklog feed — powers the Worklog + Presence t
 let lastRoster = []; // cached company roster (GET /api/roster) — authoritative Presence membership (kobo-50)
 let lastHeld = {}; // cached { oracle → held work } from /api/roster (kobo-105) — idle-with-work signal
 let lastPresence = []; // cached per-pane presence rows (GET /api/presence) — model + ctx% overlay (kobo-104)
+let lastState = null; // cached /api/state — renders in the State tab (kobo-127)
 let familyFilter = null; // root card id while filtering to one family, else null
+let assigneeFilter = null; // assignee name while filtering to one owner, else null (kobo-127)
+let doneExpanded = false; // Done lane shows only the 5 newest until "show all" (kobo-127)
 
 function buildIndex(tasks) {
   const byId = new Map();
@@ -492,6 +513,10 @@ function buildIndex(tasks) {
 
 // Derived N/M rollup — mirrors store.epicRollup: null when the card has no
 // children (a plain card, no badge). Prefer a server-sent task.rollup.
+// kobo-127 §5 (verify): childrenOf is keyed on the DIRECT epic parent
+// (buildIndex), so this counts DIRECT children only — a grandchild under a
+// sub-epic rolls up to that sub-epic, not to the grandparent. Correct for the
+// nested-sub-epic layout (Board Truth rule 8); no deep-count bug to fix.
 function rollupOf(task) {
   if (task.rollup && typeof task.rollup.total === 'number') return task.rollup;
   const kids = taskIndex.childrenOf.get(task.id) || [];
@@ -551,6 +576,12 @@ function makeChip(node, onActivate) {
 function setFamilyFilter(rootId) { familyFilter = rootId; renderBoard(lastTasks); }
 function clearFamilyFilter() { familyFilter = null; renderBoard(lastTasks); }
 
+// kobo-127 — clicking an assignee chip filters the board to that owner (re-render
+// from cache, same as family filter). Independent of the family filter (both can
+// be active); each has its own clear bar.
+function setAssigneeFilter(name) { assigneeFilter = name; renderBoard(lastTasks); }
+function clearAssigneeFilter() { assigneeFilter = null; renderBoard(lastTasks); }
+
 function updateFamilyBar() {
   const bar = $('family-bar');
   if (!familyFilter) { bar.hidden = true; bar.replaceChildren(); return; }
@@ -563,6 +594,20 @@ function updateFamilyBar() {
   const clear = el('button', 'family-clear', '✕ clear');
   clear.type = 'button';
   clear.addEventListener('click', clearFamilyFilter);
+  bar.appendChild(clear);
+  bar.hidden = false;
+}
+
+function updateAssigneeBar() {
+  const bar = $('assignee-bar');
+  if (!assigneeFilter) { bar.hidden = true; bar.replaceChildren(); return; }
+  bar.replaceChildren();
+  const label = el('span', '', '👤 filtering owner ');
+  label.appendChild(el('span', 'fam-root', '@' + assigneeFilter));
+  bar.appendChild(label);
+  const clear = el('button', 'family-clear', '✕ clear');
+  clear.type = 'button';
+  clear.addEventListener('click', clearAssigneeFilter);
   bar.appendChild(clear);
   bar.hidden = false;
 }
@@ -605,6 +650,20 @@ function assigneeAvatar(name) {
   a.title = '@' + name;
   return a;
 }
+// kobo-127 — assignee CHIP for the card face: full name + per-person color (same
+// hash palette as the avatar) + click-to-filter. Color stays supplementary (the
+// full name is always shown → color-not-only). Unassigned = a muted dashed chip
+// with no filter action.
+function assigneeChip(name) {
+  if (!name) { const c = el('span', 'pill assignee-chip unassigned', 'unassigned'); c.title = 'no owner'; return c; }
+  const color = authorColor(name);
+  const chip = el('span', 'pill assignee-chip', name);
+  chip.style.background = color;
+  chip.style.color = avatarText(color);
+  chip.title = 'click to filter @' + name;
+  makeChip(chip, () => setAssigneeFilter(name));
+  return chip;
+}
 // kobo-62 — checklist as a mini progress BAR (was "☑ N/M" text). Reuses the
 // scope-bar visual language from kobo-60; aria makes the ratio non-visual too.
 function checklistBar(done, total) {
@@ -626,11 +685,14 @@ function checklistBar(done, total) {
 // avatar + demoted id + state-accent left-border. Only SIGNAL badges stay on the
 // face (epic rollup, checklist bar, PR#, and the blocked-lane reason badges);
 // metadata (dept / parent-chip / wait) moves into the detail modal (openDetail).
-function taskCard(task) {
+function taskCard(task, opts) {
+  opts = opts || {};
   const card = el('div', 'task st-' + (task.state || 'todo')); // state-accent (left border)
   const head = el('div', 't-head');
-  head.appendChild(el('div', 't-title', task.title || '(untitled)'));
-  head.appendChild(assigneeAvatar(task.assignee)); // core: who owns it
+  const title = el('div', 't-title', task.title || '(untitled)');
+  title.title = task.title || ''; // kobo-127 — collapsed title clamps to 1 line; full text on hover + in modal
+  head.appendChild(title);
+  head.appendChild(assigneeChip(task.assignee)); // kobo-127 — full-name colored chip, click = filter owner
   card.appendChild(head);
   const meta = el('div', 't-meta');
   // kobo-47: epic rollup badge (▣ N/M) — a SIGNAL (this card contains children) and
@@ -654,6 +716,30 @@ function taskCard(task) {
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)
   if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
+  // kobo-127 — note surfacing. Collapsed cards (the flow lanes) show ONLY the
+  // latest note as a faint one-liner — the trail hides; click the card = expand
+  // (full trail lives in the detail modal). The Blocked lane is Tony's decision
+  // queue, so opts.notes==='full' shows every note in full, untruncated.
+  const notes = task.notes || [];
+  if (notes.length) {
+    if (opts.notes === 'full') {
+      const wrap = el('div', 't-notes-full');
+      for (const n of notes) {
+        const ln = el('div', 't-note');
+        ln.appendChild(el('span', 't-note-by', (n.by || '?') + ' · '));
+        ln.appendChild(document.createTextNode(n.text || ''));
+        wrap.appendChild(ln);
+      }
+      card.appendChild(wrap);
+    } else {
+      const n = notes[notes.length - 1];
+      const ln = el('div', 't-note-latest');
+      ln.appendChild(el('span', 't-note-by', (n.by || '?') + ': '));
+      const one = String(n.text || '').replace(/\\s+/g, ' ').trim();
+      ln.appendChild(document.createTextNode(one.length > 90 ? one.slice(0, 87) + '…' : one));
+      card.appendChild(ln);
+    }
+  }
   // archive button — ONLY on done cards (kobo-35). done = finished, awaiting
   // human review; clicking archive = Tony signs "checked" → the card moves off
   // the board (store + UI). stopPropagation so it never opens the detail panel.
@@ -979,12 +1065,31 @@ function closeDetail() {
 const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
 const COLS = ['backlog', 'todo', 'in-progress', 'review', 'done', 'rejected']; // board columns = flow + Rejected terminal lane (kobo-101)
 
+// kobo-127 — Done lane fold: newest 5 (by updatedTs) + a "show all N"/"collapse"
+// toggle, so 40 finished cards never bury the live lanes. Sort is a display-only
+// copy; the payload order is untouched.
+function renderDoneLane(col, cards) {
+  if (!cards.length) return;
+  const sorted = cards.slice().sort((a, b) => (b.updatedTs || b.ts || 0) - (a.updatedTs || a.ts || 0));
+  const LIMIT = 5;
+  const visible = doneExpanded ? sorted : sorted.slice(0, LIMIT);
+  for (const t of visible) col.appendChild(taskCard(t));
+  if (sorted.length > LIMIT) {
+    const btn = el('button', 'done-fold', doneExpanded ? '▲ collapse' : ('▾ show all ' + sorted.length));
+    btn.type = 'button';
+    btn.addEventListener('click', () => { doneExpanded = !doneExpanded; renderBoard(lastTasks); });
+    col.appendChild(btn);
+  }
+}
+
 function renderBoard(tasks) {
-  // Family filter is display-only — taskIndex stays built over the FULL list so
-  // rollup / parent-chip / family membership still resolve against every card.
+  // Family/assignee filters are display-only — taskIndex stays built over the FULL
+  // list so rollup / parent-chip / family membership still resolve against every card.
   updateFamilyBar();
+  updateAssigneeBar();
   const fam = familyFilter ? familyMembers(familyFilter) : null;
-  const shown = fam ? tasks.filter((t) => fam.has(t.id)) : tasks;
+  let shown = fam ? tasks.filter((t) => fam.has(t.id)) : tasks;
+  if (assigneeFilter) shown = shown.filter((t) => t.assignee === assigneeFilter); // kobo-127 — owner filter
   const cols = {};
   // COLS = the linear flow + the parallel terminal Rejected lane (kobo-101). Both
   // are real board columns; the Blocked lane is separate (off-flow, below).
@@ -996,12 +1101,16 @@ function renderBoard(tasks) {
   // flow state but are pulled out while a parent is pending; when the parent is
   // done the next poll drops the dependency field and the card returns.
   const isOffFlow = (task) => task.state === 'blocked' || (task.dependency && task.dependency.blockedBy.length > 0) || task.needsOwner;
+  const doneCards = []; // kobo-127 — deferred so the Done lane can fold to newest 5
   for (const task of shown) {
-    if (isOffFlow(task)) { attn.appendChild(taskCard(task)); counts['blocked']++; continue; }
+    // Blocked = Tony's decision queue → show every note in full on the face.
+    if (isOffFlow(task)) { attn.appendChild(taskCard(task, { notes: 'full' })); counts['blocked']++; continue; }
     const state = cols[task.state] ? task.state : 'todo';
+    if (state === 'done') { doneCards.push(task); counts['done']++; continue; }
     cols[state].appendChild(taskCard(task));
     counts[state]++;
   }
+  renderDoneLane(cols['done'], doneCards); // kobo-127 — newest 5 + "show all N"
   for (const s of COLS) {
     $('c-' + s).textContent = counts[s];
     if (counts[s] === 0) cols[s].appendChild(el('div', 'empty', '—'));
@@ -1255,6 +1364,7 @@ function showTab(name) {
   for (const b of document.querySelectorAll('.tab')) { const on = b.dataset.tab === name; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); }
   if (name === 'worklog') renderTimeline(lastEntries);
   else if (name === 'presence') renderPresence(lastEntries, lastRoster, lastPresence, lastHeld);
+  else if (name === 'state') renderState(lastState);
   try { localStorage.setItem('maw-company-tab', name); } catch (e) { /* private mode */ }
 }
 function updateTabCounts() {
@@ -1405,11 +1515,18 @@ function renderCardBody(body) {
   return frag;
 }
 
+// kobo-127 — state.md now lives in its OWN "State" tab (Kanban = board only). The
+// panel is always mounted in the state tabpanel; renderState fills it or shows an
+// empty note, and the State tab-count carries a ● dot when a state.md exists.
 function renderState(state) {
-  const panel = $('state-panel');
-  if (!state || !state.exists || !state.markdown) { panel.hidden = true; return; }
-  $('state-md').innerHTML = mdToHtml(state.markdown);
-  panel.hidden = false;
+  const md = $('state-md');
+  if (!state || !state.exists || !state.markdown) {
+    md.replaceChildren(el('div', 'empty', 'no state.md for this company'));
+    $('tab-count-state').textContent = '';
+    return;
+  }
+  md.innerHTML = mdToHtml(state.markdown);
+  $('tab-count-state').textContent = ' ●';
 }
 
 async function getJson(url) {
@@ -1421,7 +1538,7 @@ async function getJson(url) {
 async function load() {
   const company = currentCompany();
   $('co-name').textContent = company || '—';
-  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; lastEntries = []; lastRoster = []; lastHeld = {}; lastPresence = []; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); updateTabCounts(); if (activeTab === 'presence') renderPresence([], [], [], {}); return; }
+  if (!company) { statusEl.textContent = 'specify ?company= (e.g. /company?company=pgw)'; lastTasks = []; lastEntries = []; lastRoster = []; lastHeld = {}; lastPresence = []; lastState = null; buildIndex([]); renderBoard([]); renderTimeline([]); renderState(null); updateTabCounts(); if (activeTab === 'presence') renderPresence([], [], [], {}); return; }
   statusEl.textContent = 'loading…';
   statusEl.className = '';
   try {
@@ -1444,6 +1561,7 @@ async function load() {
     lastRoster = roster;
     lastHeld = held;
     lastPresence = presence;
+    lastState = stateRes;
     buildIndex(tasks); // full-list index for rollup / parent-chip / family derivation
     renderBoard(tasks);
     renderTimeline(entries);
