@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, checklistProgress, completeTask, dependencyBlock, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, checklistProgress, commentTask, completeTask, dependencyBlock, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, resolveComment, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -34,6 +34,7 @@ export interface TaskCard {
   dependency?: DependencyBlock; // derived blocked-by-dependency (ADR 0003 A) — present only when blockedBy/missing non-empty. NOTE: derived, NOT state==="blocked"
   body?: string; // raw markdown body (ADR 0003 C) — passthrough for the detail view (eq3-010 kobo-11)
   notes?: TaskRecord["notes"]; // append-only notes (kobo-39) — passthrough for the detail-panel timeline
+  comments?: TaskRecord["comments"]; // threaded ask/answer comments (kobo-140) — passthrough for the detail-panel thread (kobo-141)
   needsOwner?: true; // derived (eq3-011 kobo-14): todo + unassigned → off-flow "needs an owner". Absent otherwise.
   kind?: TaskRecord["kind"]; // "epic" for a container card (kobo-45) — absent for a normal task
   familyNotes?: FamilyNote[]; // derived (kobo-46): descendant notes tagged by source, for the epic's parent modal. Epics only, when non-empty.
@@ -61,6 +62,7 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   if (progress) card.checklist = progress;
   if (t.body) card.body = t.body; // raw body for the detail panel (read-only)
   if (t.notes?.length) card.notes = t.notes; // append-only notes for the detail-panel timeline (kobo-39)
+  if (t.comments?.length) card.comments = t.comments; // threaded comments for the detail-panel thread + mentions queue (kobo-141)
   if (needsOwner(t)) card.needsOwner = true; // derived needs-owner block (eq3-011 kobo-14)
   // Derived dependency block (ADR 0003 A) — reuse the SAME store helper the CLI
   // board uses, so web + CLI never disagree. Emitted only when there's something
@@ -123,6 +125,82 @@ export async function handleTaskNoteRequest(request: Request): Promise<Response>
   }
   notifyTaskComment(task, by, text); // comment = poke assignee (non-author only, task-events → coord pane)
   return Response.json({ ok: true, id: task.id, notes: task.notes });
+}
+
+/**
+ * POST /api/tasks/comment — add a threaded comment from the web board (kobo-141).
+ * The ask/answer channel (Board Truth rule 10), distinct from notes: a comment can
+ * reply (`replyTo`) and be resolved, and an @mention keeps it in the mentions queue
+ * until resolved. `by` is "tony" (the web board is Tony's surface, mirrors the note
+ * route). A comment by someone other than the assignee pokes the assignee. Reuses
+ * c1's commentTask (append-only, thread-guarded) — no parallel writer.
+ *
+ * Body: { company, id, text, replyTo? } → { ok:true, id, comments } | { ok:false, error }.
+ * A `replyTo` that names a comment not on this card → 400 (no dangling threads).
+ */
+export async function handleTaskCommentRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown; text?: unknown; replyTo?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown; text?: unknown; replyTo?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company : "";
+  const id = typeof body.id === "string" ? body.id : "";
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  const replyTo = typeof body.replyTo === "string" && body.replyTo.trim() ? body.replyTo.trim() : undefined;
+  if (!company || !id || !text) {
+    return Response.json({ ok: false, error: "company, id, and text are required" }, { status: 400 });
+  }
+  const by = "tony"; // the web board is Tony's surface (spec §Comment)
+  let task: TaskRecord | null;
+  try {
+    task = commentTask(company, id, by, text, replyTo);
+  } catch (e) {
+    // c1 throws when replyTo names a comment that isn't on this card — a client bug,
+    // not a server fault, so surface it as 400 rather than a bare 500.
+    return Response.json({ ok: false, error: e instanceof Error ? e.message : "reply target not found" }, { status: 400 });
+  }
+  if (!task) {
+    return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  }
+  notifyTaskComment(task, by, text); // comment = poke assignee (non-author only, task-events → coord pane)
+  return Response.json({ ok: true, id: task.id, comments: task.comments });
+}
+
+/**
+ * POST /api/tasks/resolve — resolve a threaded comment from the web board (kobo-141).
+ * Flips the comment's `resolved` flag (c1's resolveComment — Principle 1: the text
+ * is never removed) so an @mention drops out of the mentions queue. Idempotent.
+ * `by` is "tony" (the web board is Tony's surface).
+ *
+ * Body: { company, id, commentId } → { ok:true, id, comments } | { ok:false, error }.
+ * A commentId not on this card → 404.
+ */
+export async function handleTaskResolveRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown; commentId?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown; commentId?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company : "";
+  const id = typeof body.id === "string" ? body.id : "";
+  const commentId = typeof body.commentId === "string" ? body.commentId.trim() : "";
+  if (!company || !id || !commentId) {
+    return Response.json({ ok: false, error: "company, id, and commentId are required" }, { status: 400 });
+  }
+  let task: TaskRecord | null;
+  try {
+    task = resolveComment(company, id, commentId, "tony");
+  } catch (e) {
+    // c1 throws when the commentId isn't on this card → 404 (nothing to resolve).
+    return Response.json({ ok: false, error: e instanceof Error ? e.message : "comment not found" }, { status: 404 });
+  }
+  if (!task) {
+    return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  }
+  return Response.json({ ok: true, id: task.id, comments: task.comments });
 }
 
 /**

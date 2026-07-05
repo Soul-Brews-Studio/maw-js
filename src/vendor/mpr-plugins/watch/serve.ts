@@ -13,7 +13,7 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/worklog/route";
-import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCreateRequest, handleTaskDoneRequest } from "../../../core/tasks/route";
+import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskResolveRequest, handleTaskCreateRequest, handleTaskDoneRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
@@ -36,6 +36,13 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // company-ui card comment (kobo-46): Tony posts a note from the modal → append
   // + poke assignee on task-events (behind auth — PROTECTED POST "/tasks/…").
   ctx.http?.route("POST", "/api/tasks/note", (request: Request) => handleTaskNoteRequest(request));
+  // company-ui threaded comment (kobo-141): the modal's comment thread posts an
+  // ask/answer comment (replyTo threads it) → poke assignee on task-events. Distinct
+  // from a note (Board Truth rule 10). Behind auth via PROTECTED POST "/tasks/…".
+  ctx.http?.route("POST", "/api/tasks/comment", (request: Request) => handleTaskCommentRequest(request));
+  // company-ui resolve comment (kobo-141): Tony resolves an ask thread from the
+  // modal / mentions bar → drops it out of the mentions queue (behind auth).
+  ctx.http?.route("POST", "/api/tasks/resolve", (request: Request) => handleTaskResolveRequest(request));
   // company-ui card create (kobo-48): the modal "+ subtask" button posts a child
   // card (epic = parent id) → c1 containment (behind auth — PROTECTED POST "/tasks/…").
   ctx.http?.route("POST", "/api/tasks/create", (request: Request) => handleTaskCreateRequest(request));

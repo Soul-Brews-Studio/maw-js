@@ -279,6 +279,9 @@ function companyBody(): string {
     .col h2 .count { background:var(--col); border:1px solid var(--line); border-radius:999px; padding:0 8px; font-size:11px; font-weight:600; }
     #detail-panel { border-left:3px solid var(--accent); }
     #detail-notes .notes-head { margin:14px 0 8px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+    /* kobo-141 — collapsible notes toggle: keep the notes-head look, add button reset + pointer. */
+    #detail-notes .notes-toggle { display:block; background:none; border:0; padding:0; cursor:pointer; font:inherit; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+    #detail-notes .notes-toggle:hover, #detail-notes .notes-toggle:focus-visible { color:var(--fg); outline:none; }
     /* kobo-56 — comment/note timeline as author-coded bubbles (was flat monospace
        rows). Author identity is triple-encoded: avatar color + initials + full name
        (never color alone), so eq3/tony/patchwork/worker read apart. Color lives on
@@ -307,6 +310,28 @@ function companyBody(): string {
     #detail-notes .note-img-link { display:inline-block; margin:6px 0; }
     #detail-notes .note-img { display:block; max-width:100%; max-height:320px; height:auto; border:1px solid var(--line); border-radius:9px; }
     #detail-notes .note-img-link:focus-visible { outline:none; box-shadow:0 0 0 2px var(--accent); border-radius:9px; }
+    /* kobo-141 — Comments thread: the ask/answer channel (Board Truth rule 10),
+       distinct from notes. Reuses the note bubble look; adds threading indent +
+       reply/resolve affordances + a resolved (dimmed) state. */
+    #detail-comments .comments-head { margin:14px 0 8px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+    #detail-comments .cmt { display:flex; gap:10px; padding:9px 12px; margin-bottom:10px; background:var(--col); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:10px; }
+    #detail-comments .cmt.reply { margin-left:26px; }
+    #detail-comments .cmt.resolved { opacity:.55; }
+    #detail-comments .cmt-avatar { flex:0 0 auto; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; }
+    #detail-comments .cmt-main { flex:1 1 auto; min-width:0; }
+    #detail-comments .cmt-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+    #detail-comments .cmt-author { font-weight:600; color:var(--fg); }
+    #detail-comments .cmt-resolved-badge { font-size:11px; color:var(--ok, #3fb950); border:1px solid var(--line); border-radius:999px; padding:0 7px; }
+    #detail-comments .cmt-ts { color:var(--muted); font-size:11px; margin-left:auto; font-variant-numeric:tabular-nums; }
+    #detail-comments .cmt-body { color:var(--fg); font-size:13px; word-break:break-word; }
+    #detail-comments .cmt-body.md p { margin:6px 0; line-height:1.6; }
+    #detail-comments .cmt-body.md p:first-child { margin-top:0; }
+    #detail-comments .cmt-body.md p:last-child { margin-bottom:0; }
+    #detail-comments .cmt-actions { display:flex; gap:8px; margin-top:6px; }
+    #detail-comments .cmt-act { cursor:pointer; color:var(--link); background:none; border:0; font:inherit; font-size:12px; padding:0; }
+    #detail-comments .cmt-act:hover, #detail-comments .cmt-act:focus-visible { text-decoration:underline; outline:none; }
+    #detail-comments .cmt-reply-box { display:flex; gap:6px; margin:6px 0 0 26px; }
+    #detail-comments .cmt-reply-box input { flex:1 1 auto; min-width:0; }
     /* kobo-44: card detail as a modal overlay (was an inline sidebar panel). */
     /* kobo-136 — detail is now a right-side DRAWER: full height (family tree +
        note thread get room), board stays visible behind. Same ids + open/close
@@ -498,6 +523,7 @@ function companyBody(): string {
       <div id="detail-deps" hidden></div>
       <div id="detail-family" hidden></div>
       <div class="md" id="detail-body"></div>
+      <div id="detail-comments"></div>
       <div id="detail-notes"></div>
       <div class="detail-write" id="detail-write"></div>
     </div>
@@ -1001,6 +1027,78 @@ function renderDetailFamily(task) {
   host.hidden = false;
 }
 
+// kobo-141 — Comments thread: the ask/answer channel (Board Truth rule 10), distinct
+// from the notes timeline. Renders task.comments[] threaded by replyTo (roots oldest
+// -first, each reply indented under its parent), each unresolved comment carrying a
+// reply box + resolve button; a resolved comment dims + shows who/when. All writes go
+// through postJson (JSON, no innerHTML) → XSS-safe. author server-side is always "tony".
+function commentBubble(task, c, isReply) {
+  const color = authorColor(c.by);
+  const box = el('div', 'cmt' + (isReply ? ' reply' : '') + (c.resolved ? ' resolved' : ''));
+  box.style.borderLeftColor = color;
+  const av = el('div', 'cmt-avatar', authorInitials(c.by));
+  av.style.background = color; av.style.color = avatarText(color);
+  box.appendChild(av);
+  const main = el('div', 'cmt-main');
+  const head = el('div', 'cmt-head');
+  head.appendChild(el('span', 'cmt-author', c.by || '?'));
+  if (c.resolved) head.appendChild(el('span', 'cmt-resolved-badge', '✓ resolved' + (c.resolvedBy ? ' · ' + c.resolvedBy : '')));
+  head.appendChild(el('span', 'cmt-ts', c.iso ? (relTime(c.ts) + ' · ' + localTs(c.iso)) : text(c.ts)));
+  main.appendChild(head);
+  const body = el('div', 'cmt-body md');
+  body.innerHTML = renderNoteBody(c.text || ''); // same escape-first markdown+image path as notes
+  main.appendChild(body);
+  // reply + resolve actions (unresolved only — a resolved thread is closed)
+  if (!c.resolved) {
+    const actions = el('div', 'cmt-actions');
+    const replyBtn = el('button', 'cmt-act', '↩ reply'); replyBtn.type = 'button';
+    const resolveBtn = el('button', 'cmt-act', '✓ resolve'); resolveBtn.type = 'button';
+    actions.appendChild(replyBtn); actions.appendChild(resolveBtn);
+    main.appendChild(actions);
+    replyBtn.addEventListener('click', () => {
+      if (main.querySelector('.cmt-reply-box')) return; // one open reply box at a time
+      const rb = el('div', 'cmt-reply-box');
+      const rin = el('input'); rin.type = 'text'; rin.placeholder = 'reply…'; rin.maxLength = 2000;
+      const rsend = el('button', '', 'send'); rsend.type = 'button';
+      rb.appendChild(rin); rb.appendChild(rsend);
+      main.appendChild(rb); rin.focus();
+      const doReply = async () => {
+        const company = currentCompany(); const val = rin.value.trim();
+        if (!company || !val) return;
+        rsend.disabled = true;
+        try { await postJson('/api/tasks/comment', { company: company, id: task.id, text: val, replyTo: c.id }); await load(); reopenDetail(task.id); }
+        catch (err) { rsend.disabled = false; statusEl.textContent = 'reply failed: ' + errMsg(err); statusEl.className = 'error'; }
+      };
+      rsend.addEventListener('click', doReply);
+      rin.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); doReply(); } });
+    });
+    resolveBtn.addEventListener('click', async () => {
+      const company = currentCompany();
+      if (!company) return;
+      resolveBtn.disabled = true;
+      try { await postJson('/api/tasks/resolve', { company: company, id: task.id, commentId: c.id }); await load(); reopenDetail(task.id); }
+      catch (err) { resolveBtn.disabled = false; statusEl.textContent = 'resolve failed: ' + errMsg(err); statusEl.className = 'error'; }
+    });
+  }
+  box.appendChild(main);
+  return box;
+}
+
+function renderDetailComments(task) {
+  const host = $('detail-comments');
+  host.replaceChildren();
+  const comments = task.comments || [];
+  if (!comments.length) return;
+  host.appendChild(el('div', 'comments-head', 'comments (' + comments.length + ')'));
+  const repliesOf = new Map();
+  for (const c of comments) { if (c.replyTo) { const arr = repliesOf.get(c.replyTo) || []; arr.push(c); repliesOf.set(c.replyTo, arr); } }
+  for (const c of comments) {
+    if (c.replyTo) continue; // rendered under its root below
+    host.appendChild(commentBubble(task, c, false));
+    for (const r of (repliesOf.get(c.id) || [])) host.appendChild(commentBubble(task, r, true));
+  }
+}
+
 function openDetail(task) {
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
@@ -1009,28 +1107,36 @@ function openDetail(task) {
   const bodyEl = $('detail-body');
   if (task.body) { bodyEl.replaceChildren(renderCardBody(task.body)); } // kobo-60: structured field/scope blocks + prose
   else { const p = el('p', '', '(no detail — add one with: maw company task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
+  // kobo-141: the ask/answer comment thread (Board Truth rule 10) sits above the
+  // notes log — comments are the primary channel now, notes are evidence/log.
+  renderDetailComments(task);
   // kobo-39: append-only notes timeline (who / when / what) below the body. Reuse
   // the worklog .entry/.e-* classes. el() sets textContent → escape-first, XSS-safe.
+  // kobo-141: notes are now COLLAPSIBLE (หุบได้) + collapsed by default, so the
+  // comment thread leads and the evidence log stays a click away.
   const notesEl = $('detail-notes');
   notesEl.replaceChildren();
   const notes = task.notes || [];
-  if (notes.length) {
-    notesEl.appendChild(el('div', 'notes-head', 'notes (' + notes.length + ')'));
-    for (const n of notes) notesEl.appendChild(noteBubble(n)); // oldest-first = a timeline
-  }
-  // kobo-47: an epic's modal also gathers notes from every child card, oldest-first,
-  // each tagged with its source child id. Derived at read (childNotesOf prefers a
-  // server task.childNotes, else aggregates the payload's children). Own vs. sub
-  // notes are kept in separate sections so the source is never ambiguous.
-  const childNotes = childNotesOf(task);
-  if (childNotes.length) {
-    notesEl.appendChild(el('div', 'notes-head', 'notes from subtasks (' + childNotes.length + ')'));
-    for (const n of childNotes) notesEl.appendChild(noteBubble(n, n.from));
+  const childNotes = childNotesOf(task); // kobo-47: an epic also gathers descendant notes, tagged by source
+  const totalNotes = notes.length + childNotes.length;
+  if (totalNotes) {
+    const toggle = el('button', 'notes-head notes-toggle', '▸ notes (' + totalNotes + ')'); toggle.type = 'button';
+    const notesBody = el('div', 'notes-body'); notesBody.hidden = true;
+    for (const n of notes) notesBody.appendChild(noteBubble(n)); // oldest-first = a timeline
+    if (childNotes.length) {
+      notesBody.appendChild(el('div', 'notes-head', 'notes from subtasks (' + childNotes.length + ')'));
+      for (const n of childNotes) notesBody.appendChild(noteBubble(n, n.from)); // own vs sub kept separate — source never ambiguous
+    }
+    toggle.addEventListener('click', () => {
+      notesBody.hidden = !notesBody.hidden;
+      toggle.textContent = (notesBody.hidden ? '▸' : '▾') + ' notes (' + totalNotes + ')';
+      if (!notesBody.hidden) clampLongNotes(); // measure only once shown (hidden → scrollHeight 0)
+    });
+    notesEl.appendChild(toggle); notesEl.appendChild(notesBody);
   }
   // kobo-48: write controls (+ subtask, comment box) live inside the modal.
   buildWriteSection(task);
   openModal();
-  clampLongNotes(); // kobo-115 — measured after the modal is visible (offscreen scrollHeight = 0)
 }
 
 // kobo-115: a long note clamps to a few lines with a show-more toggle so one tall
@@ -1069,14 +1175,25 @@ function buildWriteSection(task) {
   subLine.appendChild(subInput); subLine.appendChild(subBtn);
   subRow.appendChild(subLine);
 
-  // comment
+  // comment (kobo-141) — starts an ask/answer thread (POST /api/tasks/comment). An
+  // @mention stays in the mentions queue until resolved. Distinct from a note (log).
   const cmtRow = el('div', 'write-row');
-  cmtRow.appendChild(el('label', '', 'comment (notifies the assignee)'));
+  cmtRow.appendChild(el('label', '', 'comment · ask/answer (@mention → queue until resolved · notifies assignee)'));
   const cmtLine = el('div', 'row');
-  const cmtInput = el('textarea'); cmtInput.placeholder = 'comment… (⌘/Ctrl+Enter to send)';
+  const cmtInput = el('textarea'); cmtInput.placeholder = 'comment… @mention to ask (⌘/Ctrl+Enter to send)';
   const cmtBtn = el('button', '', 'comment'); cmtBtn.type = 'button';
   cmtLine.appendChild(cmtInput); cmtLine.appendChild(cmtBtn);
   cmtRow.appendChild(cmtLine);
+
+  // note (kobo-141) — append-only log/evidence (POST /api/tasks/note). No questions
+  // here (Board Truth rule 10); an @ in a note does NOT enter the mentions queue.
+  const noteRow = el('div', 'write-row');
+  noteRow.appendChild(el('label', '', 'note · log/evidence (append-only)'));
+  const noteLine = el('div', 'row');
+  const noteInput = el('textarea'); noteInput.placeholder = 'note… (⌘/Ctrl+Enter to send)';
+  const noteBtn = el('button', '', 'add note'); noteBtn.type = 'button';
+  noteLine.appendChild(noteInput); noteLine.appendChild(noteBtn);
+  noteRow.appendChild(noteLine);
 
   // mark done (kobo-50, item 1) — only on a card not already done. Gives c1 guard b
   // its web trigger: an epic whose children aren't all done → server 409 needsConfirm
@@ -1120,7 +1237,7 @@ function buildWriteSection(task) {
     doneBtn.addEventListener('click', submitDone);
   }
 
-  wrap.appendChild(subRow); wrap.appendChild(cmtRow); wrap.appendChild(msg);
+  wrap.appendChild(subRow); wrap.appendChild(cmtRow); wrap.appendChild(noteRow); wrap.appendChild(msg);
 
   async function submitSub() {
     const company = currentCompany();
@@ -1142,18 +1259,34 @@ function buildWriteSection(task) {
     if (!company || !t) { setMsg('enter a comment', false); return; }
     cmtBtn.disabled = true;
     try {
-      await postJson('/api/tasks/note', { company: company, id: task.id, text: t });
+      await postJson('/api/tasks/comment', { company: company, id: task.id, text: t });
       cmtInput.value = '';
       setMsg('comment added', true);
       await load();
-      reopenDetail(task.id); // refresh the notes timeline
+      reopenDetail(task.id); // refresh the comment thread
     } catch (err) { setMsg('comment failed: ' + errMsg(err), false); }
     finally { cmtBtn.disabled = false; }
+  }
+  async function submitNote() {
+    const company = currentCompany();
+    const t = noteInput.value.trim();
+    if (!company || !t) { setMsg('enter a note', false); return; }
+    noteBtn.disabled = true;
+    try {
+      await postJson('/api/tasks/note', { company: company, id: task.id, text: t });
+      noteInput.value = '';
+      setMsg('note added', true);
+      await load();
+      reopenDetail(task.id); // refresh the notes timeline
+    } catch (err) { setMsg('note failed: ' + errMsg(err), false); }
+    finally { noteBtn.disabled = false; }
   }
   subBtn.addEventListener('click', submitSub);
   subInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); submitSub(); } });
   cmtBtn.addEventListener('click', submitCmt);
   cmtInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submitCmt(); } });
+  noteBtn.addEventListener('click', submitNote);
+  noteInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submitNote(); } });
 }
 
 // Re-open the modal for a card id from the freshest payload (after a write +
@@ -1207,22 +1340,17 @@ function closeDetail() {
 const HUMAN_ALIASES = { tony: 1, human: 1 };
 function mentionKey(name) { const n = String(name == null ? '' : name).trim().toLowerCase().replace(/^@/, ''); return HUMAN_ALIASES[n] ? 'tony' : n; }
 function parseMentions(t) { const out = new Set(); const re = /@([a-z0-9_-]+)/gi; let m; while ((m = re.exec(String(t || '')))) out.add(mentionKey(m[1])); return Array.from(out); }
-// Unanswered @mentions across on-board cards: a mention of X is pending until X
-// notes on that card after it. Mirrors store.pendingMentions (kobo-126).
+// Unanswered @mentions across on-board cards (kobo-140 repoint): the ask/answer
+// channel moved from notes to COMMENTS (Board Truth rule 10), so a mention is
+// pending until its comment is RESOLVED (explicit), not "someone noted after".
+// Mirrors store.pendingMentions — an unresolved comment carrying an @mention.
 function pendingMentions(tasks) {
   const out = [];
   for (const t of tasks) {
-    const notes = t.notes || [];
-    if (!notes.length) continue;
-    const latest = new Map();
-    notes.forEach((n, i) => {
-      for (const who of parseMentions(n.text)) {
-        // answered if a LATER note (by append order, not ts — same-ms collision safe) is by who
-        const answered = notes.slice(i + 1).some((n2) => mentionKey(n2.by) === who);
-        if (answered) latest.delete(who); else latest.set(who, n);
-      }
-    });
-    for (const [who, n] of latest) out.push({ id: t.id, title: t.title, who: who, by: n.by, ts: n.ts, text: n.text });
+    for (const c of (t.comments || [])) {
+      if (c.resolved) continue; // resolved thread → out of the queue
+      for (const who of parseMentions(c.text)) out.push({ id: t.id, title: t.title, who: who, by: c.by, ts: c.ts, text: c.text, commentId: c.id });
+    }
   }
   out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   return out;
@@ -1235,9 +1363,10 @@ function questionSubcards(task) {
   return kids.filter((c) => c.assignee && mentionKey(c.assignee) === 'tony');
 }
 
-// kobo-128 — the @mention decision queue at the board head: pending @tony/@human
-// mentions, each with a quick reply that appends a note (POST /api/tasks/note,
-// actor=tony — the ONLY write this UI makes; state/assignee/archive are untouched).
+// kobo-128 → kobo-141 — the @mention decision queue at the board head: pending
+// @tony/@human mentions (unresolved comments now), each with a quick reply (POST
+// /api/tasks/comment, reply-to the mention's comment) + a resolve button (POST
+// /api/tasks/resolve → clears it from the queue). actor=tony.
 function renderMentions(tasks) {
   const bar = $('mentions-bar');
   const pend = pendingMentions(tasks).filter((m) => m.who === 'tony'); // Tony's board = his decision queue
@@ -1258,16 +1387,26 @@ function renderMentions(tasks) {
     row.appendChild(txt);
     const rin = el('input'); rin.type = 'text'; rin.className = 'mention-reply-in'; rin.placeholder = 'reply…';
     const rbtn = el('button', 'mention-reply-btn', 'reply'); rbtn.type = 'button';
+    const resbtn = el('button', 'mention-reply-btn', '✓ resolve'); resbtn.type = 'button';
     const send = async () => {
       const val = rin.value.trim();
       if (!currentCompany() || !val) return;
       rbtn.disabled = true;
-      try { await postJson('/api/tasks/note', { company: currentCompany(), id: m.id, text: val }); rin.value = ''; await load(); }
+      // reply-to the mention's comment → threads the answer; the thread stays in the
+      // queue until resolved (explicit). Use ✓ resolve to clear it.
+      try { await postJson('/api/tasks/comment', { company: currentCompany(), id: m.id, text: val, replyTo: m.commentId }); rin.value = ''; await load(); }
       catch (err) { rbtn.disabled = false; statusEl.textContent = 'reply failed: ' + errMsg(err); statusEl.className = 'error'; }
     };
+    const resolve = async () => {
+      if (!currentCompany()) return;
+      resbtn.disabled = true;
+      try { await postJson('/api/tasks/resolve', { company: currentCompany(), id: m.id, commentId: m.commentId }); await load(); }
+      catch (err) { resbtn.disabled = false; statusEl.textContent = 'resolve failed: ' + errMsg(err); statusEl.className = 'error'; }
+    };
     rbtn.addEventListener('click', send);
+    resbtn.addEventListener('click', resolve);
     rin.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
-    row.appendChild(rin); row.appendChild(rbtn);
+    row.appendChild(rin); row.appendChild(rbtn); row.appendChild(resbtn);
     bar.appendChild(row);
   }
   bar.hidden = false;
