@@ -306,9 +306,14 @@ function companyBody(): string {
     #detail-notes .note-img { display:block; max-width:100%; max-height:320px; height:auto; border:1px solid var(--line); border-radius:9px; }
     #detail-notes .note-img-link:focus-visible { outline:none; box-shadow:0 0 0 2px var(--accent); border-radius:9px; }
     /* kobo-44: card detail as a modal overlay (was an inline sidebar panel). */
-    .overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:24px; z-index:50; }
+    /* kobo-136 — detail is now a right-side DRAWER: full height (family tree +
+       note thread get room), board stays visible behind. Same ids + open/close
+       logic (openModal/closeDetail untouched) — presentation only. */
+    .overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:stretch; justify-content:flex-end; padding:0; z-index:50; }
     .overlay[hidden] { display:none; }
-    .modal { width:min(680px, 100%); max-height:85vh; overflow:auto; margin:0; padding:var(--s-8); box-shadow:0 12px 40px rgba(0,0,0,.5); }
+    .modal { width:min(620px, 100%); height:100%; max-height:none; overflow:auto; margin:0; padding:var(--s-8); border-radius:0; border-top:0; border-right:0; border-bottom:0; box-shadow:-16px 0 40px rgba(0,0,0,.5); animation:drawer-in .18s ease; }
+    @keyframes drawer-in { from { transform:translateX(28px); opacity:.6; } to { transform:none; opacity:1; } }
+    @media (prefers-reduced-motion: reduce) { .modal { animation:none; } }
     .modal .md { max-height:none; }
     /* kobo-110 — detail modal reading rhythm: title stands out + wraps, sections
        separated by space + a hairline so the eye flows title → meta → body → actions. */
@@ -318,6 +323,28 @@ function companyBody(): string {
     #detail-body p:first-child { margin-top:0; }
     #detail-close { cursor:pointer; color:var(--muted); background:none; border:0; font:inherit; line-height:1; padding:2px 6px; border-radius:6px; }
     #detail-close:hover, #detail-close:focus-visible { color:var(--fg); outline:none; box-shadow:0 0 0 2px var(--accent); }
+    /* kobo-136 — drawer dependency chips: what this card waits on (blockedBy /
+       missing, ADR 0003) + reverse (cards this one unblocks). Reuses .pill. */
+    #detail-deps { display:flex; gap:var(--s-2); flex-wrap:wrap; margin-bottom:var(--s-5); }
+    #detail-deps[hidden] { display:none; }
+    .pill.dep-blocks { color:var(--ok); border-color:var(--bd-ok); }
+    /* kobo-136 — drawer family tree: root → descendants (DFS), current card marked.
+       State rides a colored dot + the id/title text (color-not-only via position). */
+    #detail-family[hidden] { display:none; }
+    .fam-tree { margin:0 0 var(--s-5); padding:var(--s-4) var(--s-5); background:var(--col); border:1px solid var(--line); border-radius:var(--r-lg); }
+    .fam-tree .ft-head { font-family:var(--font-mono); font-size:var(--t-xs); text-transform:uppercase; letter-spacing:.06em; color:var(--epic); font-weight:700; margin-bottom:var(--s-3); }
+    .ft-node { display:flex; align-items:baseline; gap:var(--s-3); padding:2px var(--s-2); font-size:var(--t-sm); border-radius:var(--r-xs); min-width:0; }
+    .ft-node[role=button] { cursor:pointer; }
+    .ft-node[role=button]:hover, .ft-node[role=button]:focus-visible { background:var(--field-bg); outline:none; }
+    .ft-node.current { background:var(--field-bg); border-left:2px solid var(--accent); }
+    .ft-node .ft-dot { flex:0 0 auto; width:8px; height:8px; border-radius:50%; background:var(--muted); transform:translateY(-1px); }
+    .ft-dot.st-todo { background:var(--warn); } .ft-dot.st-in-progress { background:var(--accent); }
+    .ft-dot.st-review { background:var(--epic); } .ft-dot.st-done { background:var(--ok); }
+    .ft-dot.st-blocked { background:var(--bad); } .ft-dot.st-rejected { background:var(--warn); }
+    .ft-node .ft-id { flex:0 0 auto; font-family:var(--font-mono); color:var(--accent); }
+    .ft-node .ft-state { flex:0 0 auto; color:var(--muted); font-size:var(--t-xs); }
+    .ft-node .ft-title { flex:1 1 auto; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .ft-node.current .ft-title { color:var(--fg); }
     /* kobo-48 web write — +subtask + comment box inside the modal. */
     .detail-write { margin-top:14px; border-top:1px solid var(--line); padding-top:12px; display:flex; flex-direction:column; gap:12px; }
     .write-row { display:flex; flex-direction:column; gap:6px; }
@@ -465,6 +492,8 @@ function companyBody(): string {
       <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <button type="button" id="detail-close" aria-label="close detail">✕</button></h2>
       <div id="detail-title"></div>
       <div id="detail-meta"></div>
+      <div id="detail-deps" hidden></div>
+      <div id="detail-family" hidden></div>
       <div class="md" id="detail-body"></div>
       <div id="detail-notes"></div>
       <div class="detail-write" id="detail-write"></div>
@@ -899,9 +928,81 @@ function noteBubble(n, src) {
   return note;
 }
 
+// kobo-136 — dependency chips in the drawer: what this card waits on (blockedBy /
+// missing, ADR 0003) + the REVERSE edge (cards waiting on this one, derived from
+// the cached payload). A resolved chip opens that card's drawer in place.
+function renderDetailDeps(task) {
+  const bar = $('detail-deps');
+  bar.replaceChildren();
+  const dep = task.dependency || {};
+  for (const id of (dep.blockedBy || [])) {
+    const t = taskIndex.byId.get(id);
+    const chip = el('span', 'pill attn', '🚫 รอ ' + id);
+    chip.title = 'waits on ' + id + (t ? ' · ' + (t.title || '') + ' — click to open' : '');
+    if (t) makeChip(chip, () => openDetail(t));
+    bar.appendChild(chip);
+  }
+  for (const id of (dep.missing || [])) {
+    const chip = el('span', 'pill wait', '⚠ ' + id + ' ไม่พบ');
+    chip.title = 'dependency not on the board (archived or deleted)';
+    bar.appendChild(chip);
+  }
+  for (const t of (lastTasks || [])) {
+    if (t.dependency && t.dependency.blockedBy && t.dependency.blockedBy.indexOf(task.id) !== -1) {
+      const chip = el('span', 'pill dep-blocks', '⏩ ปลดล็อก ' + t.id);
+      chip.title = t.id + ' · ' + (t.title || '') + ' waits on this card — click to open';
+      makeChip(chip, () => openDetail(t));
+      bar.appendChild(chip);
+    }
+  }
+  bar.hidden = !bar.childNodes.length;
+}
+
+// kobo-136 — family tree in the drawer: climb containment ancestors to the family
+// ROOT, then render the whole tree (DFS over taskIndex.childrenOf), the open card
+// marked. Hidden for a loner card (no parent, no children). Click a node = open
+// that card in place (same drawer, reversible via its own tree).
+function familyRootOf(task) {
+  let cur = task;
+  const seen = new Set([cur.id]);
+  while (cur.epic) {
+    const parent = taskIndex.byId.get(cur.epic);
+    if (!parent || seen.has(parent.id)) break; // archived/missing parent or cycle → stop here
+    seen.add(parent.id);
+    cur = parent;
+  }
+  return cur;
+}
+function renderDetailFamily(task) {
+  const host = $('detail-family');
+  host.replaceChildren();
+  const root = familyRootOf(task);
+  const hasKids = (taskIndex.childrenOf.get(task.id) || []).length > 0;
+  if (root.id === task.id && !hasKids) { host.hidden = true; return; }
+  const box = el('div', 'fam-tree');
+  box.appendChild(el('div', 'ft-head', '👪 family · ' + root.id));
+  const addNode = (t, depth) => {
+    const node = el('div', 'ft-node' + (t.id === task.id ? ' current' : ''));
+    node.style.paddingLeft = (6 + depth * 14) + 'px';
+    node.appendChild(el('span', 'ft-dot st-' + (t.state || 'todo')));
+    node.appendChild(el('span', 'ft-id', t.id));
+    node.appendChild(el('span', 'ft-title', t.title || '(untitled)'));
+    node.appendChild(el('span', 'ft-state', t.state || ''));
+    node.title = t.id + ' · ' + (t.title || '');
+    if (t.id !== task.id) makeChip(node, () => openDetail(t));
+    box.appendChild(node);
+    for (const c of (taskIndex.childrenOf.get(t.id) || [])) addNode(c, depth + 1);
+  };
+  addNode(root, 0);
+  host.appendChild(box);
+  host.hidden = false;
+}
+
 function openDetail(task) {
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
+  renderDetailDeps(task);   // kobo-136: dependency chips (waits-on / missing / unblocks)
+  renderDetailFamily(task); // kobo-136: family tree (root → descendants, current marked)
   const bodyEl = $('detail-body');
   if (task.body) { bodyEl.replaceChildren(renderCardBody(task.body)); } // kobo-60: structured field/scope blocks + prose
   else { const p = el('p', '', '(no detail — add one with: maw company task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
