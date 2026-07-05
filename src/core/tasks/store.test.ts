@@ -501,7 +501,80 @@ describe("dependency graph (ADR 0003 A — derived blocked-by-dependency, 1 hop)
     expect(blockedNow).toBe(true); // parent still todo
     completeTask("pgw", parent.id, "x");
     const blockedAfter = isBlockedByDependency(readTask("pgw", "pgw-2")!, parentStateResolver("pgw"));
-    expect(blockedAfter).toBe(false); // parent done → child free, no stored state touched
+    expect(blockedAfter).toBe(false); // parent done → child free (and auto-promoted to ready, kobo-133)
+  });
+});
+
+describe("ready state + auto-promote (kobo-133 — Hermes-style: state machine, not view)", () => {
+  test("completeTask promotes a dependent todo card to ready + emits task-updated", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    const child = addTask({ company: "pgw", title: "child", by: "x", assignee: "patchwork", parentIds: [parent.id] });
+    expect(readTask("pgw", child.id)!.state).toBe("todo"); // gated while parent pending
+    completeTask("pgw", parent.id, "x");
+    expect(readTask("pgw", child.id)!.state).toBe("ready");
+    const wl = readWorklog("pgw");
+    expect(wl.some((e) => e.kind === "task-updated" && e.task === child.id && /ready/.test(e.summary))).toBe(true);
+  });
+
+  test("multi-parent: promotes only when the LAST pending parent closes", () => {
+    const p1 = addTask({ company: "pgw", title: "p1", by: "x" });
+    const p2 = addTask({ company: "pgw", title: "p2", by: "x" });
+    const child = addTask({ company: "pgw", title: "child", by: "x", parentIds: [p1.id, p2.id] });
+    completeTask("pgw", p1.id, "x");
+    expect(readTask("pgw", child.id)!.state).toBe("todo"); // p2 still pending
+    completeTask("pgw", p2.id, "x");
+    expect(readTask("pgw", child.id)!.state).toBe("ready");
+  });
+
+  test("only todo cards promote — in-progress/backlog/dep-less cards keep their lane", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    const working = addTask({ company: "pgw", title: "working", by: "x", parentIds: [parent.id], state: "in-progress" });
+    const parked = addTask({ company: "pgw", title: "parked", by: "x", parentIds: [parent.id], state: "backlog" });
+    const plain = addTask({ company: "pgw", title: "plain", by: "x" }); // no deps at all
+    completeTask("pgw", parent.id, "x");
+    expect(readTask("pgw", working.id)!.state).toBe("in-progress");
+    expect(readTask("pgw", parked.id)!.state).toBe("backlog");
+    expect(readTask("pgw", plain.id)!.state).toBe("todo");
+  });
+
+  test("archiveTask satisfies deps too (same as done)", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    const child = addTask({ company: "pgw", title: "child", by: "x", parentIds: [parent.id] });
+    archiveTask("pgw", parent.id, "x"); // archived straight from todo
+    expect(readTask("pgw", child.id)!.state).toBe("ready");
+  });
+
+  test("born ready: adding a todo card whose deps are ALL already done skips the todo lane", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    completeTask("pgw", parent.id, "x"); // done BEFORE the child exists → no future promote event
+    const child = addTask({ company: "pgw", title: "child", by: "x", parentIds: [parent.id] });
+    expect(child.state).toBe("ready");
+    // explicit backlog is respected — born-ready only upgrades the todo default
+    const parked = addTask({ company: "pgw", title: "parked", by: "x", parentIds: [parent.id], state: "backlog" });
+    expect(parked.state).toBe("backlog");
+  });
+
+  test("ready behaves like todo for pickup: needsOwner / nextAction / note auto-advance / start", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    const child = addTask({ company: "pgw", title: "child", by: "x", assignee: "patchwork", parentIds: [parent.id] });
+    completeTask("pgw", parent.id, "x");
+    const ready = readTask("pgw", child.id)!;
+    expect(needsOwner(ready)).toBe(false); // has an owner
+    expect(needsOwner({ ...ready, assignee: null })).toBe(true); // unassigned ready = needs owner (rule 5)
+    expect(taskNextAction(ready)).toContain("patchwork");
+    // assignee note on a ready card = working it → in-progress (kobo-54 gate extended)
+    noteTask("pgw", child.id, "patchwork", "on it");
+    expect(readTask("pgw", child.id)!.state).toBe("in-progress");
+  });
+
+  test("moveTask can park a ready card back (human override) and re-file to ready", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    const child = addTask({ company: "pgw", title: "child", by: "x", parentIds: [parent.id] });
+    completeTask("pgw", parent.id, "x");
+    moveTask("pgw", child.id, "backlog", "tony");
+    expect(readTask("pgw", child.id)!.state).toBe("backlog");
+    moveTask("pgw", child.id, "ready", "tony");
+    expect(readTask("pgw", child.id)!.state).toBe("ready");
   });
 });
 

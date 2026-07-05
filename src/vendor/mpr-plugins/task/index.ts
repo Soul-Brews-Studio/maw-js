@@ -146,6 +146,7 @@ function ping(target: string, message: string): void {
 const STATE_LABEL: Record<TaskState, string> = {
   "backlog": "BACKLOG",
   "todo": "TODO",
+  "ready": "READY",
   "in-progress": "IN-PROGRESS",
   "review": "REVIEW",
   "done": "DONE",
@@ -315,16 +316,18 @@ export async function runTask(
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m▶ started\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
     } else if (subcmd === "move") {
-      // kobo-70 — re-file between the "parking" flow states backlog ⇄ todo (the two
-      // without a dedicated pick-up verb). in-progress/review/done use start/review/
-      // done; blocked uses block. Pure state set — no assignee change.
+      // kobo-70 — re-file between the "parking" flow states backlog ⇄ todo ⇄ ready
+      // (those without a dedicated pick-up verb; ready normally auto-promotes on
+      // parent done, kobo-133 — manual move is the human override). in-progress/
+      // review/done use start/review/done; blocked uses block. Pure state set — no
+      // assignee change.
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const state = flags._[1] as TaskState | undefined;
-      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo>" };
-      if (state !== "backlog" && state !== "todo") {
-        return { ok: false, error: `move target must be backlog or todo (in-progress/review/done via start/review/done; blocked via block)` };
+      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready>" };
+      if (state !== "backlog" && state !== "todo" && state !== "ready") {
+        return { ok: false, error: `move target must be backlog, todo or ready (in-progress/review/done via start/review/done; blocked via block)` };
       }
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };

@@ -85,6 +85,10 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(tools).toContain('["company", "task", "move", mid, input.state');
     expect(tools).toContain('argv.push("--state", input.state)');
     expect(server).toContain('"move"'); // enum + title advertise the verb
+    // kobo-133: ready state — move accepts it (auto-promote's manual override);
+    // the state enum + move error advertise backlog|todo|ready on both surfaces.
+    expect(server).toContain('z.enum(["backlog", "todo", "ready"])');
+    expect(tools).toContain("backlog|todo|ready");
     // kobo-39: append-only note verb — needs an id + text; taskArgs targets the
     // canonical company surface (`maw company task note <id> <text>`).
     expect(tools).toContain('["company", "task", "note", nid');

@@ -39,6 +39,8 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('"--kind"'); // kobo-72: add --kind epic|task
     expect(src).toContain("moveTask"); // kobo-70: re-file backlog ⇄ todo parking states
     expect(src).toContain('"--state"'); // kobo-70: add --state backlog|todo
+    expect(src).toContain('"ready": "READY"'); // kobo-133: READY lane (deps cleared, auto-promoted)
+    expect(src).toContain('state !== "ready"'); // kobo-133: move accepts ready (human override)
     expect(src).toContain("addTask");
     expect(src).toContain("noteTask"); // kobo-39: append-only note — the only non-terminal verb (mid-flight truth)
     expect(src).toContain("notifyTaskComment"); // kobo-46: a note by a non-author pokes the assignee (comment = poke) on task-events

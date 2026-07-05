@@ -168,7 +168,7 @@ export function taskArgs(input: TaskInput): string[] {
     }
     case "move": {
       const mid = needId("move");
-      if (!input.state) throw new Error("task move requires a state (backlog|todo)");
+      if (!input.state) throw new Error("task move requires a state (backlog|todo|ready)");
       return ["company", "task", "move", mid, input.state, ...common()];
     }
     case "ls": {

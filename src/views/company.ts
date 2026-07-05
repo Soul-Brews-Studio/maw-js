@@ -25,7 +25,7 @@ export function companyVersion(): string {
  * ADD route alongside the federation UI (ui/office) — does NOT replace it.
  * Panels, all read-only projections (spec §6 + addendum). The renderer is
  * generic — each panel declares a `type` so new ones drop in later:
- *   - kanban        backlog→todo→in-progress→review→done + blocked (off-flow)
+ *   - kanban        backlog→todo→ready→in-progress→review→done + blocked (off-flow)
  *                   (off-flow) · wait-for badge derived · from GET /api/tasks
  *   - worklog-feed  activity timeline        from GET /api/worklog/feed?company=<c>
  *   - markdown-file coordination state doc   from GET /api/state?company=<c>
@@ -110,11 +110,12 @@ function companyBody(): string {
     .layout { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
     /* Card primitive — surface for panels/columns/modals. */
     .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r-xl); padding:var(--s-6); box-shadow:0 12px 28px rgba(0,0,0,.25); }
-    .board { display:grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
+    .board { display:grid; grid-template-columns: repeat(7, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
     .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; }
     .col h2 { margin:0 0 10px; font-size:12px; font-weight:600; color:var(--muted); display:flex; justify-content:space-between; gap:6px; }
     .col h2 .count { color:var(--fg); }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
+    .col-ready h2 { color:var(--ok); } /* kobo-133 — deps cleared, green light to start */
     .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-done h2 { color:var(--ok); }
     .col-rejected h2 { color:var(--warn); } /* kobo-101 — terminal "not accepted", parallel to Done */
     /* kobo-55 — the Blocked/attention lane sits ABOVE the board (top of the Kanban
@@ -131,6 +132,7 @@ function companyBody(): string {
        (redundant with the column, so state is never conveyed by color alone). */
     .task.st-backlog { border-left-color:var(--muted); }
     .task.st-todo { border-left-color:var(--warn); }
+    .task.st-ready { border-left-color:var(--ok); } /* kobo-133 */
     .task.st-in-progress { border-left-color:var(--accent); }
     .task.st-review { border-left-color:var(--epic); }
     .task.st-done { border-left-color:var(--ok); }
@@ -461,6 +463,7 @@ function companyBody(): string {
         <div class="board">
           <div class="col col-backlog"><h2><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
           <div class="col col-todo"><h2><span>Todo</span><span class="count" id="c-todo">0</span></h2><div id="todo"></div></div>
+          <div class="col col-ready"><h2><span>Ready</span><span class="count" id="c-ready">0</span></h2><div id="ready"></div></div>
           <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
           <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
           <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
@@ -1270,8 +1273,8 @@ function renderMentions(tasks) {
   bar.hidden = false;
 }
 
-const FLOW = ['backlog', 'todo', 'in-progress', 'review', 'done'];
-const COLS = ['backlog', 'todo', 'in-progress', 'review', 'done', 'rejected']; // board columns = flow + Rejected terminal lane (kobo-101)
+const FLOW = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'done'];
+const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'done', 'rejected']; // board columns = flow + Rejected terminal lane (kobo-101)
 
 // kobo-127 — Done lane fold: newest 5 (by updatedTs) + a "show all N"/"collapse"
 // toggle, so 40 finished cards never bury the live lanes. Sort is a display-only
@@ -1304,7 +1307,7 @@ function renderBoard(tasks) {
   // are real board columns; the Blocked lane is separate (off-flow, below).
   for (const s of COLS) { cols[s] = $(s); cols[s].replaceChildren(); }
   const attn = $('blocked'); attn.replaceChildren();
-  const counts = { backlog: 0, todo: 0, 'in-progress': 0, review: 0, done: 0, rejected: 0, blocked: 0 };
+  const counts = { backlog: 0, todo: 0, ready: 0, 'in-progress': 0, review: 0, done: 0, rejected: 0, blocked: 0 };
   // Off-flow = explicit block (state) OR derived dependency block (ADR 0003) —
   // ONE Blocked lane, mirroring the CLI board. Derived cards keep their real
   // flow state but are pulled out while a parent is pending; when the parent is

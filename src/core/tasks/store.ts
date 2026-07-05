@@ -22,6 +22,7 @@ import type { WorklogEntry, WorklogKind } from "../worklog/types";
 export type TaskState =
   | "backlog"
   | "todo"
+  | "ready" // deps cleared, actionable (kobo-133) — auto-promoted from todo when all parentIds are done/archived
   | "in-progress"
   | "review"
   | "done"
@@ -31,6 +32,7 @@ export type TaskState =
 export const TASK_STATES: TaskState[] = [
   "backlog",
   "todo",
+  "ready",
   "in-progress",
   "review",
   "done",
@@ -39,7 +41,7 @@ export const TASK_STATES: TaskState[] = [
 ];
 
 /** Linear flow columns (blocked is off-flow — surfaced separately). */
-export const TASK_FLOW: TaskState[] = ["backlog", "todo", "in-progress", "review", "done"];
+export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "done"];
 
 /**
  * Why a card is held off the flow (ADR 0003 B). `dependency` is also the kind
@@ -286,6 +288,14 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.parentIds?.length) task.parentIds = [...new Set(input.parentIds)]; // dedupe, drop if empty
   if (input.body?.length) task.body = input.body;
 
+  // kobo-133: born ready — a todo card whose deps are ALL already done/archived
+  // skips the todo lane. Without this it would strand: the parent-done event that
+  // auto-promotes (promoteReadyChildren) already fired before this card existed.
+  if (task.state === "todo" && task.parentIds?.length) {
+    const resolve = parentStateResolver(input.company);
+    if (!dependencyBlock(task, resolve).blockedBy.length) task.state = "ready";
+  }
+
   // Race-safe id allocation: compute candidate, claim it exclusively; on a
   // collision recompute and retry. Bounded so a pathological loop can't hang.
   const MAX_ATTEMPTS = 5;
@@ -482,6 +492,7 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   writeTaskRecord(task);
   emit(task, by, "task-done", `done ${task.id}: ${task.title}`);
   releaseAllClaims(task); // free every claim on this card so open-claims doesn't go stale
+  promoteReadyChildren(company, id, by); // kobo-133: this done may open a dependent's gate
   return task;
 }
 
@@ -534,8 +545,8 @@ export function noteTask(company: string, id: string, by: string, text: string):
   const note: TaskNote = { ts: Date.now(), iso: nowIso(), by, text };
   task.notes = [...(task.notes ?? []), note]; // append-only — prior notes are untouched
   task.updatedTs = note.ts;
-  const advance = task.state === "todo" && !!task.assignee && task.assignee === by;
-  if (advance) task.state = "in-progress"; // assignee working their own todo card (kobo-54)
+  const advance = (task.state === "todo" || task.state === "ready") && !!task.assignee && task.assignee === by;
+  if (advance) task.state = "in-progress"; // assignee working their own todo/ready card (kobo-54, kobo-133)
   writeTaskRecord(task);
   const oneLine = text.replace(/\s+/g, " ").trim();
   emit(task, by, "task-note", `note ${task.id}: ${oneLine.length > 60 ? oneLine.slice(0, 57) + "…" : oneLine}`);
@@ -693,6 +704,7 @@ export function archiveTask(company: string, id: string, by: string, opts: { for
   renameSync(taskFilePath(company, id), archivedTaskFilePath(company, id));
   emit(task, by, "task-archived", `archived ${task.id}: ${task.title}`);
   releaseAllClaims(task); // an archived card must leave no open claim behind (kobo-107)
+  promoteReadyChildren(company, id, by); // kobo-133: archived satisfies deps too (same as done)
   return task;
 }
 
@@ -759,7 +771,7 @@ export function parsePrRepo(text: string): string | undefined {
  * (intentionally not-ready), and any non-todo state has its own real owner/flow.
  */
 export function needsOwner(task: TaskRecord): boolean {
-  return task.state === "todo" && !task.assignee;
+  return (task.state === "todo" || task.state === "ready") && !task.assignee; // ready is "even more todo" (kobo-133)
 }
 
 /** Next-action line for an explicitly blocked card — kind + who-clears + why. */
@@ -790,6 +802,9 @@ export function taskNextAction(task: TaskRecord): string {
       // assigned todo → waiting on that person to START (was wrongly "รอคนหยิบ");
       // unassigned todo → needs an owner (surfaced off-flow in the Blocked lane).
       return task.assignee ? `รอ ${task.assignee} เริ่ม` : "⚑ ยังไม่มีเจ้าของ — รอ assign";
+    case "ready":
+      // deps ครบแล้ว (kobo-133) — same waits as todo, but the gate is known open.
+      return task.assignee ? `deps ครบ — รอ ${task.assignee} เริ่ม` : "⚑ deps ครบ แต่ยังไม่มีเจ้าของ — รอ assign";
     case "backlog":
       return "ยังไม่พร้อม (backlog)";
     case "done":
@@ -859,6 +874,30 @@ export function dependencyBlock(
     blockedBy.push(p); // a real, not-yet-done parent → blocks
   }
   return { blockedBy, missing };
+}
+
+/**
+ * Auto-promote todo→ready (kobo-133, Hermes-style: state machine, not view).
+ * After `doneId` reaches done/archived, every active `todo` card that depends on
+ * it and now has NO pending parent flips to `ready` — the board says "gate
+ * opened, pick me up" without a human sweep. Only cards that HAVE parentIds are
+ * eligible: a dep-less todo card keeps its lane (todo still means "not gated").
+ * Called from completeTask/archiveTask, so CLI done, web done, and the pr-watch
+ * merge flip all promote through the one shared path. Returns the promoted cards.
+ */
+export function promoteReadyChildren(company: string, doneId: string, by: string): TaskRecord[] {
+  const resolve = parentStateResolver(company);
+  const promoted: TaskRecord[] = [];
+  for (const t of listTasks(company)) {
+    if (t.state !== "todo" || !t.parentIds?.includes(doneId)) continue;
+    if (dependencyBlock(t, resolve).blockedBy.length) continue; // another parent still pending
+    t.state = "ready";
+    t.updatedTs = Date.now();
+    writeTaskRecord(t);
+    emit(t, by, "task-updated", `ready ${t.id} (deps ครบ): ${t.title}`);
+    promoted.push(t);
+  }
+  return promoted;
 }
 
 /** True when any parent is still pending (the card is held off the flow). */
