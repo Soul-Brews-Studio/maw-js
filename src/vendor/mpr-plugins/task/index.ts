@@ -43,6 +43,7 @@ import {
   claimTask,
   commentTask,
   completeTask,
+  decomposeEpic,
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
   holdTask,
@@ -72,6 +73,7 @@ import {
   TASK_FLOW,
   unblockTask,
   type BlockKind,
+  type DecomposeChild,
   type DependencyBlock,
   type TaskKind,
   type TaskRecord,
@@ -583,6 +585,47 @@ export async function runTask(
         const resolve = parentStateResolver(company);
         if (resolve(parentId) === null) console.log(`  \x1b[33m⚠ parent ไม่พบ (ยัง link ได้): ${parentId}\x1b[0m`);
       }
+    } else if (subcmd === "decompose") {
+      // kobo-146 C7 (option B): materialize a CONFIRMED decomposition plan into
+      // child cards + links. The LLM drafting lives in the /board-decompose skill
+      // (out of scope) — this is the deterministic, testable executor (no LLM, no
+      // secret). Plan rides --plan as a JSON array (runMaw is argv-only, no stdin):
+      // each child { title, body?, deps?, assignee?, reviewer? } → a card under
+      // <epicId>; deps link a sibling ($N, 0-indexed) or a literal card id.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--plan": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const epicId = flags._[0];
+      const planArg = flags["--plan"];
+      if (!epicId || !planArg) return { ok: false, error: `usage: maw company task decompose <epicId> --plan '<json array of {title,body?,deps?,assignee?,reviewer?}>'` };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      let children: DecomposeChild[];
+      try {
+        const parsed = JSON.parse(planArg);
+        children = Array.isArray(parsed) ? parsed : parsed?.children; // accept [...] or { children: [...] }
+      } catch (e) {
+        return { ok: false, error: `invalid --plan JSON: ${e instanceof Error ? e.message : String(e)}` };
+      }
+      if (!Array.isArray(children) || !children.length) {
+        return { ok: false, error: "--plan must be a non-empty JSON array of children (or { children: [...] })" };
+      }
+      // Board rule 8 (soft): >10 children → should be a sub-epic. Warn, don't block.
+      if (children.length > 10) console.log(`  \x1b[33m⚠ ${children.length} children — board rule: >10 ควรแตกเป็น sub-epic\x1b[0m`);
+      let res;
+      try {
+        res = decomposeEpic(company, epicId, children, me);
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+      console.log(`\x1b[36m⛓ decompose\x1b[0m ${epicId} → \x1b[32m${res.created.length} created\x1b[0m${res.skipped.length ? `, ${res.skipped.length} skipped` : ""}`);
+      for (const c of res.created) console.log(`  \x1b[32m✚\x1b[0m ${c.id} ${c.title}`);
+      for (const s of res.skipped) console.log(`  \x1b[90m○ ${s.id} ${s.title} (มีอยู่แล้ว)\x1b[0m`);
+      for (const w of res.depWarnings) console.log(`  \x1b[33m⚠ dep: ${w}\x1b[0m`);
+      if (res.failed) {
+        // Unhappy path — never silent: name what landed before the failure so a human can resume.
+        console.log(`  \x1b[31m✗ failed at child #${res.failed.index} "${res.failed.title}": ${res.failed.error}\x1b[0m`);
+        return { ok: false, error: `decompose stopped at child #${res.failed.index}: ${res.failed.error} (${res.created.length} card(s) created before the failure)` };
+      }
     } else if (subcmd === "ask") {
       // ask-Tony 3-tier level 1 (kobo-126): a substantive question → its own
       // SUBCARD assigned to the answerer (default tony) + parent-linked, one shot.
@@ -701,7 +744,7 @@ export async function runTask(
         console.log(`  \x1b[90m${o.id}\x1b[0m +${o.migrated}${o.skipped ? ` \x1b[90m(${o.skipped} skipped)\x1b[0m` : ""}`);
       }
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|migrate-comments|review|hold|pr|done|note|epic|dep|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|migrate-comments|review|hold|pr|done|note|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

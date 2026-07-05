@@ -27,6 +27,7 @@ import {
   lastActivityByOracle,
   STALE_DECISION_MS,
   createsEpicLoop,
+  decomposeEpic,
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
   descendantCards,
@@ -822,6 +823,61 @@ describe("reviewTask persists the reviewer field (kobo-144 — plain review keep
     const t = addTask({ company: "rev", title: "t2", by: "eq3", assignee: "patchwork", reviewer: "somsri" });
     const r = reviewTask("rev", t.id, "patchwork", { to: "nao" })!;
     expect(r.reviewer).toBe("nao");
+  });
+});
+
+describe("decomposeEpic (kobo-146 C7 — plan → child cards + links, option B)", () => {
+  const mkEpic = () => addTask({ company: "dec", title: "epic", by: "eq3" });
+
+  test("creates children under the epic, links sibling deps ($N), passes body/reviewer", () => {
+    const epic = mkEpic();
+    const r = decomposeEpic("dec", epic.id, [
+      { title: "a", body: "AC: given/when/then" },
+      { title: "b", deps: ["$0"] },
+      { title: "c", deps: ["$0", "$1"], reviewer: "somsri" },
+    ], "eq3");
+    expect(r.created.map((c) => c.title)).toEqual(["a", "b", "c"]);
+    expect(r.failed).toBeUndefined();
+    const kids = Object.fromEntries(epicChildren(epic.id, listTasks("dec")).map((k) => [k.title, k]));
+    expect(kids.a.epic).toBe(epic.id);
+    expect(kids.a.body).toBe("AC: given/when/then");
+    expect(kids.b.parentIds).toEqual([kids.a.id]); // $0 → a
+    expect(kids.c.parentIds).toEqual([kids.a.id, kids.b.id]); // $0,$1 → a,b
+    expect(kids.c.reviewer).toBe("somsri");
+    // parent promoted to an epic container
+    expect(readTask("dec", epic.id)!.kind).toBe("epic");
+  });
+
+  test("idempotent — a title that already exists under the epic is skipped, its id still resolves $N", () => {
+    const epic = mkEpic();
+    decomposeEpic("dec", epic.id, [{ title: "a" }], "eq3");
+    const r = decomposeEpic("dec", epic.id, [{ title: "a" }, { title: "b", deps: ["$0"] }], "eq3");
+    expect(r.created.map((c) => c.title)).toEqual(["b"]);
+    expect(r.skipped.map((c) => c.title)).toEqual(["a"]);
+    const kids = Object.fromEntries(epicChildren(epic.id, listTasks("dec")).map((k) => [k.title, k]));
+    expect(kids.b.parentIds).toEqual([kids.a.id]); // $0 resolved to the pre-existing a
+  });
+
+  test("unhappy path — a child throws → stop, report what landed (never silent)", () => {
+    const epic = mkEpic();
+    const r = decomposeEpic("dec", epic.id, [{ title: "ok" }, { title: "  " }, { title: "never" }], "eq3");
+    expect(r.created.map((c) => c.title)).toEqual(["ok"]);
+    expect(r.failed).toEqual({ index: 1, title: "  ", error: "child title is required" });
+    expect(epicChildren(epic.id, listTasks("dec")).find((k) => k.title === "never")).toBeUndefined();
+  });
+
+  test("a dep cycle / bad $N ref becomes a depWarning — cards still created", () => {
+    const epic = mkEpic();
+    const r = decomposeEpic("dec", epic.id, [
+      { title: "x", deps: ["$5"] }, // out of range
+      { title: "y", deps: ["$1"] }, // self-ref → dep loop
+    ], "eq3");
+    expect(r.created).toHaveLength(2);
+    expect(r.depWarnings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("missing epic → throws", () => {
+    expect(() => decomposeEpic("dec", "dec-999", [{ title: "a" }], "eq3")).toThrow(/epic not found/);
   });
 });
 

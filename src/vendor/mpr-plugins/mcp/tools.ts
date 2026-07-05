@@ -14,7 +14,16 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "pr" | "done" | "note" | "epic" | "dep" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "pr" | "done" | "note" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
+
+/** One child in a decompose plan (kobo-146 C7). Mirror of the store's DecomposeChild — kept local so tools.ts stays a pure argv mapper with no core import. */
+export interface DecomposePlanChild {
+  title: string;
+  body?: string;
+  deps?: string[]; // existing card id | "$N" sibling ref (0-indexed into children[])
+  assignee?: string;
+  reviewer?: string;
+}
 
 export interface CompanyInput {
   action: CompanyAction;
@@ -52,6 +61,7 @@ export interface TaskInput {
   text?: string;       // note/comment (required) — note or comment content
   replyTo?: string;    // comment: thread under this comment id
   commentId?: string;  // resolve (required): the comment id to resolve
+  children?: DecomposePlanChild[]; // decompose (required): the plan's child cards
 }
 
 export interface DeptInput {
@@ -248,6 +258,13 @@ export function taskArgs(input: TaskInput): string[] {
         throw new Error("task dep requires exactly one parent id (parent: [<cardId>])");
       }
       return ["company", "task", "dep", input.op, did, input.parent[0], ...common()];
+    }
+    case "decompose": {
+      // kobo-146 C7 — materialize a decomposition plan. The plan (children[]) rides
+      // --plan as a JSON string (runMaw is argv-only, no stdin). id = the epic card.
+      const decId = needId("decompose");
+      if (!input.children || !input.children.length) throw new Error("task decompose requires a non-empty children[] plan");
+      return ["company", "task", "decompose", decId, "--plan", JSON.stringify(input.children), ...common()];
     }
     case "review": {
       const argv = ["company", "task", "review", needId("review")];

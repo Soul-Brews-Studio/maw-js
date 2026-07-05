@@ -64,7 +64,7 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"hold"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"hold"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
     // kobo-134: dep verb — op add|rm + exactly one parent id, maps to
@@ -117,6 +117,11 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(tools).toContain('argv.push("--reviewer", input.reviewer)');
     expect(server).toContain('"hold"'); // enum + title advertise the verb
     expect(server).toContain("reviewer:"); // add: persistent per-card reviewer input
+    // kobo-146 C7: decompose materializes a plan (children[]) into cards+links; the
+    // plan rides --plan as JSON (runMaw is argv-only). Advertised in enum + schema.
+    expect(tools).toContain('["company", "task", "decompose", decId, "--plan", JSON.stringify(input.children)');
+    expect(server).toContain('"decompose"'); // enum + title advertise the verb
+    expect(server).toContain("children:"); // decompose: the plan's child cards input
   });
 
   // eq3-020: the maw_hey `target` describe must document every routing format the

@@ -1330,6 +1330,96 @@ export function openEpicChildren(id: string, cards: TaskRecord[]): TaskRecord[] 
   return epicChildren(id, cards).filter((c) => c.state !== "done");
 }
 
+/**
+ * One child in a decompose plan (kobo-146, C7). The LLM drafting lives in the
+ * SKILL (out of scope) — this is the deterministic executor: it materializes a
+ * confirmed plan into real cards. `deps` entries are either an existing card id
+ * OR a sibling ref `$N` (0-indexed into THIS plan) so a plan can express "child 2
+ * waits for child 0" before the ids exist. body carries the AC (Given/When/Then).
+ */
+export interface DecomposeChild {
+  title: string;
+  body?: string;
+  deps?: string[]; // existing card id | "$N" sibling ref (0-indexed into children[])
+  assignee?: string;
+  reviewer?: string;
+}
+
+export interface DecomposeResult {
+  epic: string;
+  created: { index: number; id: string; title: string }[];
+  skipped: { index: number; id: string; title: string }[]; // title already existed under the epic (idempotent re-run)
+  failed?: { index: number; title: string; error: string }; // a child create threw → stop, report what landed
+  depWarnings: string[]; // a dep couldn't be linked (bad $N ref / cycle / self) — best-effort, cards still created
+}
+
+/**
+ * Decompose an epic into a set of child cards + links in one call (kobo-146, C7,
+ * option B — zero new infra, reuses addTask/setTaskEpic/setTaskDep). NOT atomic
+ * (file-per-card can't be), so the contract is HONEST-on-partial-failure:
+ *   - creates children in order, each under `epicId` (containment link);
+ *   - IDEMPOTENT: a child whose title already exists under the epic is SKIPPED
+ *     (re-running a plan doesn't duplicate) — its existing id still resolves `$N`;
+ *   - on a create throw it STOPS and returns `failed` + everything already created
+ *     (never silent — the caller reports what landed so the human can resume);
+ *   - after all children exist, resolves each `deps` entry (`$N` → the Nth child's
+ *     id, else a literal card id) and links it with setTaskDep; a bad ref / cycle
+ *     becomes a depWarning (best-effort — the cards are the point, links are additive).
+ * Promotes the parent to kind=epic (decomposing IS making it a container). Throws
+ * only if the epic card is absent (can't decompose what isn't there).
+ */
+export function decomposeEpic(company: string, epicId: string, children: DecomposeChild[], by: string): DecomposeResult {
+  const epic = readTask(company, epicId);
+  if (!epic) throw new Error(`epic not found: ${epicId}`);
+  // Promote the parent to an epic container — decomposing it makes it one (kobo-45).
+  if (epic.kind !== "epic") {
+    epic.kind = "epic";
+    epic.updatedTs = Date.now();
+    writeTaskRecord(epic);
+  }
+
+  const result: DecomposeResult = { epic: epicId, created: [], skipped: [], depWarnings: [] };
+  // Existing titles under the epic → idempotent skip (re-run safety).
+  const existing = new Map(epicChildren(epicId, listTasks(company)).map((c) => [c.title, c.id] as const));
+  // index → created/existing id, so a `$N` sibling ref resolves even to a skipped child.
+  const idByIndex: (string | null)[] = children.map(() => null);
+
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const title = child.title?.trim();
+    if (!title) { result.failed = { index: i, title: child.title ?? "", error: "child title is required" }; return result; }
+    const already = existing.get(title);
+    if (already) { result.skipped.push({ index: i, id: already, title }); idByIndex[i] = already; continue; }
+    try {
+      const card = addTask({ company, by, title, epic: epicId, body: child.body, assignee: child.assignee ?? null, reviewer: child.reviewer });
+      result.created.push({ index: i, id: card.id, title });
+      idByIndex[i] = card.id;
+    } catch (e) {
+      result.failed = { index: i, title, error: e instanceof Error ? e.message : String(e) };
+      return result; // stop — report what already landed (never silent)
+    }
+  }
+
+  // Second pass: link deps now that every child has an id.
+  for (let i = 0; i < children.length; i++) {
+    const childId = idByIndex[i];
+    if (!childId) continue;
+    for (const ref of children[i].deps ?? []) {
+      const m = /^\$(\d+)$/.exec(ref.trim());
+      const depId = m ? idByIndex[Number(m[1])] : ref.trim();
+      if (m && (depId == null)) { result.depWarnings.push(`${childId}: sibling ref ${ref} out of range / not created`); continue; }
+      try {
+        setTaskDep(company, childId, depId!, "add", by);
+      } catch (e) {
+        result.depWarnings.push(`${childId} 🚫→ ${depId}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  emit(epic, by, "task-updated", `decomposed ${epicId} → ${result.created.length} card(s)${result.skipped.length ? ` (+${result.skipped.length} existing)` : ""}`);
+  return result;
+}
+
 export interface EpicRollup {
   done: number;
   total: number;
