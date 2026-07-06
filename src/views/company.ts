@@ -79,6 +79,39 @@ export function orderCommentTree(comments) {
   return out;
 }
 
+// kobo-176: which resolved comments are foldable (safe to hide when "show
+// resolved" is off). A resolved comment folds ONLY when its ENTIRE subtree is
+// resolved — a resolved comment that is the ancestor of an unresolved reply must
+// stay visible, or its child's indent/reply-target chip (kobo-171) would orphan.
+// DOM-free + annotation-free: unit-tested, then injected verbatim into the client
+// script via `${foldableResolvedIds.toString()}` (single source, no drift).
+// Returns a Set of comment ids that are foldable.
+export function foldableResolvedIds(comments) {
+  const byId = new Map();
+  for (const c of comments) byId.set(c.id, c);
+  const kids = new Map();
+  for (const c of comments) {
+    if (c.replyTo && byId.has(c.replyTo)) {
+      const a = kids.get(c.replyTo) || []; a.push(c); kids.set(c.replyTo, a);
+    }
+  }
+  const memo = new Map();
+  const stack = new Set(); // cycle guard
+  const subtreeAllResolved = (c) => {
+    if (memo.has(c.id)) return memo.get(c.id);
+    if (stack.has(c.id)) return false; // cycle → conservative: not all-resolved, so never hide
+    stack.add(c.id);
+    let all = !!c.resolved;
+    for (const k of (kids.get(c.id) || [])) { if (!subtreeAllResolved(k)) all = false; }
+    stack.delete(c.id);
+    memo.set(c.id, all);
+    return all;
+  };
+  const foldable = new Set();
+  for (const c of comments) if (c.resolved && subtreeAllResolved(c)) foldable.add(c.id);
+  return foldable;
+}
+
 function companyBody(): string {
   return `<!doctype html>
 <html lang="en">
@@ -352,7 +385,11 @@ function companyBody(): string {
     /* kobo-141 — Comments thread: the ask/answer channel (Board Truth rule 10),
        distinct from notes. Reuses the note bubble look; adds threading indent +
        reply/resolve affordances + a resolved (dimmed) state. */
+    #detail-comments { max-height:72vh; overflow-y:auto; } /* kobo-176: scroll cap (mirror .timeline) so a long thread can't run off-screen */
     #detail-comments .comments-head { margin:14px 0 8px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+    #detail-comments .cmt-resolved-toggle { display:block; background:none; border:0; padding:2px 0 8px; margin:0; font:inherit; font-size:12px; color:var(--muted); cursor:pointer; }
+    #detail-comments .cmt-resolved-toggle:hover, #detail-comments .cmt-resolved-toggle:focus-visible { color:var(--link); }
+    #detail-comments:not(.show-resolved) .cmt-foldable { display:none; } /* kobo-176: fold fully-resolved branches until toggled */
     #detail-comments .cmt { display:flex; gap:10px; padding:9px 12px; margin-bottom:10px; background:var(--col); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:10px; }
     #detail-comments .cmt.reply { /* indent set inline from clamped level (kobo-171) */ }
     #detail-comments .cmt-replytarget { align-self:flex-start; margin:2px 0 4px; padding:2px 8px; font-size:11px; line-height:1.4; color:var(--muted); background:var(--panel2, rgba(127,127,127,.12)); border:1px solid var(--border, rgba(127,127,127,.25)); border-radius:10px; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1225,19 +1262,32 @@ function commentBubble(task, c, indent, parent) {
 
 // kobo-171: pure tree walker injected from the module fn (single source, unit-tested).
 ${orderCommentTree.toString()}
+${foldableResolvedIds.toString()}
 
 function renderDetailComments(task) {
   const host = $('detail-comments');
   host.replaceChildren();
+  host.classList.remove('show-resolved'); // fresh open = resolved folded
   const comments = task.comments || [];
   if (!comments.length) return;
   host.appendChild(el('div', 'comments-head', 'comments (' + comments.length + ')'));
   const byId = new Map();
   for (const c of comments) byId.set(c.id, c);
+  const foldable = foldableResolvedIds(comments); // resolved comments whose whole subtree is resolved (kobo-176)
+  // toggle folds ONLY fully-resolved branches — unresolved (and resolved ancestors
+  // of unresolved) always show, so threading/indent/chip (kobo-171) is untouched.
+  if (foldable.size) {
+    const label = (shown) => (shown ? '▾' : '▸') + ' ' + foldable.size + ' resolved · ' + (shown ? 'hide' : 'show');
+    const toggle = el('button', 'cmt-resolved-toggle', label(false)); toggle.type = 'button';
+    toggle.addEventListener('click', () => { toggle.textContent = label(host.classList.toggle('show-resolved')); });
+    host.appendChild(toggle);
+  }
   // recurse the FULL tree (depth-3+ no longer dropped); indent clamped to 2 levels.
   for (const node of orderCommentTree(comments)) {
     const parent = node.c.replyTo ? byId.get(node.c.replyTo) : null;
-    host.appendChild(commentBubble(task, node.c, node.indent, parent));
+    const bubble = commentBubble(task, node.c, node.indent, parent);
+    if (foldable.has(node.c.id)) bubble.classList.add('cmt-foldable'); // CSS hides unless .show-resolved
+    host.appendChild(bubble);
   }
 }
 

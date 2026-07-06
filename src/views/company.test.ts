@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orderCommentTree, companyHtml } from "./company";
+import { orderCommentTree, foldableResolvedIds, companyHtml } from "./company";
 
 // A comment factory — id, replyTo, ts, author. ts drives sibling order.
 const c = (id: string, replyTo: string | null, ts: number, by = "sapan") => ({ id, replyTo, ts, by, text: id + " body" });
@@ -52,10 +52,40 @@ describe("orderCommentTree (kobo-171)", () => {
   });
 });
 
-describe("companyHtml injection (kobo-171)", () => {
-  test("the served client script contains the walker fn + calls it (single source)", () => {
+// r = a resolved comment; u = unresolved. ts drives sibling order.
+const r = (id: string, replyTo: string | null, ts: number) => ({ id, replyTo, ts, by: "sapan", text: id, resolved: true });
+const u = (id: string, replyTo: string | null, ts: number) => ({ id, replyTo, ts, by: "sapan", text: id, resolved: false });
+const has = (set: Set<string>) => [...set].sort();
+
+describe("foldableResolvedIds (kobo-176)", () => {
+  test("a resolved leaf folds", () => {
+    expect(has(foldableResolvedIds([u("c1", null, 1), r("c2", "c1", 2)]))).toEqual(["c2"]);
+  });
+  test("an unresolved comment never folds", () => {
+    expect(foldableResolvedIds([u("c1", null, 1)]).size).toBe(0);
+  });
+  test("a resolved comment with an unresolved descendant stays visible (no orphan)", () => {
+    // c1 resolved → c2 resolved → c3 UNRESOLVED. c1,c2 must NOT fold (ancestors of active reply)
+    const set = foldableResolvedIds([r("c1", null, 1), r("c2", "c1", 2), u("c3", "c2", 3)]);
+    expect(set.size).toBe(0);
+  });
+  test("a fully-resolved branch folds entirely; a sibling active branch keeps its resolved ancestor shown", () => {
+    // c1 resolved root; c2 resolved-leaf (folds); c3 resolved but has unresolved child c4 (c3 shown)
+    const set = foldableResolvedIds([r("c1", null, 1), r("c2", "c1", 2), r("c3", "c1", 3), u("c4", "c3", 4)]);
+    // c1 has unresolved descendant c4 → shown; c3 shown; only c2 folds
+    expect(has(set)).toEqual(["c2"]);
+  });
+  test("all-resolved thread folds every node", () => {
+    expect(has(foldableResolvedIds([r("c1", null, 1), r("c2", "c1", 2), r("c3", "c2", 3)]))).toEqual(["c1", "c2", "c3"]);
+  });
+});
+
+describe("companyHtml injection (kobo-171 + kobo-176)", () => {
+  test("the served client script contains the walker + fold fns and calls them (single source)", () => {
     const html = companyHtml();
     expect(html).toContain("function orderCommentTree"); // injected verbatim
     expect(html).toContain("orderCommentTree(comments)"); // and consumed by the renderer
+    expect(html).toContain("function foldableResolvedIds"); // kobo-176 injected
+    expect(html).toContain("foldableResolvedIds(comments)"); // and consumed
   });
 });
