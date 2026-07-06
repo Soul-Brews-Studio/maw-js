@@ -40,6 +40,45 @@ export function companyHtml(): string {
   return companyBody().replaceAll(VERSION_TOKEN, companyVersion());
 }
 
+// kobo-171: pure comment-tree walker — the single source of truth for how a
+// comment thread is ordered + indented. Kept DOM-free and annotation-free so it
+// (1) unit-tests without a browser and (2) is injected verbatim into the served
+// client script via `${orderCommentTree.toString()}` — no duplicated logic to
+// drift. Recurses the FULL tree (fixes the depth-3+ drop bug); DFS pre-order so a
+// root's whole subtree renders contiguously; siblings ordered by ts (id as
+// tiebreak). Indent is CLAMPED to 2 levels (min(depth,2)) — data/replyTo is never
+// touched, only the visual indent. Never drops: a comment whose replyTo is
+// missing is surfaced as a root, and a final sweep re-homes anything a cycle
+// would otherwise strand. Returns [{ c, depth, indent }] in render order.
+export function orderCommentTree(comments) {
+  const byId = new Map();
+  for (const c of comments) byId.set(c.id, c);
+  const kids = new Map();
+  const roots = [];
+  for (const c of comments) {
+    const p = c.replyTo;
+    if (p && byId.has(p)) {
+      const a = kids.get(p) || []; a.push(c); kids.set(p, a);
+    } else {
+      roots.push(c); // real root, or dangling replyTo → treat as root (never drop)
+    }
+  }
+  const byTs = (a, b) => (a.ts || 0) - (b.ts || 0) || String(a.id).localeCompare(String(b.id));
+  roots.sort(byTs);
+  const out = [];
+  const seen = new Set();
+  const walk = (c, depth) => {
+    if (seen.has(c.id)) return; // cycle guard — never recurse a node twice
+    seen.add(c.id);
+    out.push({ c: c, depth: depth, indent: depth < 2 ? depth : 2 });
+    const ch = kids.get(c.id);
+    if (ch) { ch.sort(byTs); for (const k of ch) walk(k, depth + 1); }
+  };
+  for (const r of roots) walk(r, 0);
+  for (const c of comments) if (!seen.has(c.id)) walk(c, 0); // sweep any cycle-stranded node
+  return out;
+}
+
 function companyBody(): string {
   return `<!doctype html>
 <html lang="en">
@@ -315,7 +354,11 @@ function companyBody(): string {
        reply/resolve affordances + a resolved (dimmed) state. */
     #detail-comments .comments-head { margin:14px 0 8px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
     #detail-comments .cmt { display:flex; gap:10px; padding:9px 12px; margin-bottom:10px; background:var(--col); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:10px; }
-    #detail-comments .cmt.reply { margin-left:26px; }
+    #detail-comments .cmt.reply { /* indent set inline from clamped level (kobo-171) */ }
+    #detail-comments .cmt-replytarget { align-self:flex-start; margin:2px 0 4px; padding:2px 8px; font-size:11px; line-height:1.4; color:var(--muted); background:var(--panel2, rgba(127,127,127,.12)); border:1px solid var(--border, rgba(127,127,127,.25)); border-radius:10px; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    #detail-comments .cmt-replytarget:hover, #detail-comments .cmt-replytarget:focus-visible { color:var(--link); border-color:var(--link); }
+    #detail-comments .cmt.cmt-flash { animation:cmtFlash 1.5s ease-out; }
+    @keyframes cmtFlash { 0% { background:var(--link, #4aa3ff); } 12% { background:color-mix(in srgb, var(--link, #4aa3ff) 35%, transparent); } 100% { background:transparent; } }
     #detail-comments .cmt.resolved { opacity:.55; }
     #detail-comments .cmt-avatar { flex:0 0 auto; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; }
     #detail-comments .cmt-main { flex:1 1 auto; min-width:0; }
@@ -1107,9 +1150,13 @@ function renderDetailFamily(task) {
 // -first, each reply indented under its parent), each unresolved comment carrying a
 // reply box + resolve button; a resolved comment dims + shows who/when. All writes go
 // through postJson (JSON, no innerHTML) → XSS-safe. author server-side is always "tony".
-function commentBubble(task, c, isReply) {
+// kobo-171: indent = clamped level (0 root · 1 · 2 cap); parent = the comment
+// this one replies to (null for a root) → drives the uniform reply-target chip.
+function commentBubble(task, c, indent, parent) {
   const color = authorColor(c.by);
-  const box = el('div', 'cmt' + (isReply ? ' reply' : '') + (c.resolved ? ' resolved' : ''));
+  const box = el('div', 'cmt' + (indent ? ' reply' : '') + (c.resolved ? ' resolved' : ''));
+  box.id = 'cmt-' + c.id; // scroll/highlight target for a child's reply-target chip
+  if (indent) box.style.marginLeft = (indent * 26) + 'px'; // 2-level clamp done upstream
   box.style.borderLeftColor = color;
   const av = el('div', 'cmt-avatar', authorInitials(c.by));
   av.style.background = color; av.style.color = avatarText(color);
@@ -1120,6 +1167,23 @@ function commentBubble(task, c, isReply) {
   if (c.resolved) head.appendChild(el('span', 'cmt-resolved-badge', '✓ resolved' + (c.resolvedBy ? ' · ' + c.resolvedBy : '')));
   head.appendChild(el('span', 'cmt-ts', c.iso ? (relTime(c.ts) + ' · ' + localTs(c.iso)) : text(c.ts)));
   main.appendChild(head);
+  // Uniform reply-target chip on EVERY reply (any depth) — since indent caps at 2,
+  // the chip is what preserves "who is this replying to" past the clamp. All text
+  // via el()/textContent → escape-first, no innerHTML (XSS-safe).
+  if (parent) {
+    const chip = el('button', 'cmt-replytarget'); chip.type = 'button';
+    const snip = (parent.text || '').replace(/\\s+/g, ' ').trim().slice(0, 40);
+    chip.textContent = '↳ ตอบ @' + (parent.by || '?') + (snip ? ' : ' + snip : '');
+    chip.title = 'ไปที่ความเห็นที่ตอบ';
+    chip.addEventListener('click', () => {
+      const tgt = $('cmt-' + parent.id);
+      if (!tgt) return;
+      tgt.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      tgt.classList.add('cmt-flash');
+      setTimeout(() => tgt.classList.remove('cmt-flash'), 1500);
+    });
+    main.appendChild(chip);
+  }
   const body = el('div', 'cmt-body md');
   body.innerHTML = renderNoteBody(c.text || ''); // same escape-first markdown+image path as notes
   main.appendChild(body);
@@ -1159,18 +1223,21 @@ function commentBubble(task, c, isReply) {
   return box;
 }
 
+// kobo-171: pure tree walker injected from the module fn (single source, unit-tested).
+${orderCommentTree.toString()}
+
 function renderDetailComments(task) {
   const host = $('detail-comments');
   host.replaceChildren();
   const comments = task.comments || [];
   if (!comments.length) return;
   host.appendChild(el('div', 'comments-head', 'comments (' + comments.length + ')'));
-  const repliesOf = new Map();
-  for (const c of comments) { if (c.replyTo) { const arr = repliesOf.get(c.replyTo) || []; arr.push(c); repliesOf.set(c.replyTo, arr); } }
-  for (const c of comments) {
-    if (c.replyTo) continue; // rendered under its root below
-    host.appendChild(commentBubble(task, c, false));
-    for (const r of (repliesOf.get(c.id) || [])) host.appendChild(commentBubble(task, r, true));
+  const byId = new Map();
+  for (const c of comments) byId.set(c.id, c);
+  // recurse the FULL tree (depth-3+ no longer dropped); indent clamped to 2 levels.
+  for (const node of orderCommentTree(comments)) {
+    const parent = node.c.replyTo ? byId.get(node.c.replyTo) : null;
+    host.appendChild(commentBubble(task, node.c, node.indent, parent));
   }
 }
 
