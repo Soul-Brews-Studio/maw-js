@@ -13,7 +13,7 @@
  * The cheap regex gate runs first so non-request sends pay ~nothing.
  */
 
-import { addTask, listTasks, type TaskRecord } from "./store";
+import { addTask, listTasks, noteTask, readTask, type TaskRecord } from "./store";
 import { companyOfOracle } from "../worklog/company-scope";
 
 // `[request:<id>]` must lead the message (after optional whitespace). The id is
@@ -96,4 +96,60 @@ export function autoCreateFromDispatch(
     requestId: parsed.requestId,
     ...(repo ? { repo } : {}),
   });
+}
+
+// A card-id reference like `kobo-165`. The whole token is the card id
+// (`<company>-<n>`, the store convention — nextTaskId); the prefix (which may
+// itself contain hyphens, e.g. `kob-payment-5`) IS the company. Greedy prefix so
+// multi-hyphen companies resolve to the full name, not just the last segment.
+const CARD_ID_RE = /\b([a-z][a-z0-9-]*)-(\d+)\b/g;
+const VIA_HEY = "[via hey"; // provenance tag prefix (also the echo guard token)
+
+export interface AutoCaptureDeps {
+  /** existence check — defaults to the real store reader. */
+  readCard?: (company: string, id: string) => TaskRecord | null;
+  /** append a note — defaults to the real store writer. */
+  note?: (company: string, id: string, by: string, text: string) => TaskRecord | null;
+}
+
+/**
+ * Auto-capture (kobo-165): when a `maw hey` message references EXISTING card
+ * id(s) like `kobo-165`, append the message to each as a NOTE — so coordination
+ * said over hey (dispatch / "รอใคร" / breakdown) lands on the board as durable
+ * evidence instead of living only in a hey log. A note, not a comment: a note is
+ * the append-only evidence channel (Board Truth rule 10), never a thread awaiting
+ * a reply, so it is the right home for an auto-captured line.
+ *
+ * Best-effort + narrow, mirroring autoCreateFromDispatch:
+ *   - the card must ALREADY exist (readCard by <prefix=company, id>); an unknown
+ *     ref is skipped silently (never conjure a card — that's autoCreateFromDispatch).
+ *   - sender must resolve (the note author); unresolved → capture nothing.
+ *   - each note is tagged `[via hey→<target>]` for legible provenance AND as the
+ *     echo guard: a captured note can't itself re-trigger capture. The structural
+ *     anti-loop guard (excluding the `task-events` channel, on which notify pings
+ *     ride carrying card-ids) lives at the call site.
+ * Returns the ids captured (for tests/telemetry); [] when nothing matched.
+ */
+export function autoCaptureCardMentions(
+  message: string,
+  target: string,
+  resolveSender: () => string | null,
+  deps: AutoCaptureDeps = {},
+): string[] {
+  if (message.includes(VIA_HEY)) return []; // echo guard — never re-capture a captured note
+  const refs = new Map<string, string>(); // id → company (dedups repeated ids)
+  for (const m of message.matchAll(CARD_ID_RE)) refs.set(m[0], m[1]);
+  if (refs.size === 0) return []; // no card ref — cheapest exit, before resolving sender
+
+  const readCard = deps.readCard ?? readTask;
+  const note = deps.note ?? noteTask;
+  const captured: string[] = [];
+  let sender: string | null | undefined; // resolve lazily + once, only if a ref actually exists
+  for (const [id, company] of refs) {
+    if (!readCard(company, id)) continue; // unknown card → skip silently
+    if (sender === undefined) sender = resolveSender();
+    if (!sender) break; // can't attribute the note (same reason for every ref) → stop
+    if (note(company, id, sender, `${VIA_HEY}→${targetOracle(target)}] ${message}`)) captured.push(id);
+  }
+  return captured;
 }

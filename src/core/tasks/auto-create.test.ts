@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
+  autoCaptureCardMentions,
   autoCreateFromDispatch,
   parseRepo,
   parseRequestDispatch,
@@ -96,5 +97,57 @@ describe("autoCreateFromDispatch", () => {
 
   test("skips when sender cannot be resolved", () => {
     expect(create("[request:x-1] do", "patchwork", null)).toBeNull();
+  });
+});
+
+describe("autoCaptureCardMentions", () => {
+  const existing = new Set(["kobo-1", "kobo-2", "kob-payment-5", "eq3-11"]);
+  const noted: { company: string; id: string; by: string; text: string }[] = [];
+  const deps = {
+    readCard: (_c: string, id: string) => (existing.has(id) ? ({ id } as never) : null),
+    note: (company: string, id: string, by: string, text: string) => {
+      noted.push({ company, id, by, text });
+      return {} as never;
+    },
+  };
+  beforeEach(() => { noted.length = 0; });
+
+  const cap = (msg: string, target = "m5:patchwork", sender: string | null = "eq3") =>
+    autoCaptureCardMentions(msg, target, () => sender, deps);
+
+  test("captures an existing card ref as a note by sender, tagged [via hey→target]", () => {
+    expect(cap("pls look at kobo-1 today")).toEqual(["kobo-1"]);
+    expect(noted).toHaveLength(1);
+    expect(noted[0]).toMatchObject({ company: "kobo", id: "kobo-1", by: "eq3" });
+    expect(noted[0].text).toBe("[via hey→patchwork] pls look at kobo-1 today");
+  });
+  test("dedups a repeated id, captures multiple distinct cards", () => {
+    expect(cap("kobo-1 and kobo-1 and kobo-2")).toEqual(["kobo-1", "kobo-2"]);
+    expect(noted).toHaveLength(2);
+  });
+  test("company prefix may contain hyphens (<company>-<n>)", () => {
+    expect(cap("bug in kob-payment-5")).toEqual(["kob-payment-5"]);
+    expect(noted[0].company).toBe("kob-payment");
+  });
+  test("company name ending in a digit is captured (eq3-11, not dropped)", () => {
+    expect(cap("look at eq3-11")).toEqual(["eq3-11"]);
+    expect(noted[0].company).toBe("eq3");
+  });
+  test("skips unknown / non-card tokens silently (kobo-999, utf-8)", () => {
+    expect(cap("what about kobo-999 or utf-8 encoding")).toEqual([]);
+    expect(noted).toEqual([]);
+  });
+  test("no card ref → no-op, sender never resolved", () => {
+    let resolved = false;
+    autoCaptureCardMentions("just a normal message", "patchwork", () => { resolved = true; return "eq3"; }, deps);
+    expect(resolved).toBe(false);
+  });
+  test("skips when sender cannot be resolved", () => {
+    expect(cap("look at kobo-1", "patchwork", null)).toEqual([]);
+    expect(noted).toEqual([]);
+  });
+  test("echo guard: a message already tagged [via hey] is never re-captured", () => {
+    expect(cap("[via hey→patchwork] pls look at kobo-1")).toEqual([]);
+    expect(noted).toEqual([]);
   });
 });
