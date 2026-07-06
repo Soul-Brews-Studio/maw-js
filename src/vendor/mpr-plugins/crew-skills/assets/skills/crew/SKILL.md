@@ -1,30 +1,30 @@
 ---
 name: crew
-description: Spin up a crew — worker ×N (raw claude panes, max 3) ใต้ coordinator. worker = raw pane อิสระ (tmux split + --dangerously-skip-permissions) → coordinator toilet/clear แล้ว worker ยังวิ่ง. coordinator = บานพับ (ใน warroom) หรือ pane ที่เรียก /crew. spawn = auto-kick (worker boot → รับ first hey อัตโนมัติ ไม่ค้าง idle รอ manual). crew ต้องอยู่ใน company. Use when user says "/crew", "เรียก crew", "ขอ coordinator", or an oracle needs a work team.
+description: Spin up a crew — worker ×N (raw claude panes, max 3) ใต้ coordinator. worker = raw pane อิสระ (tmux split + --dangerously-skip-permissions) → coordinator toilet/clear แล้ว worker ยังวิ่ง. coordinator = Conductor (ใน warroom) หรือ pane ที่เรียก /crew. spawn = auto-kick (worker boot → รับ first hey อัตโนมัติ ไม่ค้าง idle รอ manual). crew ต้องอยู่ใน company. Use when user says "/crew", "เรียก crew", "ขอ coordinator", or an oracle needs a work team.
 ---
 
 # /crew — worker ×N (raw engine panes) ใต้ coordinator
 
 ```
-        coordinator  (= บานพับ ใน warroom · หรือ pane ที่เรียก /crew)
+        coordinator  (= Conductor ใน warroom · หรือ pane ที่เรียก /crew)
                │  spawn + auto-kick + dispatch + review — ไม่ execution เอง
    ┌───────────┼───────────┐
  .N worker-1  .N worker-2  .N worker-3     ← raw claude panes (max 3)
  1 งาน/pane    parallel = spawn เพิ่ม        --settings crew-worker (Stop hook idle→coordinator)
 ```
 
-**crew = มือล้วน (worker pane).** coordinator **ไม่ใช่ pane ใน crew** — คือ **บานพับ** (warroom) หรือ pane ที่เรียก /crew แบบ standalone. บานพับ สับงาน→จ่าย→คุม→รวม→review; crew ลงมือ. *(pivot kobo-150: ทิ้ง session-coord mode เดิมที่ `.0 = coordinator` แถวเดียวกับ worker — coordinator อยู่**เหนือ**บานพับ ไม่ปนแถว worker; worker คุยขึ้นบานพับ ไม่ใช่ lead)*
+**crew = มือล้วน (worker pane).** coordinator **ไม่ใช่ pane ใน crew** — คือ **Conductor** (warroom) หรือ pane ที่เรียก /crew แบบ standalone. Conductor สับงาน→จ่าย→คุม→รวม→review; crew ลงมือ. *(pivot kobo-150: ทิ้ง session-coord mode เดิมที่ `.0 = coordinator` แถวเดียวกับ worker — coordinator (Conductor) อยู่**เหนือ**แถว worker ไม่ปนกับ worker; worker คุยขึ้น Conductor ไม่ใช่ lead)*
 
 **Model: N hands, 1 soul** — worker **ไม่ใช่ sub-oracle แยกร่าง** เป็น oracle คนเดียว (eq3/patchwork) แยก pane ทำงานขนาน. worker = raw claude pane ใน repo → oracle resolve อัตโนมัติจาก session name (hook key) → **เสียบ infra ของ oracle ฟรี** (worklog, status, liveness) โดยไม่ต่อท่อใหม่. *(verified 2026-07-04: raw-pane Bash/Edit logs เป็น oracle เอง)*
 
-- **coordinator** (บานพับ) = ถือช่อง board/dispatch, spawn/auto-kick/ปลด worker, รวมผล, review PR ส่งกลับ lead. **ไม่ทำ execution เอง**. duties เต็ม §8. *(contract เต็มของบานพับ = **kobo-151** — SKILL นี้ไม่เขียนล้ำ; ที่นี่พูดเฉพาะบท coordinator ของ crew)*
+- **coordinator** (Conductor) = ถือช่อง board/dispatch, spawn/auto-kick/ปลด worker, รวมผล, review PR ส่งกลับ lead. **ไม่ทำ execution เอง**. duties เต็ม §8. *(contract เต็มของConductor = **kobo-151** — SKILL นี้ไม่เขียนล้ำ; ที่นี่พูดเฉพาะบท coordinator ของ crew)*
 - **worker-N** = execution — raw claude pane, 1 worker ต่อ 1 งาน. งาน parallel = spawn เพิ่ม (**max 3**)
 - **🚫 ห้าม `run_in_background`** — งาน bg มองไม่เห็น ค้างไม่รู้. parallel = worker pane เพิ่ม (เห็นบน tmux). ยกเว้น watch เล็ก (รอ CI) รันใน pane ของ worker ที่ถืองานนั้น
 - coordinator↔worker + worker↔worker คุยผ่าน **`maw hey <pane-addr>`**
 
 **Signal+state: push the SIGNAL, pull the STATE** — worker เขียน state ลงไฟล์ (`$CREW_STATE_DIR/worker-N.md`) + ping coordinator 1 บรรทัดเมื่อมีเหตุ. Stop hook เสริม ping idle อัตโนมัติ (§1). เนื้ออยู่ในไฟล์ (raw pane ไม่มี auto-idle-notif → signal+state คือกลไกเดียว).
 
-Status dir: **`$CREW_STATE_DIR`** (default `ψ/active/crew/`, warroom ตั้ง `ψ/active/warroom/`) — ephemeral, gitignored — roster (`coord.md` standalone / `banphab.md` ใน warroom, เจ้าของ = coordinator) + `worker-1.md`, `worker-1-contract.md`, ...
+Status dir: **`$CREW_STATE_DIR`** (default `ψ/active/crew/`, warroom ตั้ง `ψ/active/warroom/`) — ephemeral, gitignored — roster (`coord.md` standalone / `conductor.md` ใน warroom, เจ้าของ = coordinator) + `worker-1.md`, `worker-1-contract.md`, ...
 
 ## 0. Company-gate (crew ⊂ company)
 
@@ -39,10 +39,10 @@ CO=$(grep -rl "\"$(tmux display-message -p '#{session_name}' | sed 's/^[0-9]*-//
 
 ## 1. Spawn + auto-kick — raw tmux + claude (จาก coordinator pane)
 
-รันจาก **coordinator pane** (บานพับ). **Contract เขียนลงไฟล์ก่อน แล้ว cat ตอน spawn** — กัน backtick/`$(...)` ใน Contract โดน shell substitute (M2):
+รันจาก **coordinator pane** (Conductor). **Contract เขียนลงไฟล์ก่อน แล้ว cat ตอน spawn** — กัน backtick/`$(...)` ใน Contract โดน shell substitute (M2):
 
 ```bash
-COORD=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_id}')   # coordinator (บานพับ) pane-id
+COORD=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_id}')   # coordinator (Conductor) pane-id
 STATE_DIR="${CREW_STATE_DIR:-ψ/active/crew}"
 mkdir -p "$STATE_DIR"
 # 1) เขียน Contract ลงไฟล์ — heredoc delimiter 'EOF' (quoted) = ไม่ expand อะไรเลย
@@ -58,9 +58,9 @@ PANE=$(tmux split-window -h -P -F '#{pane_id}' \
 - ไม่ใช้ `maw team spawn` / `--exec` — คุม tmux เอง → คุม flag (skip-perm) + auto-kick เอง
 - **env 3 ตัวบังคับ (AC):**
   - `CREW_ROLE=worker-N` — gate ให้ Stop hook fire เฉพาะ worker pane
-  - `CREW_COORD_PANE=<coordinator pane-id>` — Stop hook resolve addr **สด**จากตัวนี้ → ping **coordinator (บานพับ)** ไม่ใช่ lead
+  - `CREW_COORD_PANE=<coordinator pane-id>` — Stop hook resolve addr **สด**จากตัวนี้ → ping **coordinator (Conductor)** ไม่ใช่ lead
   - `CREW_STATE_DIR=<dir>` — worker เขียน `worker-N.md` + hook รายงาน state path จากตัวนี้ (warroom ตั้ง `ψ/active/warroom` → hook + worker ใช้ dir เดียวกันอัตโนมัติ)
-- **Stop hook = completion signal (kobo-91 TEST2 deadlock fix)** — worker เท่านั้น spawn ด้วย `--settings "$HOME/.claude/crew-worker-settings.json"` (Stop hook `crew-worker-stop.sh` — global copy ติดตั้งโดย `maw crew-skills sync`). ทุกจบ turn hook resolve บานพับ addr สดจาก `CREW_COORD_PANE` → `maw hey` แจ้ง "worker-N idle" + state path (`${CREW_STATE_DIR:-ψ/active/crew}/worker-N.md`) = **completion signal deterministic ไม่พึ่งความจำ model** (ping หาย → ทุกคน idle รอกันเป็นวง = deadlock ที่เจอจริง). coordinator/lead spawn ปกติ (ไม่มี `CREW_ROLE`) → hook exit ทันที (env-gate = local-first, ไม่แตะ pane อื่น)
+- **Stop hook = completion signal (kobo-91 TEST2 deadlock fix)** — worker เท่านั้น spawn ด้วย `--settings "$HOME/.claude/crew-worker-settings.json"` (Stop hook `crew-worker-stop.sh` — global copy ติดตั้งโดย `maw crew-skills sync`). ทุกจบ turn hook resolve Conductor addr สดจาก `CREW_COORD_PANE` → `maw hey` แจ้ง "worker-N idle" + state path (`${CREW_STATE_DIR:-ψ/active/crew}/worker-N.md`) = **completion signal deterministic ไม่พึ่งความจำ model** (ping หาย → ทุกคน idle รอกันเป็นวง = deadlock ที่เจอจริง). coordinator/lead spawn ปกติ (ไม่มี `CREW_ROLE`) → hook exit ทันที (env-gate = local-first, ไม่แตะ pane อื่น)
 
 ### auto-kick (kobo-150 — ⭐ กัน fold-deadlock kobo-96)
 
@@ -96,7 +96,7 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
 
 ## 2. Roster — coordinator เขียนแถวตอน spawn
 
-`%pane-id` = **stable identity** (นิ่งข้าม reorder). `session:window.index` = **address ที่ maw hey ใช้** แต่ index **เลื่อนเมื่อ pane ตาย/เพิ่ม** → เก็บ `%pane-id` เป็น key, derive index สดตอนจะ hey (§3). roster file = `coord.md` (standalone) / `banphab.md` (warroom, เจ้าของ = บานพับ):
+`%pane-id` = **stable identity** (นิ่งข้าม reorder). `session:window.index` = **address ที่ maw hey ใช้** แต่ index **เลื่อนเมื่อ pane ตาย/เพิ่ม** → เก็บ `%pane-id` เป็น key, derive index สดตอนจะ hey (§3). roster file = `coord.md` (standalone) / `conductor.md` (warroom, เจ้าของ = Conductor):
 
 ```md
 ## coordinator @ <pane-addr> · company:<co> · <time>
@@ -128,7 +128,7 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 
 ## 4. Worker Contract (เนื้อหาไฟล์ contract — แทน `<N>`/company/dept/board)
 
-> คุณคือ "worker-<N>" — execution ของ crew (raw claude pane ใน repo, company `<co>`, dept `<dept>`, board `<board>`). คุณคือ **มือของ oracle-ใน-company** ไม่ใช่ oracle แยกร่าง. ทำงานที่ได้รับ (จาก **coordinator (บานพับ)** ผ่าน `maw hey` หรือ card ที่ assign) → เขียนความคืบหน้า/ผลลง `$CREW_STATE_DIR/worker-<N>.md` → **ping coordinator 1 บรรทัดเมื่อไฟล์เปลี่ยนมีนัย** (เสร็จ/block/เจอของแปลก) ผ่าน `maw hey <coordinator-addr>`. coordinator addr resolve สดจาก `CREW_COORD_PANE` pane-id.
+> คุณคือ "worker-<N>" — execution ของ crew (raw claude pane ใน repo, company `<co>`, dept `<dept>`, board `<board>`). คุณคือ **มือของ oracle-ใน-company** ไม่ใช่ oracle แยกร่าง. ทำงานที่ได้รับ (จาก **coordinator (Conductor)** ผ่าน `maw hey` หรือ card ที่ assign) → เขียนความคืบหน้า/ผลลง `$CREW_STATE_DIR/worker-<N>.md` → **ping coordinator 1 บรรทัดเมื่อไฟล์เปลี่ยนมีนัย** (เสร็จ/block/เจอของแปลก) ผ่าน `maw hey <coordinator-addr>`. coordinator addr resolve สดจาก `CREW_COORD_PANE` pane-id.
 >
 > **🚫 ห้าม `run_in_background`** — ทุกอย่างรันใน pane นี้ให้มองเห็น. งานรอ (CI, poll) = foreground (`gh pr checks --watch`). งานใหญ่เกิน 1 คน → บอก coordinator spawn เพิ่ม
 >
@@ -155,7 +155,7 @@ worker = top-level tmux pane → **survive coordinator-death by construction** (
 
 | เหตุการณ์ | worker | ทำต่อยังไง |
 |-----------|--------|-----------|
-| **coordinator (บานพับ) toilet/clear** | ยังวิ่ง (pane อิสระ) | coordinator ใหม่: `cat` roster → resolve pane-id → `maw hey` ต่อ (เงียบๆ seat) |
+| **coordinator (Conductor) toilet/clear** | ยังวิ่ง (pane อิสระ) | coordinator ใหม่: `cat` roster → resolve pane-id → `maw hey` ต่อ (เงียบๆ seat) |
 | **worker toilet/clear** | pane-id นิ่ง (process เดิม) | Contract สั่ง re-seat: อ่าน worker-N.md เอง |
 | **worker ตาย** (pane-id หาย) | process ตายจริง | respawn role เดิม (§1) → instance ใหม่อ่าน worker-N.md ต่อ (auto-kick ใหม่) |
 | **machine/tmux restart** | ตายหมด | respawn ทั้งหมดจาก roster + worker-*.md |
@@ -172,9 +172,9 @@ worker = oracle pane → fire hook เดิมอัตโนมัติ (work
 - **crew-done = worker idle หมด** → coordinator wrap/notify
 - ⚠️ worklog เก็บเฉพาะ **significant tool** (git/gh/Edit/Write ไม่เก็บ echo trivial) *(verified)* → ใช้ดู activity มีนัย ไม่ใช่ liveness ละเอียด (นั่นใช้ maw ls/api)
 
-## 8. Coordinator duties (บท coordinator = บานพับ / pane ที่เรียก /crew)
+## 8. Coordinator duties (บท coordinator = Conductor / pane ที่เรียก /crew)
 
-> coordinator = pane เดียวที่เรียก /crew (ใน warroom = บานพับ). **spawn worker แต่ไม่ใช่ worker** — อยู่เหนือแถว crew.
+> coordinator = pane เดียวที่เรียก /crew (ใน warroom = Conductor). **spawn worker แต่ไม่ใช่ worker** — อยู่เหนือแถว crew.
 
 1. **spawn + auto-kick**: §1 — worker boot → ready-ping → ยิง first task ทันที (ไม่ปล่อย idle)
 2. **signal+state**: overwrite roster (worker ที่ live + งานค้าง)
@@ -189,7 +189,7 @@ worker = oracle pane → fire hook เดิมอัตโนมัติ (work
 11. **ping-loss fallback (kobo-91)**: dispatch/spawn แล้วเงียบเกิน ~2-3 นาที → **อ่าน `worker-N.md` verify เอง** (ping/ready-ping หายได้จาก input-guard/index-shift — state file คือความจริง อย่ารอ ping อย่างเดียว). Stop hook + ready-ping ช่วยส่ง signal deterministic แล้ว แต่ fallback นี้ยังต้องมี
 12. **review + ส่งกลับ lead**: worker เสร็จ (idle + PR) → coordinator review → รวมผล ส่งขึ้น lead. **crew ไม่ merge เอง** (reviewer/human เคาะ)
 
-**Inbound routing**: ใน warroom, task-events route เข้าบานพับ (kobo-152). standalone: pane coordinator รับ maw event ที่เด้ง pane lowest. ถ้า `ψ/active/dnd.on` มี → park non-critical ตาม `/dnd` (critical เท่านั้นแทรก).
+**Inbound routing**: ใน warroom, task-events route เข้าConductor (kobo-152). standalone: pane coordinator รับ maw event ที่เด้ง pane lowest. ถ้า `ψ/active/dnd.on` มี → park non-critical ตาม `/dnd` (critical เท่านั้นแทรก).
 
 ## 9. Teardown (เก็บขยะตัวเอง)
 
@@ -200,5 +200,5 @@ worker = oracle pane → fire hook เดิมอัตโนมัติ (work
 
 ---
 
-> *"N hands, 1 soul — worker ไม่ใช่ร่างใหม่ เป็นมือที่แยก pane ใต้บานพับ. coordinator หายได้ worker ยังวิ่ง, worker หายได้งานยังอยู่ในไฟล์. auto-kick = ไม่มีใครค้างรอใคร."*
-> — crew (raw engine pane), pivot 2026-07-04 · worker×N ใต้บานพับ + auto-kick 2026-07-06 (kobo-150)
+> *"N hands, 1 soul — worker ไม่ใช่ร่างใหม่ เป็นมือที่แยก pane ใต้Conductor. coordinator หายได้ worker ยังวิ่ง, worker หายได้งานยังอยู่ในไฟล์. auto-kick = ไม่มีใครค้างรอใคร."*
+> — crew (raw engine pane), pivot 2026-07-04 · worker×N ใต้Conductor + auto-kick 2026-07-06 (kobo-150)
