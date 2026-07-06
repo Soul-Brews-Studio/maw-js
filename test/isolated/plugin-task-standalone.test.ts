@@ -47,6 +47,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("addTask");
     expect(src).toContain("noteTask"); // kobo-39: append-only note — the only non-terminal verb (mid-flight truth)
     expect(src).toContain("notifyTaskComment"); // kobo-46: a note by a non-author pokes the assignee (comment = poke) on task-events
+    expect(src).toContain("notifyCommentReply"); // kobo-156: a reply also pokes the parent comment's author (thread reaches the person answered)
     expect(src).toContain("commentTask"); // kobo-140: threaded ask/answer comment (the ask channel — thread/resolve/@mention)
     expect(src).toContain("resolveComment"); // kobo-140: resolve a comment thread → drops it from the mentions queue
     expect(src).toContain("migrateQuestionNotesToComments"); // kobo-142: one-shot copy question-notes → comments (active cards, idempotent)

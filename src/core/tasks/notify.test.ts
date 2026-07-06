@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { notifyParentOfSubcardDone, notifyReviewer, notifyTaskComment } from "./notify";
+import { notifyCommentReply, notifyParentOfSubcardDone, notifyReviewer, notifyTaskComment } from "./notify";
 import type { TaskRecord } from "./store";
 
 const mk = (over: Partial<TaskRecord>): TaskRecord =>
@@ -23,11 +23,26 @@ describe("notifyTaskComment (kobo-46 — comment = poke)", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("an unowned card (no assignee) does not poke", () => {
+  test("an unassigned card falls to the review chain (creator) instead of going silent (kobo-156)", () => {
     const calls: string[][] = [];
-    const sent = notifyTaskComment(mk({ assignee: null }), "tony", "anyone?", (a) => calls.push(a));
-    expect(sent).toBe(false);
+    // no assignee, by="eq3" → resolveReviewer → creator "eq3"; commenter "tony" ≠ target
+    const sent = notifyTaskComment(mk({ assignee: null, by: "eq3" }), "tony", "anyone?", (a) => calls.push(a));
+    expect(sent).toBe(true);
+    expect(calls[0]).toEqual(["--channel", "task-events", "eq3", expect.stringContaining("[task] tony commented on kobo-1")]);
+  });
+
+  test("unassigned card commented by the creator → no self-poke (kobo-156)", () => {
+    const calls: string[][] = [];
+    const sent = notifyTaskComment(mk({ assignee: null, by: "eq3" }), "eq3", "mine", (a) => calls.push(a));
+    expect(sent).toBe(false); // resolveReviewer → "eq3" === commenter → skip
     expect(calls).toHaveLength(0);
+  });
+
+  test("a comment on a DONE card still pokes the assignee (regression-safe, kobo-156)", () => {
+    const calls: string[][] = [];
+    const sent = notifyTaskComment(mk({ assignee: "patchwork", state: "done" }), "tony", "one more thing", (a) => calls.push(a));
+    expect(sent).toBe(true);
+    expect(calls[0][2]).toBe("patchwork");
   });
 
   test("long comment is previewed (≤80 chars) in the poke", () => {
@@ -42,6 +57,37 @@ describe("notifyTaskComment (kobo-46 — comment = poke)", () => {
   test("a spawn failure is swallowed (best-effort) → returns false", () => {
     const sent = notifyTaskComment(mk({}), "tony", "boom", () => { throw new Error("spawn failed"); });
     expect(sent).toBe(false);
+  });
+});
+
+describe("notifyCommentReply (kobo-156 — a reply pokes the parent comment's author)", () => {
+  const withComments = (over: Partial<TaskRecord> = {}): TaskRecord =>
+    mk({ comments: [{ id: "c1", ts: 1, iso: "", by: "userA", text: "the question" }], ...over });
+
+  test("reply to userA's comment by userB → pokes userA on task-events", () => {
+    const calls: string[][] = [];
+    const r = notifyCommentReply(withComments(), "c1", "userB", (a) => calls.push(a));
+    expect(r).toBe("userA");
+    expect(calls[0]).toEqual(["--channel", "task-events", "userA", expect.stringContaining("[task] userB replied to your comment on kobo-1")]);
+  });
+
+  test("reply to your own comment → no self-poke", () => {
+    const calls: string[][] = [];
+    const r = notifyCommentReply(withComments(), "c1", "userA", (a) => calls.push(a));
+    expect(r).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("replyTo names no comment on the card → skipped, not crashed", () => {
+    const calls: string[][] = [];
+    const r = notifyCommentReply(withComments(), "c99", "userB", (a) => calls.push(a));
+    expect(r).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a spawn failure is swallowed (best-effort) → returns null", () => {
+    const r = notifyCommentReply(withComments(), "c1", "userB", () => { throw new Error("boom"); });
+    expect(r).toBeNull();
   });
 });
 

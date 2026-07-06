@@ -13,7 +13,7 @@
  */
 
 import { addTask, archiveTask, checklistProgress, commentTask, completeTask, dependencyBlock, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, resolveComment, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
-import { notifyTaskComment } from "./notify";
+import { notifyCommentReply, notifyTaskComment } from "./notify";
 
 export interface TaskCard {
   id: string;
@@ -164,7 +164,10 @@ export async function handleTaskCommentRequest(request: Request): Promise<Respon
   if (!task) {
     return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
   }
-  notifyTaskComment(task, by, text); // comment = poke assignee (non-author only, task-events → coord pane)
+  notifyTaskComment(task, by, text); // comment = poke assignee / review-chain fallback (task-events → coord pane)
+  // kobo-156: a reply also pings the parent comment's author (thread reaches the
+  // person answered, not just the assignee). Tony's board reply is the main case.
+  if (replyTo) notifyCommentReply(task, replyTo, by);
   return Response.json({ ok: true, id: task.id, comments: task.comments });
 }
 

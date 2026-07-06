@@ -79,7 +79,7 @@ import {
   type TaskRecord,
   type TaskState,
 } from "../../../core/tasks/store";
-import { notifyReviewer, notifyTaskComment } from "../../../core/tasks/notify";
+import { notifyCommentReply, notifyReviewer, notifyTaskComment } from "../../../core/tasks/notify";
 
 /**
  * Best-effort `owner/repo` of the git repo at CWD (kobo-80). The worker links a PR
@@ -688,9 +688,16 @@ export async function runTask(
         ping(who, `[task] ${me} @${who} on ${t.id} (${added.id}): ${text}`);
         console.log(`  \x1b[36m→ pinged @${who}\x1b[0m`);
       }
-      // and poke the assignee (comment = nudge, kobo-46) unless they were @mentioned already or are self
-      if (t.assignee && t.assignee !== me && !parseMentions(text).includes(t.assignee)) {
-        if (notifyTaskComment(t, me, text)) console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
+      // and poke the assignee (comment = nudge, kobo-46) unless they were @mentioned already or are self.
+      // unassigned cards fall to the review chain inside notifyTaskComment (kobo-156).
+      if (t.assignee !== me && !parseMentions(text).includes(t.assignee ?? "")) {
+        if (notifyTaskComment(t, me, text)) console.log(`  \x1b[36m→ pinged ${t.assignee ?? "creator/reviewer"}\x1b[0m`);
+      }
+      // kobo-156: a reply also pings the AUTHOR of the comment it answers, so the
+      // thread reaches the person addressed (in addition to the assignee poke above).
+      if (added.replyTo) {
+        const repliedTo = notifyCommentReply(t, added.replyTo, me);
+        if (repliedTo) console.log(`  \x1b[36m→ pinged ${repliedTo} (reply)\x1b[0m`);
       }
     } else if (subcmd === "comments") {
       // List a card's comment thread (kobo-140), oldest first, resolved marked.

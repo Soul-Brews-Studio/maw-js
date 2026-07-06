@@ -25,9 +25,12 @@ function spawnHey(args: string[]): void {
 }
 
 /**
- * Poke the assignee about a new comment — but only when the commenter is NOT the
- * assignee (no self-poke) and the card actually has an owner. Returns true when a
- * ping was dispatched, false when skipped (self-comment / unowned).
+ * Poke someone about a new comment — the assignee, or, when the card is
+ * UNASSIGNED (kobo-156), the review chain (creator → reviewer → human via
+ * resolveReviewer) so a comment on an ownerless card still reaches a person
+ * instead of going silent. No self-poke (commenter === target is skipped). Fires
+ * even when the card is done — the assignee follows the card. Returns true when a
+ * ping was dispatched, false when skipped (self-comment / nobody to reach).
  */
 export function notifyTaskComment(
   task: TaskRecord,
@@ -35,15 +38,43 @@ export function notifyTaskComment(
   text: string,
   send: (args: string[]) => void = spawnHey,
 ): boolean {
-  const assignee = task.assignee;
-  if (!assignee || assignee === commenter) return false; // self-comment or no owner → nothing to poke
+  const target = task.assignee || resolveReviewer(task); // owner, else the review chain (unassigned fallback, kobo-156)
+  if (!target || target === commenter) return false; // self-comment or nobody to reach → nothing to poke
   const oneLine = text.replace(/\s+/g, " ").trim();
   const preview = oneLine.length > 80 ? oneLine.slice(0, 77) + "…" : oneLine;
   try {
-    send(["--channel", CHANNEL_TASK_EVENTS, assignee, `[task] ${commenter} commented on ${task.id}: ${preview}`]);
+    send(["--channel", CHANNEL_TASK_EVENTS, target, `[task] ${commenter} commented on ${task.id}: ${preview}`]);
     return true;
   } catch {
     return false; // best-effort — the note is already stored
+  }
+}
+
+/**
+ * Poke the AUTHOR of a parent comment when someone replies to it (kobo-156). A
+ * reply threads under an existing comment (`replyTo`); the person who wrote that
+ * comment is the one the answer is aimed at, so the thread should reach them —
+ * not just the card's assignee (which notifyTaskComment already handles, in
+ * addition to this). No self-poke (a reply to your own comment is skipped), and a
+ * `replyTo` that names no comment on the card is skipped, not crashed (commentTask
+ * already rejects dangling threads upstream — this is a defensive belt). Returns
+ * the pinged author, or null when skipped. `send` injectable for tests.
+ */
+export function notifyCommentReply(
+  task: TaskRecord,
+  replyTo: string,
+  replier: string,
+  send: (args: string[]) => void = spawnHey,
+): string | null {
+  const parent = task.comments?.find((c) => c.id === replyTo);
+  if (!parent) return null; // replyTo names no comment on this card → skip (no crash)
+  const author = parent.by;
+  if (!author || author === replier) return null; // self-reply → nothing to poke
+  try {
+    send(["--channel", CHANNEL_TASK_EVENTS, author, `[task] ${replier} replied to your comment on ${task.id}`]);
+    return author;
+  } catch {
+    return null; // best-effort — the comment is already stored
   }
 }
 
