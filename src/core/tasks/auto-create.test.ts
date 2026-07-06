@@ -53,6 +53,12 @@ describe("targetOracle / parseRepo", () => {
     expect(targetOracle("m5:patchwork")).toBe("patchwork");
     expect(targetOracle("08-mawjs:neo-oracle")).toBe("neo");
   });
+  test("strips pane index + session prefix (kobo-169 provenance)", () => {
+    expect(targetOracle("13-patchwork:0.0")).toBe("patchwork"); // pane index → session token holds name
+    expect(targetOracle("05-eq3:eq3-oracle.0")).toBe("eq3"); // -oracle + pane index
+    expect(targetOracle("eq3")).toBe("eq3"); // bare name unchanged
+    expect(targetOracle("phaith:01-hojo")).toBe("hojo"); // node:oracle, best-effort leading-prefix strip
+  });
   test("parseRepo pulls target_repo when present", () => {
     expect(parseRepo("[request:x] do\ntarget_repo: meganechan/maw-js\n...")).toBe("meganechan/maw-js");
     expect(parseRepo("[request:x] no repo here")).toBeUndefined();
