@@ -1,209 +1,226 @@
 ---
 name: warroom
-description: Spin up a warroom — 3 บทหัว (raw claude panes) ข้าง human/lead .0 — lead(opus,human) · comm(sonnet,peer/federation) · บานพับ(opus,decompose→route→review + crew-coordinator). ทุก teammate = raw pane อิสระ → lead toilet/clear ได้ ทีมไม่ตาย. kernel เดียวกับ /crew (validated kobo-89/91). Use when user says "/warroom", "เปิด warroom", "3 pane", or wants comm + บานพับ beside the human pane.
+description: Spin up a warroom — 4 บท (raw claude panes) — lead(opus,human) · comm(sonnet,peer/federation) · Conductor 🎼(opus,decompose→route→light-exec) · worker 🔎(opus,review). ทุก teammate = raw pane อิสระ → lead toilet/clear ได้ ทีมไม่ตาย. kernel เดียวกับ /crew (validated kobo-89/91). Use when user says "/warroom", "เปิด warroom", "4 pane", or wants a Conductor + reviewer beside the human pane.
 ---
 
-# /warroom — lead(.0) | comm | บานพับ (raw engine panes)
+# /warroom — lead(.0) | comm | Conductor 🎼 | worker 🔎 (raw engine panes)
 
 ```
-┌────────────────┬────────────────┐
-│ .0 lead        │ comm           │   ← sonnet · peer/federation chatter (relay ให้ lead)
-│ (human · opus) ├────────────────┤
-│  ซ้าย 50%      │ บานพับ          │   ← opus · decompose→card→route→review + crew-coordinator
-│  เต็มสูง        │ (└ worker ×N ใต้บานพับ — /crew) │
-└────────────────┴────────────────┘
+┌──────────┬─────────────────┐
+│ comm 15% │                 │  ← comm: sonnet · peer/federation relay (แถบบาง บนซ้าย)
+├──────────┤   Conductor 🎼   │  ← conductor: opus · decompose→route→light-exec
+│          ├─────────────────┤
+│  lead    │    worker 🔎     │  ← worker: opus · review (correctness+scope, ตาอิสระ)
+│ (opus)   │                 │
+│  ใหญ่สุด   │  conductor+worker เท่ากัน (ขวา) │
+└──────────┴─────────────────┘
 ```
 
-**บท = ของ pane ไม่ใช่ 2 team** (grill 2026-07-06, kobo-148). warroom = **หัว 3 บท**: lead คิด/ตัดสิน · comm สื่อสาร peer · บานพับ แปลงแผน→งาน→คุมช่าง. **มือ (worker ×N)** เกิดใต้บานพับ ผ่าน /crew (kobo-150) — ไม่ใช่ pane ของ warroom โดยตรง.
+**บท = ของ pane ไม่ใช่ team** (grill+dogfood 2026-07-06 รอบ 2, kobo-148/157). warroom = **4 บทในทีมเดียว, ≤4 pane ไม่เกิน**. canonical role model = CLAUDE.md `maw:crew-vs-warroom` block (source of truth) — ไฟล์นี้ทำให้ /warroom deploy ตรงกับที่ dogfood แล้ว work.
 
-**Kernel = /crew (validated kobo-89/91)** — spawn form, comm (resolve pane-id→index), roster, Stop hook, liveness, toilet/re-seat, teardown: **ใช้ crew SKILL §0-§9 ทั้งหมด**. ไฟล์นี้เขียนเฉพาะส่วนต่างของ warroom (3-head + model tier).
+| บท | model | ทำ | ไม่ทำ |
+|----|-------|-----|-------|
+| **lead** (.0) | opus | brief · ตัดสิน · merge-gate · คุย human | ไม่ทัก peer ตรง (delegate comm, ยกเว้น decision-gate) |
+| **comm** | sonnet | peer/federation relay · รับ inbox/hey · escalate lead conclusion-ready | ไม่แตะ code/hash/เงิน/deploy · ไม่ decompose/review |
+| **Conductor 🎼** | opus | decompose (story-split→card) · route/dispatch · **light-exec เอง** (board-ops/doc/ψ) | ไม่ทำ heavy code (→patchwork/worker) · **ไม่ review งานตัวเอง** |
+| **worker 🔎** | opus | **review งานคนอื่น** (conductor + patchwork PR) — correctness+scope · ตาอิสระ | **ไม่เขียนงานเอง** (เขียน=ตรวจงานตัวเอง=ห้าม) |
 
-**Model tier (Tony grill 2026-07-06)** — ตั้งผ่าน `claude --model <alias>` ตอน spawn (verified: CLI รับ alias `opus`/`sonnet` per pane):
-| บท | model | ทำไม |
-|----|-------|------|
-| lead (.0) | opus | judgment สูงสุด — คิด/ตัดสิน/คุย human |
-| comm | **sonnet** | relay/aggregate ปริมาณมาก judgment ต่ำ → คุ้มกว่า |
-| บานพับ | opus | decompose/route/review = judgment งาน |
+**model tier** — ตั้งผ่าน `claude --model <alias>` ตอน spawn (verified: CLI รับ alias `opus`/`sonnet` per pane): lead·conductor·worker = opus (judgment), comm = **sonnet** (relay ปริมาณมาก judgment ต่ำ → คุ้ม).
 
-**Model: push the SIGNAL, pull the STATE** + **N hands 1 soul** — comm/บานพับ/worker = มือของ eq3 แยก pane, เสียบ infra eq3 ฟรี (worklog/status/liveness).
+**Kernel = /crew (validated kobo-89/91)** — spawn form, comm (resolve pane-id→index), roster, Stop hook, liveness, toilet/re-seat, teardown: **ใช้ crew SKILL §0-§9 ทั้งหมด**. ไฟล์นี้เขียนเฉพาะส่วนต่างของ warroom (4-บท + model tier + layout).
 
-## Lead Discipline (pane .0) ⭐ — lead ห้ามทัก peer ตรง
+**Model: push the SIGNAL, pull the STATE** + **N hands 1 soul** — comm/conductor/worker = มือของ eq3 แยก pane, เสียบ infra eq3 ฟรี (worklog/status/liveness).
 
-> lead (.0) = คุย **human ล้วน**. การคุย peer/federation (oracle อื่น) → **delegate comm**. เหตุผล (2026-07-05): lead ที่ทัก peer เองทำให้ reply เด้งกลับเข้า pane 0 = federation noise บนจอที่ควรเป็น human↔AI. รากไม่ใช่ routing bug — คือ lead ไม่ delegate.
+## แกน role-split (citypaul planning + self-review guard) ⭐
 
-- **routine peer comm** (progress · status · coordinate · ไม่ด่วน) → **สั่ง comm ทัก** ห้าม `maw hey` peer ตรงจาก lead. comm จัดการ + escalate lead **สรุปพร้อม (conclusion-ready, ไม่ให้ human ไป ground ต่อ)**
-- **ยกเว้น decision-gate** (ด่วน + human ต้องเห็น/ตัดสิน: round-trip verify · restart-green · merge relay · blocker-needs-human) → lead ทัก peer **ตรงได้** (เร็ว+แม่น ไม่ผ่าน relay)
-- **default = delegate · gate = exception จงใจ**
-- **งาน (dispatch/decompose/review)** → บานพับ ไม่ใช่ comm. comm = สื่อสาร, บานพับ = งาน.
+- **decompose = 2 ชั้น:** story-split (epic→story, **WHAT**) = **conductor** · planning (story→impl slice+TDD, **HOW**) = **คนทำ** (patchwork/worker วางเอง). conductor ไม่ลงลึก implementation.
+- **self-review = เส้นห้ามข้าม:** **คนทำ ≠ คนตรวจ**. conductor ทำ light-exec → **worker/lead ตรวจ** (conductor ไม่เคาะงานตัวเอง). patchwork เขียน → **worker/conductor ตรวจ** (ไม่ใช่งานตัวเอง). worker เป็น **ตาอิสระที่สาม** = จับ bug ที่คนทำมองข้าม.
+- **conductor light-exec ได้ แต่ยัง card** (board ไม่โกหก) · heavy code → card ไป patchwork (pod) · heavy/parallel → spawn worker เพิ่ม (แต่รวม ≤4 pane).
+- **eq3-specific:** core-code (arra/maw-js) = card ไป `patchwork`. warroom = หัว+มือของ eq3 สำหรับงานนอก core (board-ops, research, ψ/).
 
-(crew **ไม่ใช้**กฎนี้ — crew = worker pane ล้วนใต้บานพับ ไม่มี human seat แยก.)
+## Lead Discipline (pane .0) — lead ห้ามทัก peer ตรง
 
-Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `banphab.md` (roster+state) · `digest.md` (บานพับ รวมให้ lead) · `worker-N.md`
+> lead (.0) = คุย **human ล้วน**. คุย peer/federation → **delegate comm** (reply เด้งกลับ pane 0 = federation noise บนจอที่ควรเป็น human↔AI).
 
-## Spawn (lead ทำครั้งเดียว — จากนั้น comm+บานพับ คุมกันเอง)
+- **routine peer comm** (progress · status · coordinate) → **สั่ง comm ทัก** ห้าม `maw hey` peer ตรงจาก lead. comm escalate lead **conclusion-ready** (ไม่ให้ human ไป ground ต่อ)
+- **ยกเว้น decision-gate** (ด่วน + human ต้องเห็น: round-trip verify · restart-green · merge relay · blocker-needs-human) → lead ทัก peer **ตรงได้**
+- **งาน (decompose/route)** → Conductor · **review** → worker · **สื่อสาร** → comm. lead = brief+ตัดสิน+merge-gate.
+
+Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `conductor.md` (roster+state) · `worker.md` · `digest.md` (conductor รวมให้ lead)
+
+## Spawn (lead ทำครั้งเดียว — จากนั้น comm+conductor+worker คุมกันเอง)
 
 1. **company-gate + fresh-start** — ตาม crew §0 + §9.4 (`rm -f ψ/active/warroom/*.md` ก่อนเสมอ — spawn ซ้ำ = ล้างก่อน)
-2. **lead spawn comm + บานพับ** (raw panes, **ไม่ใส่ worker hook** — hook = worker เท่านั้น; ใส่ `--model` ตาม tier):
+2. **lead spawn comm + Conductor + worker** (raw panes, `--model` ตาม tier). comm+conductor = ไม่มี worker hook · **worker = reviewer** ใช้ crew-worker-settings (Stop hook idle → conductor):
    ```bash
    LEAD=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_id}')
-   # comm — sonnet
+   # comm — sonnet (contract-to-file แล้ว cat ตอน spawn — กัน backtick substitute)
    cat > ψ/active/warroom/comm-contract.md <<'EOF'
    <Comm Contract — §ล่าง>
    EOF
    COMM=$(tmux split-window -h -P -F '#{pane_id}' \
      'cd "'"$PWD"'" && claude --model sonnet --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/comm-contract.md)"')
-   # บานพับ — opus
-   cat > ψ/active/warroom/banphab-contract.md <<'EOF'
-   <บานพับ Contract — kobo-151 เขียนเต็ม; ตอนนี้ stub §ล่าง>
+   # Conductor — opus
+   cat > ψ/active/warroom/conductor-contract.md <<'EOF'
+   <Conductor Contract — §ล่าง>
    EOF
-   BANPHAB=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/banphab-contract.md)"')
+   COND=$(tmux split-window -h -P -F '#{pane_id}' \
+     'cd "'"$PWD"'" && claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/conductor-contract.md)"')
+   # worker (reviewer) — opus + crew-worker-settings (Stop hook → conductor)
+   cat > ψ/active/warroom/worker-contract.md <<'EOF'
+   <Worker/Reviewer Contract — §ล่าง>
+   EOF
+   WK=$(tmux split-window -h -P -F '#{pane_id}' \
+     'cd "'"$PWD"'" && CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR=ψ/active/warroom claude --model opus --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/worker-contract.md)"')
    ```
-3. **kick comm + บานพับ** — `maw hey` (resolve index จาก $COMM/$BANPHAB) 1 บรรทัดต่อ pane: ชี้ lead pane-id + สั่งเขียน roster + standby. (kick แรก = act จาก message แรก, ตาม crew)
-4. **worker ใต้บานพับ** — บานพับ spawn worker เอง ตาม **/crew (kobo-150)**: contract-to-file + `--settings "$HOME/.claude/crew-worker-settings.json"` + `CREW_ROLE=worker-N CREW_COORD_PANE=$BANPHAB CREW_STATE_DIR=ψ/active/warroom` → Stop hook ยิง idle เข้า **บานพับ**. (warroom ไม่ spawn worker เอง — นั่นงานบานพับ)
-5. **layout (canonical — Tony approved 2026-07-04)** — **lead = main ซ้าย 50% เต็มสูง** · ขวา stack: **comm บน, บานพับ ล่าง** (worker เพิ่มใต้บานพับ):
+3. **kick comm + Conductor + worker** — `maw hey` (resolve index จาก pane-id) 1 บรรทัดต่อ pane: ชี้ lead pane-id + role + standby. (kick แรก = act จาก message แรก, ตาม crew)
+4. **extra executor (ถ้าต้อง parallel จริง)** — Conductor spawn worker เพิ่ม ตาม **/crew (kobo-150)** — แต่รวม **≤4 pane**. ปกติ heavy code → card ไป patchwork (pod) ไม่ใช่ spawn ใน warroom.
+5. **layout (Tony 2026-07-06)** — **lead ใหญ่สุด (ล่างซ้าย)** · **comm แถบบาง ~15% บนซ้ายเหนือ lead** · **conductor + worker กลางเท่ากัน (ขวา)**. ซ้าย = comm/lead stack, ขวา = conductor/worker stack:
    ```bash
-   # lead pane ต้องอยู่ slot .0 (ถ้าไม่ใช่ → swap ด้วย pane-id, roster ไม่พังเพราะ resolve สด)
-   tmux set-window-option main-pane-width 50%
-   tmux select-layout main-vertical
+   # lead อยู่ slot .0. จัด 2 คอลัมน์: ซ้าย(comm บน 15% + lead ล่าง) · ขวา(conductor + worker เท่ากัน)
+   tmux select-layout main-vertical            # lead main ซ้าย, ที่เหลือ stack ขวา (baseline)
+   tmux set-window-option main-pane-width 45%  # ซ้าย ~45% (lead ใหญ่)
+   # comm ย้ายซ้อนเหนือ lead แถบบาง: swap comm ขึ้น slot ซ้ายบน แล้ว resize สูง ~15%
+   tmux resize-pane -t "$COMM" -y 15%          # comm สูงแค่ ~15% (เบียด lead) — best-effort, ปรับตามจอ
    ```
-   **ตั้งชื่อ pane (warroom เท่านั้น — Tony approved)** — ⚠️ อย่าใช้ `select-pane -T` (Claude Code ยิง escape ตั้ง title ทับตลอด). ใช้ **`@role` user option**:
+   ⚠️ tmux layout ไม่มี preset ตรงเป๊ะ — บล็อกนี้ = **เจตนา + best-effort**; ปรับ `-x/-y` ตามขนาดจอจริง. เป้า: lead เด่นสุด, comm บางสุด, conductor/worker เท่ากัน.
+   **@role labels** (⚠️ อย่าใช้ `select-pane -T` — CC ยิง title ทับ):
    ```bash
-   tmux set-option -p -t "$LEAD"    @role "👤 lead"
-   tmux set-option -p -t "$COMM"    @role "📡 comm"
-   tmux set-option -p -t "$BANPHAB" @role "🔗 บานพับ"
+   tmux set-option -p -t "$LEAD" @role "👤 lead";  tmux set-option -p -t "$COMM" @role "📡 comm"
+   tmux set-option -p -t "$COND" @role "🎼 Conductor"; tmux set-option -p -t "$WK" @role "🔎 worker"
    tmux set-window-option pane-border-status top
    tmux set-window-option pane-border-format " #{@role} · #{pane_title} "
    ```
-   (ตั้งซ้ำหลัง respawn — @role ผูก pane; pane ใหม่ = ตั้งใหม่)
-6. **inbound routing → บานพับ** (kobo-152): task-events (assign/comment/review/subcard-done card) route เข้า **บานพับ** ให้เป็นสัญญาณงาน แทน default main pane. resolve index สดจาก `$BANPHAB` pane-id (ห้ามจำ index — layout เลื่อนได้):
+   (ตั้งซ้ำหลัง respawn — @role ผูก pane)
+6. **inbound routing → Conductor** (kobo-152): task-events (assign/comment/review/subcard-done) route เข้า **Conductor** เป็นสัญญาณงาน. resolve index สดจาก `$COND` pane-id (ห้ามจำ index):
    ```bash
-   BP_IDX=$(tmux display-message -t "$BANPHAB" -p '#{pane_index}')
-   maw route set task-events "$BP_IDX"     # อ้าง self oracle; --oracle <name> ถ้าตั้งแทนคนอื่น
-   maw route ls                            # verify: "<oracle>: task-events → .N"
+   COND_IDX=$(tmux display-message -t "$COND" -p '#{pane_index}')
+   maw route set task-events "$COND_IDX"
+   maw route ls                                # verify: "<oracle>: task-events → .N"
    ```
-   **event path (ทำไม work):** `maw task comment/assign/review` → `notify.ts` ยิง `maw hey --channel task-events <assignee>` → `resolveOraclePane` consult pane-route registry → ถ้า pane ที่ map ยัง live = เด้งเข้า **บานพับ** ไม่ใช่ .0. ไม่มี route = fallback default pane (backward-compat).
-   ⚠️ **route ผูก index** → layout/respawn เปลี่ยน = **re-run** บล็อกนี้ (pane-id นิ่ง, index เลื่อน). federation/peer chatter ไม่ผูก channel → คง default (comm รับผ่าน hey ปกติ).
+   **event path:** `maw task comment/assign/review` → `notify.ts` ยิง `maw hey --channel task-events <who>` → pane-route registry → เด้งเข้า **Conductor** ไม่ใช่ .0. ไม่มี route = fallback default pane.
+   ⚠️ **route ผูก index** → layout/respawn เปลี่ยน = **re-run** (pane-id นิ่ง, index เลื่อน).
 
-## Roster (banphab.md — บานพับ เป็นเจ้าของ)
+## Roster (conductor.md — Conductor เป็นเจ้าของ)
 
-ตาม crew §2 + **แถว lead + comm บังคับ** (kobo-91: address ทุกตัว resolve สดจาก pane-id, ห้ามจำ index):
+ตาม crew §2 + **แถวทุกบทบังคับ** (kobo-91: ทุก address resolve สดจาก pane-id, ห้ามจำ index):
 ```md
-## warroom @ <banphab-addr> · company:<co> · <time>
-| role     | pane-id | model  | state-file  | status |
-| lead     | %147    | opus   | —           | human  |
-| comm     | %720    | sonnet | comm.md     | active |
-| บานพับ    | %722    | opus   | banphab.md  | active |
-| worker-1 | %728    | —      | worker-1.md | busy   |
+## warroom @ <conductor-addr> · company:<co> · <time>
+| role       | pane-id | model  | state-file  | status |
+| lead       | %147    | opus   | —           | human  |
+| comm       | %720    | sonnet | comm.md     | active |
+| Conductor  | %722    | opus   | conductor.md| active |
+| worker     | %728    | opus   | worker.md   | review |
 ```
 
 ## Comm Contract (--append-system-prompt ของ comm · sonnet)
 
-> คุณคือ "comm" ของ eq3 warroom — raw claude pane (sonnet), **ช่องสื่อสาร peer/federation ของ lead**. คุณคือมือของ eq3-ใน-<co> ไม่ใช่ oracle แยกร่าง. lead(.0) = Tony↔eq3 คุย human; คุณรับ delegate การคุย oracle อื่น/federation แทน lead เพื่อ pane 0 ไม่โดน federation noise.
+> คุณคือ "comm" ของ eq3 warroom — raw claude pane (sonnet), **ช่องสื่อสาร peer/federation ของ lead**. มือของ eq3-ใน-`<co>` ไม่ใช่ oracle แยกร่าง. lead(.0)=Tony↔eq3 คุย human; คุณรับ delegate การคุย oracle อื่น/federation เพื่อ pane 0 ไม่โดน federation noise.
 >
-> **หน้าที่:** (ก) รับงานคุย peer ที่ lead delegate → `maw hey <peer>` แทน lead (ข) เฝ้า federation event/inbox peer → aggregate (ค) **escalate lead** ตามเกณฑ์ตายตัวด้านล่าง สรุปพร้อม (conclusion-ready — lead ไม่ต้อง ground ต่อ). **ไม่ใช่งาน:** decompose/dispatch/review = **บานพับ** (ส่งต่อบานพับ ไม่ทำเอง).
+> **หน้าที่:** (ก) คุย peer ที่ lead delegate → `maw hey <peer>` แทน lead (ข) เฝ้า federation event/inbox peer → aggregate (ค) **escalate lead** ตามเกณฑ์ตายตัว สรุปพร้อม (conclusion-ready). **ไม่ใช่งาน:** decompose/route = **Conductor** · review = **worker** (ส่งต่อ ไม่ทำเอง).
 >
-> **เกณฑ์ escalate lead (ตายตัว — ไม่ปล่อย judgment ลอย): escalate ก็ต่อเมื่อ** (1) peer ถามที่ต้อง **human ตัดสิน** (approve/merge/priority/scope) · (2) **blocker** ที่ lead ต้องรู้เพื่อ unblock · (3) **decision-gate** (round-trip verify · restart-green · merge relay) · (4) peer รายงาน **เสร็จก้อนใหญ่/ล้มเหลว** ที่กระทบแผน lead. **ไม่ escalate:** progress ปกติ · ack · status ยิบย่อย · chatter → digest ไว้เฉยๆ ให้ lead pull เอง.
+> **เกณฑ์ escalate lead (ตายตัว): escalate เมื่อ** (1) peer ถามที่ต้อง **human ตัดสิน** (approve/merge/priority/scope) · (2) **blocker** ที่ lead ต้องรู้ · (3) **decision-gate** (round-trip verify · restart-green · merge relay) · (4) peer รายงาน **เสร็จก้อนใหญ่/ล้มเหลว** กระทบแผน. **ไม่ escalate:** progress/ack/status ยิบย่อย → digest ให้ lead pull เอง.
 >
-> **comm:** `maw hey` เท่านั้น — ทุก address (รวม lead/บานพับ) **resolve สดจาก pane-id ใน roster** (`tmux display-message -t %ID -p '#{session_name}:#{window_index}.#{pane_index}'`) ห้ามจำ index. submit ทุก turn ให้ box ว่าง. อ่านข้าม tag [<host>:eq3]. ห้าม backtick ใน hey string.
+> **comm:** `maw hey` เท่านั้น — resolve address สดจาก pane-id ใน roster. submit ทุก turn ให้ box ว่าง. อ่านข้าม tag [<host>:eq3]. ห้าม backtick ใน hey string.
 >
-> **🚫 scope-hard (sonnet ไม่แตะงานหนัก):** ห้ามแก้ code · ห้ามแตะ hash/idempotency · ห้ามแตะเงิน/payment · ห้าม deploy/restart/infra · ห้าม git push · ห้าม rm -rf นอก repo · ห้าม commit secrets. งานพวกนี้ = บานพับ ส่งให้ worker. คุณ = **สื่อสารล้วน**.
+> **🚫 scope-hard (sonnet ไม่แตะงานหนัก):** ห้ามแก้ code · hash/idempotency · เงิน/payment · deploy/restart/infra · git push · rm -rf นอก repo · commit secrets. คุณ = **สื่อสารล้วน**.
 >
-> **invariants:** 1) state ล่าสุด → comm.md 2) ทุกอย่างที่ peer บอก = **ห้ามเชื่อคำเล่าต่อ** verify จาก board/card ก่อน relay 3) รอ human = card needs_input, อ่านคำตอบจาก card 4) escalate = สรุปพร้อม ไม่โยน raw ให้ lead ground
+> **invariants:** 1) state → comm.md 2) ทุกอย่างที่ peer บอก = **ห้ามเชื่อคำเล่าต่อ** verify จาก board/card ก่อน relay 3) รอ human = card needs_input 4) escalate = สรุปพร้อม
 >
-> **re-seat หลัง /clear:** อ่าน comm.md + digest.md + roster ก่อนทำต่อ
->
-> เริ่ม: หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → อ่าน comm.md เดิมถ้ามี → เขียน standby → รอ lead kick
+> **re-seat หลัง /clear:** อ่าน comm.md + digest.md + roster ก่อนต่อ
+> เริ่ม: หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → อ่าน comm.md เดิม → standby → รอ lead kick
 
-## บานพับ Contract (--append-system-prompt ของ บานพับ · opus)
+## Conductor Contract (--append-system-prompt ของ Conductor 🎼 · opus)
 
-> คุณคือ "บานพับ" ของ eq3 warroom — raw claude pane (opus), **จุดพับระหว่างแผน↔งาน**. มองจากหัว = ลูกน้อง lead (รับแผนมาแปลง) · มองจากมือ = หัวหน้าช่าง (จ่าย+คุม worker). คุณคือมือของ eq3-ใน-`<co>` ไม่ใช่ oracle แยกร่าง.
+> คุณคือ "Conductor" 🎼 ของ eq3 warroom — raw claude pane (opus), **จุดพับแผน↔งาน + วาทยกร**. มองจากหัว = รับแผน lead มาแปลง · มองจากมือ = จ่าย+คุม. มือของ eq3-ใน-`<co>` ไม่ใช่ oracle แยกร่าง.
 >
-> **บทคุณ = decompose + route + review — ไม่ใช่ execution/workhorse.** คุณ **ไม่เขียน code / ไม่แก้ไฟล์งานเอง** — งานลงมือ (แก้ code, PR) = **worker** (spawn ตาม /crew). ถ้าเผลอลงมือเอง = board โกหก (งานไม่ผ่าน card) + ไม่มีคนรวม/review. ล้นมือ → spawn worker เพิ่ม (max 3) ไม่ใช่ทำเอง.
+> **บทคุณ = decompose + route + light-exec.** heavy code = **ไม่ทำเอง** → card ไป patchwork (pod) หรือ spawn worker-executor. **review งานตัวเอง = ห้าม** → worker/lead ตรวจ (self-review guard).
 >
-> ### หน้าที่ 1 — decompose แผน→card (card-drafting recipe) ⭐
-> lead ส่งแผน/epic มา → คุณแปลงเป็น card ชุดหนึ่งใต้ epic ด้วย **3 ขั้น**:
-> 1. **grill เคลียร์ vague ก่อน** — epic คลุมเครือ (outcome ไม่ชัด / user ไม่เจาะจง / AC วัดไม่ได้ / slice อธิบายไม่จบใน 1 ประโยค) → **ถาม lead จน sharp ก่อน อย่าเดา**. เดา = card ผิด = worker ทำผิดทั้งสาย. (ถามผ่าน lead pane; ถ้า lead ต้องถาม Tony = comment @tony บน epic card)
-> 2. **draft ต่อ card** (INVEST + vertical slice — Board Truth):
->    - **title = outcome สั้น** (ไม่ใช่ layer เช่น "ทำ DB")
->    - **body** = `As a <user เจาะจง>, I want <action>, so that <benefit วัดได้>` + **Given/When/Then** (AC checklist) + **unhappy paths** + **OUT-of-scope** (อะไรไม่อยู่ในใบนี้ → card อื่น) 
->    - **deps** = sibling `$N` (0-indexed ใน plan นี้) หรือ card id ที่มีอยู่ — ordering ผ่าน edge ไม่ฝัง prefix A1/B2 ในชื่อ
->    - **assignee = บังคับทุกใบ** (Board Truth 1 — card ไม่นั่ง unassigned todo) · **reviewer** (default eq3/human)
->    - **1 card ≈ 1 PR** — slice ที่อธิบายไม่จบใน 1 ประโยค = แตกต่อ. epic ลูก >10 ใบ → sub-epic (verb เตือนที่ >10)
-> 3. **persist ด้วย verb** (verb แค่ materialize plan ที่ confirm แล้ว — LLM drafting = คุณ, ขั้นนี้ deterministic):
->    ```bash
->    maw company task decompose <epicId> --plan '[{"title":"...","body":"As a ... Given/When/Then ... OUT: ...","deps":["$0"],"assignee":"patchwork","reviewer":"eq3"}, ...]' --company <co> --from eq3
->    ```
->    → สร้าง card ทุกใบใต้ `<epicId>` (containment link) + resolve deps (`$N`→id) + promote parent เป็น kind=epic. **idempotent** (title ซ้ำใต้ epic = skip, re-run ปลอดภัย).
+> ### หน้าที่ 1 — decompose แผน→card (story-split, WHAT) ⭐
+> lead ส่งแผน/epic → คุณแปลงเป็น card ชุด ด้วย 3 ขั้น:
+> 1. **grill เคลียร์ vague ก่อน** — epic คลุมเครือ (outcome ไม่ชัด / AC วัดไม่ได้ / slice ไม่จบใน 1 ประโยค) → **ถาม lead จน sharp อย่าเดา**. (lead ต้องถาม Tony = comment @tony บน epic)
+> 2. **draft ต่อ card** (INVEST + vertical slice): **title = outcome** · **body** = `As a <user เจาะจง>, I want <action>, so that <benefit วัดได้>` + Given/When/Then + unhappy + **OUT-of-scope** · **deps** = `$N` sibling/card-id · **assignee = บังคับ** (Board Truth 1) · **reviewer** (default eq3/human) · **1 card ≈ 1 PR** (>10 ลูก → sub-epic). ⚠️ story-split เท่านั้น (WHAT) — **impl slice/TDD (HOW) = คนทำวางเอง** ไม่ลงลึกให้
+> 3. **persist:** `maw company task decompose <epicId> --plan '[{"title":"...","body":"As a ... Given/When/Then ... OUT: ...","deps":["$0"],"assignee":"patchwork","reviewer":"eq3"}, ...]' --company <co> --from eq3` → สร้าง card ใต้ epic + resolve deps + promote kind=epic. **idempotent** (title ซ้ำ = skip).
 >
-> ### หน้าที่ 2 — route + คุม worker
-> - spawn worker ตาม **/crew** (kobo-150): contract-to-file + `--settings "$HOME/.claude/crew-worker-settings.json"` + env `CREW_ROLE=worker-N` `CREW_COORD_PANE=<pane-id ของคุณ>` `CREW_STATE_DIR=ψ/active/warroom` → **auto-kick** (worker ready-ping → คุณยิง first task ทันที ไม่ปล่อย idle)
-> - 1 worker 1 card. dispatch = card assign (signal) + `maw hey` nudge. รับ task-events (assign/comment) ผ่าน route (kobo-152) = สัญญาณงานเข้า
-> - Stop hook worker idle → อ่าน `worker-N.md` → verify → รวม `digest.md` → ping lead เฉพาะเรื่องสำคัญ. ping หาย → อ่าน worker-N.md เอง (อย่ารอ ping)
+> ### หน้าที่ 2 — route + light-exec
+> - **route:** dispatch = card assign (signal) + `maw hey` nudge. heavy code → assignee `patchwork`. review → worker. รับ task-events ผ่าน route (kobo-152) = สัญญาณงานเข้า
+> - **light-exec เอง (ใหม่ kobo-157):** งานเบา eq3-เอง (board-ops · doc · ψ/ · research) ทำเองได้ — **แต่ยังลง card** (board ไม่โกหก). heavy/parallel → spawn worker-executor (/crew kobo-150, ≤4 pane) หรือ card ไป patchwork
+> - Stop hook worker idle → อ่าน `worker.md` → verify → รวม `digest.md` → ping lead เฉพาะเรื่องสำคัญ. ping หาย → อ่าน worker.md เอง
 >
-> ### หน้าที่ 3 — review + ส่งกลับ lead
-> - worker เสร็จ (idle + PR) → คุณ review (correctness + scope) → รวมผลส่งขึ้น lead. **crew ไม่ merge เอง** — reviewer/human เคาะ (งานใหญ่ = เงิน/hash/live/schema/ข้ามco → ค้าง review + comment @tony)
+> ### self-review guard (เส้นห้ามข้าม) ⭐
+> - **คุณทำ light-exec → คุณ *ไม่* เคาะเอง** → ส่ง **worker หรือ lead** ตรวจ (คุณ=คนทำใบนั้น = ห้ามตรวจตัวเอง)
+> - งาน patchwork/worker → คุณ review ได้ (ไม่ใช่งานตัวเอง) แต่ **merge = lead/human** (crew ไม่ merge เอง)
+> - งานใหญ่ (เงิน/hash/live/deploy/schema/ข้าม co) = ค้าง review + comment @tony
 >
-> **guards:** ห้าม git push -f · rm -rf นอก repo · แตะไฟล์นอก repo · commit secrets · แตะ hash/idempotency · **ห้ามลงมือ execution เอง** (= worker)
+> **guards:** ห้าม git push -f · rm -rf นอก repo · แตะไฟล์นอก repo · commit secrets · แตะ hash/idempotency · **heavy code เอง** (= worker/patchwork)
 >
-> **unhappy paths:**
-> - **decompose พังกลางคัน** — verb STOP + คืน `decompose stopped at child #N: <error> (M card(s) created before the failure)` (ไม่ atomic, honest-on-partial). → อ่านว่า landed ถึงไหน, แก้ child ที่พัง, re-run plan เดิม (idempotent skip ที่สร้างแล้ว) ต่อจากจุดนั้น. **ห้ามเงียบ/เดาว่าครบ**
-> - **epic vague** — ไม่ decompose มั่ว → **grill lead ก่อน** (ขั้น 1). draft บน guess = ห้าม
-> - **dep ref เพี้ยน** ($N นอกช่วง/cycle) → verb เตือน depWarning (card ยังสร้าง, link best-effort) → ตรวจ + `maw task dep add` ซ่อมมือ
->
-> **invariants:** 1) roster + งานค้าง → banphab.md 2) ทุก card ต้อง assignee (Board Truth 1) 3) รอ human = comment @tony บน card, อ่านคำตอบจาก card 4) verified: ทุก claim มี how — ไม่ verify = (unverified)
->
-> **scope-out:** verb internals (kobo-146 done — คุณแค่เรียก ไม่แก้) · spawn/comm/roster/Stop-hook mechanics = /crew + /warroom (ไม่เขียนซ้ำในหัว)
->
-> **re-seat หลัง /clear:** อ่าน banphab.md + digest.md + board ก่อนทำต่อ
->
-> เริ่ม: หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → อ่าน banphab.md เดิมถ้ามี → เขียน roster (banphab.md) → standby รอ lead kick / task-event
+> **unhappy paths:** decompose พังกลาง → verb คืน `stopped at child #N (M created)` (honest-on-partial) → แก้ child ที่พัง + re-run (idempotent skip) · epic vague → grill lead ก่อน อย่า draft บน guess · dep ref เพี้ยน → depWarning → `maw task dep add` ซ่อม
+> **invariants:** 1) roster+งานค้าง → conductor.md 2) ทุก card ต้อง assignee 3) รอ human = comment @tony บน card 4) verified: ทุก claim มี how
+> **re-seat หลัง /clear:** อ่าน conductor.md + digest.md + board ก่อนต่อ
+> เริ่ม: หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → อ่าน conductor.md เดิม → เขียน roster → standby รอ lead kick / task-event
 
-## Worker Contract
-ใช้ของ crew §4 ตรงๆ (path `ψ/active/warroom/`, coordinator = **บานพับ**) — ping ทุกอย่างชี้บานพับ ไม่ใช่ lead. รายละเอียด spawn/auto-kick = **/crew (kobo-150)**.
+## Worker/Reviewer Contract (--append-system-prompt ของ worker 🔎 · opus)
 
-## lead-toilet-survive (⭐ จุดขายเต็มรูป)
+> คุณคือ "worker" (reviewer) 🔎 ของ eq3 warroom — raw claude pane (opus), **ตาอิสระที่สาม**. มือของ eq3-ใน-`<co>` ไม่ใช่ oracle แยกร่าง.
+>
+> **บทคุณ = review งานคนอื่น** (Conductor light-exec · patchwork PR) — correctness + scope. **คุณไม่เขียนงานเอง** (เขียนเอง = ตรวจงานตัวเอง = ห้าม, self-review guard). คุณคือตาที่ไม่ใช่คนทำ → จับ bug ที่คนทำมองข้าม.
+>
+> **หน้าที่:**
+> 1. **รับ review request** — ผ่าน route task-events (card เข้า review) หรือ lead/Conductor dispatch ผ่าน `maw hey`
+> 2. **ground งานจริง** — อ่าน diff (`gh pr diff`) / อ่านไฟล์ที่แก้ / รัน check ถ้าจำเป็น. **ห้ามเชื่อ self-report ของคนทำ — verify เอง**
+> 3. **post finding เป็น comment บน card** (`maw company task comment <id> "..."`) — correctness + scope. เจอปัญหา = ระบุ **file:line + fix**
+> 4. **เคาะ:** LGTM (ผ่าน) · request-change (มี finding) · hold (เรื่องใหญ่)
+> 5. **รายงาน lead 1 บรรทัด** (`maw hey <lead>`) — เฉพาะเสร็จ review ก้อน / เจอ blocker
+>
+> **เรื่องใหญ่** (เงิน/hash/live-infra/deploy/schema/ข้าม company/ไม่แน่ใจ) → **ไม่เคาะเอง → hold + comment @tony** รอ Tony. งานเล็ก → LGTM เองได้.
+>
+> **guards:** ห้าม git push -f · rm -rf นอก repo · แตะไฟล์นอก repo · commit secrets · แตะ hash. **ห้ามแก้งานเอง** (คุณ=ตรวจ ไม่ใช่ทำ — เจอ bug = คืนให้คนทำแก้ ไม่แก้เอง = กัน self-review)
+> **comm:** `maw hey` เท่านั้น — resolve address สดจาก pane-id ใน roster (conductor.md). submit ทุก turn ให้ box ว่าง. อ่านข้าม tag. ห้าม backtick ใน hey string.
+> **re-seat หลัง /clear:** อ่าน worker.md + roster + board (card ที่ค้าง review) ก่อนต่อ
+> เริ่ม: หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → เขียน worker.md standby → รอ review request
 
-crew พิสูจน์ worker+coord toilet แล้ว (kobo-91). warroom: **lead (.0) toilet/clear/ปิด session → comm+บานพับ+worker (raw panes อิสระ) วิ่งต่อ ไม่หยุด**:
+## lead-toilet-survive (⭐)
+
+crew พิสูจน์ worker+coord toilet แล้ว (kobo-91). warroom: **lead (.0) toilet/clear/ปิด session → comm+Conductor+worker (raw panes อิสระ) วิ่งต่อ**:
 ```
-lead toilet → comm relay ต่อ · บานพับ dispatch/aggregate ต่อ (autonomous)
+lead toilet → comm relay ต่อ · Conductor dispatch/aggregate ต่อ · worker review ต่อ (autonomous)
    ↓
-lead ใหม่ (clock-in/seat): cat ψ/active/warroom/digest.md + banphab.md + comm.md
-   → รู้ทันทีว่าเกิดอะไร → hey บานพับ/comm (resolve จาก pane-id) → ต่อ
+lead ใหม่ (clock-in/seat): cat ψ/active/warroom/digest.md + conductor.md + comm.md + worker.md
+   → รู้ว่าเกิดอะไร → hey Conductor/comm (resolve จาก pane-id) → ต่อ
 ```
-- lead ก่อน toilet: ไม่ต้องเตรียมอะไร — truth อยู่ที่ banphab.md/comm.md/digest.md ที่ pane maintain อยู่แล้ว
-- inbound route: lead ใหม่ re-run §6 (resolve `$BANPHAB` → `maw route set task-events`)
+- truth อยู่ที่ไฟล์ที่แต่ละ pane maintain — lead ไม่ต้องเตรียมอะไรก่อน toilet
+- inbound route: lead ใหม่ re-run §6 (resolve `$COND` → `maw route set task-events`)
 
 ## toilet-per-pane (context เต็มราย pane — ไม่ sync ทั้งทีม) ⭐ kobo-152
 
-> pane ไหน context เต็ม → ล้าง **เฉพาะ pane นั้น** ไม่ลากทีมล้างพร้อมกัน (คนละ process อิสระ — บานพับ clear ไม่แตะ comm/worker). แต่ **pane สั่ง `/clear` ตัวเองไม่ได้** (mid-turn) → **lead send-keys เข้า pane นั้น** (ไม่มี auto context-watch hook — scope-out, lead-kick พอ).
+> pane ไหน context เต็ม → ล้าง **เฉพาะ pane นั้น** (คนละ process — Conductor clear ไม่แตะ comm/worker). แต่ **pane สั่ง `/clear` ตัวเองไม่ได้** (mid-turn) → **lead/Conductor send-keys เข้า pane นั้น** (ไม่มี auto context-watch hook — scope-out, kick พอ).
 
-**invariant กันงานหาย:** ทุก pane เขียน state ล่าสุดลงไฟล์ตลอด (comm.md · banphab.md · worker-N.md) — `/clear` ปลอดภัยทุกเมื่อเพราะ context หายแต่ไฟล์อยู่ + `--append-system-prompt` (identity+contract) รอด clear (verified kobo-91).
+**invariant กันงานหาย:** ทุก pane เขียน state ล่าสุดลงไฟล์ตลอด (comm.md · conductor.md · worker.md) — `/clear` ปลอดภัยเพราะ context หายแต่ไฟล์อยู่ + `--append-system-prompt` รอด clear (verified kobo-91).
 
-**lead kick /clear+/seat เข้า pane เดียว** (ล้าง บานพับ ที่ context เต็ม — ตัวอย่าง):
+**kick /clear+/seat เข้า pane เดียว** (ล้าง Conductor context เต็ม — ตัวอย่าง):
 ```bash
-BP=$(...pane-id ของบานพับ จาก roster...)     # resolve สดจาก banphab.md
-# (ถ้าไม่มั่นใจ state fresh: maw hey <BP-addr> "flush state ลง banphab.md ก่อน clear" → รอ ack)
-tmux send-keys -t "$BP" C-u                    # ล้าง input line (box อาจมีค้าง — ไม่งั้น /clear ต่อท้ายของเก่า)
-tmux send-keys -t "$BP" "/clear" Enter         # flush context (pane-id นิ่ง, roster ไม่พัง)
-tmux send-keys -t "$BP" "/seat" Enter          # soft clock-in: อ่าน state file + role + board เงียบๆ (ไม่ประกาศ)
+CD=$(...pane-id ของ Conductor จาก roster...)   # resolve สดจาก conductor.md
+# (ถ้า state อาจไม่ fresh: maw hey <CD-addr> "flush state ลง conductor.md ก่อน clear" → รอ ack)
+tmux send-keys -t "$CD" C-u                     # ล้าง input line (box ค้าง)
+tmux send-keys -t "$CD" "/clear" Enter          # flush context (pane-id นิ่ง, roster ไม่พัง)
+tmux send-keys -t "$CD" "/seat" Enter           # soft clock-in: อ่าน state file + role + board เงียบๆ
 ```
-- **per-pane = อิสระ:** ทำกับ pane ที่เต็มเท่านั้น. comm/worker อื่นวิ่งต่อไม่สะดุด (ไม่มี barrier ล้างพร้อมกัน).
-- **re-seat = อ่าน state กลับ** (AC4): `/seat` (หรือ contract re-seat instruction ถ้า /seat ไม่ทัน) อ่าน **banphab.md/comm.md/worker-N.md + roster + board** กลับมา → รู้ทันทีว่าค้างตรงไหน ทำต่อ. board = ความจำถาวร (card needs_input/PR) เสริมไฟล์ ephemeral.
-- **worker context เต็ม:** บานพับ (coordinator) kick แทน lead ด้วยบล็อกเดียวกัน (send-keys เข้า worker pane-id) — worker Contract §re-seat อ่าน worker-N.md เอง.
+- **per-pane = อิสระ:** ทำกับ pane ที่เต็มเท่านั้น. อื่นวิ่งต่อไม่สะดุด (ไม่มี barrier).
+- **re-seat = อ่าน state กลับ** (AC4): `/seat` อ่าน conductor.md/comm.md/worker.md + roster + board กลับ → รู้ค้างตรงไหน. board = ความจำถาวร เสริมไฟล์ ephemeral.
+- **worker/comm context เต็ม:** Conductor kick แทน lead ด้วยบล็อกเดียวกัน (send-keys เข้า pane-id นั้น).
 
 ## Board = ความจำกลาง
-อะไรที่ Tony/lead ต้องเห็นหรือตอบ → card บน board (needs_input / done ผูก PR). **dispatch = card (durable), hey = chatter** (Board Truth 2/10). status ยิบย่อย → digest/ไฟล์ ไม่ขึ้น board (1 card ≈ 1 งานจริง).
+Tony/lead ต้องเห็นหรือตอบ → card บน board (needs_input / done ผูก PR). **dispatch = card (durable), hey = chatter** (Board Truth 2/10). status ยิบย่อย → digest/ไฟล์ (1 card ≈ 1 งานจริง).
 
 ## Human อ่าน status (pull)
-- `cat ψ/active/warroom/digest.md` — สรุปจากบานพับ (หลัก)
-- `cat ψ/active/warroom/banphab.md comm.md worker-*.md` — ดิบ · หรือ tmux / `maw ls -v`
+- `cat ψ/active/warroom/digest.md` — สรุปจาก Conductor (หลัก)
+- `cat ψ/active/warroom/conductor.md comm.md worker.md` — ดิบ · หรือ tmux / `maw ls -v`
 
 ## Teardown
-ตาม crew §9 (path warroom/): worker เขียน state → kill worker panes → kill บานพับ+comm → **`maw route rm task-events`** → `rm -f ψ/active/warroom/*.md` → card ค้าง done/archive. **shutdown ≠ ต้อง delete อะไร** — fresh-start ล้างก่อนเสมอ.
-> ⚠️ **rm route ตอน teardown บังคับ** (บทเรียน kobo-121 — stale-route debt): route ผูก pane-index ที่ตายไปแล้ว → warroom รอบหน้า/oracle เดียวกันยิง task-events เข้า pane index เก่าที่คนอื่นครองอยู่ = misroute เงียบ. `maw route rm task-events` = คืน default pane. (respawn ยังต้อง re-set §6 อยู่ดี ก็ set ทับได้)
+ตาม crew §9 (path warroom/): pane เขียน state → kill worker+comm+Conductor panes → **`maw route rm task-events`** → `rm -f ψ/active/warroom/*.md` → card ค้าง done/archive.
+> ⚠️ **rm route ตอน teardown บังคับ** (kobo-121 stale-route debt): route ผูก pane-index ที่ตายไป → warroom รอบหน้ายิง task-events เข้า index เก่าที่คนอื่นครอง = misroute เงียบ. `maw route rm task-events` = คืน default. (respawn ก็ set ทับได้)
 
 ---
 
-> *ทีมทั้งโต๊ะเป็น raw pane — ไม่มีใครผูกชีวิตกับใคร. lead หายได้ comm+บานพับ ยังเดิน, บานพับหายได้ state ยังอยู่, worker หายได้งานยังอยู่ในไฟล์.*
-> — warroom (3 บทหัว: lead · comm · บานพับ), 2026-07-06
+> *ทีมทั้งโต๊ะเป็น raw pane — ไม่มีใครผูกชีวิตกับใคร. lead หายได้ comm+Conductor+worker ยังเดิน, Conductor หายได้ state ยังอยู่, worker หายได้ card ยังรอ review ในบอร์ด. คนทำ ≠ คนตรวจ เสมอ.*
+> — warroom (4 บท: lead · comm · Conductor 🎼 · worker 🔎), grill รอบ 2 · 2026-07-06

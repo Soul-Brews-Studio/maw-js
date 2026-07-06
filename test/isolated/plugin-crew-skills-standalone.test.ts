@@ -83,7 +83,7 @@ describe("crew-skills global asset contract", () => {
   });
 
   // kobo-150: crew SKILL forwards CREW_STATE_DIR (default ψ/active/crew, warroom
-  // overrides to ψ/active/warroom) so the same spawn form works under บานพับ.
+  // overrides to ψ/active/warroom) so the same spawn form works under the Conductor (kobo-157 rename).
   test("crew skill forwards CREW_STATE_DIR with the default state dir", () => {
     const crew = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
     expect(crew).toContain("${CREW_STATE_DIR:-ψ/active/crew}");
