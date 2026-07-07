@@ -145,6 +145,32 @@ describe("columnCollapsed (kobo-194)", () => {
   });
 });
 
+describe("board lane visibility — Blocked in grid + hide-empty (kobo-199)", () => {
+  const html = companyHtml();
+  test("Blocked is a normal grid column (col-blocked) before Done; floating attention lane is gone", () => {
+    expect(html).toContain('class="col col-blocked"');
+    expect(html).toContain('id="blocked"');
+    expect(html).not.toContain('id="attention-panel"'); // kobo-55 floating lane removed
+    expect(html).not.toContain('class="attention"');
+    expect(html.indexOf('col-approve')).toBeLessThan(html.indexOf('col-blocked'));
+    expect(html.indexOf('id="blocked"')).toBeLessThan(html.indexOf('id="done"'));
+  });
+  test("COLS carries blocked; hide-empty set covers the non-parking lanes but EXEMPTS blocked (always-on)", () => {
+    expect(html).toContain("'approve', 'blocked', 'done'"); // COLS ordering
+    // blocked is deliberately NOT in HIDE_WHEN_EMPTY → always-on (Tony's complaint).
+    expect(html).toContain("const HIDE_WHEN_EMPTY = ['todo', 'ready', 'in-progress', 'review', 'approve', 'done']");
+    expect(html).not.toContain("'approve', 'blocked', 'done']"); // never re-added to the hide set
+  });
+  test("a hide-empty lane vanishes at 0 cards; parking stays reveal-controlled", () => {
+    expect(html).toContain(".col.lane-empty { display:none");
+    expect(html).toContain("colEl.classList.toggle('lane-empty', counts[s] === 0)");
+    expect(html).toContain("cols[s].appendChild(el('div', 'empty', '—'))"); // parking / always-on keep the marker
+  });
+  test("grid reflow excludes both collapsed (parking) and lane-empty columns", () => {
+    expect(html).toContain("!c.classList.contains('collapsed') && !c.classList.contains('lane-empty')");
+  });
+});
+
 describe("parseCardId (kobo-181)", () => {
   test("extracts the card param", () => {
     expect(parseCardId("?card=kobo-5&company=kobo")).toBe("kobo-5");

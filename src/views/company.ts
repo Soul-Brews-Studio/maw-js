@@ -240,7 +240,7 @@ function companyBody(): string {
     /* grid-template-columns is a static fallback; applyColumnCollapse (kobo-197)
        overrides it inline with the VISIBLE column count so active lanes reflow to
        full width when the parking columns are hidden. */
-    .board { display:grid; grid-template-columns: repeat(8, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
+    .board { display:grid; grid-template-columns: repeat(9, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
     .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; min-width:0; } /* kobo-198 — grid item shrinks to its track (min-width:auto would let card content force the column wider → board blowout) */
     /* kobo-197 — reveal/hide control for the parking columns (backlog + rejected). */
     .board-toolbar { display:flex; justify-content:flex-end; margin-bottom:8px; }
@@ -254,19 +254,15 @@ function companyBody(): string {
     .col-chevron { background:none; border:0; color:inherit; cursor:pointer; font:inherit; font-size:11px; line-height:1; padding:0; }
     .col-chevron:hover, .col-chevron:focus-visible { color:var(--fg); }
     .col.collapsed { display:none; }
+    /* kobo-199 — a NON-parking lane with 0 cards is hidden from the grid (renderBoard
+       toggles this by count); backlog/rejected are PARKING and keep the 194/197 reveal
+       control instead of empty-hiding. applyColumnCollapse counts neither as visible. */
+    .col.lane-empty { display:none; }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
     .col-ready h2 { color:var(--ok); } /* kobo-133 — deps cleared, green light to start */
     .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-approve h2 { color:var(--link); } .col-done h2 { color:var(--ok); }
+    .col-blocked h2 { color:var(--bad); } /* kobo-199 — Blocked is now a normal grid column (was the floating attention lane, kobo-55) */
     .col-rejected h2 { color:var(--warn); } /* kobo-101 — terminal "not accepted", parallel to Done */
-    /* kobo-55 — the Blocked/attention lane sits ABOVE the board (top of the Kanban
-       tab) so blocked/needs-attention cards are seen immediately, not below-fold on
-       a busy board. Hidden entirely when nothing is off-flow (renderBoard toggles
-       [hidden]) so it costs no space then. margin-bottom separates it from the board. */
-    .attention { margin-bottom:14px; border:1px solid var(--bd-bad); background:#1b1012; border-radius:12px; padding:10px; }
-    body.light .attention { border-color:#e6b3ad; background:#fdeeec; } /* light-theme tint (was dark-only hex) */
-    .attention h2 { margin:0 0 8px; font-size:12px; color:var(--bad); display:flex; justify-content:space-between; }
-    .attention .lane { display:flex; gap:9px; flex-wrap:wrap; }
-    .attention .task { flex:1 1 220px; max-width:340px; }
     .task { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-3); }
     /* kobo-62 — state-accent left border: the card tells its own state at a glance
        (redundant with the column, so state is never conveyed by color alone). */
@@ -676,10 +672,6 @@ function companyBody(): string {
         <div class="mentions-bar" id="mentions-bar" hidden></div>
         <div class="family-bar" id="family-bar" hidden></div>
         <div class="assignee-bar" id="assignee-bar" hidden></div>
-        <div class="attention" id="attention-panel" hidden>
-          <h2><span>⚑ Blocked <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-blocked">0</span></h2>
-          <div class="lane" id="blocked"></div>
-        </div>
         <div class="board-toolbar"><button class="reveal-parking" id="reveal-parking" type="button" aria-expanded="false">⊕ แสดง parking</button></div>
         <div class="board">
           <div class="col col-backlog"><h2><button class="col-chevron" type="button" data-col="backlog" aria-label="toggle backlog">▸</button><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
@@ -688,6 +680,7 @@ function companyBody(): string {
           <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
           <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
           <div class="col col-approve"><h2><span>Approve</span><span class="count" id="c-approve">0</span></h2><div id="approve"></div></div>
+          <div class="col col-blocked"><h2><span>⚑&nbsp;Blocked</span><span class="count" id="c-blocked">0</span></h2><div id="blocked"></div></div>
           <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
           <div class="col col-rejected"><h2><button class="col-chevron" type="button" data-col="rejected" aria-label="toggle rejected">▸</button><span>Rejected</span><span class="count" id="c-rejected">0</span></h2><div id="rejected"></div></div>
         </div>
@@ -1008,10 +1001,11 @@ function taskCard(task, opts) {
   card.appendChild(meta);
   // next-action — the board always says what happens next + who (Track 4)
   if (task.nextAction) card.appendChild(el('div', 't-na', '↳ ' + task.nextAction));
-  // kobo-127 — note surfacing. Collapsed cards (the flow lanes) show ONLY the
-  // latest note as a faint one-liner — the trail hides; click the card = expand
-  // (full trail lives in the detail modal). The Blocked lane is Tony's decision
-  // queue, so opts.notes==='full' shows every note in full, untruncated.
+  // kobo-127 — note surfacing. Flow-lane cards show ONLY the latest note as a faint
+  // one-liner — the trail hides; click the card = expand (full trail in the modal).
+  // The Blocked column is Tony's decision queue, so opts.notes==='full' shows every
+  // note untruncated for triage-at-a-glance (kobo-199 keeps this when Blocked moved
+  // from the floating attention lane into the grid).
   const notes = task.notes || [];
   if (notes.length) {
     if (opts.notes === 'full') {
@@ -1791,7 +1785,13 @@ function renderMentions(tasks) {
 }
 
 const FLOW = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'approve', 'done'];
-const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'approve', 'done', 'rejected']; // board columns = flow + Rejected terminal lane (kobo-101)
+const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'approve', 'blocked', 'done', 'rejected']; // board columns = flow + Blocked (kobo-199, off-flow) + Rejected terminal lane (kobo-101)
+// kobo-199 — lanes that VANISH from the grid when they hold 0 cards. Parking
+// (backlog/rejected) never join — they use the 194/197 reveal control. Blocked is
+// deliberately EXEMPT (always-on) so it never "disappears" — honoring Tony's original
+// "blocked หายไปไหน" complaint; a card lands there for a decision, so its column stays
+// visible even at 0. To make Blocked hide-when-empty like the rest, add 'blocked' here.
+const HIDE_WHEN_EMPTY = ['todo', 'ready', 'in-progress', 'review', 'approve', 'done'];
 
 // kobo-127 — Done lane fold: newest 5 (by updatedTs) + a "show all N"/"collapse"
 // toggle, so 40 finished cards never bury the live lanes. Sort is a display-only
@@ -1837,7 +1837,7 @@ function applyColumnCollapse() {
   // a static repeat(8) would leave an empty gap instead).
   const board = document.querySelector('.board');
   if (board) {
-    const visible = Array.prototype.filter.call(board.querySelectorAll('.col'), (c) => !c.classList.contains('collapsed')).length;
+    const visible = Array.prototype.filter.call(board.querySelectorAll('.col'), (c) => !c.classList.contains('collapsed') && !c.classList.contains('lane-empty')).length;
     board.style.gridTemplateColumns = 'repeat(' + Math.max(visible, 1) + ', minmax(150px, 1fr))';
   }
   // kobo-197 — reveal button reflects the hidden parking columns (chevrons are
@@ -1896,7 +1896,9 @@ function renderBoard(tasks) {
   const isOffFlow = (task) => task.state === 'blocked' || (task.dependency && task.dependency.blockedBy.length > 0) || task.needsOwner;
   const doneCards = []; // kobo-127 — deferred so the Done lane can fold to newest 5
   for (const task of shown) {
-    // Blocked = Tony's decision queue → show every note in full on the face.
+    // kobo-199 — Blocked moved from the floating attention lane (kobo-55) into the
+    // grid as col-blocked, but stays Tony's decision queue → keep the full-notes face
+    // for triage-at-a-glance (block-reason badge also rides in the card meta).
     if (isOffFlow(task)) { attn.appendChild(taskCard(task, { notes: 'full' })); counts['blocked']++; continue; }
     const state = cols[task.state] ? task.state : 'todo';
     if (state === 'done') { doneCards.push(task); counts['done']++; continue; }
@@ -1906,11 +1908,16 @@ function renderBoard(tasks) {
   renderDoneLane(cols['done'], doneCards); // kobo-127 — newest 5 + "show all N"
   for (const s of COLS) {
     $('c-' + s).textContent = counts[s];
-    if (counts[s] === 0) cols[s].appendChild(el('div', 'empty', '—'));
+    const colEl = document.querySelector('.col-' + s);
+    if (HIDE_WHEN_EMPTY.includes(s)) {
+      // kobo-199 — a hide-when-empty lane vanishes at 0 cards and reappears once one lands.
+      if (colEl) colEl.classList.toggle('lane-empty', counts[s] === 0);
+    } else if (counts[s] === 0) {
+      // parking (194/197 reveal control) or an always-on lane → keep the column, show "—".
+      cols[s].appendChild(el('div', 'empty', '—'));
+    }
   }
-  $('c-blocked').textContent = counts['blocked'];
-  $('attention-panel').hidden = counts['blocked'] === 0;
-  applyColumnCollapse(); // kobo-194 — keep backlog/rejected folded per persisted state
+  applyColumnCollapse(); // kobo-194/197 — re-fold parking + reflow the grid to the visible column count
 }
 
 // Worklog ts is stored UTC (ISO). This renders in the browser, so format in the
