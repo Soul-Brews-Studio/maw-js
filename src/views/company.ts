@@ -303,6 +303,9 @@ function companyBody(): string {
     /* kobo-62 — detail modal meta row (dept / parent / wait moved off the face). */
     #detail-meta { display:flex; gap:var(--s-2); flex-wrap:wrap; margin-bottom:var(--s-5); }
     #detail-meta[hidden] { display:none; }
+    /* kobo-185 — block reason on its own full-width line (wraps, not a clamped pill)
+       so a blocked card's decision context reads in full in the modal. */
+    .detail-block-reason { flex-basis:100%; color:var(--bad); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; }
     /* kobo-190 — approve-lane decision block (human gate, gold like the lane). */
     #detail-approve[hidden] { display:none; }
     .approve-box { border:1px solid var(--link); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-5); background:var(--field-bg); }
@@ -906,6 +909,14 @@ function renderDetailMeta(task) {
   }
   const wf = waitFor(task);
   if (wf) bar.appendChild(el('span', 'pill wait', '⏳ ' + wf));
+  // kobo-185 — a blocked card is Tony's decision queue: show the block REASON in full
+  // (not just the "Blocked →for" badge). The reason lives only on the card face
+  // otherwise; here it wraps on its own line (flex-basis:100%) so the whole decision
+  // context reads. el() sets textContent → XSS-safe. Non-blocked cards carry no
+  // task.block, so this never renders for them.
+  if (task.block && task.block.reason) {
+    bar.appendChild(el('div', 'detail-block-reason', '⚑ ' + task.block.reason));
+  }
   bar.hidden = !bar.childNodes.length;
 }
 // kobo-62 — assignee avatar (core face). Reuses the maw-pane color hash + kobo-71

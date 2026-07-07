@@ -145,6 +145,18 @@ describe("columnCollapsed (kobo-194)", () => {
   });
 });
 
+describe("card-detail block reason (kobo-185 relations gap-fill)", () => {
+  const html = companyHtml();
+  test("renderDetailMeta shows the block REASON in full for a blocked card (guarded, XSS-safe)", () => {
+    // only when task.block.reason exists (non-blocked cards carry no task.block)
+    expect(html).toContain("task.block && task.block.reason");
+    // rendered via el() (textContent) into a full-width wrapping line, not a clamped pill
+    expect(html).toContain("'detail-block-reason', '⚑ ' + task.block.reason");
+    expect(html).toContain(".detail-block-reason {");
+    expect(html).toContain("flex-basis:100%"); // its own line, wraps in full
+  });
+});
+
 describe("board lane visibility — Blocked in grid + hide-empty (kobo-199)", () => {
   const html = companyHtml();
   test("Blocked is a normal grid column (col-blocked) before Done; floating attention lane is gone", () => {
