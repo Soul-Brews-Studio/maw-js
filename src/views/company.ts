@@ -238,7 +238,7 @@ function companyBody(): string {
     /* Card primitive — surface for panels/columns/modals. */
     .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r-xl); padding:var(--s-6); box-shadow:0 12px 28px rgba(0,0,0,.25); }
     .board { display:grid; grid-template-columns: repeat(7, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
-    .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; }
+    .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; min-width:0; } /* kobo-198 — grid item shrinks to its track (min-width:auto would let card content force the column wider → board blowout) */
     .col h2 { margin:0 0 10px; font-size:12px; font-weight:600; color:var(--muted); display:flex; align-items:center; justify-content:space-between; gap:6px; }
     .col h2 .count { color:var(--fg); margin-left:auto; } /* kobo-194 — count stays right so a leading chevron groups with the label */
     /* kobo-194 — collapsible column: chevron toggles; collapsed hides the cards, keeping header+count */
@@ -322,7 +322,12 @@ function companyBody(): string {
     .done-btn { align-self:flex-start; font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid var(--bd-ok); color:var(--ok); background:var(--field-bg); cursor:pointer; }
     .done-btn:hover { border-color:var(--ok); }
     .done-btn:disabled { opacity:.55; cursor:default; }
-    .pill { border:1px solid var(--line); border-radius:999px; padding:1px 7px; white-space:nowrap; }
+    /* kobo-198 — a long single pill (block-reason / parent-not-found carries free
+       text) is white-space:nowrap, so with no cap its min-content forces .col wide →
+       the whole board grid blows past its track and text bleeds past the column edge.
+       Cap at the container width + ellipsis so an over-long pill clamps instead of
+       pushing the grid (short pills are unaffected — they never hit 100%). */
+    .pill { border:1px solid var(--line); border-radius:999px; padding:1px 7px; white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
     .pill.dept { color:var(--accent); } .pill.epic { color:var(--epic); } .pill.assignee { color:var(--ok); }
     .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:var(--bd-warn); }
     .pill.check { color:var(--epic); }
