@@ -299,6 +299,20 @@ function companyBody(): string {
     /* kobo-62 — detail modal meta row (dept / parent / wait moved off the face). */
     #detail-meta { display:flex; gap:var(--s-2); flex-wrap:wrap; margin-bottom:var(--s-5); }
     #detail-meta[hidden] { display:none; }
+    /* kobo-190 — approve-lane decision block (human gate, gold like the lane). */
+    #detail-approve[hidden] { display:none; }
+    .approve-box { border:1px solid var(--link); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-5); background:var(--field-bg); }
+    .approve-head { color:var(--link); font-size:var(--t-sm); margin-bottom:var(--s-2); }
+    .approve-line { color:var(--fg); }
+    .approve-title { color:var(--muted); margin-top:2px; }
+    .approve-rev { color:var(--ok); font-size:var(--t-sm); margin-top:2px; }
+    .approve-prose { color:var(--fg); white-space:pre-wrap; }
+    .approve-link { display:inline-block; margin-top:var(--s-2); color:var(--link); }
+    .approve-actions { margin-top:var(--s-3); display:flex; align-items:center; gap:var(--s-3); }
+    .approve-btn { font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid var(--link); color:var(--link); background:var(--field-bg); cursor:pointer; }
+    .approve-btn:hover { border-color:var(--fg); }
+    .approve-btn:disabled { opacity:.55; cursor:default; }
+    .approve-msg.ok { color:var(--ok); } .approve-msg.err { color:var(--bad); }
     .task .t-na { color:var(--accent); font-size:var(--t-sm); margin-top:var(--s-2); }
     .task .t-actions { margin-top:8px; display:flex; justify-content:flex-end; }
     .archive-btn { font-size:11px; padding:3px 9px; border-radius:8px; border:1px solid var(--bd-ok); color:var(--ok); background:var(--field-bg); cursor:pointer; }
@@ -689,6 +703,7 @@ function companyBody(): string {
       <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <button type="button" id="detail-close" aria-label="close detail">✕</button></h2>
       <div id="detail-title"></div>
       <div id="detail-meta"></div>
+      <div id="detail-approve" hidden></div>
       <div id="detail-deps" hidden></div>
       <div id="detail-family" hidden></div>
       <div class="md" id="detail-body"></div>
@@ -1128,6 +1143,62 @@ function noteBubble(n, src) {
   return note;
 }
 
+// kobo-190 — approve-lane decision block. Renders ONLY when state === 'approve'
+// (the human gate between review and done). merge-case (has pr) = a compact summary
+// (merge PR#N → repo · card title · ✓ reviewed by <reviewer>) + a link-out to the PR
+// on GitHub — NO fetch/diff render (kobo-190 Q3=a). no-PR case = the card's prose so
+// Tony sees what he's approving. The [✅ Approve] button is MARK-ONLY: it posts a
+// "✅ Tony approved" comment (reuse /api/tasks/comment, actor=tony server-side) — no
+// merge / gh / PR-write. All text via el()/textContent → XSS-safe; the PR href is a
+// fixed https://github.com/ prefix + a slug-validated repo (no scheme injection).
+function renderDetailApprove(task) {
+  const host = $('detail-approve');
+  host.replaceChildren();
+  if (!task || task.state !== 'approve') { host.hidden = true; return; }
+  const box = el('div', 'approve-box');
+  box.appendChild(el('div', 'approve-head', '🔎 รอ Tony อนุมัติ'));
+  const repo = task.repo || '';
+  // owner/name guard for the link href. Split-then-test so the pattern carries no '/'
+  // or backslash — a regex escape here would be eaten by the enclosing template literal.
+  const repoParts = repo.split('/');
+  const slugOk = /^[A-Za-z0-9_.-]+$/;
+  const repoOk = repoParts.length === 2 && slugOk.test(repoParts[0]) && slugOk.test(repoParts[1]);
+  if (task.pr) {
+    const sum = el('div', 'approve-sum');
+    sum.appendChild(el('div', 'approve-line', 'merge PR #' + task.pr + (repo ? ' → ' + repo : '')));
+    if (task.title) sum.appendChild(el('div', 'approve-title', task.title));
+    if (task.reviewer) sum.appendChild(el('div', 'approve-rev', '✓ reviewed by ' + task.reviewer));
+    box.appendChild(sum);
+    if (repoOk) {
+      const a = el('a', 'approve-link', 'เปิด PR ↗');
+      a.href = 'https://github.com/' + repo + '/pull/' + task.pr;
+      a.target = '_blank'; a.rel = 'noopener noreferrer';
+      box.appendChild(a);
+    }
+  } else {
+    const prose = el('div', 'approve-prose');
+    prose.textContent = task.body ? task.body : '(no PR · no detail)';
+    box.appendChild(prose);
+  }
+  const btnRow = el('div', 'approve-actions');
+  const btn = el('button', 'approve-btn', '✅ Approve'); btn.type = 'button';
+  const msg = el('span', 'approve-msg');
+  btn.addEventListener('click', async () => {
+    const company = currentCompany();
+    if (!company) return;
+    btn.disabled = true;
+    try {
+      await postJson('/api/tasks/comment', { company: company, id: task.id, text: '✅ Tony approved' });
+      msg.textContent = 'approved'; msg.className = 'approve-msg ok';
+      await load(); reopenDetail(task.id);
+    } catch (err) { msg.textContent = 'approve failed: ' + errMsg(err); msg.className = 'approve-msg err'; btn.disabled = false; }
+  });
+  btnRow.appendChild(btn); btnRow.appendChild(msg);
+  box.appendChild(btnRow);
+  host.appendChild(box);
+  host.hidden = false;
+}
+
 // kobo-136 — dependency chips in the drawer: what this card waits on (blockedBy /
 // missing, ADR 0003) + the REVERSE edge (cards waiting on this one, derived from
 // the cached payload). A resolved chip opens that card's drawer in place.
@@ -1376,6 +1447,7 @@ function openDetail(task) {
   if (task && task.id) syncUrlToCard(task.id); // kobo-181: reflect the open card in the URL (deep-link)
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
+  renderDetailApprove(task); // kobo-190: approve-only summary + link-out + mark-only Approve button
   renderDetailDeps(task);   // kobo-136: dependency chips (waits-on / missing / unblocks)
   renderDetailFamily(task); // kobo-136: family tree (root → descendants, current marked)
   const bodyEl = $('detail-body');
