@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orderCommentTree, foldableResolvedIds, newestVisibleCommentId, companyHtml } from "./company";
+import { orderCommentTree, foldableResolvedIds, newestVisibleCommentId, parseCardId, companyHtml } from "./company";
 
 // A comment factory — id, replyTo, ts, author. ts drives sibling order.
 const c = (id: string, replyTo: string | null, ts: number, by = "sapan") => ({ id, replyTo, ts, by, text: id + " body" });
@@ -89,6 +89,21 @@ describe("companyHtml injection (kobo-171 + kobo-176)", () => {
     expect(html).toContain("foldableResolvedIds(comments)"); // and consumed
     expect(html).toContain("function newestVisibleCommentId"); // kobo-180 injected
     expect(html).toContain("scrollToNewestComment(task)"); // and called on open
+    expect(html).toContain("function parseCardId"); // kobo-181 injected
+    expect(html).toContain("addEventListener('popstate'"); // deep-link back/forward wired
+    expect(html).toContain("syncUrlToCard(task.id)"); // and openDetail reflects the card in the URL
+  });
+});
+
+describe("parseCardId (kobo-181)", () => {
+  test("extracts the card param", () => {
+    expect(parseCardId("?card=kobo-5&company=kobo")).toBe("kobo-5");
+    expect(parseCardId("?company=kobo&card=pgw-12")).toBe("pgw-12");
+  });
+  test("missing / empty card param → empty string", () => {
+    expect(parseCardId("?company=kobo")).toBe("");
+    expect(parseCardId("?card=")).toBe("");
+    expect(parseCardId("")).toBe("");
   });
 });
 

@@ -128,6 +128,13 @@ export function newestVisibleCommentId(comments, foldableIds) {
   return best ? best.id : null;
 }
 
+// kobo-181: the card id from a URL query string (?card=<id>) — the deep-link
+// target. Pure (takes location.search, not window) so it unit-tests; injected into
+// the client script via `${parseCardId.toString()}`. Empty string = no card param.
+export function parseCardId(search) {
+  return (new URLSearchParams(search || "").get("card") || "").trim();
+}
+
 function companyBody(): string {
   return `<!doctype html>
 <html lang="en">
@@ -1280,6 +1287,7 @@ function commentBubble(task, c, indent, parent) {
 ${orderCommentTree.toString()}
 ${foldableResolvedIds.toString()}
 ${newestVisibleCommentId.toString()}
+${parseCardId.toString()}
 
 function renderDetailComments(task) {
   const host = $('detail-comments');
@@ -1309,6 +1317,7 @@ function renderDetailComments(task) {
 }
 
 function openDetail(task) {
+  if (task && task.id) syncUrlToCard(task.id); // kobo-181: reflect the open card in the URL (deep-link)
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
   renderDetailDeps(task);   // kobo-136: dependency chips (waits-on / missing / unblocks)
@@ -1554,6 +1563,7 @@ function openModal() {
   $('detail-panel').focus();
 }
 function closeDetail() {
+  dropCardFromUrl(); // kobo-181: leaving the card → drop ?card in place (popstate close = already dropped, no-op)
   $('detail-overlay').hidden = true;
   if (detailReturnFocus && detailReturnFocus.focus) detailReturnFocus.focus();
   detailReturnFocus = null;
@@ -2158,6 +2168,30 @@ function companyFromUrl() {
   return (params.get('company') || '').trim();
 }
 
+// kobo-181: deep-link the open card in the URL (?card=<id>), preserving ?company.
+// openDetail pushes a history entry only when SWITCHING card (same id = a reopen
+// after a write → no spurious entry); closeDetail drops the param in place. A
+// popstate (back/forward) syncs the modal to the URL. Vanilla history API — no router.
+function cardFromUrl() { return parseCardId(window.location.search); }
+function syncUrlToCard(id) {
+  if (cardFromUrl() === id) return; // already on this card (reopen / popstate) → no new entry
+  const u = new URL(window.location.href);
+  u.searchParams.set('card', id);
+  window.history.pushState({ card: id }, '', u.toString());
+}
+function dropCardFromUrl() {
+  if (!cardFromUrl()) return; // nothing to drop (e.g. closed via back button already)
+  const u = new URL(window.location.href);
+  u.searchParams.delete('card');
+  window.history.replaceState(null, '', u.toString());
+}
+function syncModalToUrl() { // popstate: make the DOM match wherever we navigated to
+  const id = cardFromUrl();
+  const t = id ? taskIndex.byId.get(id) : null;
+  if (t) openDetail(t); // URL already has ?card=id → openDetail won't re-push
+  else closeDetail();   // no card (or unknown id) → ensure the modal is closed
+}
+
 // Theme — default dark (the board's native look); persisted per browser.
 const themeBtn = $('theme');
 function applyTheme(theme) {
@@ -2202,7 +2236,17 @@ document.addEventListener('keydown', (ev) => {
   if (ev.shiftKey && (active === first || active === panel)) { ev.preventDefault(); last.focus(); }
   else if (!ev.shiftKey && active === last) { ev.preventDefault(); first.focus(); }
 });
-load();
+// kobo-181: back/forward syncs the modal to the URL (open ?card, or close if gone).
+window.addEventListener('popstate', syncModalToUrl);
+// Initial load; once tasks are indexed, open the deep-linked card (?card=<id>) if
+// any. One-shot on boot — the 5s poll calls load() directly and must NOT reopen.
+// An unknown id just no-ops (taskIndex miss) — a stale/shared link never crashes.
+load().then(() => {
+  const cid = cardFromUrl();
+  if (!cid) return;
+  const t = taskIndex.byId.get(cid);
+  if (t) openDetail(t);
+});
 
 // kobo-37: auto-refresh — poll every 5s so the board tracks changes without F5.
 // Pause while the tab is hidden (don't hammer in the background); on re-show,
