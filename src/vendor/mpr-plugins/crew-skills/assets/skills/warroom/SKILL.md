@@ -90,8 +90,24 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
    tmux set-option -p -t "$COND" @role "🎼 Conductor"; tmux set-option -p -t "$WK" @role "🔎 worker"
    tmux set-window-option pane-border-status top
    tmux set-window-option pane-border-format " #{@role} · #{pane_title} "
+   # HARDEN (kobo-174) — @role is load-bearing for the card-gate (empty → fail-CLOSED deny).
+   # Assert each marker stuck; re-set any that didn't take (respawn/race safe):
+   for pr in "$LEAD:👤 lead" "$COMM:📡 comm" "$COND:🎼 Conductor" "$WK:🔎 worker"; do
+     pid="${pr%%:*}"; want="${pr#*:}"
+     [ "$(tmux display-message -t "$pid" -p '#{@role}')" = "$want" ] || tmux set-option -p -t "$pid" @role "$want"
+   done
    ```
-   (ตั้งซ้ำหลัง respawn — @role ผูก pane)
+   (ตั้งซ้ำหลัง respawn — @role ผูก pane · verify loop = HARDEN kobo-174)
+
+   **(opt-in) lead card-gate (kobo-174)** — บังคับ lead route card-create ผ่าน Conductor เชิงโครงสร้าง. เปิดโดยเพิ่ม block นี้ลง oracle **`~/.claude/settings.json`** (lead = origin pane → ใช้ settings ตัวเอง). hook `maw-card-gate.sh` ติดตั้งแล้วโดย `maw crew-skills sync` (dormant จนกว่าจะ opt-in):
+   ```json
+   {
+     "hooks": { "PreToolUse": [ { "matcher": "Bash|mcp__maw__maw_task",
+       "hooks": [ { "type": "command", "command": "bash $HOME/.claude/hooks/maw-card-gate.sh" } ] } ] },
+     "mawCardGate": { "leadRole": "lead", "gatedTools": ["maw_task add"], "coordinator": "<conductor-addr>" }
+   }
+   ```
+   lead สร้าง card (MCP หรือ bash `maw task add`) → deny + ชี้ให้ brief Conductor. override ตั้งใจครั้งเดียว: bash `maw task add ... --force-lead`. Conductor/worker (@role ≠ lead) สร้างได้ปกติ.
 6. **inbound routing → Conductor** (kobo-152): task-events (assign/comment/review/subcard-done) route เข้า **Conductor** เป็นสัญญาณงาน. resolve index สดจาก `$COND` pane-id (ห้ามจำ index):
    ```bash
    COND_IDX=$(tmux display-message -t "$COND" -p '#{pane_index}')

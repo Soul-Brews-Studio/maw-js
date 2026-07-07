@@ -85,6 +85,8 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
   ```bash
   # ตอน spawn (ครั้งเดียวต่อ pane):
   tmux set-option -p -t "$PANE" @role "⚒ worker-1"
+  # HARDEN (kobo-174) — @role load-bearing (card-gate reads it); assert it stuck, re-set if not:
+  [ "$(tmux display-message -t "$PANE" -p '#{@role}')" = "⚒ worker-1" ] || tmux set-option -p -t "$PANE" @role "⚒ worker-1"
   tmux set-window-option pane-border-status top
   tmux set-window-option pane-border-format ' #{@role}#{?@task, · #{@task},} · #{pane_title} '
   # ตอน dispatch (coordinator set — single writer เดียวกับ roster):

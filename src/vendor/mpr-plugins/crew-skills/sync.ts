@@ -29,6 +29,7 @@ export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/crew/SKILL.md", dest: "skills/crew/SKILL.md" },
   { src: "skills/warroom/SKILL.md", dest: "skills/warroom/SKILL.md" },
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },
+  { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via settings.json .mawCardGate)
   { src: "crew-worker-settings.json", dest: "crew-worker-settings.json" },
 ];
 

@@ -49,6 +49,21 @@ describe("crew-skills global asset contract", () => {
     expect(parsed.hooks.Stop[0].hooks[0].command).toContain("$HOME/.claude/hooks/crew-worker-stop.sh");
   });
 
+  // kobo-174 — the lead card-gate hook ships as an executable global asset so an
+  // oracle that opts in (settings.json .mawCardGate) points at a real script.
+  test("card-gate hook is a synced executable asset", () => {
+    const item = SYNC_ITEMS.find((i) => i.dest === "hooks/maw-card-gate.sh");
+    expect(item).toBeDefined();
+    expect(item?.exec).toBe(true);
+    const hook = readFileSync(join(assetsDir, "hooks/maw-card-gate.sh"), "utf8");
+    // gates BOTH paths (MCP-gap lesson) + fail-CLOSED + opt-in + conscious override
+    expect(hook).toContain("mcp__maw__maw_task");
+    expect(hook).toContain("maw task add");
+    expect(hook).toContain(".mawCardGate");
+    expect(hook).toContain("--force-lead");
+    expect(hook).toContain('"deny"');
+  });
+
   test("crew skill spawns workers with the $HOME-absolute settings path", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
     expect(skill).toContain('--settings "$HOME/.claude/crew-worker-settings.json"');
