@@ -67,6 +67,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
     expect(src).toContain("parsePrRepo"); // kobo-80: stamp card.repo from the PR url on pr-link
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given
+    expect(src).toContain("repo derived from CWD"); // kobo-195: WARN on the CWD fallback — silent stamp of the wrong repo was the kobo-188 foot-gun
     expect(src).toContain("(use owner/name"); // kobo-99: reject a bare repo at link → never bind an unpollable repo
     expect(src).toContain("completeTask");
     expect(src).toContain("rejectTask"); // kobo-101: terminal "done but not accepted"

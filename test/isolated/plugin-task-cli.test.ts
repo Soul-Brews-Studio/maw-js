@@ -169,6 +169,22 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-2")!.repo).toBe("acme/thing"); // explicit --repo with a bare number
   });
 
+  test("pr WARNs when repo is derived from CWD (bare number, no --repo/url) — kobo-195", async () => {
+    // A bare number with no --repo/url falls back to the CWD git remote. That's the
+    // kobo-188 foot-gun (stamps the oracle repo, not the target) → WARN loudly.
+    await run(["add", "cwd-fallback card", "--company", "pgw"]); // pgw-1
+    const r = await run(["pr", "pgw-1", "7", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("repo derived from CWD"); // the warning fired
+    expect(readTask("pgw", "pgw-1")!.repo).toBe("meganechan/maw-js"); // this worktree's origin
+
+    // explicit --repo → trusted silently, no warning
+    await run(["add", "explicit card", "--company", "pgw"]); // pgw-2
+    const r2 = await run(["pr", "pgw-2", "8", "--repo", "acme/thing", "--company", "pgw"]);
+    expect(r2.output).not.toContain("repo derived from CWD");
+    expect(readTask("pgw", "pgw-2")!.repo).toBe("acme/thing");
+  });
+
   test("pr rejects a bare repo (no owner) — an unpollable link never binds (kobo-99)", async () => {
     await run(["add", "bare repo card", "--company", "pgw"]); // pgw-1
     const r = await run(["pr", "pgw-1", "5", "--repo", "helm-charts", "--company", "pgw"]);

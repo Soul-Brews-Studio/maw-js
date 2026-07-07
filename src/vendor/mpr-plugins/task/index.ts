@@ -463,7 +463,15 @@ export async function runTask(
       // created without --repo. Priority: explicit --repo > repo in the PR url >
       // the git remote at CWD (the worker links from inside the repo's worktree).
       // setTaskPr only fills a MISSING repo — an existing card.repo always wins.
-      const linkRepo = flags["--repo"] || parsePrRepo(prArg) || currentRepoSlug();
+      // kobo-195: the CWD fallback is a foot-gun — running from an oracle dir (not
+      // the target worktree) stamps card.repo = the oracle repo, so pr-watch polls
+      // the wrong repo and the card never flips done. Trust it, but WARN loudly so
+      // the caller can prefer --repo / the PR url when the guess is wrong.
+      const explicitRepo = flags["--repo"] || parsePrRepo(prArg);
+      const linkRepo = explicitRepo || currentRepoSlug();
+      if (!explicitRepo && linkRepo) {
+        console.log(`\x1b[33m⚠ repo derived from CWD git remote: ${linkRepo}\x1b[0m \x1b[90m— pass --repo owner/name (or a full PR url) if the PR lives elsewhere\x1b[0m`);
+      }
       // kobo-99 DEFECT #1: a bare repo ("helm-charts", no owner) makes every
       // `gh pr list --repo <bare>` fail → the card is never polled and strands
       // silently. Reject at link time so the board never binds an unpollable repo.
