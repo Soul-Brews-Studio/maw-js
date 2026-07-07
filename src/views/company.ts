@@ -1155,10 +1155,11 @@ function noteBubble(n, src) {
 // (the human gate between review and done). merge-case (has pr) = a compact summary
 // (merge PR#N → repo · card title · ✓ reviewed by <reviewer>) + a link-out to the PR
 // on GitHub — NO fetch/diff render (kobo-190 Q3=a). no-PR case = the card's prose so
-// Tony sees what he's approving. The [✅ Approve] button is MARK-ONLY: it posts a
-// "✅ Tony approved" comment (reuse /api/tasks/comment, actor=tony server-side) — no
-// merge / gh / PR-write. All text via el()/textContent → XSS-safe; the PR href is a
-// fixed https://github.com/ prefix + a slug-validated repo (no scheme injection).
+// Tony sees what he's approving. The [✅ Approve] button posts to /api/tasks/approve,
+// which DERIVES from the pr field (kobo-192): has pr → mark-only "✅ Tony approved"
+// comment (pr-watch drives merge→done); no pr → spawn an execution-card (deploy work)
+// server-side. No merge / gh / PR-write here. All text via el()/textContent → XSS-safe;
+// the PR href is a fixed https://github.com/ prefix + a slug-validated repo.
 function renderDetailApprove(task) {
   const host = $('detail-approve');
   host.replaceChildren();
@@ -1196,8 +1197,11 @@ function renderDetailApprove(task) {
     if (!company) return;
     btn.disabled = true;
     try {
-      await postJson('/api/tasks/comment', { company: company, id: task.id, text: '✅ Tony approved' });
-      msg.textContent = 'approved'; msg.className = 'approve-msg ok';
+      // kobo-192 — server derives from the pr field: has pr → mark-only comment;
+      // no pr → spawn an execution-card (deploy work). Response.mode says which.
+      const res = await postJson('/api/tasks/approve', { company: company, id: task.id });
+      msg.textContent = res && res.mode === 'spawn' ? 'approved → execution card spawned' : 'approved';
+      msg.className = 'approve-msg ok';
       await load(); reopenDetail(task.id);
     } catch (err) { msg.textContent = 'approve failed: ' + errMsg(err); msg.className = 'approve-msg err'; btn.disabled = false; }
   });

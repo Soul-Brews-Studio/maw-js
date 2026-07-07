@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskArchiveRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskNoteRequest, handleTaskResolveRequest, handleTasksRequest } from "./route";
+import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskNoteRequest, handleTaskResolveRequest, handleTasksRequest } from "./route";
 import { addTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
@@ -387,6 +387,60 @@ describe("handleTaskDoneRequest (POST /api/tasks/done — kobo-50 guard b web tr
     expect((await post({ company: "dn" })).status).toBe(400);
     expect((await post({ company: "dn", id: "dn-999" })).status).toBe(404);
     const bad = await handleTaskDoneRequest(new Request("http://x/api/tasks/done", { method: "POST", headers: { "content-type": "application/json" }, body: "nope" }));
+    expect(bad.status).toBe(400);
+  });
+});
+
+describe("handleTaskApproveRequest (kobo-192 execution-card)", () => {
+  const approve = (company: string, id: string) =>
+    handleTaskApproveRequest(new Request("http://x/api/tasks/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ company, id }),
+    }));
+
+  test("no-pr approve → spawns an execution-card (epic=work, assignee=doer, in-progress)", async () => {
+    const work = addTask({ company: "pgw", title: "ship the thing", by: "eq3", assignee: "patchwork", state: "approve" });
+    const res = await approve("pgw", work.id);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { mode: string; task: { id: string; title: string; state: string; assignee: string | null; epic: string | null } };
+    expect(body.mode).toBe("spawn");
+    expect(body.task.title).toBe("deploy ship the thing");
+    expect(body.task.state).toBe("in-progress"); // active work, NOT blocked/off-flow
+    expect(body.task.assignee).toBe("patchwork"); // the doer
+    expect(body.task.epic).toBe(work.id); // containment link (NOT parentIds → no dep block)
+    const exec = readTask("pgw", body.task.id);
+    expect(exec?.epic).toBe(work.id);
+    expect(exec?.parentIds ?? []).toEqual([]); // never a dependency — would strand it in Blocked
+    // mark path NOT taken → no "Tony approved" comment on the work-card
+    expect((readTask("pgw", work.id)?.comments ?? []).length).toBe(0);
+  });
+
+  test("has-pr approve → mark-only comment, NO execution-card spawned", async () => {
+    const work = addTask({ company: "pgw", title: "merge me", by: "eq3", assignee: "patchwork" });
+    setTaskPr("pgw", work.id, 4242, "eq3", "meganechan/maw-js"); // pr set (state → review); branch is pr-driven
+    const before = listTasks("pgw").length;
+    const res = await approve("pgw", work.id);
+    const body = (await res.json()) as { mode: string };
+    expect(body.mode).toBe("mark");
+    const comments = readTask("pgw", work.id)?.comments ?? [];
+    expect(comments.some((c) => c.text === "✅ Tony approved")).toBe(true);
+    expect(listTasks("pgw").length).toBe(before); // no new card spawned
+  });
+
+  test("relate-back is NOTIFY-ONLY: completing the execution-card does NOT auto-flip the work-card (scar kobo-135)", async () => {
+    const work = addTask({ company: "pgw", title: "deploy target", by: "eq3", assignee: "patchwork", state: "approve" });
+    const body = (await (await approve("pgw", work.id)).json()) as { task: { id: string } };
+    completeTask("pgw", body.task.id, "patchwork"); // the doer finishes the deploy
+    expect(readTask("pgw", body.task.id)?.state).toBe("done");
+    // the work-card must NOT auto-close — Tony/doer closes it manually (auto-flip lies)
+    expect(readTask("pgw", work.id)?.state).toBe("approve");
+  });
+
+  test("validation: missing id → 400; unknown id → 404; bad JSON → 400", async () => {
+    expect((await approve("pgw", "")).status).toBe(400);
+    expect((await approve("pgw", "pgw-99999")).status).toBe(404);
+    const bad = await handleTaskApproveRequest(new Request("http://x/api/tasks/approve", { method: "POST", headers: { "content-type": "application/json" }, body: "nope" }));
     expect(bad.status).toBe(400);
   });
 });

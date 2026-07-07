@@ -13,7 +13,7 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/worklog/route";
-import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskResolveRequest, handleTaskCreateRequest, handleTaskDoneRequest } from "../../../core/tasks/route";
+import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskResolveRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskApproveRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
@@ -50,6 +50,10 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // transition; an epic w/ incomplete children → 409 needsConfirm (guard b). Behind
   // auth via PROTECTED POST "/tasks/…".
   ctx.http?.route("POST", "/api/tasks/done", (request: Request) => handleTaskDoneRequest(request));
+  // company-ui approve (kobo-192): the card-detail Approve button posts a card→approve
+  // action; server derives from the pr field — has pr = mark-only comment, no pr =
+  // spawn an execution-card (epic=work, in-progress). Behind auth (PROTECTED /tasks/…).
+  ctx.http?.route("POST", "/api/tasks/approve", (request: Request) => handleTaskApproveRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company-ui presence roster (kobo-50): authoritative company membership for the

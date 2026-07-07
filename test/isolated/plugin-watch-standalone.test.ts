@@ -73,6 +73,9 @@ describe("watch command plugin standalone boundary", () => {
     // kobo-50: mark-done POST (guard b web trigger) + presence roster GET.
     expect(serveSrc).toContain("handleTaskDoneRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/done["']/);
+    // kobo-192: approve POST — derives from pr (mark-only vs spawn execution-card).
+    expect(serveSrc).toContain("handleTaskApproveRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/approve["']/);
     expect(serveSrc).toContain("handleRosterRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
     // kobo-104: per-pane presence detail GET (model + context%).

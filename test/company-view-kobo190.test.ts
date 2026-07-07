@@ -39,10 +39,12 @@ describe("company board view — kobo-190 approve block wiring", () => {
     expect(html).not.toContain("/pull/' + task.pr + '.diff");
   });
 
-  test("Approve button is MARK-ONLY: posts a comment, never merges", () => {
-    expect(html).toContain("'✅ Tony approved'");
-    expect(html).toContain("'/api/tasks/comment'");
-    // mark-only — no merge / PR-write path in the approve block
+  test("Approve button posts to /api/tasks/approve (server derives), never merges", () => {
+    // kobo-192 — the mark-only comment + spawn decision moved SERVER-side; the client
+    // just posts to /api/tasks/approve. The '✅ Tony approved' text now lives in the
+    // route handler (asserted in core/tasks/route.test.ts), not the client script.
+    expect(html).toContain("'/api/tasks/approve'");
+    // still no merge / PR-write path in the approve block
     expect(html).not.toContain("gh pr merge");
     expect(html).not.toContain("/api/tasks/merge");
   });

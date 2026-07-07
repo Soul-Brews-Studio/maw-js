@@ -347,3 +347,63 @@ export async function handleTaskDoneRequest(request: Request): Promise<Response>
   }
   return Response.json({ ok: true, task: { id: task.id, title: task.title, state: task.state } });
 }
+
+/**
+ * POST /api/tasks/approve — the card-detail Approve action (kobo-190 button →
+ * kobo-192 execution-card). Derives entirely from the card's `pr` field (Q1=D lock,
+ * no new flag):
+ *   - HAS pr → merge-single: mark-only. Record a "✅ Tony approved" comment; pr-watch
+ *     flips the card to done on merge. NO execution card is spawned.
+ *   - NO pr (deploy / no-PR work) → spawn an execution-card ("deploy <title>",
+ *     assignee = the work-card's doer, state = in-progress) linked by epic = work-card.
+ *     epic (containment) is used ON PURPOSE, not parentIds: parentIds would derive a
+ *     dependency block (the work-card isn't done) and strand the execution off-flow in
+ *     the Blocked lane instead of in-progress (kobo-192 finding).
+ *
+ * relate-back (kobo-192): when that execution-card is later completed, the EXISTING
+ * epic notify (completeTask → notifyParentOfSubcardDone, kobo-135) pokes the work-card
+ * owner to close it. This is a NOTIFY, never an auto-flip — respecting the store scar
+ * "auto-flip lies" (store.ts:597, the pr-watch lesson). Tony/the doer closes the
+ * work-card manually. So there is deliberately NO completeTask change here.
+ *
+ * `by` is "tony" — the web board is Tony's surface (mirrors the sibling routes).
+ * Behind auth via PROTECTED POST "/tasks/…" (loopback UI bypasses; LAN must auth).
+ *
+ * Body: { company, id } → { ok, mode:'mark'|'spawn', task? } | { ok:false, error }.
+ */
+export async function handleTaskApproveRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  if (!company || !id) {
+    return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
+  }
+  const work = readTask(company, id);
+  if (!work) {
+    return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  }
+  // HAS pr → merge-single mark-only (pr-watch drives it to done); no spawn.
+  if (work.pr) {
+    commentTask(company, id, "tony", "✅ Tony approved");
+    return Response.json({ ok: true, mode: "mark" });
+  }
+  // NO pr → spawn the execution-card as a containment child (epic) of the work-card.
+  const exec = addTask({
+    company,
+    title: `deploy ${work.title}`,
+    by: "tony",
+    assignee: work.assignee,
+    state: "in-progress",
+    epic: work.id,
+  });
+  return Response.json({
+    ok: true,
+    mode: "spawn",
+    task: { id: exec.id, title: exec.title, state: exec.state, epic: exec.epic ?? null, assignee: exec.assignee ?? null },
+  });
+}
