@@ -237,15 +237,23 @@ function companyBody(): string {
     .layout { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
     /* Card primitive — surface for panels/columns/modals. */
     .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r-xl); padding:var(--s-6); box-shadow:0 12px 28px rgba(0,0,0,.25); }
-    .board { display:grid; grid-template-columns: repeat(7, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
+    /* grid-template-columns is a static fallback; applyColumnCollapse (kobo-197)
+       overrides it inline with the VISIBLE column count so active lanes reflow to
+       full width when the parking columns are hidden. */
+    .board { display:grid; grid-template-columns: repeat(8, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
     .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; min-width:0; } /* kobo-198 — grid item shrinks to its track (min-width:auto would let card content force the column wider → board blowout) */
+    /* kobo-197 — reveal/hide control for the parking columns (backlog + rejected). */
+    .board-toolbar { display:flex; justify-content:flex-end; margin-bottom:8px; }
+    .reveal-parking { background:var(--field-bg); border:1px solid var(--line); border-radius:8px; color:var(--muted); cursor:pointer; font:inherit; font-size:11px; padding:3px 10px; }
+    .reveal-parking:hover, .reveal-parking:focus-visible { color:var(--fg); border-color:var(--muted); }
     .col h2 { margin:0 0 10px; font-size:12px; font-weight:600; color:var(--muted); display:flex; align-items:center; justify-content:space-between; gap:6px; }
     .col h2 .count { color:var(--fg); margin-left:auto; } /* kobo-194 — count stays right so a leading chevron groups with the label */
-    /* kobo-194 — collapsible column: chevron toggles; collapsed hides the cards, keeping header+count */
+    /* kobo-194 chevron (per-column re-hide, shown once a parking column is revealed).
+       kobo-197 — collapsed = the parking column is REMOVED from the grid entirely
+       (display:none, not a narrow strip), so active lanes reflow to full width. */
     .col-chevron { background:none; border:0; color:inherit; cursor:pointer; font:inherit; font-size:11px; line-height:1; padding:0; }
     .col-chevron:hover, .col-chevron:focus-visible { color:var(--fg); }
-    .col.collapsed > div { display:none; }
-    .col.collapsed { min-height:auto; }
+    .col.collapsed { display:none; }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
     .col-ready h2 { color:var(--ok); } /* kobo-133 — deps cleared, green light to start */
     .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-approve h2 { color:var(--link); } .col-done h2 { color:var(--ok); }
@@ -672,6 +680,7 @@ function companyBody(): string {
           <h2><span>⚑ Blocked <span style="color:var(--muted);font-weight:400">(off-flow)</span></span><span class="count" id="c-blocked">0</span></h2>
           <div class="lane" id="blocked"></div>
         </div>
+        <div class="board-toolbar"><button class="reveal-parking" id="reveal-parking" type="button" aria-expanded="false">⊕ แสดง parking</button></div>
         <div class="board">
           <div class="col col-backlog"><h2><button class="col-chevron" type="button" data-col="backlog" aria-label="toggle backlog">▸</button><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
           <div class="col col-todo"><h2><span>Todo</span><span class="count" id="c-todo">0</span></h2><div id="todo"></div></div>
@@ -1823,14 +1832,42 @@ function applyColumnCollapse() {
     const chev = colEl.querySelector('.col-chevron');
     if (chev) { chev.textContent = collapsed ? '▸' : '▾'; chev.setAttribute('aria-expanded', String(!collapsed)); }
   }
+  // kobo-197 — reflow the grid to the visible column count so the active lanes take
+  // full width when parking columns are hidden (a display:none column frees its track;
+  // a static repeat(8) would leave an empty gap instead).
+  const board = document.querySelector('.board');
+  if (board) {
+    const visible = Array.prototype.filter.call(board.querySelectorAll('.col'), (c) => !c.classList.contains('collapsed')).length;
+    board.style.gridTemplateColumns = 'repeat(' + Math.max(visible, 1) + ', minmax(150px, 1fr))';
+  }
+  // kobo-197 — reveal button reflects the hidden parking columns (chevrons are
+  // unreachable once a column is display:none, so this is the way back).
+  const btn = document.getElementById('reveal-parking');
+  if (btn) {
+    const hidden = COLLAPSIBLE_COLS.filter((col) => columnCollapsed(col, state));
+    btn.textContent = hidden.length ? '⊕ แสดง parking (' + hidden.length + ')' : '⊖ ซ่อน parking';
+    btn.setAttribute('aria-expanded', String(hidden.length === 0));
+  }
 }
 // One-time wire: a chevron click flips that column's state + persists + re-applies.
+// kobo-197 — the reveal button bulk-toggles ALL parking columns (any hidden → reveal
+// all; none hidden → hide all), the single entry point when they're display:none.
 function wireColumnCollapse() {
   for (const chev of document.querySelectorAll('.col-chevron')) {
     chev.addEventListener('click', () => {
       const col = chev.dataset.col;
       const state = loadCollapseState();
       state[col] = !columnCollapsed(col, state); // toggle from the effective (default-aware) value
+      saveCollapseState(state);
+      applyColumnCollapse();
+    });
+  }
+  const reveal = document.getElementById('reveal-parking');
+  if (reveal) {
+    reveal.addEventListener('click', () => {
+      const state = loadCollapseState();
+      const anyHidden = COLLAPSIBLE_COLS.some((col) => columnCollapsed(col, state));
+      for (const col of COLLAPSIBLE_COLS) state[col] = !anyHidden; // reveal all, else hide all
       saveCollapseState(state);
       applyColumnCollapse();
     });

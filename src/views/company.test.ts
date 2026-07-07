@@ -95,7 +95,28 @@ describe("companyHtml injection (kobo-171 + kobo-176)", () => {
     expect(html).toContain("function columnCollapsed"); // kobo-194 injected
     expect(html).toContain("applyColumnCollapse()"); // and applied each render
     expect(html).toContain('class="col-chevron"'); // per-column toggle in backlog + rejected headers
-    expect(html).toContain(".col.collapsed > div { display:none");// collapsed hides cards
+    expect(html).toContain(".col.collapsed { display:none"); // kobo-197 — collapsed = removed from grid (was narrow strip)
+  });
+});
+
+describe("board-collapse v2 — parking columns hidden + reveal button (kobo-197)", () => {
+  const html = companyHtml();
+  test("collapsed parking column is fully removed from the grid (display:none, not a strip)", () => {
+    expect(html).toContain(".col.collapsed { display:none; }");
+    expect(html).not.toContain(".col.collapsed > div { display:none"); // the old narrow-strip rule is gone
+  });
+  test("a reveal button exists and applyColumnCollapse drives it + reflows the grid", () => {
+    expect(html).toContain('id="reveal-parking"');
+    expect(html).toContain("getElementById('reveal-parking')");
+    // active lanes reflow full-width: grid track count = visible columns
+    expect(html).toContain("board.style.gridTemplateColumns = 'repeat('");
+  });
+  test("the reveal button bulk-toggles all parking columns (any hidden → reveal all)", () => {
+    expect(html).toContain("COLLAPSIBLE_COLS.some((col) => columnCollapsed(col, state))");
+    expect(html).toContain("state[col] = !anyHidden");
+  });
+  test("persistence reuses the kobo-194 localStorage key (no second store → coexist)", () => {
+    expect(html).toContain("maw-company-collapsed");
   });
 });
 
