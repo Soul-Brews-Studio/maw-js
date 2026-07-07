@@ -288,7 +288,10 @@ function companyBody(): string {
        Blocked lane = every note in full (Tony's decision queue). */
     .task .t-note-latest { margin-top:var(--s-2); color:var(--muted); font-size:var(--t-sm); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.75; }
     .task .t-notes-full { margin-top:var(--s-2); display:flex; flex-direction:column; gap:var(--s-1); }
-    .task .t-notes-full .t-note { color:var(--fg); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; border-left:2px solid var(--line); padding-left:var(--s-3); }
+    /* kobo-201 — vertical clamp on the board: each Blocked note previews ~4 lines
+       then ellipsis (a long/multi note was a full-height wall — Tony "ข้อมูลเยอะเกิน").
+       Board face only — the modal (#detail-notes .note) still shows every note full. */
+    .task .t-notes-full .t-note { color:var(--fg); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; border-left:2px solid var(--line); padding-left:var(--s-3); display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; line-clamp:4; overflow:hidden; }
     .task .t-note-by { color:var(--muted); font-weight:600; }
     /* kobo-127 — Done-lane fold control ("show all N" / "collapse"). */
     .done-fold { grid-column:1 / -1; margin-top:var(--s-2); font-size:var(--t-xs); color:var(--muted); background:none; border:1px dashed var(--line); border-radius:var(--r-md); padding:var(--s-2) var(--s-4); cursor:pointer; width:100%; }
