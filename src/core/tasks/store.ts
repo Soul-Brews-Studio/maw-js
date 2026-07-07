@@ -26,6 +26,7 @@ export type TaskState =
   | "ready" // deps cleared, actionable (kobo-133) — auto-promoted from todo when all parentIds are done/archived
   | "in-progress"
   | "review"
+  | "approve" // kobo-189 — human gate between review (worker-checked) and done (merged)
   | "done"
   | "rejected" // terminal disposition (kobo-101) — "done but not accepted", parallel to done
   | "blocked"; // off-flow (ADR 0003 B) — renamed from the dead needs-attention slot
@@ -36,13 +37,14 @@ export const TASK_STATES: TaskState[] = [
   "ready",
   "in-progress",
   "review",
+  "approve",
   "done",
   "rejected",
   "blocked",
 ];
 
 /** Linear flow columns (blocked is off-flow — surfaced separately). */
-export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "done"];
+export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "approve", "done"];
 
 /**
  * Why a card is held off the flow (ADR 0003 B). `dependency` is also the kind
@@ -1015,6 +1017,9 @@ export function taskNextAction(task: TaskRecord): string {
     case "review":
       if (task.pr) return `รอ merge PR #${task.pr} → done`;
       return `รอ ${task.reviewer || "ใครก็ได้"} ตรวจ${task.reviewReason ? ` (${task.reviewReason})` : ""}`;
+    case "approve":
+      return "รอ Tony เคาะ (approve → done)"; // kobo-189 — human gate after worker review
+
     case "in-progress":
       if (task.assignee && task.by !== task.assignee) return `${task.by} รอ ${task.assignee}`;
       return task.assignee ? `${task.assignee} กำลังทำ` : "รอคนหยิบ";

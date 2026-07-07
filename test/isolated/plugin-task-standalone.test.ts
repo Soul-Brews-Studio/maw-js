@@ -44,6 +44,8 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('"--state"'); // kobo-70: add --state backlog|todo
     expect(src).toContain('"ready": "READY"'); // kobo-133: READY lane (deps cleared, auto-promoted)
     expect(src).toContain('state !== "ready"'); // kobo-133: move accepts ready (human override)
+    expect(src).toContain('"approve": "APPROVE"'); // kobo-189: APPROVE lane label (human gate before done)
+    expect(src).toContain('state !== "approve"'); // kobo-189: move accepts approve (human-gate override, parallel to ready)
     expect(src).toContain("addTask");
     expect(src).toContain("noteTask"); // kobo-39: append-only note — the only non-terminal verb (mid-flight truth)
     expect(src).toContain("notifyTaskComment"); // kobo-46: a note by a non-author pokes the assignee (comment = poke) on task-events

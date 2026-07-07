@@ -107,6 +107,22 @@ describe("parseCardId (kobo-181)", () => {
   });
 });
 
+describe("approve column (kobo-189)", () => {
+  test("served board has an Approve column + count slot between Review and Done", () => {
+    const html = companyHtml();
+    expect(html).toContain('id="approve"'); // the lane container
+    expect(html).toContain('id="c-approve"'); // its count slot
+    expect(html).toContain('>Approve<'); // header label
+    // ordering: Review column appears before Approve, Approve before Done
+    expect(html.indexOf('id="review"')).toBeLessThan(html.indexOf('id="approve"'));
+    expect(html.indexOf('id="approve"')).toBeLessThan(html.indexOf('id="done"'));
+  });
+  test("FLOW/COLS in the client script include approve", () => {
+    const html = companyHtml();
+    expect(html).toContain("'review', 'approve', 'done'"); // FLOW/COLS ordering
+  });
+});
+
 describe("newestVisibleCommentId (kobo-180)", () => {
   const r = (id: string, ts: number) => ({ id, replyTo: null, ts, by: "sapan", text: id, resolved: true });
   const u = (id: string, ts: number) => ({ id, replyTo: null, ts, by: "sapan", text: id, resolved: false });

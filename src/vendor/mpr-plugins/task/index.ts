@@ -160,6 +160,7 @@ const STATE_LABEL: Record<TaskState, string> = {
   "ready": "READY",
   "in-progress": "IN-PROGRESS",
   "review": "REVIEW",
+  "approve": "APPROVE",
   "done": "DONE",
   "rejected": "REJECTED",
   "blocked": "BLOCKED",
@@ -336,9 +337,12 @@ export async function runTask(
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const state = flags._[1] as TaskState | undefined;
-      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready>" };
-      if (state !== "backlog" && state !== "todo" && state !== "ready") {
-        return { ok: false, error: `move target must be backlog, todo or ready (in-progress/review/done via start/review/done; blocked via block)` };
+      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready|approve>" };
+      // kobo-189: `approve` (the human gate before done) joins the manual-override
+      // targets — a human parks a reviewed card in Approve. in-progress/review/done
+      // still go via start/review/done; blocked via block.
+      if (state !== "backlog" && state !== "todo" && state !== "ready" && state !== "approve") {
+        return { ok: false, error: `move target must be backlog, todo, ready or approve (in-progress/review/done via start/review/done; blocked via block)` };
       }
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };

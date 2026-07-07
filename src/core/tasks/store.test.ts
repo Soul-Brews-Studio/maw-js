@@ -10,6 +10,8 @@ import {
   archiveTask,
   askTask,
   assignTask,
+  TASK_FLOW,
+  TASK_STATES,
   mentionKey,
   parseMentions,
   pendingMentions,
@@ -1248,5 +1250,27 @@ describe("@mentions + ask (kobo-126)", () => {
     const done = completeTask("pgw", q.id, "tony");
     expect(done!.state).toBe("done");
     expect(readTask("pgw", parent.id)!.state).toBe("in-progress"); // notify only — parent state never flipped
+  });
+});
+
+describe("approve state (kobo-189 — human gate between review and done)", () => {
+  test("TASK_FLOW orders review → approve → done", () => {
+    const i = (s: string) => TASK_FLOW.indexOf(s as never);
+    expect(i("approve")).toBeGreaterThan(-1);
+    expect(i("review")).toBeLessThan(i("approve"));
+    expect(i("approve")).toBeLessThan(i("done"));
+  });
+  test("approve is a known state", () => {
+    expect(TASK_STATES).toContain("approve");
+  });
+  test("a card can hold state=approve and round-trips through the store", () => {
+    const t = addTask({ company: "pgw", title: "gate me", by: "eq3", assignee: "patchwork", state: "review" });
+    const moved = moveTask("pgw", t.id, "approve", "tony");
+    expect(moved!.state).toBe("approve");
+    expect(readTask("pgw", t.id)!.state).toBe("approve"); // persisted
+  });
+  test("approve has a next-action hint (no dead-end)", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3", assignee: "patchwork", state: "approve" });
+    expect(taskNextAction(readTask("pgw", t.id)!)).toMatch(/approve/i);
   });
 });

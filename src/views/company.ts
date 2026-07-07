@@ -228,7 +228,7 @@ function companyBody(): string {
     .col h2 .count { color:var(--fg); }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
     .col-ready h2 { color:var(--ok); } /* kobo-133 — deps cleared, green light to start */
-    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-done h2 { color:var(--ok); }
+    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-approve h2 { color:var(--link); } .col-done h2 { color:var(--ok); }
     .col-rejected h2 { color:var(--warn); } /* kobo-101 — terminal "not accepted", parallel to Done */
     /* kobo-55 — the Blocked/attention lane sits ABOVE the board (top of the Kanban
        tab) so blocked/needs-attention cards are seen immediately, not below-fold on
@@ -247,6 +247,7 @@ function companyBody(): string {
     .task.st-ready { border-left-color:var(--ok); } /* kobo-133 */
     .task.st-in-progress { border-left-color:var(--accent); }
     .task.st-review { border-left-color:var(--epic); }
+    .task.st-approve { border-left-color:var(--link); } /* kobo-189 — human gate (gold) */
     .task.st-done { border-left-color:var(--ok); }
     .task.st-blocked { border-left-color:var(--bad); }
     /* kobo-62 — progressive card face: title + assignee avatar on one row. */
@@ -498,7 +499,7 @@ function companyBody(): string {
     .ft-node.current { background:var(--field-bg); border-left:2px solid var(--accent); }
     .ft-node .ft-dot { flex:0 0 auto; width:8px; height:8px; border-radius:50%; background:var(--muted); transform:translateY(-1px); }
     .ft-dot.st-todo { background:var(--warn); } .ft-dot.st-in-progress { background:var(--accent); }
-    .ft-dot.st-review { background:var(--epic); } .ft-dot.st-done { background:var(--ok); }
+    .ft-dot.st-review { background:var(--epic); } .ft-dot.st-approve { background:var(--link); } .ft-dot.st-done { background:var(--ok); }
     .ft-dot.st-blocked { background:var(--bad); } .ft-dot.st-rejected { background:var(--warn); }
     .ft-node .ft-id { flex:0 0 auto; font-family:var(--font-mono); color:var(--accent); }
     .ft-node .ft-state { flex:0 0 auto; color:var(--muted); font-size:var(--t-xs); }
@@ -638,6 +639,7 @@ function companyBody(): string {
           <div class="col col-ready"><h2><span>Ready</span><span class="count" id="c-ready">0</span></h2><div id="ready"></div></div>
           <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
           <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
+          <div class="col col-approve"><h2><span>Approve</span><span class="count" id="c-approve">0</span></h2><div id="approve"></div></div>
           <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
           <div class="col col-rejected"><h2><span>Rejected</span><span class="count" id="c-rejected">0</span></h2><div id="rejected"></div></div>
         </div>
@@ -1680,8 +1682,8 @@ function renderMentions(tasks) {
   bar.hidden = false;
 }
 
-const FLOW = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'done'];
-const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'done', 'rejected']; // board columns = flow + Rejected terminal lane (kobo-101)
+const FLOW = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'approve', 'done'];
+const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'approve', 'done', 'rejected']; // board columns = flow + Rejected terminal lane (kobo-101)
 
 // kobo-127 — Done lane fold: newest 5 (by updatedTs) + a "show all N"/"collapse"
 // toggle, so 40 finished cards never bury the live lanes. Sort is a display-only
@@ -1714,7 +1716,7 @@ function renderBoard(tasks) {
   // are real board columns; the Blocked lane is separate (off-flow, below).
   for (const s of COLS) { cols[s] = $(s); cols[s].replaceChildren(); }
   const attn = $('blocked'); attn.replaceChildren();
-  const counts = { backlog: 0, todo: 0, ready: 0, 'in-progress': 0, review: 0, done: 0, rejected: 0, blocked: 0 };
+  const counts = { backlog: 0, todo: 0, ready: 0, 'in-progress': 0, review: 0, approve: 0, done: 0, rejected: 0, blocked: 0 };
   // Off-flow = explicit block (state) OR derived dependency block (ADR 0003) —
   // ONE Blocked lane, mirroring the CLI board. Derived cards keep their real
   // flow state but are pulled out while a parent is pending; when the parent is
