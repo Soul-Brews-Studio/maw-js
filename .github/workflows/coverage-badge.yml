@@ -35,10 +35,17 @@ jobs:
 
       # Keep parity with CI's unit shard: several default-suite tests shell out
       # to ghq even when the behavior under test is mocked.
+      # kobo-193: pinned prebuilt binary (see ci.yml) — `go install …@latest`
+      # dragged in go1.26.5 via GOTOOLCHAIN=auto → 404 → setup failed fleet-wide.
       - name: Install ghq
         run: |
-          go install github.com/x-motemen/ghq@latest
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          GHQ_VERSION=v1.6.2
+          curl -fsSL -o /tmp/ghq.zip "https://github.com/x-motemen/ghq/releases/download/${GHQ_VERSION}/ghq_linux_amd64.zip"
+          unzip -q -o /tmp/ghq.zip -d /tmp/ghq
+          mkdir -p "$HOME/bin"
+          install -m 0755 /tmp/ghq/ghq_linux_amd64/ghq "$HOME/bin/ghq"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          "$HOME/bin/ghq" --version
 
       - name: Generate coverage badge endpoint JSON
         env:

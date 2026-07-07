@@ -74,10 +74,20 @@ jobs:
       # Without it, isolated tests shell out and print "ghq: not found" noise
       # (even when the test itself passes). Install the binary so CI logs
       # stay quiet and any future test that depends on ghq output works.
+      # kobo-193: install a PINNED PREBUILT binary, NOT `go install …@latest`.
+      # ghq@latest's go.mod bumped its `go` directive so GOTOOLCHAIN=auto tried to
+      # fetch go1.26.5 on the fly → 404 from the toolchain mirror → every setup
+      # (all shards, all PRs) failed before a single test ran. A prebuilt release
+      # asset needs no Go toolchain at all, so a future ghq bump can't break CI.
       - name: Install ghq
         run: |
-          go install github.com/x-motemen/ghq@latest
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          GHQ_VERSION=v1.6.2
+          curl -fsSL -o /tmp/ghq.zip "https://github.com/x-motemen/ghq/releases/download/${GHQ_VERSION}/ghq_linux_amd64.zip"
+          unzip -q -o /tmp/ghq.zip -d /tmp/ghq
+          mkdir -p "$HOME/bin"
+          install -m 0755 /tmp/ghq/ghq_linux_amd64/ghq "$HOME/bin/ghq"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          "$HOME/bin/ghq" --version
 
       - name: Run ${{ matrix.suite.name }} tests
         # MAW_SKIP_FLAKY=1 — override list (#811/#813 precedent).
