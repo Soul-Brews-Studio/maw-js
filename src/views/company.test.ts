@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orderCommentTree, foldableResolvedIds, newestVisibleCommentId, parseCardId, companyHtml } from "./company";
+import { orderCommentTree, foldableResolvedIds, newestVisibleCommentId, parseCardId, columnCollapsed, COLLAPSIBLE_COLS, companyHtml } from "./company";
 
 // A comment factory — id, replyTo, ts, author. ts drives sibling order.
 const c = (id: string, replyTo: string | null, ts: number, by = "sapan") => ({ id, replyTo, ts, by, text: id + " body" });
@@ -92,6 +92,35 @@ describe("companyHtml injection (kobo-171 + kobo-176)", () => {
     expect(html).toContain("function parseCardId"); // kobo-181 injected
     expect(html).toContain("addEventListener('popstate'"); // deep-link back/forward wired
     expect(html).toContain("syncUrlToCard(task.id)"); // and openDetail reflects the card in the URL
+    expect(html).toContain("function columnCollapsed"); // kobo-194 injected
+    expect(html).toContain("applyColumnCollapse()"); // and applied each render
+    expect(html).toContain('class="col-chevron"'); // per-column toggle in backlog + rejected headers
+    expect(html).toContain(".col.collapsed > div { display:none");// collapsed hides cards
+  });
+});
+
+describe("columnCollapsed (kobo-194)", () => {
+  test("backlog + rejected default to collapsed; active lanes never collapse", () => {
+    expect(columnCollapsed("backlog", {})).toBe(true);
+    expect(columnCollapsed("rejected", {})).toBe(true);
+    for (const c of ["todo", "in-progress", "review", "approve", "done", "ready"]) {
+      expect(columnCollapsed(c, {})).toBe(false); // active lane — always shown, incl. approve (kobo-189)
+    }
+  });
+  test("persisted state overrides the default per collapsible column", () => {
+    expect(columnCollapsed("backlog", { backlog: false })).toBe(false); // user expanded
+    expect(columnCollapsed("backlog", { backlog: true })).toBe(true); // user re-collapsed
+    expect(columnCollapsed("rejected", { rejected: false })).toBe(false);
+  });
+  test("a persisted flag on an ACTIVE lane is ignored (never collapsible)", () => {
+    expect(columnCollapsed("todo", { todo: true })).toBe(false);
+  });
+  test("missing / non-object state → default", () => {
+    expect(columnCollapsed("backlog", null)).toBe(true);
+    expect(columnCollapsed("backlog", undefined)).toBe(true);
+  });
+  test("COLLAPSIBLE_COLS = backlog + rejected only", () => {
+    expect(COLLAPSIBLE_COLS.slice().sort()).toEqual(["backlog", "rejected"]);
   });
 });
 

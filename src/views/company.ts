@@ -152,6 +152,21 @@ export function parseCardId(search) {
   return (new URLSearchParams(search || "").get("card") || "").trim();
 }
 
+// kobo-194: which board columns can collapse (parking + terminal lanes) — active
+// flow lanes (todo…done, incl. approve) are NEVER collapsed. Kept as a literal set
+// so a rebase that adds a lane (e.g. approve, kobo-189) leaves it untouched.
+export const COLLAPSIBLE_COLS = ["backlog", "rejected"];
+
+// kobo-194: is `col` collapsed right now? Only collapsible columns can be; among
+// them the default is COLLAPSED, overridden per-column by the persisted state
+// (localStorage map {col:boolean}). DOM-free + annotation-free: unit-tested, then
+// injected into the client script via `${columnCollapsed.toString()}`.
+export function columnCollapsed(col, state) {
+  if (!COLLAPSIBLE_COLS.includes(col)) return false; // active lane — always shown
+  const s = state && typeof state === "object" ? state : {};
+  return col in s ? !!s[col] : true; // explicit user choice wins, else default-collapsed
+}
+
 function companyBody(): string {
   return `<!doctype html>
 <html lang="en">
@@ -224,8 +239,13 @@ function companyBody(): string {
     .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r-xl); padding:var(--s-6); box-shadow:0 12px 28px rgba(0,0,0,.25); }
     .board { display:grid; grid-template-columns: repeat(7, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
     .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; }
-    .col h2 { margin:0 0 10px; font-size:12px; font-weight:600; color:var(--muted); display:flex; justify-content:space-between; gap:6px; }
-    .col h2 .count { color:var(--fg); }
+    .col h2 { margin:0 0 10px; font-size:12px; font-weight:600; color:var(--muted); display:flex; align-items:center; justify-content:space-between; gap:6px; }
+    .col h2 .count { color:var(--fg); margin-left:auto; } /* kobo-194 — count stays right so a leading chevron groups with the label */
+    /* kobo-194 — collapsible column: chevron toggles; collapsed hides the cards, keeping header+count */
+    .col-chevron { background:none; border:0; color:inherit; cursor:pointer; font:inherit; font-size:11px; line-height:1; padding:0; }
+    .col-chevron:hover, .col-chevron:focus-visible { color:var(--fg); }
+    .col.collapsed > div { display:none; }
+    .col.collapsed { min-height:auto; }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
     .col-ready h2 { color:var(--ok); } /* kobo-133 — deps cleared, green light to start */
     .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-approve h2 { color:var(--link); } .col-done h2 { color:var(--ok); }
@@ -634,14 +654,14 @@ function companyBody(): string {
           <div class="lane" id="blocked"></div>
         </div>
         <div class="board">
-          <div class="col col-backlog"><h2><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
+          <div class="col col-backlog"><h2><button class="col-chevron" type="button" data-col="backlog" aria-label="toggle backlog">▸</button><span>Backlog</span><span class="count" id="c-backlog">0</span></h2><div id="backlog"></div></div>
           <div class="col col-todo"><h2><span>Todo</span><span class="count" id="c-todo">0</span></h2><div id="todo"></div></div>
           <div class="col col-ready"><h2><span>Ready</span><span class="count" id="c-ready">0</span></h2><div id="ready"></div></div>
           <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
           <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
           <div class="col col-approve"><h2><span>Approve</span><span class="count" id="c-approve">0</span></h2><div id="approve"></div></div>
           <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
-          <div class="col col-rejected"><h2><span>Rejected</span><span class="count" id="c-rejected">0</span></h2><div id="rejected"></div></div>
+          <div class="col col-rejected"><h2><button class="col-chevron" type="button" data-col="rejected" aria-label="toggle rejected">▸</button><span>Rejected</span><span class="count" id="c-rejected">0</span></h2><div id="rejected"></div></div>
         </div>
       </div>
     </section>
@@ -1322,6 +1342,8 @@ ${orderCommentTree.toString()}
 ${foldableResolvedIds.toString()}
 ${newestVisibleCommentId.toString()}
 ${parseCardId.toString()}
+const COLLAPSIBLE_COLS = ${JSON.stringify(COLLAPSIBLE_COLS)}; // kobo-194 — injected literal (columnCollapsed reads it)
+${columnCollapsed.toString()}
 
 function renderDetailComments(task) {
   const host = $('detail-comments');
@@ -1702,6 +1724,42 @@ function renderDoneLane(col, cards) {
   }
 }
 
+// kobo-194: persisted collapse state — a {col:boolean} map in localStorage. Absent
+// key = default (collapsed). Never throws (private mode → in-memory only).
+function loadCollapseState() {
+  try { return JSON.parse(localStorage.getItem('maw-company-collapsed') || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function saveCollapseState(state) {
+  try { localStorage.setItem('maw-company-collapsed', JSON.stringify(state)); } catch (e) { /* private mode — session-only */ }
+}
+// Apply the collapse state to the collapsible columns: toggle the .collapsed
+// class on the .col element (CSS hides its cards) + flip the chevron glyph. Pure
+// DOM sync from state — safe to call on every render.
+function applyColumnCollapse() {
+  const state = loadCollapseState();
+  for (const col of COLLAPSIBLE_COLS) {
+    const colEl = document.querySelector('.col-' + col);
+    if (!colEl) continue; // column not on the board (defensive)
+    const collapsed = columnCollapsed(col, state);
+    colEl.classList.toggle('collapsed', collapsed);
+    const chev = colEl.querySelector('.col-chevron');
+    if (chev) { chev.textContent = collapsed ? '▸' : '▾'; chev.setAttribute('aria-expanded', String(!collapsed)); }
+  }
+}
+// One-time wire: a chevron click flips that column's state + persists + re-applies.
+function wireColumnCollapse() {
+  for (const chev of document.querySelectorAll('.col-chevron')) {
+    chev.addEventListener('click', () => {
+      const col = chev.dataset.col;
+      const state = loadCollapseState();
+      state[col] = !columnCollapsed(col, state); // toggle from the effective (default-aware) value
+      saveCollapseState(state);
+      applyColumnCollapse();
+    });
+  }
+}
+
 function renderBoard(tasks) {
   // Family/assignee filters are display-only — taskIndex stays built over the FULL
   // list so rollup / parent-chip / family membership still resolve against every card.
@@ -1738,6 +1796,7 @@ function renderBoard(tasks) {
   }
   $('c-blocked').textContent = counts['blocked'];
   $('attention-panel').hidden = counts['blocked'] === 0;
+  applyColumnCollapse(); // kobo-194 — keep backlog/rejected folded per persisted state
 }
 
 // Worklog ts is stored UTC (ISO). This renders in the browser, so format in the
@@ -2251,6 +2310,8 @@ companyInput.addEventListener('change', () => {
   load();
 });
 $('refresh').addEventListener('click', load);
+wireColumnCollapse(); // kobo-194 — chevron toggles for collapsible columns (once; applyColumnCollapse runs each render)
+applyColumnCollapse(); // fold to persisted state before the first load paints
 // kobo-49 c5 — tab switching + restore the last-used tab per browser.
 for (const b of document.querySelectorAll('.tab')) b.addEventListener('click', () => showTab(b.dataset.tab));
 (function () { let t = 'kanban'; try { t = localStorage.getItem('maw-company-tab') || 'kanban'; } catch (e) { /* private mode */ } if (!document.querySelector('.tab[data-tab="' + t + '"]')) t = 'kanban'; showTab(t); })();
