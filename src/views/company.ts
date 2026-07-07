@@ -35,6 +35,23 @@ export function companyVersion(): string {
  * drag/write is a later phase (see spec §6/§9). For now: poll + refresh.
  */
 
+// kobo-184 — state badge for the card-detail modal header. Pure map so the
+// label/color logic is unit-tested; wired into the client script via
+// `${stateBadge.toString()}` (single source, no drift). The color comes from
+// the SAME lane token as the board column + card left-border (.task.st-*), so a
+// card's state reads identically in the modal and on the board. Blocked appends
+// its for-who (task.block.for) when present. Returns { cls, label }.
+export function stateBadge(task) {
+  const state = (task && task.state) || 'todo';
+  const LABEL = {
+    backlog: 'Backlog', todo: 'Todo', ready: 'Ready', 'in-progress': 'In Progress',
+    review: 'Review', blocked: 'Blocked', done: 'Done', rejected: 'Rejected',
+  };
+  let label = LABEL[state] || state;
+  if (state === 'blocked' && task && task.block && task.block.for) label += ' →' + task.block.for;
+  return { cls: 'pill state st-' + state, label };
+}
+
 /** Render the board HTML, stamping the live version into the placeholders. */
 export function companyHtml(): string {
   return companyBody().replaceAll(VERSION_TOKEN, companyVersion());
@@ -275,6 +292,18 @@ function companyBody(): string {
     .pill.pr { color:var(--warn); } .pill.wait { color:var(--warn); border-color:var(--bd-warn); }
     .pill.check { color:var(--epic); }
     .pill.attn { color:var(--bad); border-color:var(--bd-bad); }
+    /* kobo-184 — state badge in the detail modal header. Same lane tokens as the
+       board column (.col-* h2) + card left-border (.task.st-*) so state reads the
+       same everywhere. Uppercase + weight makes it the prominent lead pill. */
+    .pill.state { font-weight:700; text-transform:uppercase; letter-spacing:.04em; font-size:var(--t-xs); }
+    .pill.state.st-backlog { color:var(--muted); }
+    .pill.state.st-todo { color:var(--warn); border-color:var(--bd-warn); }
+    .pill.state.st-ready { color:var(--ok); border-color:var(--bd-ok); }
+    .pill.state.st-in-progress { color:var(--accent); border-color:var(--bd-accent); }
+    .pill.state.st-review { color:var(--epic); border-color:var(--bd-epic); }
+    .pill.state.st-blocked { color:var(--bad); border-color:var(--bd-bad); }
+    .pill.state.st-done { color:var(--ok); border-color:var(--bd-ok); }
+    .pill.state.st-rejected { color:var(--warn); border-color:var(--bd-warn); }
     /* kobo-47 kanban c3 — epic rollup badge, parent chip (click = filter family). */
     .pill.epic-badge { color:var(--epic); border-color:var(--bd-epic); }
     .pill.epic-badge.all-done { color:var(--ok); border-color:var(--bd-ok); }
@@ -821,6 +850,8 @@ function waitFor(task) {
 function renderDetailMeta(task) {
   const bar = $('detail-meta');
   bar.replaceChildren();
+  const sb = stateBadge(task); // kobo-184 — prominent lead pill: card's stage at a glance
+  bar.appendChild(el('span', sb.cls, sb.label));
   if (task.dept) bar.appendChild(el('span', 'pill dept', task.dept));
   const pref = parentRefOf(task);
   if (pref) {
@@ -1284,6 +1315,7 @@ function commentBubble(task, c, indent, parent) {
 }
 
 // kobo-171: pure tree walker injected from the module fn (single source, unit-tested).
+${stateBadge.toString()}
 ${orderCommentTree.toString()}
 ${foldableResolvedIds.toString()}
 ${newestVisibleCommentId.toString()}
