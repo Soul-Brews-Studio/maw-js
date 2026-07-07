@@ -11,9 +11,22 @@
  * Pure node:fs so the standalone boundary stays trivial to assert.
  */
 
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+
+/**
+ * kobo-196 — the SessionStart:clear command that auto-reseats a pane after
+ * /clear. $HOME-absolute so it resolves the globally-installed seat-resume.sh
+ * from any oracle's cwd. seat-resume.sh self-gates to warroom repos, so a plain
+ * (non-warroom) pane sees nothing.
+ *
+ * Wired into two SCOPED places (never the user's personal ~/.claude/settings.json):
+ *  - the oracle REPO's .claude/settings.json → lead/comm/conductor panes, which
+ *    run from the repo dir and inherit its settings (where eq3 proved it);
+ *  - crew-worker-settings.json (the asset workers spawn with --settings) → worker panes.
+ */
+const SEAT_RESUME_COMMAND = "bash $HOME/.claude/hooks/seat-resume.sh";
 
 export interface SyncItem {
   /** path relative to the plugin assets/ dir */
@@ -30,6 +43,7 @@ export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/warroom/SKILL.md", dest: "skills/warroom/SKILL.md" },
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },
   { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via settings.json .mawCardGate)
+  { src: "hooks/seat-resume.sh", dest: "hooks/seat-resume.sh", exec: true }, // kobo-196 — auto-seat on SessionStart:clear (self-gates to warroom repos; wired into the oracle REPO's settings by ensureSeatResumeHook, never the user's global ~/.claude)
   { src: "crew-worker-settings.json", dest: "crew-worker-settings.json" },
 ];
 
@@ -42,6 +56,12 @@ export interface SyncOptions {
   dryRun?: boolean;
   /** rewrite even when content is byte-identical */
   force?: boolean;
+  /**
+   * kobo-196 — where to wire the SessionStart:clear seat-resume hook. The oracle
+   * REPO dir (default process.cwd()); its .claude/settings.json is scoped to this
+   * repo, so we never touch the user's personal ~/.claude/settings.json.
+   */
+  repoDir?: string;
 }
 
 export interface SyncResult {
@@ -51,7 +71,46 @@ export interface SyncResult {
   installed: string[];
   /** dest paths skipped because already up-to-date */
   skipped: string[];
+  /** true when the SessionStart:clear seat-resume hook was added to settings.json */
+  seatHookWired: boolean;
   dryRun: boolean;
+}
+
+/**
+ * Ensure the given `.claude/settings.json` carries a SessionStart:clear hook
+ * that runs seat-resume.sh (kobo-196). The caller passes the oracle REPO's
+ * .claude dir (scoped-both), never the user's personal ~/.claude — mutating a
+ * global settings would fire the hook on every /clear in every repo (worker.3
+ * reject). Idempotent + non-destructive: reads the existing settings, adds the
+ * hook only when absent, preserves every other key and hook. Mirrors the merge
+ * shape in core/worklog/hook-setup.ts.
+ *
+ * Returns true when it added (or, in dryRun, would add) the hook.
+ */
+export function ensureSeatResumeHook(
+  claudeDir: string,
+  opts: { dryRun?: boolean } = {},
+): boolean {
+  const settingsPath = join(claudeDir, "settings.json");
+  let settings: any = {};
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, "utf-8")); } catch { settings = {}; }
+  }
+  settings.hooks ??= {};
+  settings.hooks.SessionStart ??= [];
+  const entries = settings.hooks.SessionStart as any[];
+
+  const already = entries.some(e =>
+    e?.matcher === "clear"
+    && Array.isArray(e.hooks)
+    && e.hooks.some((hk: any) => hk?.command === SEAT_RESUME_COMMAND));
+  if (already) return false;
+
+  entries.push({ matcher: "clear", hooks: [{ type: "command", command: SEAT_RESUME_COMMAND }] });
+  if (opts.dryRun) return true;
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  return true;
 }
 
 function defaultAssetsDir(): string {
@@ -90,7 +149,14 @@ export function syncCrewSkills(options: SyncOptions = {}): SyncResult {
     if (item.exec) chmodSync(destPath, 0o755);
   }
 
-  return { home, claudeDir, installed, skipped, dryRun: !!options.dryRun };
+  // kobo-196 — wire the SessionStart:clear seat-resume hook into the oracle
+  // REPO's .claude/settings.json (scoped-both), so lead/comm/conductor panes
+  // (which run from the repo dir) auto-reseat after /clear. Worker panes get it
+  // via crew-worker-settings.json. NEVER the user's global ~/.claude/settings.json.
+  const repoDir = options.repoDir ?? process.cwd();
+  const seatHookWired = ensureSeatResumeHook(join(repoDir, ".claude"), { dryRun: options.dryRun });
+
+  return { home, claudeDir, installed, skipped, seatHookWired, dryRun: !!options.dryRun };
 }
 
 export function formatSyncResult(result: SyncResult): string {
@@ -101,5 +167,8 @@ export function formatSyncResult(result: SyncResult): string {
     `  ${verb}: ${result.installed.length} · up-to-date: ${result.skipped.length}`,
   ];
   for (const dest of result.installed) lines.push(`  + ${dest}`);
+  if (result.seatHookWired) {
+    lines.push(`  + settings.json SessionStart:clear → seat-resume.sh (auto-seat)`);
+  }
   return lines.join("\n");
 }

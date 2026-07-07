@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boundary";
-import { SYNC_ITEMS, formatSyncResult, syncCrewSkills } from "../../src/vendor/mpr-plugins/crew-skills/sync.ts?plugin-crew-skills-standalone";
+import { SYNC_ITEMS, ensureSeatResumeHook, formatSyncResult, syncCrewSkills } from "../../src/vendor/mpr-plugins/crew-skills/sync.ts?plugin-crew-skills-standalone";
 
 const pluginRoot = join(import.meta.dir, "../../src/vendor/mpr-plugins/crew-skills");
 const assetsDir = join(pluginRoot, "assets");
@@ -47,6 +47,15 @@ describe("crew-skills global asset contract", () => {
     // still valid JSON with a Stop hook
     const parsed = JSON.parse(settings);
     expect(parsed.hooks.Stop[0].hooks[0].command).toContain("$HOME/.claude/hooks/crew-worker-stop.sh");
+  });
+
+  // kobo-196 — worker panes spawn with crew-worker-settings.json (not the repo's
+  // settings), so the auto-seat SessionStart:clear hook must ride this asset too
+  // to cover them (scoped-both: repo settings → lead/comm/conductor, this → workers).
+  test("worker settings carries the SessionStart:clear seat-resume hook", () => {
+    const parsed = JSON.parse(readFileSync(join(assetsDir, "crew-worker-settings.json"), "utf8"));
+    const entry = parsed.hooks.SessionStart.find((e: any) => e.matcher === "clear");
+    expect(entry.hooks[0].command).toBe("bash $HOME/.claude/hooks/seat-resume.sh");
   });
 
   // kobo-174 — the lead card-gate hook ships as an executable global asset so an
@@ -157,5 +166,46 @@ describe("crew-skills sync", () => {
     expect(result.installed.length).toBe(SYNC_ITEMS.length);
     expect(existsSync(join(home, ".claude/skills/crew/SKILL.md"))).toBe(false);
     expect(formatSyncResult(result)).toContain("would install");
+  });
+
+  test("wires SessionStart:clear seat-resume hook into the REPO settings, not global (scoped-both)", () => {
+    const home = freshHome();
+    const repoDir = freshHome(); // stands in for the oracle repo dir
+    const result = syncCrewSkills({ home, assetsDir, repoDir });
+    expect(result.seatHookWired).toBe(true);
+    // asset script still installs globally (~/.claude/hooks) — unchanged
+    expect(existsSync(join(home, ".claude/hooks/seat-resume.sh"))).toBe(true);
+    // the wiring lands in the REPO's .claude/settings.json …
+    const settings = JSON.parse(readFileSync(join(repoDir, ".claude/settings.json"), "utf8"));
+    const entry = settings.hooks.SessionStart.find((e: any) => e.matcher === "clear");
+    expect(entry.hooks[0].command).toBe("bash $HOME/.claude/hooks/seat-resume.sh");
+    // … and NEVER the user's global ~/.claude/settings.json (worker.3 reject)
+    expect(existsSync(join(home, ".claude/settings.json"))).toBe(false);
+  });
+
+  test("seat-resume hook wiring is idempotent (no duplicate entry)", () => {
+    const home = freshHome();
+    const repoDir = freshHome();
+    syncCrewSkills({ home, assetsDir, repoDir });
+    const again = syncCrewSkills({ home, assetsDir, repoDir });
+    expect(again.seatHookWired).toBe(false);
+    const settings = JSON.parse(readFileSync(join(repoDir, ".claude/settings.json"), "utf8"));
+    const clears = settings.hooks.SessionStart.filter((e: any) => e.matcher === "clear");
+    expect(clears.length).toBe(1);
+  });
+
+  test("seat-resume wiring preserves pre-existing settings + hooks (non-destructive)", () => {
+    const home = freshHome();
+    const claudeDir = join(home, ".claude");
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(join(claudeDir, "settings.json"), JSON.stringify({
+      model: "opus",
+      hooks: { SessionStart: [{ matcher: "", hooks: [{ type: "command", command: "keep-me.sh" }] }] },
+    }));
+    ensureSeatResumeHook(claudeDir);
+    const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf8"));
+    expect(settings.model).toBe("opus");
+    expect(settings.hooks.SessionStart.some((e: any) => e.hooks[0].command === "keep-me.sh")).toBe(true);
+    expect(settings.hooks.SessionStart.some((e: any) => e.matcher === "clear")).toBe(true);
   });
 });
