@@ -1,0 +1,6 @@
+{
+  "_readme": "kobo-200 — copy this to <oracle-repo>/.maw/card-gate.json (or ~/.maw/card-gate.json) to opt in to the lead card-create gate. CC's settings validator rejects a custom key in settings.json, so the config lives in .maw/ instead. The PreToolUse hook wiring still goes in settings.json (that key IS valid).",
+  "leadRole": "lead",
+  "gatedTools": ["maw_task add"],
+  "coordinator": "<conductor-addr>"
+}

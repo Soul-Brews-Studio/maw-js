@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,8 +24,18 @@ afterAll(() => { rmSync(home, { recursive: true, force: true }); });
 
 function writeConfig(gate: unknown | null) {
   mkdirSync(join(home, ".claude"), { recursive: true });
+  // kobo-200: clear any .maw config so the settings.json (legacy) path is what's tested
+  rmSync(join(home, ".maw", "card-gate.json"), { force: true });
   const body = gate === null ? {} : { mawCardGate: gate };
   writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(body));
+}
+
+// kobo-200: the CC-safe primary config source — .maw/card-gate.json (the file IS
+// the config object). Clears settings.json so the .maw path is what's exercised.
+function writeMawConfig(gate: unknown) {
+  mkdirSync(join(home, ".maw"), { recursive: true });
+  rmSync(join(home, ".claude", "settings.json"), { force: true });
+  writeFileSync(join(home, ".maw", "card-gate.json"), JSON.stringify(gate));
 }
 
 // Run the hook with a clean env (NO TMUX_PANE → role empty → fail-closed path).
@@ -102,5 +112,33 @@ describe("card-gate hook — kobo-174", () => {
     writeConfig(GATE);
     const out = runHook({ tool_name: "Read", tool_input: { file_path: "/tmp/x" } });
     expect(decision(out)).toBeNull();
+  });
+
+  // kobo-200 — config now lives in .maw/card-gate.json (CC's settings validator
+  // rejects the custom .mawCardGate key, so the legacy path never loaded on a live
+  // CC session). These prove the new source + backward-compat + precedence.
+  test(".maw/card-gate.json (CC-safe, no settings.json) → deny", () => {
+    writeMawConfig(GATE);
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false); // no settings.json at all
+    const out = runHook({ tool_name: "mcp__maw__maw_task", tool_input: { action: "add", title: "x" } });
+    expect(decision(out)).toBe("deny");
+    expect(JSON.parse(out).hookSpecificOutput.permissionDecisionReason).toContain(COORD);
+  });
+
+  test(".maw wrapped {mawCardGate:{...}} form is also accepted → deny", () => {
+    writeMawConfig({ mawCardGate: GATE });
+    const out = runHook({ tool_name: "Bash", tool_input: { command: "maw task add --title x" } });
+    expect(decision(out)).toBe("deny");
+  });
+
+  test(".maw config takes precedence over legacy settings.json", () => {
+    // both present: .maw is checked first → its coordinator is the one named
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ mawCardGate: { leadRole: "lead", gatedTools: ["maw_task add"], coordinator: "legacy:coord.0" } }));
+    writeFileSync(join(home, ".maw", "card-gate.json"), JSON.stringify({ leadRole: "lead", gatedTools: ["maw_task add"], coordinator: "maw:coord.9" }));
+    const out = runHook({ tool_name: "mcp__maw__maw_task", tool_input: { action: "add", title: "x" } });
+    expect(decision(out)).toBe("deny");
+    expect(JSON.parse(out).hookSpecificOutput.permissionDecisionReason).toContain("maw:coord.9"); // .maw wins
+    rmSync(join(home, ".maw", "card-gate.json"), { force: true }); // don't leak into later tests
   });
 });

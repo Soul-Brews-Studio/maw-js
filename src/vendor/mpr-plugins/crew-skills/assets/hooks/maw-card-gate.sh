@@ -6,8 +6,10 @@
 # Two paths gated (MCP-gap lesson): bash `maw task add` AND MCP tool
 # mcp__maw__maw_task with action=add. A single PreToolUse hook covers both.
 #
-# Opt-in: acts ONLY when this oracle's settings.json declares a `mawCardGate`
-# block — non-adopters are never denied (opt-in ไม่กระทบคนอื่น).
+# Opt-in: acts ONLY when this oracle ships a `.maw/card-gate.json` config (or the
+# legacy settings.json `.mawCardGate` block) — non-adopters are never denied
+# (opt-in ไม่กระทบคนอื่น). kobo-200: config moved to .maw/ because CC's settings
+# validator rejects the custom top-level key.
 #
 # Role = tmux per-pane @role marker. The lead is the ORIGIN pane (kobo-178): no
 # spawn env can be injected into it, so @role (set by the crew/warroom skill) is
@@ -49,19 +51,35 @@ esac
 [ "$IS_CREATE" = 1 ] || exit 0
 
 # ── 2. gate config (opt-in) ──────────────────────────────────────────────────
-# First settings.json (project first, then $HOME) that declares .mawCardGate wins.
-CFG=""
-for f in "$CLAUDE_PROJECT_DIR/.claude/settings.json" ".claude/settings.json" "$HOME/.claude/settings.json"; do
-  case "$f" in /.claude/*) continue ;; esac   # empty CLAUDE_PROJECT_DIR → skip bogus "/.claude/..."
+# Config lives in a CC-SAFE file: .maw/card-gate.json (kobo-200). Claude Code's
+# settings validator REJECTS unknown top-level keys, so the old settings.json
+# `.mawCardGate` block never loaded on a live CC session — the gate silently never
+# activated. .maw/ is ours; CC never touches it. Precedence: project → cwd → $HOME.
+# The file IS the config object ({leadRole, gatedTools, coordinator}); a wrapped
+# {"mawCardGate": {...}} form is also accepted so a copied settings block still works.
+CFG_JSON=""
+for f in "$CLAUDE_PROJECT_DIR/.maw/card-gate.json" ".maw/card-gate.json" "$HOME/.maw/card-gate.json"; do
+  case "$f" in /.maw/*) continue ;; esac   # empty CLAUDE_PROJECT_DIR → skip bogus "/.maw/..."
   [ -f "$f" ] || continue
-  if jq -e '.mawCardGate' "$f" >/dev/null 2>&1; then CFG="$f"; break; fi
+  CFG_JSON=$(jq -e '.mawCardGate // .' "$f" 2>/dev/null) && break
+  CFG_JSON=""
 done
-[ -n "$CFG" ] || exit 0   # not adopted → allow
+# backward-compat: fall back to the pre-kobo-200 settings.json .mawCardGate block
+# (works only where CC's validator tolerates it — e.g. a temp HOME / non-CC caller).
+if [ -z "$CFG_JSON" ]; then
+  for f in "$CLAUDE_PROJECT_DIR/.claude/settings.json" ".claude/settings.json" "$HOME/.claude/settings.json"; do
+    case "$f" in /.claude/*) continue ;; esac
+    [ -f "$f" ] || continue
+    CFG_JSON=$(jq -e '.mawCardGate' "$f" 2>/dev/null) && break
+    CFG_JSON=""
+  done
+fi
+[ -n "$CFG_JSON" ] || exit 0   # not adopted → allow
 
-LEAD_ROLE=$(jq -r '.mawCardGate.leadRole // "lead"' "$CFG" 2>/dev/null)
-COORD=$(jq -r '.mawCardGate.coordinator // "your conductor"' "$CFG" 2>/dev/null)
+LEAD_ROLE=$(printf '%s' "$CFG_JSON" | jq -r '.leadRole // "lead"' 2>/dev/null)
+COORD=$(printf '%s' "$CFG_JSON" | jq -r '.coordinator // "your conductor"' 2>/dev/null)
 # card-create must be listed in gatedTools (logical name "maw_task add") to gate.
-GATED=$(jq -r '(.mawCardGate.gatedTools // ["maw_task add"]) | index("maw_task add") // empty' "$CFG" 2>/dev/null)
+GATED=$(printf '%s' "$CFG_JSON" | jq -r '(.gatedTools // ["maw_task add"]) | index("maw_task add") // empty' 2>/dev/null)
 [ -n "$GATED" ] || exit 0   # card-create not gated → allow
 
 # ── 3. conscious override ────────────────────────────────────────────────────

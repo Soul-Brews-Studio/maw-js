@@ -42,8 +42,9 @@ export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/crew/SKILL.md", dest: "skills/crew/SKILL.md" },
   { src: "skills/warroom/SKILL.md", dest: "skills/warroom/SKILL.md" },
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },
-  { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via settings.json .mawCardGate)
+  { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via .maw/card-gate.json, kobo-200)
   { src: "hooks/seat-resume.sh", dest: "hooks/seat-resume.sh", exec: true }, // kobo-196 — auto-seat on SessionStart:clear (self-gates to warroom repos; wired into the oracle REPO's settings by ensureSeatResumeHook, never the user's global ~/.claude)
+  { src: "card-gate.sample.json", dest: "card-gate.sample.json" }, // kobo-200 — dormant sample; adopter copies to <repo>/.maw/card-gate.json (hook reads .maw/, NOT this path → never auto-activates)
   { src: "crew-worker-settings.json", dest: "crew-worker-settings.json" },
 ];
 

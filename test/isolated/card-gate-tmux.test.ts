@@ -24,9 +24,11 @@ let pane: string;
 
 beforeAll(() => {
   home = mkdtempSync(join(tmpdir(), "card-gate-tmux-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", "settings.json"),
-    JSON.stringify({ mawCardGate: { leadRole: "lead", gatedTools: ["maw_task add"], coordinator: COORD } }));
+  // kobo-200: config from the CC-safe .maw/card-gate.json (the file IS the config
+  // object) — the source that actually loads on a live CC session.
+  mkdirSync(join(home, ".maw"), { recursive: true });
+  writeFileSync(join(home, ".maw", "card-gate.json"),
+    JSON.stringify({ leadRole: "lead", gatedTools: ["maw_task add"], coordinator: COORD }));
   if (!HAS_TMUX) return;
   execFileSync("tmux", ["new-session", "-d", "-s", SESSION, "-x", "80", "-y", "24", "sh"]);
   pane = execFileSync("tmux", ["display-message", "-t", SESSION, "-p", "#{pane_id}"], { encoding: "utf8" }).trim();

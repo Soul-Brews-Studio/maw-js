@@ -58,8 +58,8 @@ describe("crew-skills global asset contract", () => {
     expect(entry.hooks[0].command).toBe("bash $HOME/.claude/hooks/seat-resume.sh");
   });
 
-  // kobo-174 — the lead card-gate hook ships as an executable global asset so an
-  // oracle that opts in (settings.json .mawCardGate) points at a real script.
+  // kobo-174/200 — the lead card-gate hook ships as an executable global asset so an
+  // oracle that opts in (via .maw/card-gate.json) points at a real script.
   test("card-gate hook is a synced executable asset", () => {
     const item = SYNC_ITEMS.find((i) => i.dest === "hooks/maw-card-gate.sh");
     expect(item).toBeDefined();
@@ -68,9 +68,22 @@ describe("crew-skills global asset contract", () => {
     // gates BOTH paths (MCP-gap lesson) + fail-CLOSED + opt-in + conscious override
     expect(hook).toContain("mcp__maw__maw_task");
     expect(hook).toContain("maw task add");
-    expect(hook).toContain(".mawCardGate");
+    expect(hook).toContain(".maw/card-gate.json"); // kobo-200: CC-safe config source
+    expect(hook).toContain(".mawCardGate");        // legacy settings.json fallback still read
     expect(hook).toContain("--force-lead");
     expect(hook).toContain('"deny"');
+  });
+
+  // kobo-200 — a dormant sample config ships so adopters can copy it to
+  // <repo>/.maw/card-gate.json. It must install to ~/.claude (NOT .maw/) so the
+  // hook never reads it → sync never auto-activates the gate for everyone.
+  test("card-gate sample ships as a dormant asset (never the live .maw path)", () => {
+    const item = SYNC_ITEMS.find((i) => i.dest === "card-gate.sample.json");
+    expect(item).toBeDefined();
+    expect(item?.dest).not.toContain(".maw"); // dormant — hook reads .maw/card-gate.json, not this
+    const sample = JSON.parse(readFileSync(join(assetsDir, "card-gate.sample.json"), "utf8"));
+    expect(sample.leadRole).toBe("lead");
+    expect(sample.gatedTools).toContain("maw_task add");
   });
 
   test("crew skill spawns workers with the $HOME-absolute settings path", () => {
