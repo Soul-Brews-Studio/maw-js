@@ -180,6 +180,19 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "move", id: "kobo-5" })).toThrow(/state/);
   });
 
+  test("move to approve forwards --reason; missing reason throws (kobo-191)", () => {
+    expect(taskArgs({ action: "move", id: "kobo-5", state: "approve", reason: "live deploy" }))
+      .toEqual(["company", "task", "move", "kobo-5", "approve", "--reason", "live deploy"]);
+    expect(() => taskArgs({ action: "move", id: "kobo-5", state: "approve" })).toThrow(/reason/);
+  });
+
+  test("approve: id + reason → company task approve argv; missing reason/id throws (kobo-191)", () => {
+    expect(taskArgs({ action: "approve", id: "kobo-5", reason: "schema change", company: "kobo" }))
+      .toEqual(["company", "task", "approve", "kobo-5", "--reason", "schema change", "--company", "kobo"]);
+    expect(() => taskArgs({ action: "approve", reason: "x" })).toThrow(/id/);
+    expect(() => taskArgs({ action: "approve", id: "kobo-5" })).toThrow(/reason/);
+  });
+
   test("ls: bare", () => {
     expect(taskArgs({ action: "ls" })).toEqual(["company", "task", "ls"]);
   });

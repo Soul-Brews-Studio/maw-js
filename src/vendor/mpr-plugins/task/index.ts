@@ -57,6 +57,7 @@ import {
   parentStateResolver,
   parseMentions,
   parsePrNumber,
+  approveTask,
   migrateQuestionNotesToComments,
   parsePrRepo,
   readTask,
@@ -333,11 +334,11 @@ export async function runTask(
       // parent done, kobo-133 — manual move is the human override). in-progress/
       // review/done use start/review/done; blocked uses block. Pure state set — no
       // assignee change.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reason": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const state = flags._[1] as TaskState | undefined;
-      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready|approve>" };
+      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready|approve> [--reason <why> (approve)]" };
       // kobo-189: `approve` (the human gate before done) joins the manual-override
       // targets — a human parks a reviewed card in Approve. in-progress/review/done
       // still go via start/review/done; blocked via block.
@@ -346,6 +347,18 @@ export async function runTask(
       }
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      // kobo-191: moving INTO approve always carries a reason (the Approve lane is
+      // Tony's queue — no reason-less park, whether via `approve` or `move`). Route
+      // through approveTask so the single reason-enforcement point covers both.
+      if (state === "approve") {
+        if (!flags["--reason"] || !flags["--reason"].trim()) {
+          return { ok: false, error: "--reason is required to move a card to approve (the Approve lane is Tony's queue — say why; or use `maw company task approve <id> --reason ...`)" };
+        }
+        const t = approveTask(company, id, me, flags["--reason"]);
+        if (!t) return { ok: false, error: `task not found: ${id}` };
+        console.log(`\x1b[32m✋ approve\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)} (${t.reviewReason})\x1b[0m: ${t.title}`);
+        return { ok: true };
+      }
       const t = moveTask(company, id, state, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m⇄ moved\x1b[0m ${t.id} \x1b[90m(→ ${t.state})\x1b[0m: ${t.title}`);
@@ -444,6 +457,25 @@ export async function runTask(
       console.log(`\x1b[35m⏸ hold\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)}\x1b[0m: ${t.title}${flags["--reason"] ? ` \x1b[90m(${flags["--reason"]})\x1b[0m` : ""}`);
       const hrv = notifyReviewer(t, me);
       if (hrv) console.log(`  \x1b[36m→ pinged ${hrv}\x1b[0m`);
+    } else if (subcmd === "approve") {
+      // kobo-191: the reviewer routes a BIG-work card (money/hash/live/deploy/
+      // schema/cross-co/unsure — rule 12) review → approve, the human gate before
+      // done. --reason is MANDATORY (the Approve lane is Tony's queue — every card
+      // says WHY). Small work never comes here: the reviewer just closes it done.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reason": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: 'usage: maw company task approve <id> --reason "<why it needs Tony>"' };
+      if (!flags["--reason"] || !flags["--reason"].trim()) {
+        return { ok: false, error: "--reason is required to approve (the Approve lane is Tony's queue — say why this card needs a human decision, e.g. money/hash/live/deploy/schema)" };
+      }
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = approveTask(company, id, me, flags["--reason"]);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[32m✋ approve\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)} (${t.reviewReason})\x1b[0m: ${t.title}`);
+      const arv = notifyReviewer(t, me);
+      if (arv) console.log(`  \x1b[36m→ pinged ${arv}\x1b[0m`);
     } else if (subcmd === "pr") {
       // Worker links the PR to the card directly (eq3-013): the ONLY prod path
       // that sets card.pr — `maw reply` can't (replier≠requester bug), so

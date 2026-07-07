@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "pr" | "done" | "note" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "approve" | "pr" | "done" | "note" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
 
 /** One child in a decompose plan (kobo-146 C7). Mirror of the store's DecomposeChild — kept local so tools.ts stays a pure argv mapper with no core import. */
 export interface DecomposePlanChild {
@@ -183,8 +183,22 @@ export function taskArgs(input: TaskInput): string[] {
     }
     case "move": {
       const mid = needId("move");
-      if (!input.state) throw new Error("task move requires a state (backlog|todo|ready)");
-      return ["company", "task", "move", mid, input.state, ...common()];
+      if (!input.state) throw new Error("task move requires a state (backlog|todo|ready|approve)");
+      const argv = ["company", "task", "move", mid, input.state];
+      // kobo-191: moving into approve carries a mandatory reason (the Approve lane
+      // is the human queue — forward it so the CLI doesn't reject the MCP move).
+      if (input.state === "approve") {
+        if (!input.reason) throw new Error("task move to approve requires a reason (why this card needs a human decision)");
+        argv.push("--reason", input.reason);
+      }
+      return [...argv, ...common()];
+    }
+    case "approve": {
+      // kobo-191: reviewer routes big-work review → approve (human gate). reason
+      // mandatory — the Approve lane must say why each card is in Tony's queue.
+      const aid = needId("approve");
+      if (!input.reason) throw new Error("task approve requires a reason (money/hash/live/deploy/schema/cross-co/unsure — why it needs Tony)");
+      return ["company", "task", "approve", aid, "--reason", input.reason, ...common()];
     }
     case "ls": {
       const argv = ["company", "task", "ls", ...common()];

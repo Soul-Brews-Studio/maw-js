@@ -215,6 +215,46 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("todo"); // untouched
   });
 
+  test("approve routes a reviewed card to approve with a mandatory reason (kobo-191)", async () => {
+    await run(["add", "big deploy", "--company", "pgw"]); // pgw-1
+    await run(["review", "pgw-1", "--company", "pgw"]);
+    const r = await run(["approve", "pgw-1", "--reason", "live migration — needs Tony", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("approve");
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.state).toBe("approve");
+    expect(t.reviewReason).toBe("live migration — needs Tony"); // Tony sees why in the approve card
+  });
+
+  test("approve WITHOUT --reason is refused — the Approve lane never lies (kobo-191)", async () => {
+    await run(["add", "no reason approve", "--company", "pgw"]); // pgw-1
+    const r = await run(["approve", "pgw-1", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("--reason is required");
+    expect(readTask("pgw", "pgw-1")!.state).toBe("todo"); // untouched, not parked
+  });
+
+  test("move to approve also requires a reason (no reason-less bypass) (kobo-191)", async () => {
+    await run(["add", "bypass attempt", "--company", "pgw"]); // pgw-1
+    const noReason = await run(["move", "pgw-1", "approve", "--company", "pgw"]);
+    expect(noReason.ok).toBe(false);
+    expect(noReason.error).toContain("--reason is required");
+    expect(readTask("pgw", "pgw-1")!.state).toBe("todo");
+    // with a reason it routes through approveTask → parked + reason recorded
+    const ok = await run(["move", "pgw-1", "approve", "--reason", "cross-company change", "--company", "pgw"]);
+    expect(ok.ok).toBe(true);
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.state).toBe("approve");
+    expect(t.reviewReason).toBe("cross-company change");
+  });
+
+  test("move to a non-approve parking state still needs no reason (kobo-191 regression)", async () => {
+    await run(["add", "park me", "--company", "pgw"]); // pgw-1
+    const r = await run(["move", "pgw-1", "backlog", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.state).toBe("backlog");
+  });
+
   test("reject on a done card is refused — terminal, no resurrection (kobo-101)", async () => {
     await run(["add", "shipped", "--company", "pgw"]); // pgw-1
     await run(["done", "pgw-1", "--company", "pgw"]);

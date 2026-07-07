@@ -64,9 +64,12 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"hold"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"hold"', '"approve"', '"pr"', '"done"', '"note"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
+    // kobo-191: approve = reviewer routes big-work review → approve (reason mandatory).
+    expect(tools).toContain('["company", "task", "approve", aid, "--reason", input.reason');
+    expect(server).toContain('"approve"'); // enum + title advertise the verb
     // kobo-134: dep verb — op add|rm + exactly one parent id, maps to
     // `maw company task dep <op> <id> <parentId>` on the canonical surface.
     expect(tools).toContain('["company", "task", "dep", input.op, did, input.parent[0]');

@@ -472,6 +472,28 @@ export function holdTask(company: string, id: string, by: string, reason?: strin
 }
 
 /**
+ * Approve = the reviewer routes a BIG-work card (money/hash/live-infra/deploy/
+ * schema/cross-company/unsure — Board Truth rule 12) from review → approve, the
+ * human gate before done (kobo-189/191). A `reason` is MANDATORY: the Approve lane
+ * is Tony's decision queue, so every card in it must say WHY it's there — reuse the
+ * reviewReason field (store.ts) so the card-detail + board render it. Returns null
+ * on a missing card OR an empty reason (the CLI/API rejects → never a silent park
+ * with no reason). Small work never comes here: the reviewer just closes it done.
+ * No auto-transition — a reviewer consciously calls this per card (no queue-lie).
+ */
+export function approveTask(company: string, id: string, by: string, reason: string): TaskRecord | null {
+  if (!reason || !reason.trim()) return null; // reason mandatory — no reason, no park
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.state = "approve";
+  task.reviewReason = reason.trim();
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-review", `approve ${task.id} → ${resolveReviewer(task)} (${task.reviewReason}): ${task.title}`);
+  return task;
+}
+
+/**
  * Attach a PR to a task and move it to review (the auto path — "done my part,
  * PR up, review me"). PR-watch flips it to done on merge. Returns null if absent.
  */

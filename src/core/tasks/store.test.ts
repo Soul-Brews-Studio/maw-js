@@ -54,6 +54,7 @@ import {
   resolveReviewer,
   reviewTask,
   holdTask,
+  approveTask,
   moveTask,
   createsDepLoop,
   setTaskDep,
@@ -812,6 +813,24 @@ describe("holdTask (kobo-144 — reviewer's brake, any state → review)", () =>
     const t = addTask({ company: "hold", title: "x", by: "eq3", assignee: "carol" });
     expect(holdTask("hold", t.id, "eq3")!.reviewReason).toBe("held");
     expect(holdTask("hold", "hold-999", "eq3")).toBeNull();
+  });
+});
+
+describe("approveTask (kobo-191 — reviewer routes big-work review → approve, reason mandatory)", () => {
+  test("moves a reviewed card to approve with the mandatory reason (Tony's queue)", () => {
+    const t = addTask({ company: "app", title: "deploy migration", by: "eq3", assignee: "patchwork" });
+    reviewTask("app", t.id, "patchwork"); // in review
+    const a = approveTask("app", t.id, "eq3", "  live schema migration — Tony must decide  ")!;
+    expect(a.state).toBe("approve");
+    expect(a.reviewReason).toBe("live schema migration — Tony must decide"); // trimmed, persisted
+    expect(readWorklog("app").some((e) => e.kind === "task-review" && e.task === t.id)).toBe(true);
+  });
+  test("empty/whitespace reason → null (no reason-less park); missing card → null", () => {
+    const t = addTask({ company: "app", title: "x", by: "eq3", assignee: "patchwork" });
+    expect(approveTask("app", t.id, "eq3", "")).toBeNull();
+    expect(approveTask("app", t.id, "eq3", "   ")).toBeNull();
+    expect(readTask("app", t.id)!.state).not.toBe("approve"); // never parked without a reason
+    expect(approveTask("app", "app-999", "eq3", "why")).toBeNull();
   });
 });
 

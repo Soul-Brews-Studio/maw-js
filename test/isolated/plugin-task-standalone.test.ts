@@ -29,7 +29,7 @@ describe("task command plugin standalone boundary", () => {
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "resolve"', 'subcmd === "migrate-comments"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "decompose"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "resolve"', 'subcmd === "migrate-comments"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "approve"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "decompose"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("setTaskDep"); // kobo-134: dep add/rm — edit parentIds post-create
@@ -61,6 +61,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("reviewTask");
     // kobo-144: reviewer system — per-card reviewer field + resolve chain + brake.
     expect(src).toContain("holdTask"); // hold verb: reviewer's brake, any state → review
+    expect(src).toContain("approveTask"); // kobo-191: reviewer routes big-work review → approve (reason mandatory, Tony's queue)
     expect(src).toContain("resolveReviewer"); // chain: reviewer field → creator → human
     expect(src).toContain("notifyReviewer"); // review-lane → poke the resolved reviewer
     expect(src).toContain('"--reviewer"'); // add accepts a persistent per-card reviewer
