@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orderCommentTree, foldableResolvedIds, companyHtml } from "./company";
+import { orderCommentTree, foldableResolvedIds, newestVisibleCommentId, companyHtml } from "./company";
 
 // A comment factory — id, replyTo, ts, author. ts drives sibling order.
 const c = (id: string, replyTo: string | null, ts: number, by = "sapan") => ({ id, replyTo, ts, by, text: id + " body" });
@@ -87,5 +87,31 @@ describe("companyHtml injection (kobo-171 + kobo-176)", () => {
     expect(html).toContain("orderCommentTree(comments)"); // and consumed by the renderer
     expect(html).toContain("function foldableResolvedIds"); // kobo-176 injected
     expect(html).toContain("foldableResolvedIds(comments)"); // and consumed
+    expect(html).toContain("function newestVisibleCommentId"); // kobo-180 injected
+    expect(html).toContain("scrollToNewestComment(task)"); // and called on open
+  });
+});
+
+describe("newestVisibleCommentId (kobo-180)", () => {
+  const r = (id: string, ts: number) => ({ id, replyTo: null, ts, by: "sapan", text: id, resolved: true });
+  const u = (id: string, ts: number) => ({ id, replyTo: null, ts, by: "sapan", text: id, resolved: false });
+  test("picks the newest comment by ts", () => {
+    expect(newestVisibleCommentId([u("c1", 1), u("c2", 3), u("c3", 2)], new Set())).toBe("c2");
+  });
+  test("newest is folded → falls back to the newest VISIBLE one", () => {
+    // c3 is newest but resolved-leaf (folded) → target c2 (newest unresolved)
+    const comments = [u("c1", 1), u("c2", 2), r("c3", 3)];
+    const folded = foldableResolvedIds(comments); // {c3}
+    expect(newestVisibleCommentId(comments, folded)).toBe("c2");
+  });
+  test("all comments folded → null (nothing visible to scroll to)", () => {
+    const comments = [r("c1", 1), r("c2", 2)];
+    expect(newestVisibleCommentId(comments, foldableResolvedIds(comments))).toBeNull();
+  });
+  test("tie on ts → later in creation order wins", () => {
+    expect(newestVisibleCommentId([u("c1", 5), u("c2", 5)], new Set())).toBe("c2");
+  });
+  test("empty → null", () => {
+    expect(newestVisibleCommentId([], new Set())).toBeNull();
   });
 });

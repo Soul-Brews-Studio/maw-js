@@ -112,6 +112,22 @@ export function foldableResolvedIds(comments) {
   return foldable;
 }
 
+// kobo-180: the id of the newest comment that is actually VISIBLE — the auto-scroll
+// target on card open. Skips folded (fully-resolved) comments (foldableIds from
+// foldableResolvedIds, kobo-176) so we never scroll to a display:none element.
+// Newest = max ts; ties break to the later one in creation order (comments are
+// append-only). Returns null when nothing is visible (every comment folded) → the
+// caller then does nothing. DOM-free + annotation-free: unit-tested, injected into
+// the client script via `${newestVisibleCommentId.toString()}` (single source).
+export function newestVisibleCommentId(comments, foldableIds) {
+  let best = null;
+  for (const c of comments) {
+    if (foldableIds && foldableIds.has && foldableIds.has(c.id)) continue; // folded → not a scroll target
+    if (best === null || (c.ts || 0) >= (best.ts || 0)) best = c; // >= → later-in-array wins a tie
+  }
+  return best ? best.id : null;
+}
+
 function companyBody(): string {
   return `<!doctype html>
 <html lang="en">
@@ -1263,6 +1279,7 @@ function commentBubble(task, c, indent, parent) {
 // kobo-171: pure tree walker injected from the module fn (single source, unit-tested).
 ${orderCommentTree.toString()}
 ${foldableResolvedIds.toString()}
+${newestVisibleCommentId.toString()}
 
 function renderDetailComments(task) {
   const host = $('detail-comments');
@@ -1329,6 +1346,23 @@ function openDetail(task) {
   // kobo-48: write controls (+ subtask, comment box) live inside the modal.
   buildWriteSection(task);
   openModal();
+  scrollToNewestComment(task); // kobo-180: land on the newest comment (after openModal — hidden = no layout)
+}
+
+// kobo-180: on open, bring the newest VISIBLE comment into view so a busy card lands
+// on the latest activity instead of the oldest. Order is untouched (kobo-171 DFS +
+// kobo-176 collapse) — this only scrolls. Must run after openModal(): a hidden
+// container has no layout, so scrollIntoView would be a no-op (clampLongNotes lesson,
+// kobo-115). block:'nearest' scrolls the #detail-comments overflow container, not the
+// whole modal. Newest may be folded/hidden → target the newest VISIBLE one (never a
+// display:none element); all folded → nothing to do.
+function scrollToNewestComment(task) {
+  const comments = task.comments || [];
+  if (!comments.length) return;
+  const id = newestVisibleCommentId(comments, foldableResolvedIds(comments));
+  if (!id) return; // every comment folded → no visible target
+  const target = document.getElementById('cmt-' + id);
+  if (target) target.scrollIntoView({ block: 'nearest' });
 }
 
 // kobo-115: a long note clamps to a few lines with a show-more toggle so one tall
