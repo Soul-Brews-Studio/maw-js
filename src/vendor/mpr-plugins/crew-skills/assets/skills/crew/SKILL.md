@@ -168,11 +168,11 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 >
 > **comm**: `maw hey <addr>` เท่านั้น. tag `[<host>:<oracle>]` นำหน้า — อ่านข้าม. **⚠️ submit ทุก turn ให้ box ว่าง** (box ค้าง = hey deferred). backtick ใน hey → quote ธรรมดา. front addr resolve สดจาก `CREW_COORD_PANE`.
 >
-> **verdict routing (Board Truth rule 12):**
+> **verdict routing (Board Truth rule 12 + rule 3 — PR drives lifecycle):** reviewer = **pre-PR quality gate ไม่ใช่ done-closer**. **ไม่มี path ไหน reviewer ปิด card done เอง** — done มาจาก pr-watch ตอน PR merge เท่านั้น (kobo-205 dogfound board-lie: reviewer ปิด done ขณะ PR ยัง open + unstamped = board โกหก).
 > 1. อ่าน premise จาก card จริง + diff จริง (`gh pr diff <n> --repo <owner/name>`) — ground ก่อนตัดสิน
 > 2. เขียน finding ลง `$CREW_STATE_DIR/reviewer.md` + **comment บน card** (หลักฐาน + verdict)
-> 3. **งานเล็ก (doc/typo/small) + correctness+scope ผ่าน** → reviewer **ปิด done เอง** (`maw task done`)
-> 4. **งานใหญ่ (เงิน/hash/live/deploy/schema/ข้าม company/ไม่แน่ใจ)** → **`maw task hold` + comment `@tony`** (human gate — **ห้าม auto-done**)
+> 3. **PASS (correctness+scope ผ่าน)** → **ping front ให้ stamp** `pr=<PR>`+repo + `move --state review` + set `reviewer=<card-reviewer>` — **ห้าม `maw task done`** (done = merge only ผ่าน pr-watch)
+> 4. **งานใหญ่ (เงิน/hash/live/deploy/schema/ข้าม company/ไม่แน่ใจ)** → **`maw task hold` + comment `@tony`** (human gate — hold ≠ done)
 > 5. **ไม่ผ่าน (scope ล้ำ / ไม่ตรง AC / มี broken ref)** → comment finding + ตีกลับ (request-change) ให้ worker แก้
 >
 > **verdict เสร็จ → ping front 1 บรรทัด** (`verdict: pass|hold|reject + card`) → front loopback + teardown pane นี้ (§9). reviewer = **transient ไม่ re-seat** (จบ verdict = จบชีวิต pane; ไม่มี state ต่อเนื่องข้าม /clear แบบ worker)
@@ -224,7 +224,11 @@ worker = oracle pane → fire hook เดิมอัตโนมัติ (work
 9. **ไม่ทำ execution เอง (pure orchestrate — ไม่มี light-exec)** — front ไม่ผลิต artifact ให้ใคร review (self-review guard สะอาด). งานล้น = spawn worker (max 3) ไม่ใช่ทำเอง/bg
 10. **roster truth**: ก่อน dispatch เช็ค pane ยัง live — ⚠️ **dead-check ต้องใช้ `tmux list-panes -a -F '#{pane_id}' | grep -qx '%ID'`** (kobo-92: `display-message -t <dead-pane>` **ไม่ error** → เช็คด้วย exit code หลอก). ตาย → respawn ก่อน อย่า dispatch เข้า pane ที่ตาย (hey จะ deferred/หาย)
 11. **ping-loss fallback (kobo-91)**: dispatch/spawn แล้วเงียบเกิน ~2-3 นาที → **อ่าน `worker-N.md` verify เอง** (ping/ready-ping หายได้จาก input-guard/index-shift — state file คือความจริง อย่ารอ ping อย่างเดียว). Stop hook + ready-ping ช่วยส่ง signal deterministic แล้ว แต่ fallback นี้ยังต้องมี
-12. **merge-gate ผ่าน reviewer (kobo-204) — front ไม่ review เอง**: worker เสร็จ (idle+PR) → front **spawn reviewer on-demand** (§1 recipe, `CREW_ROLE=reviewer`, doer ≠ reviewer) → reviewer ตรวจ correctness+scope → verdict (§4b: เล็กผ่าน=done เอง · ใหญ่=hold+`@tony` · ไม่ผ่าน=ตีกลับ) → **ping front** → front **loopback verdict ลง card/board** + **teardown reviewer** (§9). front แค่ orchestrate verdict ไม่ตัดสินเอง (pure-orchestrate = self-review guard). **crew ไม่ merge เอง** (reviewer เล็ก/ human ใหญ่ เคาะ)
+12. **merge-gate ผ่าน reviewer (kobo-204) — front ไม่ review เอง · reviewer = pre-PR gate ไม่ปิด done**: worker เสร็จ (idle+PR) → front **spawn reviewer on-demand** (§1 recipe, `CREW_ROLE=reviewer`, doer ≠ reviewer) → reviewer ตรวจ correctness+scope → verdict (§4b) → **ping front** → front loopback:
+    - **PASS** → front **stamp** card `pr=<PR>`+repo + `move --state review` + set `reviewer=<card-reviewer>` — **ไม่ set done** (kobo-205 dogfound board-lie: card done ขณะ PR ยัง open = board โกหก). **done มาจาก pr-watch ตอน PR merge เท่านั้น** (Board Truth #3: PR drives lifecycle)
+    - **hold (ใหญ่)** → front คง card review/blocked + `@tony` (human gate) — ไม่ done
+    - **reject** → front ตีกลับ worker (request-change) — ไม่ done
+    - แล้ว **teardown reviewer** (§9). front แค่ orchestrate verdict ไม่ตัดสินเอง (pure-orchestrate = self-review guard). **crew/reviewer ไม่ปิด done + ไม่ merge เอง** — merge = human/pr-watch เท่านั้น
 
 **Inbound routing (front = target)**: autonomous cell → inbound (maw hey / task-event) land ที่ **front** โดยตรง (pane lowest-index ที่เรียก /crew) — ไม่มี comm pane รับแทน. ใน warroom, task-events route เข้า Conductor (kobo-152). ถ้า `ψ/active/dnd.on` มี → front park non-critical ตาม `/dnd` (critical เท่านั้นแทรก).
 
