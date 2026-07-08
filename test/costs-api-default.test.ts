@@ -27,21 +27,21 @@ function appWithFiles(files: Record<string, string>, dirs = Object.keys(files).m
   const deps: CostsApiDeps = {
     projectsDir,
     join: (...parts) => parts.join("/"),
-    readdirSync: ((path: string) => {
+    readdir: (async (path: string) => {
       if (path === projectsDir) return dirEntries;
       if (path.endsWith("/dir-throws")) throw new Error("dir vanished");
       return Object.keys(files)
         .filter((file) => file.startsWith(`${path}/`))
         .map((file) => file.slice(path.length + 1));
-    }) as CostsApiDeps["readdirSync"],
-    readFileSync: ((path: string) => {
+    }) as CostsApiDeps["readdir"],
+    readLines: ((path: string) => (async function* () {
       if (path.endsWith("/read-throws.jsonl")) throw new Error("read failed");
-      return files[path] ?? "";
-    }) as CostsApiDeps["readFileSync"],
-    statSync: ((path: string) => {
+      for (const l of (files[path] ?? "").split("\n")) yield l;
+    })()) as CostsApiDeps["readLines"],
+    stat: (async (path: string) => {
       if (path.endsWith("/stat-throws")) throw new Error("stat failed");
       return { isDirectory: () => !path.endsWith("/not-a-dir") } as any;
-    }) as CostsApiDeps["statSync"],
+    }) as CostsApiDeps["stat"],
   };
   return new Elysia().use(createCostsApi(deps));
 }
@@ -55,9 +55,9 @@ describe("costs API default-suite coverage", () => {
     const unreadable = new Elysia().use(createCostsApi({
       projectsDir: "/missing",
       join: (...parts) => parts.join("/"),
-      readdirSync: (() => { throw new Error("denied"); }) as CostsApiDeps["readdirSync"],
-      readFileSync: (() => "") as CostsApiDeps["readFileSync"],
-      statSync: (() => ({ isDirectory: () => true })) as CostsApiDeps["statSync"],
+      readdir: (async () => { throw new Error("denied"); }) as CostsApiDeps["readdir"],
+      readLines: (() => (async function* () { /* never reached: readdir throws first */ })()) as CostsApiDeps["readLines"],
+      stat: (async () => ({ isDirectory: () => true })) as CostsApiDeps["stat"],
     }));
 
     let res = await unreadable.handle(new Request("http://local/costs/daily?days=0"));
