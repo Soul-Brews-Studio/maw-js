@@ -167,6 +167,26 @@ export function columnCollapsed(col, state) {
   return col in s ? !!s[col] : true; // explicit user choice wins, else default-collapsed
 }
 
+// kobo-208: newest activity ts on a card = the max of its own updatedTs and every
+// note/comment ts. DOM-free + annotation-free: unit-tested, then injected into the
+// client script via `${lastActivityTs.toString()}` (single source, no drift).
+export function lastActivityTs(task) {
+  let ts = (task && task.updatedTs) || 0;
+  const scan = (arr) => { for (const x of (arr || [])) if ((x.ts || 0) > ts) ts = x.ts || 0; };
+  scan(task && task.notes);
+  scan(task && task.comments);
+  return ts;
+}
+
+// kobo-208: a card is UNREAD when it has activity newer than the last time this
+// browser opened it (seen map, localStorage per-card). A never-opened card (no seen
+// entry → 0) with any activity counts as unread → surfaces the whole backlog on
+// first visit. Injected via `${hasUnread.toString()}`.
+export function hasUnread(task, seen) {
+  const s = seen && typeof seen === "object" ? seen : {};
+  return lastActivityTs(task) > (s[task && task.id] || 0);
+}
+
 function companyBody(): string {
   return `<!doctype html>
 <html lang="en">
@@ -276,6 +296,8 @@ function companyBody(): string {
     .task.st-blocked { border-left-color:var(--bad); }
     /* kobo-62 — progressive card face: title + assignee avatar on one row. */
     .task .t-head { display:flex; align-items:flex-start; gap:var(--s-3); }
+    /* kobo-208 — unread dot: coral marker at the card head-left; nudges the title over. */
+    .task .t-head .unread-dot { flex:0 0 auto; color:var(--accent); font-size:9px; line-height:1; margin-top:4px; }
     .task .t-title { color:var(--fg); flex:1 1 auto; min-width:0; }
     /* kobo-127 — collapse: title clamps to ONE line (ellipsis); full text in title=+modal. */
     .task .t-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -978,6 +1000,15 @@ function taskCard(task, opts) {
   head.appendChild(title);
   head.appendChild(assigneeChip(task.assignee)); // kobo-127 — full-name colored chip, click = filter owner
   card.appendChild(head);
+  // kobo-208 — unread dot: new activity (note/comment/update) since this browser last
+  // opened the card. openDetail stamps seen[id] → the dot clears on next render.
+  if (hasUnread(task, seenState)) {
+    const dot = el('span', 'unread-dot', '●');
+    dot.title = 'new activity since you last opened this card';
+    dot.setAttribute('aria-label', 'unread activity');
+    head.insertBefore(dot, head.firstChild); // leftmost — visible before the title
+    card.classList.add('has-unread');
+  }
   const meta = el('div', 't-meta');
   // kobo-47: epic rollup badge (▣ N/M) — a SIGNAL (this card contains children) and
   // the on-face filter entry. allDone → green "ลูกครบ รอปิด". Click = filter family.
@@ -1441,6 +1472,8 @@ ${newestVisibleCommentId.toString()}
 ${parseCardId.toString()}
 const COLLAPSIBLE_COLS = ${JSON.stringify(COLLAPSIBLE_COLS)}; // kobo-194 — injected literal (columnCollapsed reads it)
 ${columnCollapsed.toString()}
+${lastActivityTs.toString()}
+${hasUnread.toString()}
 
 function renderDetailComments(task) {
   const host = $('detail-comments');
@@ -1471,6 +1504,12 @@ function renderDetailComments(task) {
 
 function openDetail(task) {
   if (task && task.id) syncUrlToCard(task.id); // kobo-181: reflect the open card in the URL (deep-link)
+  if (task && task.id) { // kobo-208 — opening the card marks its activity seen; clear its unread dot
+    seenState = loadSeenState();
+    seenState[task.id] = Date.now();
+    saveSeenState(seenState);
+    renderBoard(lastTasks); // reflect the cleared dot on the board underneath the modal
+  }
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
   renderDetailApprove(task); // kobo-190: approve-only summary + link-out + mark-only Approve button
@@ -1900,6 +1939,18 @@ function loadCollapseState() {
 function saveCollapseState(state) {
   try { localStorage.setItem('maw-company-collapsed', JSON.stringify(state)); } catch (e) { /* private mode — session-only */ }
 }
+// kobo-208: per-card last-seen map {cardId:ts} in localStorage (per-browser). Drives
+// the unread badge — a card opened at T stamps seen[id]=T; activity after T = unread.
+// Never throws (private mode → in-memory only), mirroring the collapse-state store.
+function loadSeenState() {
+  try { return JSON.parse(localStorage.getItem('maw-company-seen') || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function saveSeenState(state) {
+  try { localStorage.setItem('maw-company-seen', JSON.stringify(state)); } catch (e) { /* private mode — session-only */ }
+}
+// Refreshed at the top of every renderBoard so taskCard reads the current map.
+let seenState = {};
 // Apply the collapse state to the collapsible columns: toggle the .collapsed
 // class on the .col element (CSS hides its cards) + flip the chevron glyph. Pure
 // DOM sync from state — safe to call on every render.
@@ -1956,6 +2007,7 @@ function wireColumnCollapse() {
 }
 
 function renderBoard(tasks) {
+  seenState = loadSeenState(); // kobo-208 — refresh the per-card last-seen map for unread badges
   // Family/assignee filters are display-only — taskIndex stays built over the FULL
   // list so rollup / parent-chip / family membership still resolve against every card.
   updateFamilyBar();

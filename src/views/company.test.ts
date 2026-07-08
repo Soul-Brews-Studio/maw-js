@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orderCommentTree, foldableResolvedIds, newestVisibleCommentId, parseCardId, columnCollapsed, COLLAPSIBLE_COLS, companyHtml } from "./company";
+import { orderCommentTree, foldableResolvedIds, newestVisibleCommentId, parseCardId, columnCollapsed, COLLAPSIBLE_COLS, companyHtml, lastActivityTs, hasUnread } from "./company";
 
 // A comment factory — id, replyTo, ts, author. ts drives sibling order.
 const c = (id: string, replyTo: string | null, ts: number, by = "sapan") => ({ id, replyTo, ts, by, text: id + " body" });
@@ -232,5 +232,29 @@ describe("newestVisibleCommentId (kobo-180)", () => {
   });
   test("empty → null", () => {
     expect(newestVisibleCommentId([], new Set())).toBeNull();
+  });
+});
+
+describe("lastActivityTs / hasUnread (kobo-208)", () => {
+  test("lastActivityTs = max of updatedTs + note ts + comment ts", () => {
+    expect(lastActivityTs({ id: "k1", updatedTs: 10, notes: [{ ts: 30 }], comments: [{ ts: 20 }] })).toBe(30);
+    expect(lastActivityTs({ id: "k1", updatedTs: 50, notes: [{ ts: 30 }] })).toBe(50); // own update newest
+    expect(lastActivityTs({ id: "k1", comments: [{ ts: 7 }, { ts: 99 }] })).toBe(99);
+  });
+  test("lastActivityTs on a bare card → 0", () => {
+    expect(lastActivityTs({ id: "k1" })).toBe(0);
+    expect(lastActivityTs(null)).toBe(0);
+  });
+  test("never-opened card with activity → unread", () => {
+    expect(hasUnread({ id: "k1", updatedTs: 5 }, {})).toBe(true); // no seen entry → 0
+  });
+  test("seen after latest activity → read; new activity after seen → unread", () => {
+    const task = { id: "k1", updatedTs: 10, comments: [{ ts: 40 }] };
+    expect(hasUnread(task, { k1: 40 })).toBe(false); // seen at/after newest activity
+    expect(hasUnread(task, { k1: 50 })).toBe(false); // seen strictly newer
+    expect(hasUnread(task, { k1: 30 })).toBe(true);  // activity (40) after last open (30)
+  });
+  test("no activity + never opened → not unread (0 > 0 is false)", () => {
+    expect(hasUnread({ id: "k1" }, {})).toBe(false);
   });
 });
