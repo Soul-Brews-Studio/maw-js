@@ -47,6 +47,23 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("done");
   });
 
+  test("edit --reviewer amends the reviewer in place; combinable with --title; old reviewer audited (kobo-214)", async () => {
+    await run(["add", "card", "--company", "pgw", "--from", "eq3", "--reviewer", "eq3"]);
+    const r = await run(["edit", "pgw-1", "--reviewer", "worker", "--title", "card v2", "--company", "pgw", "--from", "tony"]);
+    expect(r.ok).toBe(true);
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.reviewer).toBe("worker"); // reviewer amended
+    expect(t.title).toBe("card v2"); // combinable with --title
+    expect(t.notes!.at(-1)!.text).toContain("reviewer was: eq3"); // Nothing Deleted
+  });
+
+  test("edit with no editable fields → usage error naming --reviewer (kobo-214)", async () => {
+    await run(["add", "card", "--company", "pgw"]);
+    const r = await run(["edit", "pgw-1", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("--reviewer");
+  });
+
   test("ls --mine filters to the caller's assigned cards", async () => {
     await run(["add", "unassigned", "--company", "pgw"]);
     await run(["add", "mine", "--company", "pgw"]);

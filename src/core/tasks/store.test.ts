@@ -707,6 +707,36 @@ describe("editTask (kobo-213 — non-destructive title/body reword, same id)", (
   test("missing card → null (no throw)", () => {
     expect(editTask("pgw", "pgw-999", "x", { title: "x" })).toBeNull();
   });
+
+  test("edits reviewer in place; combinable with title; old reviewer preserved in audit; lineage intact (kobo-214)", () => {
+    const p = addTask({ company: "pgw", title: "parent", by: "x" });
+    const t = addTask({ company: "pgw", title: "card", by: "eq3", assignee: "patchwork", reviewer: "eq3", parentIds: [p.id] });
+    setTaskPr("pgw", t.id, 88, "patchwork"); // PR link — lineage to check
+
+    const edited = editTask("pgw", t.id, "tony", { reviewer: "worker", title: "card v2" })!;
+    expect(edited.id).toBe(t.id); // same id
+    expect(edited.reviewer).toBe("worker"); // reviewer updated
+    expect(edited.title).toBe("card v2"); // combinable with --title in one edit
+    // lineage untouched
+    expect(edited.parentIds).toEqual([p.id]);
+    expect(edited.pr).toBe(88);
+    expect(edited.assignee).toBe("patchwork"); // assignee not touched (OUT of scope)
+    // audit: old reviewer preserved in an append-only note (Nothing is Deleted)
+    const audit = edited.notes!.at(-1)!;
+    expect(audit.by).toBe("tony");
+    expect(audit.text).toContain("reviewer was: eq3");
+  });
+
+  test("reviewer-only edit leaves title/body untouched; no-op when reviewer unchanged (kobo-214)", () => {
+    addTask({ company: "pgw", title: "T", by: "x", body: "B", reviewer: "eq3" });
+    const a = editTask("pgw", "pgw-1", "x", { reviewer: "human" })!;
+    expect(a.reviewer).toBe("human");
+    expect(a.title).toBe("T");
+    expect(a.body).toBe("B");
+    const n = readTask("pgw", "pgw-1")!.notes?.length ?? 0;
+    const b = editTask("pgw", "pgw-1", "x", { reviewer: "human" })!; // same value → no-op
+    expect(b.notes?.length ?? 0).toBe(n); // no audit noise
+  });
 });
 
 describe("body + checklist (ADR 0003 C — markdown checkbox progress)", () => {

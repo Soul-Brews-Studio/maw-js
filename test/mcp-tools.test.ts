@@ -200,8 +200,11 @@ describe("taskArgs", () => {
       .toEqual(["company", "task", "edit", "kobo-5", "--body", "new body"]);
     expect(taskArgs({ action: "edit", id: "kobo-5", title: "t", body: "b" }))
       .toEqual(["company", "task", "edit", "kobo-5", "--title", "t", "--body", "b"]);
+    // kobo-214 — reviewer is editable too, combinable with title/body
+    expect(taskArgs({ action: "edit", id: "kobo-5", reviewer: "worker" }))
+      .toEqual(["company", "task", "edit", "kobo-5", "--reviewer", "worker"]);
     expect(() => taskArgs({ action: "edit", title: "t" })).toThrow(/id/);
-    expect(() => taskArgs({ action: "edit", id: "kobo-5" })).toThrow(/title and\/or body/);
+    expect(() => taskArgs({ action: "edit", id: "kobo-5" })).toThrow(/title, body, and\/or reviewer/);
   });
 
   test("ls: bare", () => {

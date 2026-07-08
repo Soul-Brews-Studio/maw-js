@@ -70,6 +70,10 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // kobo-213: edit = reword title/body in place (same id) → `maw company task edit <id> [--title] [--body]`.
     expect(tools).toContain('["company", "task", "edit", eid]');
     expect(server).toContain('"edit"'); // enum + title advertise the verb
+    // kobo-214: edit also amends the reviewer in place → forwards --reviewer; the
+    // empty-edit guard names all three editable fields (title, body, reviewer).
+    expect(tools).toContain('if (input.reviewer !== undefined) argv.push("--reviewer", input.reviewer)');
+    expect(tools).toContain("title, body, and/or reviewer");
     // kobo-191: approve = reviewer routes big-work review → approve (reason mandatory).
     expect(tools).toContain('["company", "task", "approve", aid, "--reason", input.reason');
     expect(server).toContain('"approve"'); // enum + title advertise the verb

@@ -240,15 +240,16 @@ export function taskArgs(input: TaskInput): string[] {
       return ["company", "task", "note", nid, input.text, ...common()];
     }
     case "edit": {
-      // kobo-213 — reword a card's title/body in place (same id, lineage intact).
-      // At least one of title/body must be given; nothing else is touched.
+      // kobo-213/214 — reword a card's title/body/reviewer in place (same id,
+      // lineage intact). At least one field must be given; nothing else is touched.
       const eid = needId("edit");
-      if (input.title === undefined && input.body === undefined) {
-        throw new Error("task edit requires title and/or body");
+      if (input.title === undefined && input.body === undefined && input.reviewer === undefined) {
+        throw new Error("task edit requires title, body, and/or reviewer");
       }
       const argv = ["company", "task", "edit", eid];
       if (input.title !== undefined) argv.push("--title", input.title);
       if (input.body !== undefined) argv.push("--body", input.body);
+      if (input.reviewer !== undefined) argv.push("--reviewer", input.reviewer);
       return [...argv, ...common()];
     }
     case "comment": {

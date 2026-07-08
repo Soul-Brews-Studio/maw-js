@@ -434,7 +434,7 @@ export function editTask(
   company: string,
   id: string,
   by: string,
-  changes: { title?: string; body?: string },
+  changes: { title?: string; body?: string; reviewer?: string },
 ): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
@@ -446,6 +446,10 @@ export function editTask(
   if (typeof changes.body === "string" && changes.body !== (task.body ?? "")) {
     prev.push(`body was:\n${task.body && task.body.length ? task.body : "(empty)"}`);
     task.body = changes.body;
+  }
+  if (typeof changes.reviewer === "string" && changes.reviewer !== (task.reviewer ?? "")) {
+    prev.push(`reviewer was: ${task.reviewer && task.reviewer.length ? task.reviewer : "(unset)"}`);
+    task.reviewer = changes.reviewer;
   }
   if (!prev.length) return task; // nothing actually changed — no-op, skip the audit note
   const note: TaskNote = { ts: Date.now(), iso: nowIso(), by, text: `✎ edited — previous values preserved:\n${prev.join("\n")}` };

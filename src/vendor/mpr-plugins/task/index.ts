@@ -589,17 +589,18 @@ export async function runTask(
       // deps/thread/comments/PR link/state/assignee untouched; the previous wording
       // is preserved in an append-only audit note (Nothing is Deleted). Does NOT
       // touch hash/idempotency — a card id is a counter, never derived from wording.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--title": String, "--body": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--title": String, "--body": String, "--reviewer": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: 'usage: maw company task edit <id> [--title "<new title>"] [--body "<new body>"]' };
-      if (flags["--title"] === undefined && flags["--body"] === undefined) {
-        return { ok: false, error: "nothing to edit — pass --title and/or --body" };
+      if (!id) return { ok: false, error: 'usage: maw company task edit <id> [--title "<new title>"] [--body "<new body>"] [--reviewer <who>]' };
+      if (flags["--title"] === undefined && flags["--body"] === undefined && flags["--reviewer"] === undefined) {
+        return { ok: false, error: "nothing to edit — pass --title, --body, and/or --reviewer" };
       }
       const badTitle = badFlagValue("--title", flags["--title"]); if (badTitle) return { ok: false, error: badTitle };
+      const badReviewer = badFlagValue("--reviewer", flags["--reviewer"]); if (badReviewer) return { ok: false, error: badReviewer };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = editTask(company, id, me, { title: flags["--title"], body: flags["--body"] });
+      const t = editTask(company, id, me, { title: flags["--title"], body: flags["--body"], reviewer: flags["--reviewer"] });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m✎ edited\x1b[0m ${t.id}: ${t.title}`);
     } else if (subcmd === "epic") {
