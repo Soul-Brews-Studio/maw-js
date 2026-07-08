@@ -106,12 +106,14 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     const child = tasks.find((t) => t.title === "child");
     const free = tasks.find((t) => t.title === "free");
     expect(child?.dependency).toEqual({ blockedBy: ["dep-1"], missing: ["ghost-9"] }); // parent pending + ghost missing
-    expect(child?.state).toBe("todo"); // derived ≠ a block state — real state untouched
+    expect(child?.state).toBe("blocked"); // kobo-223: dependency block is now a REAL state (was derived-todo)
     expect("dependency" in (free as object)).toBe(false); // no parents → no field
-    // parent done → child auto-returns (field drops to missing-only, no blockedBy)
+    // parent done → child auto-returns (blockedBy drops; state restored todo → ready)
     completeTask("dep", parent.id, "eq3");
     tasks = (await read()).tasks;
-    expect(tasks.find((t) => t.title === "child")?.dependency).toEqual({ blockedBy: [], missing: ["ghost-9"] });
+    const backChild = tasks.find((t) => t.title === "child");
+    expect(backChild?.dependency).toEqual({ blockedBy: [], missing: ["ghost-9"] });
+    expect(backChild?.state).toBe("ready"); // restored + kobo-133 promote (deps ครบ)
   });
 
   test("derives needsOwner for todo+unassigned; absent once owned or non-todo (eq3-011 kobo-14)", async () => {

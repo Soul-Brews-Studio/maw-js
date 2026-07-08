@@ -64,9 +64,11 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   if (t.notes?.length) card.notes = t.notes; // append-only notes for the detail-panel timeline (kobo-39)
   if (t.comments?.length) card.comments = t.comments; // threaded comments for the detail-panel thread + mentions queue (kobo-141)
   if (needsOwner(t)) card.needsOwner = true; // derived needs-owner block (eq3-011 kobo-14)
-  // Derived dependency block (ADR 0003 A) — reuse the SAME store helper the CLI
-  // board uses, so web + CLI never disagree. Emitted only when there's something
-  // to show; the card's real state stays todo/in-progress (this is NOT a block state).
+  // Derived dependency detail (ADR 0003 A) — reuse the SAME store helper the CLI
+  // board uses, so web + CLI never disagree. Emitted only when there's something to
+  // show (which parents block / are missing). kobo-223: the dependency block is now
+  // ALSO a real persisted state (state="blocked", block.kind="dependency") — this
+  // derived field carries the WHICH-parents detail alongside that state.
   const dep = dependencyBlock(t, resolveParent);
   if (dep.blockedBy.length || dep.missing.length) card.dependency = dep;
   if (t.kind) card.kind = t.kind; // "epic" (kobo-45) — task default is left absent

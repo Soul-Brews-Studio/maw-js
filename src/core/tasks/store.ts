@@ -322,12 +322,20 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.reviewer) task.reviewer = input.reviewer; // kobo-144: persistent per-card reviewer
   if (input.reviewReason) task.reviewReason = input.reviewReason; // kobo-218: born-in-approve card's WHY
 
-  // kobo-133: born ready — a todo card whose deps are ALL already done/archived
-  // skips the todo lane. Without this it would strand: the parent-done event that
-  // auto-promotes (promoteReadyChildren) already fired before this card existed.
-  if (task.state === "todo" && task.parentIds?.length) {
+  // kobo-133/223: born blocked-or-ready. A card that opens with deps → if any
+  // parent is still pending it's born BLOCKED (state=blocked, kind=dependency —
+  // real state, not a derived overlay; prevState remembers the flow lane to
+  // return to, kobo-223). If all deps are already done/archived it skips straight
+  // to `ready` (the parent-done promote already fired before this card existed).
+  if (task.parentIds?.length && (task.state === "todo" || task.state === "in-progress" || task.state === "ready")) {
     const resolve = parentStateResolver(input.company);
-    if (!dependencyBlock(task, resolve).blockedBy.length) task.state = "ready";
+    if (dependencyBlock(task, resolve).blockedBy.length) {
+      task.prevState = task.state; // remember where to return (todo default / in-progress dispatch)
+      task.state = "blocked";
+      task.block = { kind: "dependency" };
+    } else if (task.state === "todo") {
+      task.state = "ready"; // deps all clear at birth
+    }
   }
 
   // Race-safe id allocation: compute candidate, claim it exclusively; on a
@@ -1006,6 +1014,11 @@ export function unblockTask(company: string, id: string, by: string): TaskRecord
   task.state = task.prevState ?? "todo"; // fall back to todo if somehow unset
   delete task.block;
   delete task.prevState;
+  // kobo-223 (3a multi-source): a manual unblock clears the EXPLICIT source, but if a
+  // dependency is still pending the card must STAY blocked — reconcile re-enters the
+  // dependency block (only when a parent is genuinely still open). No pending dep → the
+  // restore above stands.
+  reconcileDependencyState(task, parentStateResolver(company));
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-unblocked", `unblocked ${task.id} → ${task.state}: ${task.title}`);
@@ -1239,12 +1252,26 @@ export function promoteReadyChildren(company: string, doneId: string, by: string
   const resolve = parentStateResolver(company);
   const promoted: TaskRecord[] = [];
   for (const t of listTasks(company)) {
-    if (t.state !== "todo" || !t.parentIds?.includes(doneId)) continue;
+    if (!t.parentIds?.includes(doneId)) continue;
+    // kobo-223: two kinds are eligible — a DEPENDENCY-blocked card (state=blocked,
+    // kind=dependency, the new persisted form) and a legacy derived-todo card (never
+    // persisted-blocked). An explicit block (kind !== dependency) is NOT eligible:
+    // its dep clearing must NOT release it — a human unblock does (3a multi-source).
+    const wasDepBlocked = t.state === "blocked" && t.block?.kind === "dependency";
+    if (!wasDepBlocked && t.state !== "todo") continue;
     if (dependencyBlock(t, resolve).blockedBy.length) continue; // another parent still pending
-    t.state = "ready";
+    if (wasDepBlocked) {
+      // restore EXACT pre-block state (2a) — in-progress→in-progress stays put here.
+      t.state = t.prevState ?? "todo";
+      delete t.block;
+      delete t.prevState;
+    }
+    // kobo-133 (no-regress): a card that lands on todo with all deps cleared is
+    // "ready — pick me up". Applies to a restored-todo AND a legacy derived-todo.
+    if (t.state === "todo") t.state = "ready";
     t.updatedTs = Date.now();
     writeTaskRecord(t);
-    emit(t, by, "task-updated", `ready ${t.id} (deps ครบ): ${t.title}`);
+    emit(t, by, "task-updated", `${t.state} ${t.id} (deps ครบ): ${t.title}`);
     promoted.push(t);
   }
   return promoted;
@@ -1256,6 +1283,49 @@ export function isBlockedByDependency(
   getParentState: (id: string) => ParentState,
 ): boolean {
   return dependencyBlock(task, getParentState).blockedBy.length > 0;
+}
+
+/**
+ * Reconcile a card's dependency-block state (kobo-223). A dependency block is now
+ * a REAL persisted state — `state="blocked"` + `block={kind:"dependency"}` — the
+ * SAME shape as an explicit block, so the board reads one truth (Board Truth: no
+ * lie) instead of a card sitting in-progress with only a derived overlay (the
+ * pgw-197 symptom). Mutates in place; the caller writes + emits. Round-trips:
+ *  - ENTER: a card in a FLOW state (todo/ready/in-progress) with ≥1 pending parent
+ *    → blocked, `prevState` remembering where to return.
+ *  - EXIT: a DEPENDENCY-blocked card whose parents all cleared → restored to its
+ *    EXACT `prevState` (kobo-223 2a: todo→todo, in-progress→in-progress — restoring
+ *    the wrong state is a board-lie). The kobo-133 todo→ready "deps ครบ" promotion
+ *    is a SEPARATE parent-done step in promoteReadyChildren, not baked here.
+ * Explicit blocks (block.kind !== "dependency") are LEFT ALONE — only a human
+ * `unblock` releases them (no regress). A card blocked by BOTH sources stays
+ * blocked until BOTH clear: dependency clears here only when the block IS a
+ * dependency block; an explicit re-block overwrites the kind, so this won't
+ * touch it (kobo-223 3a). Never blocks a `backlog`/terminal card (already
+ * parked). Returns "blocked" | "restored" | null (what it did).
+ */
+function reconcileDependencyState(
+  task: TaskRecord,
+  resolve: (id: string) => ParentState,
+): "blocked" | "restored" | null {
+  const pending = dependencyBlock(task, resolve).blockedBy.length > 0;
+  if (pending) {
+    // enter only from an actionable flow state; never touch an explicit or an
+    // already-dependency block (leave its prevState + kind intact).
+    if (task.state !== "todo" && task.state !== "ready" && task.state !== "in-progress") return null;
+    task.prevState = task.state;
+    task.state = "blocked";
+    task.block = { kind: "dependency" };
+    return "blocked";
+  }
+  // no pending parent — restore ONLY a card WE dependency-blocked (not explicit).
+  if (task.state === "blocked" && task.block?.kind === "dependency") {
+    task.state = task.prevState ?? "todo"; // EXACT restore (kobo-223 2a) — no auto-ready here
+    delete task.block;
+    delete task.prevState;
+    return "restored";
+  }
+  return null;
 }
 
 /**
@@ -1503,6 +1573,12 @@ export function setTaskDep(
     if (kept.length) task.parentIds = kept;
     else delete task.parentIds;
   }
+  // kobo-223: keep the blocked state honest as deps change — adding a pending dep
+  // to a flow-state card blocks it; removing the last pending dep from a
+  // dependency-blocked card restores its exact prior state (explicit blocks
+  // untouched). A dep rm doesn't auto-promote to ready (that's the parent-DONE
+  // path, promoteReadyChildren) — it restores exactly.
+  reconcileDependencyState(task, parentStateResolver(company));
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-updated", op === "add" ? `dep ${id} 🚫→ ${dep} (waits for)` : `dep removed ${id} ✂ ${dep}`);

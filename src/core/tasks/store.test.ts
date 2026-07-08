@@ -589,9 +589,12 @@ describe("ready state + auto-promote (kobo-133 — Hermes-style: state machine, 
   test("completeTask promotes a dependent todo card to ready + emits task-updated", () => {
     const parent = addTask({ company: "pgw", title: "parent", by: "x" });
     const child = addTask({ company: "pgw", title: "child", by: "x", assignee: "patchwork", parentIds: [parent.id] });
-    expect(readTask("pgw", child.id)!.state).toBe("todo"); // gated while parent pending
+    // kobo-223: a dependency block is now a REAL state — a todo card born with a
+    // pending parent opens blocked (kind=dependency), not a derived-todo overlay.
+    expect(readTask("pgw", child.id)!.state).toBe("blocked");
+    expect(readTask("pgw", child.id)!.block?.kind).toBe("dependency");
     completeTask("pgw", parent.id, "x");
-    expect(readTask("pgw", child.id)!.state).toBe("ready");
+    expect(readTask("pgw", child.id)!.state).toBe("ready"); // restored todo → ready (deps ครบ, kobo-133)
     const wl = readWorklog("pgw");
     expect(wl.some((e) => e.kind === "task-updated" && e.task === child.id && /ready/.test(e.summary))).toBe(true);
   });
@@ -601,9 +604,9 @@ describe("ready state + auto-promote (kobo-133 — Hermes-style: state machine, 
     const p2 = addTask({ company: "pgw", title: "p2", by: "x" });
     const child = addTask({ company: "pgw", title: "child", by: "x", parentIds: [p1.id, p2.id] });
     completeTask("pgw", p1.id, "x");
-    expect(readTask("pgw", child.id)!.state).toBe("todo"); // p2 still pending
+    expect(readTask("pgw", child.id)!.state).toBe("blocked"); // kobo-223: p2 still pending → stays blocked
     completeTask("pgw", p2.id, "x");
-    expect(readTask("pgw", child.id)!.state).toBe("ready");
+    expect(readTask("pgw", child.id)!.state).toBe("ready"); // last parent closed → restored todo → ready
   });
 
   test("only todo cards promote — in-progress/backlog/dep-less cards keep their lane", () => {
@@ -632,6 +635,71 @@ describe("ready state + auto-promote (kobo-133 — Hermes-style: state machine, 
     // explicit backlog is respected — born-ready only upgrades the todo default
     const parked = addTask({ company: "pgw", title: "parked", by: "x", parentIds: [parent.id], state: "backlog" });
     expect(parked.state).toBe("backlog");
+  });
+});
+
+describe("dependency-block = real state + exact restore (kobo-223)", () => {
+  test("2a round-trip: in-progress + new dep → blocked → parent done → in-progress (NOT ready)", () => {
+    const parent = addTask({ company: "k223", title: "parent", by: "x" });
+    const child = addTask({ company: "k223", title: "child", by: "x", assignee: "patchwork", state: "in-progress" });
+    expect(readTask("k223", child.id)!.state).toBe("in-progress"); // working, no dep yet
+    setTaskDep("k223", child.id, parent.id, "add", "x"); // gains a pending dep
+    const blocked = readTask("k223", child.id)!;
+    expect(blocked.state).toBe("blocked");
+    expect(blocked.block?.kind).toBe("dependency");
+    expect(blocked.prevState).toBe("in-progress"); // remembers where to return
+    completeTask("k223", parent.id, "x"); // parent done → auto-unblock
+    const back = readTask("k223", child.id)!;
+    expect(back.state).toBe("in-progress"); // EXACT restore — NOT ready (2a: restoring the wrong state = board-lie)
+    expect(back.block).toBeUndefined();
+    expect(back.prevState).toBeUndefined();
+  });
+
+  test("2a round-trip: todo + dep → blocked → parent done → ready (deps ครบ, kobo-133 no-regress)", () => {
+    const parent = addTask({ company: "k223b", title: "parent", by: "x" });
+    const child = addTask({ company: "k223b", title: "child", by: "x", parentIds: [parent.id] });
+    expect(readTask("k223b", child.id)!.state).toBe("blocked");
+    completeTask("k223b", parent.id, "x");
+    expect(readTask("k223b", child.id)!.state).toBe("ready");
+  });
+
+  test("dep rm restores the exact prior state (no auto-ready — that's the parent-DONE path)", () => {
+    const parent = addTask({ company: "k223r", title: "parent", by: "x" });
+    const child = addTask({ company: "k223r", title: "child", by: "x", assignee: "p", state: "in-progress", parentIds: [parent.id] });
+    expect(readTask("k223r", child.id)!.state).toBe("blocked");
+    setTaskDep("k223r", child.id, parent.id, "rm", "x"); // drop the only dep
+    expect(readTask("k223r", child.id)!.state).toBe("in-progress"); // exact restore
+  });
+
+  test("3a multi-source: dep-blocked + explicit block → parent done keeps it blocked (explicit source remains)", () => {
+    const parent = addTask({ company: "k223m", title: "parent", by: "x" });
+    const child = addTask({ company: "k223m", title: "child", by: "x", assignee: "p", state: "in-progress", parentIds: [parent.id] });
+    expect(readTask("k223m", child.id)!.state).toBe("blocked"); // dependency block
+    blockTask("k223m", child.id, "eq3", { kind: "needs_input", for: "tony" }); // explicit block ON TOP
+    expect(readTask("k223m", child.id)!.block?.kind).toBe("needs_input"); // explicit wins the kind
+    completeTask("k223m", parent.id, "x"); // dep source clears...
+    const still = readTask("k223m", child.id)!;
+    expect(still.state).toBe("blocked"); // ...but explicit source remains → STAYS blocked (3a)
+    expect(still.block?.kind).toBe("needs_input");
+  });
+
+  test("3a multi-source: manual unblock while dep still pending → re-blocks as dependency", () => {
+    const parent = addTask({ company: "k223u", title: "parent", by: "x" });
+    const child = addTask({ company: "k223u", title: "child", by: "x", assignee: "p", state: "in-progress", parentIds: [parent.id] });
+    blockTask("k223u", child.id, "eq3", { kind: "needs_input", for: "tony" }); // now explicit-blocked, dep still pending
+    unblockTask("k223u", child.id, "eq3"); // human clears the explicit source
+    const t = readTask("k223u", child.id)!;
+    expect(t.state).toBe("blocked"); // dep still pending → stays blocked
+    expect(t.block?.kind).toBe("dependency"); // re-classified as the remaining source
+    expect(t.prevState).toBe("in-progress"); // still remembers the flow lane
+  });
+
+  test("no-regress: explicit block on a DEP-LESS card round-trips untouched (todo→blocked→todo)", () => {
+    const t = addTask({ company: "k223e", title: "solo", by: "x", assignee: "p" }); // todo, no deps
+    blockTask("k223e", t.id, "eq3", { kind: "needs_input", for: "tony" });
+    expect(readTask("k223e", t.id)!.state).toBe("blocked");
+    unblockTask("k223e", t.id, "eq3");
+    expect(readTask("k223e", t.id)!.state).toBe("todo"); // exact restore, no dependency re-block (no deps)
   });
 
   test("ready behaves like todo for pickup: needsOwner / nextAction / note auto-advance / start", () => {
