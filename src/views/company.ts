@@ -546,6 +546,20 @@ function companyBody(): string {
     @keyframes drawer-in { from { transform:translateX(28px); opacity:.6; } to { transform:none; opacity:1; } }
     @media (prefers-reduced-motion: reduce) { .modal { animation:none; } }
     .modal .md { max-height:none; }
+    /* kobo-209 — detail modal 2-col on desktop (left: meta/relations/notes · right: body/comments),
+       single-col stack below 768px. presentation only; ids + populate JS (incl. kobo-207 SSE reopen) unchanged.
+       mobile-first: base = one column, DOM reading order preserved via display:contents + order (so notes
+       still fall after body/comments as before); ≥768px promotes the two wrappers to real grid columns. */
+    #detail-cols { display:flex; flex-direction:column; }
+    #detail-left, #detail-right { display:contents; }
+    #detail-meta { order:1; } #detail-approve { order:2; } #detail-deps { order:3; } #detail-family { order:4; }
+    #detail-body { order:5; } #detail-comments { order:6; } #detail-notes { order:7; } #detail-write { order:8; }
+    @media (min-width:768px) {
+      .modal { width:min(920px, 100%); }
+      #detail-cols { display:grid; grid-template-columns:minmax(0,320px) minmax(0,1fr); gap:var(--s-7); align-items:start; }
+      #detail-left, #detail-right { display:flex; flex-direction:column; min-width:0; }
+      #detail-right > #detail-body:not(:empty) { border-top:0; padding-top:0; }  /* body starts the right column clean — no stray hairline */
+    }
     /* kobo-110 — detail modal reading rhythm: title stands out + wraps, sections
        separated by space + a hairline so the eye flows title → meta → body → actions. */
     #detail-title { font-size:var(--t-xl); font-weight:600; line-height:1.35; color:var(--fg); overflow-wrap:anywhere; margin-bottom:var(--s-5); }
@@ -737,14 +751,20 @@ function companyBody(): string {
     <div class="card modal" id="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
       <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between">card detail <button type="button" id="detail-close" aria-label="close detail">✕</button></h2>
       <div id="detail-title"></div>
-      <div id="detail-meta"></div>
-      <div id="detail-approve" hidden></div>
-      <div id="detail-deps" hidden></div>
-      <div id="detail-family" hidden></div>
-      <div class="md" id="detail-body"></div>
-      <div id="detail-comments"></div>
-      <div id="detail-notes"></div>
-      <div class="detail-write" id="detail-write"></div>
+      <div id="detail-cols">
+        <div id="detail-left">
+          <div id="detail-meta"></div>
+          <div id="detail-approve" hidden></div>
+          <div id="detail-deps" hidden></div>
+          <div id="detail-family" hidden></div>
+          <div id="detail-notes"></div>
+        </div>
+        <div id="detail-right">
+          <div class="md" id="detail-body"></div>
+          <div id="detail-comments"></div>
+          <div class="detail-write" id="detail-write"></div>
+        </div>
+      </div>
     </div>
   </div>
 <script>
