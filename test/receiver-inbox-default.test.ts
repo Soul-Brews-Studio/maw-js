@@ -39,12 +39,12 @@ describe("receiver inbox auto-write helpers", () => {
     expect(resolveReceiverOracle({ query: "digger-oracle", from: "m5:sender", message: "hi" })).toBe("digger");
   });
 
-  test("writes markdown frontmatter to the receiver ψ/inbox using target cwd first", () => {
+  test("writes markdown frontmatter to the receiver ψ/inbox using target cwd first", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-receiver-inbox-"));
     const repo = join(root, "digger-oracle");
     mkdirSync(repo, { recursive: true });
 
-    const result = persistReceiverInbox({
+    const result = await persistReceiverInbox({
       query: "m5:digger",
       target: "54-digger:digger-oracle.0",
       from: "m5:sender",
@@ -54,7 +54,7 @@ describe("receiver inbox auto-write helpers", () => {
       resolveTargetCwd: () => repo,
       loadManifest: () => [],
       getGhqRoot: () => root,
-      ghqFindSync: () => null,
+      ghqFind: async () => null,
       now: () => new Date("2026-05-17T08:00:00.000Z"),
     });
 
@@ -68,12 +68,12 @@ describe("receiver inbox auto-write helpers", () => {
     expect(readFileSync(result.path, "utf-8")).toContain("[m5:sender] ralph-dig: oracle-status-tray");
   });
 
-  test("accepts an absolute repo path target for locate-resolved no-live queues (#2056)", () => {
+  test("accepts an absolute repo path target for locate-resolved no-live queues (#2056)", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-receiver-inbox-absolute-"));
     const repo = join(root, "renamed-oracle");
     mkdirSync(repo, { recursive: true });
 
-    const result = persistReceiverInbox({
+    const result = await persistReceiverInbox({
       query: "renamed",
       target: repo,
       from: "m5:sender",
@@ -82,7 +82,7 @@ describe("receiver inbox auto-write helpers", () => {
       resolveTargetCwd: () => null,
       loadManifest: () => [],
       getGhqRoot: () => root,
-      ghqFindSync: () => null,
+      ghqFind: async () => null,
       now: () => new Date("2026-06-06T07:00:00.000Z"),
     });
 
@@ -92,12 +92,12 @@ describe("receiver inbox auto-write helpers", () => {
     expect(readFileSync(result.path, "utf-8")).toContain("queued via locate path");
   });
 
-  test("falls back to manifest repo path and reports misses without throwing", () => {
+  test("falls back to manifest repo path and reports misses without throwing", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-receiver-inbox-manifest-"));
     const repo = join(root, "github.com", "Soul-Brews-Studio", "digger-oracle");
     mkdirSync(repo, { recursive: true });
 
-    const ok = persistReceiverInbox({
+    const ok = await persistReceiverInbox({
       query: "digger",
       from: "m5:sender",
       message: "queue me",
@@ -105,14 +105,14 @@ describe("receiver inbox auto-write helpers", () => {
       resolveTargetCwd: () => null,
       loadManifest: () => [{ name: "digger", sources: ["fleet"], repo: "Soul-Brews-Studio/digger-oracle", isLive: false }],
       getGhqRoot: () => root,
-      ghqFindSync: () => null,
+      ghqFind: async () => null,
       now: () => new Date("2026-05-17T08:01:00.000Z"),
     });
 
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.inboxDir).toBe(join(repo, "ψ", "inbox"));
 
-    const miss = persistReceiverInbox({
+    const miss = await persistReceiverInbox({
       query: "ghost",
       from: "m5:sender",
       message: "lost",
@@ -120,44 +120,44 @@ describe("receiver inbox auto-write helpers", () => {
       resolveTargetCwd: () => null,
       loadManifest: () => [],
       getGhqRoot: () => root,
-      ghqFindSync: () => null,
+      ghqFind: async () => null,
     });
     expect(miss).toEqual({ ok: false, oracle: "ghost", reason: "receiver repo not found for ghost" });
   });
 
-  test("handles psiPath, discovery exceptions, and write failures safely", () => {
+  test("handles psiPath, discovery exceptions, and write failures safely", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-receiver-inbox-errors-"));
     const repo = join(root, "current-oracle");
     mkdirSync(repo, { recursive: true });
 
-    const psi = persistReceiverInbox({
+    const psi = await persistReceiverInbox({
       query: "current",
       from: "m5:sender",
       message: "via psi path",
       config: { oracle: "current", psiPath: join(repo, "ψ") },
     }, {
       loadManifest: () => { throw new Error("manifest boom"); },
-      ghqFindSync: () => { throw new Error("ghq boom"); },
+      ghqFind: async () => { throw new Error("ghq boom"); },
       getGhqRoot: () => root,
       now: () => new Date("2026-05-17T08:02:00.000Z"),
     });
     expect(psi.ok).toBe(true);
     if (psi.ok) expect(psi.inboxDir).toBe(join(repo, "ψ", "inbox"));
 
-    const noRepo = persistReceiverInbox({
+    const noRepo = await persistReceiverInbox({
       query: "current",
       from: "m5:sender",
       message: "exists throws",
       config: { oracle: "current", psiPath: join(root, "bad", "ψ") },
     }, {
       loadManifest: () => { throw new Error("manifest boom"); },
-      ghqFindSync: () => { throw new Error("ghq boom"); },
+      ghqFind: async () => { throw new Error("ghq boom"); },
       getGhqRoot: () => root,
       existsSync: () => { throw new Error("exists boom"); },
     });
     expect(noRepo).toEqual({ ok: false, oracle: "current", reason: "receiver repo not found for current" });
 
-    const writeFail = persistReceiverInbox({
+    const writeFail = await persistReceiverInbox({
       query: "current",
       from: "m5:sender",
       message: "write fails",
