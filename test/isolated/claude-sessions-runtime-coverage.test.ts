@@ -1,8 +1,8 @@
 /**
  * Runtime coverage for Claude session discovery. A single isolated module import
- * drives pid discovery/cache, trigger classification, git metadata, tail parsing,
- * project scanning fallbacks, and session cache behavior without touching local
- * Claude/tmux/git state.
+ * drives pid discovery/cache, trigger classification, git metadata, direct-file
+ * message parsing, project scanning fallbacks, and session cache behavior
+ * without touching local Claude/tmux/git state.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
@@ -23,14 +23,29 @@ mock.module(import.meta.resolve("os"), () => ({
   homedir: () => homeDir,
 }));
 
+// Our module's default exec seam shells out via execFile("/bin/sh", ["-c", cmd], ...)
+// so it never blocks the event loop. Mock execFile (node-callback style) and
+// translate the shelled-out command back into the same test fixtures used
+// before the async conversion.
 mock.module(import.meta.resolve("child_process"), () => ({
-  execSync: (cmd: string) => {
+  execFile: (
+    _file: string,
+    args: string[],
+    _options: unknown,
+    callback: (err: Error | null, result?: { stdout: string; stderr: string }) => void,
+  ) => {
+    const cmd = args[args.length - 1];
     execCalls.push(cmd);
-    return execSyncImpl(cmd);
+    try {
+      const stdout = execSyncImpl(cmd);
+      callback(null, { stdout, stderr: "" });
+    } catch (err) {
+      callback(err as Error);
+    }
   },
 }));
 
-const { decodeProjectDir, listClaudeSessions } = await import("../../src/core/fleet/claude-sessions.ts?claude-sessions-runtime-coverage");
+const { decodeProjectDir, listClaudeSessions, __resetClaudeSessionCachesForTests } = await import("../../src/core/fleet/claude-sessions.ts?claude-sessions-runtime-coverage");
 
 function setPlatform(value: NodeJS.Platform) {
   Object.defineProperty(process, "platform", { value, configurable: true });
@@ -49,11 +64,11 @@ function encodeProjectPath(path: string): string {
   return path.replace(/^\//, "-").replace(/[/.]/g, "-");
 }
 
-function writeSession(projectsRoot: string, projectPath: string, sessionId: string, ageMs = 1_000) {
+function writeSession(projectsRoot: string, projectPath: string, sessionId: string, ageMs = 1_000, body = `${sessionId}\n`) {
   const dir = join(projectsRoot, encodeProjectPath(projectPath));
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${sessionId}.jsonl`);
-  writeFileSync(file, `${sessionId}\n`);
+  writeFileSync(file, body);
   const d = new Date(now - ageMs);
   utimesSync(file, d, d);
   return file;
@@ -106,7 +121,10 @@ describe("claude-sessions runtime discovery", () => {
     expect(psCalls).toBe(1);
     expect(execCalls.filter((cmd) => cmd.startsWith("lsof -p 201"))).toHaveLength(1);
 
-    // Explicit skip flag bypasses pid scanning entirely.
+    // Explicit skip flag bypasses pid scanning entirely. Force past the
+    // (now 15s) session cache so this phase exercises a real scan rather
+    // than replaying the previous phase's cached result.
+    __resetClaudeSessionCachesForTests();
     execCalls = [];
     process.env.MAW_CLAUDE_SKIP_PID_SCAN = "1";
     process.env.MAW_CLAUDE_PROJECTS_DIR = join(tempDir(), "missingprojects");
@@ -116,6 +134,7 @@ describe("claude-sessions runtime discovery", () => {
     delete process.env.MAW_CLAUDE_SKIP_PID_SCAN;
 
     // ps failure is tolerated and cached while project dir is absent.
+    __resetClaudeSessionCachesForTests();
     now += 5_100;
     let failingPsCalls = 0;
     execSyncImpl = (cmd) => {
@@ -131,6 +150,7 @@ describe("claude-sessions runtime discovery", () => {
     expect(failingPsCalls).toBe(1);
 
     // Full Linux discovery matrix after pid cache expiry.
+    __resetClaudeSessionCachesForTests();
     now += 5_100;
     setPlatform("linux");
     execCalls = [];
@@ -149,12 +169,23 @@ describe("claude-sessions runtime discovery", () => {
     };
     for (const p of Object.values(paths)) mkdirSync(p, { recursive: true });
 
-    const mawFile = writeSession(projectsRoot, paths.maw, "maw-session", 1_000);
-    const tmuxFile = writeSession(projectsRoot, paths.tmux, "tmux-session", 300_000);
+    const mawBody = [
+      JSON.stringify({ type: "user", message: { content: "hello from user" } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hello from assistant" }] } }),
+      "{bad json",
+    ].join("\n");
+    const tmuxBody = [
+      JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "array user" }] } }),
+      JSON.stringify({ type: "assistant", message: { content: "assistant string ignored" } }),
+    ].join("\n");
+    writeSession(projectsRoot, paths.maw, "maw-session", 1_000, mawBody);
+    writeSession(projectsRoot, paths.tmux, "tmux-session", 300_000, tmuxBody);
     writeSession(projectsRoot, paths.cron, "cron-session", 2_000);
     writeSession(projectsRoot, paths.desktop, "desktop-session", 3_000);
     writeSession(projectsRoot, paths.unknown, "unknown-session", 4_000);
-    writeSession(projectsRoot, paths.broken, "broken-session", 5_000);
+    // Empty body mirrors the old "tail failed" fixture: no parsable lines,
+    // so both last-message fields stay null.
+    writeSession(projectsRoot, paths.broken, "broken-session", 5_000, "");
     writeSession(projectsRoot, paths.ended, "ended-session", 6_000);
 
     const endedDir = join(projectsRoot, encodeProjectPath(paths.ended));
@@ -212,23 +243,6 @@ describe("claude-sessions runtime discovery", () => {
         }
         if (cmd.includes(paths.tmux)) return "worktree /elsewhere\nbranch refs/heads/other";
         throw new Error("not worktree");
-      }
-      if (cmd.includes("tail -100")) {
-        if (cmd.includes(mawFile)) {
-          return [
-            JSON.stringify({ type: "user", message: { content: "hello from user" } }),
-            JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hello from assistant" }] } }),
-            "{bad json",
-          ].join("\n");
-        }
-        if (cmd.includes(tmuxFile)) {
-          return [
-            JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "array user" }] } }),
-            JSON.stringify({ type: "assistant", message: { content: "assistant string ignored" } }),
-          ].join("\n");
-        }
-        if (cmd.includes("broken-session.jsonl")) throw new Error("tail failed");
-        return "";
       }
       throw new Error(`unexpected command: ${cmd}`);
     };

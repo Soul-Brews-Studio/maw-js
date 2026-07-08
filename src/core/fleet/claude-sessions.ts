@@ -5,17 +5,28 @@
  * running `claude` processes via /proc/<pid>/cwd (Linux) or lsof (macOS).
  *
  * Localhost-only. Never expose via federation in Phase 1.
+ *
+ * Fully async: every subprocess call goes through an async exec seam so a
+ * fleet scan never blocks the single Bun event loop backing `maw serve`.
+ * Per-session work runs concurrently (small pool) and per-cwd git/worktree
+ * resolution is deduped within a scan via a Map of in-flight promises.
+ * Message tail/count no longer shell out at all — they read the jsonl file
+ * directly with fs/promises.
  */
 
 import { readdirSync, statSync } from "fs";
+import { open } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import { execSync } from "child_process";
+import { execFile } from "child_process";
+import { promisify } from "util";
 
-type ExecSyncString = (
+const execFileAsync = promisify(execFile);
+
+type ExecAsync = (
   command: string,
-  options?: { encoding: BufferEncoding; timeout?: number; maxBuffer?: number },
-) => string;
+  options?: { timeout?: number; maxBuffer?: number },
+) => Promise<string>;
 
 export interface ClaudeSession {
   sessionId: string;
@@ -38,10 +49,44 @@ export interface ClaudeSession {
 interface PidInfo { pid: number; ppid: number; cwd: string; command: string }
 
 export interface ClaudeSessionDeps {
-  execSync?: ExecSyncString;
+  /** Async shell-out seam. Runs `command` via a shell and resolves with stdout. */
+  execSync?: ExecAsync;
 }
 
-const defaultExecSync = execSync as ExecSyncString;
+/**
+ * Default async exec: runs a shell command via execFile("/bin/sh", ["-c", ...])
+ * so callers can keep passing shell strings (pipes, redirects) as before,
+ * without ever blocking the event loop.
+ */
+const defaultExecAsync: ExecAsync = async (command, options) => {
+  const { stdout } = await execFileAsync("/bin/sh", ["-c", command], {
+    encoding: "utf-8",
+    timeout: options?.timeout,
+    maxBuffer: options?.maxBuffer ?? 1024 * 1024,
+  });
+  return stdout;
+};
+
+// ── Tiny concurrency pool (no new dependencies) ──────────────────
+
+async function mapPool<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
 
 // ── Path encoding ────────────────────────────────────────────────
 
@@ -51,31 +96,32 @@ export function decodeProjectDir(encoded: string): string {
   return encoded.replace(/^-/, "/").replace(/-/g, "/");
 }
 
-// ── PID discovery (cached 5s) ────────────────────────────────────
+// ── PID discovery (cached 5s, invoked once per scan) ─────────────
 
 let pidCache: { data: PidInfo[]; ts: number } | null = null;
 
-function listClaudePids(exec: ExecSyncString): PidInfo[] {
+async function listClaudePids(exec: ExecAsync): Promise<PidInfo[]> {
   if (process.env.MAW_CLAUDE_SKIP_PID_SCAN === "1") return [];
   const now = Date.now();
   if (pidCache && now - pidCache.ts < 5_000) return pidCache.data;
   const results: PidInfo[] = [];
   try {
-    const raw = exec(`ps -eo pid,ppid,command 2>/dev/null | grep '[c]laude'`, {
-      encoding: "utf-8", timeout: 3000,
-    });
+    const raw = await exec(`ps -eo pid,ppid,command 2>/dev/null | grep '[c]laude'`, { timeout: 3000 });
+    const rows: { pidStr: string; ppidStr: string; command: string }[] = [];
     for (const line of raw.split("\n").filter(Boolean)) {
       const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
       if (!m || m[3].includes("grep")) continue;
-      const [, pidStr, ppidStr, command] = m;
+      rows.push({ pidStr: m[1], ppidStr: m[2], command: m[3] });
+    }
+    await mapPool(rows, 8, async ({ pidStr, ppidStr, command }) => {
       let cwd = "";
       try {
         cwd = process.platform === "linux"
-          ? exec(`readlink /proc/${pidStr}/cwd 2>/dev/null`, { encoding: "utf-8", timeout: 1000 }).trim()
-          : exec(`lsof -p ${pidStr} -Fn 2>/dev/null | grep '^n/' | head -1`, { encoding: "utf-8", timeout: 2000 }).replace(/^n/, "").trim();
+          ? (await exec(`readlink /proc/${pidStr}/cwd 2>/dev/null`, { timeout: 1000 })).trim()
+          : (await exec(`lsof -p ${pidStr} -Fn 2>/dev/null | grep '^n/' | head -1`, { timeout: 2000 })).replace(/^n/, "").trim();
       } catch { /* cwd not resolvable */ }
       if (cwd) results.push({ pid: +pidStr, ppid: +ppidStr, cwd, command });
-    }
+    });
   } catch { /* no claude processes */ }
   pidCache = { data: results, ts: now };
   return results;
@@ -83,17 +129,17 @@ function listClaudePids(exec: ExecSyncString): PidInfo[] {
 
 // ── Parent chain + trigger classification ────────────────────────
 
-function classifyTrigger(
+async function classifyTrigger(
   ppid: number,
-  exec: ExecSyncString,
-): { chain: string[]; trigger: ClaudeSession["triggeredFrom"] } {
+  exec: ExecAsync,
+): Promise<{ chain: string[]; trigger: ClaudeSession["triggeredFrom"] }> {
   const chain: string[] = [];
   let cur = ppid;
   const seen = new Set<number>();
   for (let i = 0; i < 10 && cur > 1 && !seen.has(cur); i++) {
     seen.add(cur);
     try {
-      const info = exec(`ps -o comm=,ppid= -p ${cur} 2>/dev/null`, { encoding: "utf-8", timeout: 1000 }).trim();
+      const info = (await exec(`ps -o comm=,ppid= -p ${cur} 2>/dev/null`, { timeout: 1000 })).trim();
       const parts = info.split(/\s+/);
       const comm = parts.slice(0, -1).join(" ");
       cur = +(parts.at(-1) || "0");
@@ -110,16 +156,16 @@ function classifyTrigger(
 
 // ── Git helpers ──────────────────────────────────────────────────
 
-function resolveRepo(cwd: string, exec: ExecSyncString): string | null {
+async function resolveRepo(cwd: string, exec: ExecAsync): Promise<string | null> {
   try {
-    return exec(`git -C '${cwd}' remote get-url origin 2>/dev/null`, { encoding: "utf-8", timeout: 2000 })
-      .trim().replace(/^(ssh:\/\/)?git@/, "").replace(/^https?:\/\//, "").replace(/:/, "/").replace(/\.git$/, "");
+    const raw = await exec(`git -C '${cwd}' remote get-url origin 2>/dev/null`, { timeout: 2000 });
+    return raw.trim().replace(/^(ssh:\/\/)?git@/, "").replace(/^https?:\/\//, "").replace(/:/, "/").replace(/\.git$/, "");
   } catch { return null; }
 }
 
-function resolveWorktree(cwd: string, exec: ExecSyncString): ClaudeSession["worktree"] {
+async function resolveWorktree(cwd: string, exec: ExecAsync): Promise<ClaudeSession["worktree"]> {
   try {
-    const raw = exec(`git -C '${cwd}' worktree list --porcelain 2>/dev/null`, { encoding: "utf-8", timeout: 2000 });
+    const raw = await exec(`git -C '${cwd}' worktree list --porcelain 2>/dev/null`, { timeout: 2000 });
     for (const block of raw.split("\n\n").filter(Boolean)) {
       const lines = block.split("\n");
       const wt = lines.find(l => l.startsWith("worktree "))?.slice(9);
@@ -130,19 +176,56 @@ function resolveWorktree(cwd: string, exec: ExecSyncString): ClaudeSession["work
   return null;
 }
 
-// ── Last-message extraction (tail-based, avoids full read) ───────
+interface GitInfo {
+  repo: string | null;
+  worktree: ClaudeSession["worktree"];
+}
 
-function extractLastMessages(
+/** Per-cwd git metadata, deduped within a scan (many sessions share a projectPath). */
+function makeGitInfoResolver(exec: ExecAsync): (cwd: string) => Promise<GitInfo> {
+  const cache = new Map<string, Promise<GitInfo>>();
+  return (cwd: string) => {
+    let p = cache.get(cwd);
+    if (!p) {
+      p = Promise.all([resolveRepo(cwd, exec), resolveWorktree(cwd, exec)])
+        .then(([repo, worktree]) => ({ repo, worktree }));
+      cache.set(cwd, p);
+    }
+    return p;
+  };
+}
+
+// ── Last-message extraction (reads only the tail of the file, no subprocess) ─
+
+const TAIL_READ_BYTES = 64 * 1024;
+
+async function readTail(filePath: string, maxBytes: number): Promise<{ text: string; truncated: boolean }> {
+  const handle = await open(filePath, "r");
+  try {
+    const { size } = await handle.stat();
+    const start = Math.max(0, size - maxBytes);
+    const length = size - start;
+    if (length <= 0) return { text: "", truncated: false };
+    const buf = Buffer.alloc(length);
+    await handle.read(buf, 0, length, start);
+    return { text: buf.toString("utf-8"), truncated: start > 0 };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function extractLastMessages(
   filePath: string,
-  exec: ExecSyncString,
-): { lastUser: string | null; lastAssistant: string | null } {
+): Promise<{ lastUser: string | null; lastAssistant: string | null }> {
   let lastUser: string | null = null;
   let lastAssistant: string | null = null;
   try {
-    const tail = exec(`tail -100 '${filePath}' 2>/dev/null`, {
-      encoding: "utf-8", timeout: 2000, maxBuffer: 512 * 1024,
-    });
-    for (const line of tail.split("\n").filter(Boolean).reverse()) {
+    const { text, truncated } = await readTail(filePath, TAIL_READ_BYTES);
+    const lines = text.split("\n").filter(Boolean);
+    // A tail read may start mid-line; drop a possibly-truncated first line,
+    // but only when the read actually started past byte 0.
+    if (truncated && lines.length > 1) lines.shift();
+    for (const line of lines.reverse()) {
       try {
         const e = JSON.parse(line);
         if (!lastUser && e.type === "user" && e.message?.content) {
@@ -163,13 +246,37 @@ function extractLastMessages(
   return { lastUser, lastAssistant };
 }
 
-function countSessionMessages(filePath: string, exec: ExecSyncString): number {
+/** Count newline-delimited records without buffering the whole file or shelling out. */
+async function countSessionMessages(filePath: string): Promise<number> {
+  const CHUNK = 64 * 1024;
   try {
-    const raw = exec(`awk 'END { print NR }' '${filePath}' 2>/dev/null`, {
-      encoding: "utf-8", timeout: 2000, maxBuffer: 64 * 1024,
-    });
-    const count = Number.parseInt(raw.trim(), 10);
-    return Number.isFinite(count) && count > 0 ? count : 0;
+    const handle = await open(filePath, "r");
+    try {
+      const { size } = await handle.stat();
+      if (size === 0) return 0;
+      let count = 0;
+      let sawAnyByte = false;
+      let lastByte = -1;
+      const buf = Buffer.alloc(CHUNK);
+      let pos = 0;
+      while (pos < size) {
+        const toRead = Math.min(CHUNK, size - pos);
+        const { bytesRead } = await handle.read(buf, 0, toRead, pos);
+        if (bytesRead <= 0) break;
+        sawAnyByte = true;
+        for (let i = 0; i < bytesRead; i++) {
+          if (buf[i] === 0x0a) count++;
+        }
+        lastByte = buf[bytesRead - 1];
+        pos += bytesRead;
+      }
+      // A final line without a trailing newline still counts as a record
+      // (matches `awk 'END{print NR}'` semantics).
+      if (sawAnyByte && lastByte !== 0x0a) count++;
+      return count;
+    } finally {
+      await handle.close();
+    }
   } catch {
     return 0;
   }
@@ -178,6 +285,8 @@ function countSessionMessages(filePath: string, exec: ExecSyncString): number {
 // ── Main discovery ───────────────────────────────────────────────
 
 let sessionCache: { data: ClaudeSession[]; ts: number } | null = null;
+const SESSION_CACHE_TTL_MS = 15_000;
+const PER_SESSION_CONCURRENCY = 8;
 
 export function __resetClaudeSessionCachesForTests(): void {
   pidCache = null;
@@ -188,67 +297,80 @@ function claudeProjectsDir(): string {
   return process.env.MAW_CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects");
 }
 
+interface SessionFileEntry {
+  projectPath: string;
+  dirPath: string;
+  file: string;
+}
+
 export async function listClaudeSessions(deps: ClaudeSessionDeps = {}): Promise<ClaudeSession[]> {
-  const exec = deps.execSync ?? defaultExecSync;
+  const exec = deps.execSync ?? defaultExecAsync;
   const now = Date.now();
-  if (sessionCache && now - sessionCache.ts < 5_000) return sessionCache.data;
+  if (sessionCache && now - sessionCache.ts < SESSION_CACHE_TTL_MS) return sessionCache.data;
 
   const claudeDir = claudeProjectsDir();
-  const pids = listClaudePids(exec);
+  const pids = await listClaudePids(exec);
   const pidByCwd = new Map(pids.map(p => [p.cwd, p]));
-  const results: ClaudeSession[] = [];
+  const gitInfoFor = makeGitInfoResolver(exec);
 
   let projectDirs: string[];
   try { projectDirs = readdirSync(claudeDir).filter(d => d.startsWith("-")); }
   catch { return []; }
 
+  const entries: SessionFileEntry[] = [];
   for (const encoded of projectDirs) {
     const projectPath = decodeProjectDir(encoded);
     const dirPath = join(claudeDir, encoded);
     let files: string[];
     try { files = readdirSync(dirPath).filter(f => f.endsWith(".jsonl") && !f.includes("subagents")); }
     catch { continue; }
-
-    for (const file of files) {
-      const sessionId = file.replace(".jsonl", "");
-      const filePath = join(dirPath, file);
-      let st: ReturnType<typeof statSync>;
-      try { st = statSync(filePath); } catch { continue; }
-
-      const mtimeMs = st.mtimeMs;
-      const ageMs = now - mtimeMs;
-      if (ageMs > 86_400_000) continue; // skip > 24h old
-
-      const pidInfo = pidByCwd.get(projectPath);
-      const status: ClaudeSession["status"] = pidInfo
-        ? (ageMs < 120_000 ? "active" : "idle")
-        : "ended";
-
-      const { chain, trigger } = pidInfo
-        ? classifyTrigger(pidInfo.ppid, exec)
-        : { chain: [] as string[], trigger: "unknown" as const };
-
-      const tmuxTarget = chain.some(c => c.toLowerCase().includes("tmux"))
-        ? `(tmux: ${projectPath.split("/").pop()})` : null;
-
-      const { lastUser, lastAssistant } = extractLastMessages(filePath, exec);
-      const messageCount = countSessionMessages(filePath, exec);
-
-      results.push({
-        sessionId, projectPath,
-        repo: resolveRepo(projectPath, exec),
-        worktree: resolveWorktree(projectPath, exec),
-        pid: pidInfo?.pid ?? null,
-        ppid: pidInfo?.ppid ?? null,
-        parentChain: chain, tmuxTarget, triggeredFrom: trigger, status,
-        lastActivityAt: new Date(mtimeMs).toISOString(),
-        lastUserMessage: lastUser,
-        lastAssistantMessage: lastAssistant,
-        messageCount,
-        sizeBytes: st.size,
-      });
-    }
+    for (const file of files) entries.push({ projectPath, dirPath, file });
   }
+
+  const perFile = await mapPool(entries, PER_SESSION_CONCURRENCY, async ({ projectPath, dirPath, file }) => {
+    const sessionId = file.replace(".jsonl", "");
+    const filePath = join(dirPath, file);
+    let st: ReturnType<typeof statSync>;
+    try { st = statSync(filePath); } catch { return null; }
+
+    const mtimeMs = st.mtimeMs;
+    const ageMs = now - mtimeMs;
+    if (ageMs > 86_400_000) return null; // skip > 24h old
+
+    const pidInfo = pidByCwd.get(projectPath);
+    const status: ClaudeSession["status"] = pidInfo
+      ? (ageMs < 120_000 ? "active" : "idle")
+      : "ended";
+
+    const [{ chain, trigger }, gitInfo, { lastUser, lastAssistant }, messageCount] = await Promise.all([
+      pidInfo
+        ? classifyTrigger(pidInfo.ppid, exec)
+        : Promise.resolve({ chain: [] as string[], trigger: "unknown" as const }),
+      gitInfoFor(projectPath),
+      extractLastMessages(filePath),
+      countSessionMessages(filePath),
+    ]);
+
+    const tmuxTarget = chain.some(c => c.toLowerCase().includes("tmux"))
+      ? `(tmux: ${projectPath.split("/").pop()})` : null;
+
+    const session: ClaudeSession = {
+      sessionId, projectPath,
+      repo: gitInfo.repo,
+      worktree: gitInfo.worktree,
+      pid: pidInfo?.pid ?? null,
+      ppid: pidInfo?.ppid ?? null,
+      parentChain: chain, tmuxTarget, triggeredFrom: trigger, status,
+      lastActivityAt: new Date(mtimeMs).toISOString(),
+      lastUserMessage: lastUser,
+      lastAssistantMessage: lastAssistant,
+      messageCount,
+      sizeBytes: st.size,
+    };
+    return session;
+  });
+
+  const results = perFile.filter((s): s is ClaudeSession => s !== null);
 
   results.sort((a, b) => {
     const ord = { active: 0, idle: 1, ended: 2 };
