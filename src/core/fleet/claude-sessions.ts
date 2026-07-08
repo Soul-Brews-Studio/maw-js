@@ -14,8 +14,8 @@
  * directly with fs/promises.
  */
 
-import { readdirSync, statSync } from "fs";
-import { open } from "fs/promises";
+import type { Stats } from "fs";
+import { open, readdir, stat } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import { execFile } from "child_process";
@@ -314,24 +314,26 @@ export async function listClaudeSessions(deps: ClaudeSessionDeps = {}): Promise<
   const gitInfoFor = makeGitInfoResolver(exec);
 
   let projectDirs: string[];
-  try { projectDirs = readdirSync(claudeDir).filter(d => d.startsWith("-")); }
+  try { projectDirs = (await readdir(claudeDir)).filter(d => d.startsWith("-")); }
   catch { return []; }
 
-  const entries: SessionFileEntry[] = [];
-  for (const encoded of projectDirs) {
+  // Read each project dir's listing concurrently (async, off the event loop)
+  // instead of a blocking readdirSync per directory.
+  const perDir = await mapPool(projectDirs, PER_SESSION_CONCURRENCY, async (encoded) => {
     const projectPath = decodeProjectDir(encoded);
     const dirPath = join(claudeDir, encoded);
     let files: string[];
-    try { files = readdirSync(dirPath).filter(f => f.endsWith(".jsonl") && !f.includes("subagents")); }
-    catch { continue; }
-    for (const file of files) entries.push({ projectPath, dirPath, file });
-  }
+    try { files = (await readdir(dirPath)).filter(f => f.endsWith(".jsonl") && !f.includes("subagents")); }
+    catch { return [] as SessionFileEntry[]; }
+    return files.map(file => ({ projectPath, dirPath, file }));
+  });
+  const entries: SessionFileEntry[] = perDir.flat();
 
   const perFile = await mapPool(entries, PER_SESSION_CONCURRENCY, async ({ projectPath, dirPath, file }) => {
     const sessionId = file.replace(".jsonl", "");
     const filePath = join(dirPath, file);
-    let st: ReturnType<typeof statSync>;
-    try { st = statSync(filePath); } catch { return null; }
+    let st: Stats;
+    try { st = await stat(filePath); } catch { return null; }
 
     const mtimeMs = st.mtimeMs;
     const ageMs = now - mtimeMs;
