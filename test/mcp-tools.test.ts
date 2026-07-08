@@ -193,6 +193,17 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "approve", id: "kobo-5" })).toThrow(/reason/);
   });
 
+  test("edit: id + title/body → company task edit argv; needs id + at least one field (kobo-213)", () => {
+    expect(taskArgs({ action: "edit", id: "kobo-5", title: "new title", company: "kobo" }))
+      .toEqual(["company", "task", "edit", "kobo-5", "--title", "new title", "--company", "kobo"]);
+    expect(taskArgs({ action: "edit", id: "kobo-5", body: "new body" }))
+      .toEqual(["company", "task", "edit", "kobo-5", "--body", "new body"]);
+    expect(taskArgs({ action: "edit", id: "kobo-5", title: "t", body: "b" }))
+      .toEqual(["company", "task", "edit", "kobo-5", "--title", "t", "--body", "b"]);
+    expect(() => taskArgs({ action: "edit", title: "t" })).toThrow(/id/);
+    expect(() => taskArgs({ action: "edit", id: "kobo-5" })).toThrow(/title and\/or body/);
+  });
+
   test("ls: bare", () => {
     expect(taskArgs({ action: "ls" })).toEqual(["company", "task", "ls"]);
   });

@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "approve" | "pr" | "done" | "note" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "approve" | "pr" | "done" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
 
 /** One child in a decompose plan (kobo-146 C7). Mirror of the store's DecomposeChild — kept local so tools.ts stays a pure argv mapper with no core import. */
 export interface DecomposePlanChild {
@@ -238,6 +238,18 @@ export function taskArgs(input: TaskInput): string[] {
       const nid = needId("note");
       if (!input.text) throw new Error("task note requires text");
       return ["company", "task", "note", nid, input.text, ...common()];
+    }
+    case "edit": {
+      // kobo-213 — reword a card's title/body in place (same id, lineage intact).
+      // At least one of title/body must be given; nothing else is touched.
+      const eid = needId("edit");
+      if (input.title === undefined && input.body === undefined) {
+        throw new Error("task edit requires title and/or body");
+      }
+      const argv = ["company", "task", "edit", eid];
+      if (input.title !== undefined) argv.push("--title", input.title);
+      if (input.body !== undefined) argv.push("--body", input.body);
+      return [...argv, ...common()];
     }
     case "comment": {
       // kobo-140 — threaded ask/answer comment. id=card, text=body, optional

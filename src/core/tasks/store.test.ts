@@ -56,6 +56,7 @@ import {
   holdTask,
   approveTask,
   moveTask,
+  editTask,
   createsDepLoop,
   setTaskDep,
   setTaskEpic,
@@ -649,6 +650,62 @@ describe("dep verbs (kobo-134 — setTaskDep edits parentIds after create)", () 
     expect(createsDepLoop("d", "b", get)).toBe(true); // d ← b→c→d transitive
     expect(createsDepLoop("a", "b", get)).toBe(false); // a unreachable from b
     expect(createsDepLoop("a", "x", get)).toBe(false); // pre-existing x↔y cycle terminates, not a's loop
+  });
+});
+
+describe("editTask (kobo-213 — non-destructive title/body reword, same id)", () => {
+  test("edits title + body in place; id + deps + thread + PR intact; old wording preserved in an audit note", () => {
+    const p = addTask({ company: "pgw", title: "parent", by: "x" });
+    const t = addTask({ company: "pgw", title: "old title", by: "eq3", assignee: "patchwork", body: "old body", parentIds: [p.id] });
+    commentTask("pgw", t.id, "eq3", "a question");
+    setTaskPr("pgw", t.id, 77, "patchwork"); // PR link + review flip
+    const before = readTask("pgw", t.id)!;
+
+    const edited = editTask("pgw", t.id, "tony", { title: "new title", body: "new body" })!;
+    expect(edited.id).toBe(t.id); // same id
+    expect(edited.title).toBe("new title");
+    expect(edited.body).toBe("new body");
+    // lineage untouched
+    expect(edited.parentIds).toEqual([p.id]);
+    expect(edited.comments).toHaveLength(1);
+    expect(edited.pr).toBe(77);
+    expect(edited.state).toBe(before.state); // review — not changed
+    expect(edited.assignee).toBe(before.assignee); // patchwork — not changed
+    // audit: old values preserved in an append-only note (Nothing is Deleted)
+    const audit = edited.notes!.at(-1)!;
+    expect(audit.by).toBe("tony");
+    expect(audit.text).toContain("old title");
+    expect(audit.text).toContain("old body");
+    // and a worklog event
+    expect(readWorklog("pgw").some((e) => e.kind === "task-updated" && e.task === t.id && /edited/.test(e.summary))).toBe(true);
+  });
+
+  test("title-only edit leaves body untouched; body-only leaves title untouched", () => {
+    addTask({ company: "pgw", title: "T", by: "x", body: "B" });
+    const a = editTask("pgw", "pgw-1", "x", { title: "T2" })!;
+    expect(a.title).toBe("T2");
+    expect(a.body).toBe("B");
+    const b = editTask("pgw", "pgw-1", "x", { body: "B2" })!;
+    expect(b.title).toBe("T2");
+    expect(b.body).toBe("B2");
+  });
+
+  test("no-op when nothing changes (same values) → no audit note added", () => {
+    addTask({ company: "pgw", title: "same", by: "x", body: "body" });
+    const before = readTask("pgw", "pgw-1")!;
+    const n0 = before.notes?.length ?? 0;
+    const r = editTask("pgw", "pgw-1", "x", { title: "same", body: "body" })!;
+    expect(r.notes?.length ?? 0).toBe(n0); // no audit noise
+  });
+
+  test("edit does NOT auto-advance a todo card (an edit is not 'working it')", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3", assignee: "patchwork" }); // todo
+    const r = editTask("pgw", "pgw-1", "patchwork", { title: "reworded" })!;
+    expect(r.state).toBe("todo"); // unlike noteTask, no todo→in-progress flip
+  });
+
+  test("missing card → null (no throw)", () => {
+    expect(editTask("pgw", "pgw-999", "x", { title: "x" })).toBeNull();
   });
 });
 

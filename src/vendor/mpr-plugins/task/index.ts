@@ -69,6 +69,7 @@ import {
   setTaskEpic,
   setTaskPr,
   moveTask,
+editTask,
   startTask,
   taskNextAction,
   TASK_FLOW,
@@ -583,6 +584,24 @@ export async function runTask(
       // comment = poke (kobo-46): a note by someone other than the assignee pokes
       // the assignee on task-events → coord pane. Shared with the web POST path.
       if (notifyTaskComment(t, me, noteText)) console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
+    } else if (subcmd === "edit") {
+      // kobo-213 — reword a card's title/body IN PLACE (same id). Non-destructive:
+      // deps/thread/comments/PR link/state/assignee untouched; the previous wording
+      // is preserved in an append-only audit note (Nothing is Deleted). Does NOT
+      // touch hash/idempotency — a card id is a counter, never derived from wording.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--title": String, "--body": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: 'usage: maw company task edit <id> [--title "<new title>"] [--body "<new body>"]' };
+      if (flags["--title"] === undefined && flags["--body"] === undefined) {
+        return { ok: false, error: "nothing to edit — pass --title and/or --body" };
+      }
+      const badTitle = badFlagValue("--title", flags["--title"]); if (badTitle) return { ok: false, error: badTitle };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = editTask(company, id, me, { title: flags["--title"], body: flags["--body"] });
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[36m✎ edited\x1b[0m ${t.id}: ${t.title}`);
     } else if (subcmd === "epic") {
       // kobo-72 — set/clear a card's containment parent AFTER create (the axis
       // hand-edited JSON before). Reuses setTaskEpic (loop-guarded, re-links a
@@ -795,7 +814,7 @@ export async function runTask(
         console.log(`  \x1b[90m${o.id}\x1b[0m +${o.migrated}${o.skipped ? ` \x1b[90m(${o.skipped} skipped)\x1b[0m` : ""}`);
       }
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|migrate-comments|review|hold|pr|done|note|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|migrate-comments|review|hold|pr|done|note|edit|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

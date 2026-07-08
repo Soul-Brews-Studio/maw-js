@@ -419,6 +419,44 @@ export function moveTask(company: string, id: string, state: TaskState, by: stri
 }
 
 /**
+ * Edit = reword a card's title/body IN PLACE (kobo-213), keeping the SAME id so
+ * the card's whole lineage survives — deps, comment thread, notes, PR link, state
+ * and assignee are all untouched. This is a PURE content update: a card id is a
+ * sequential `<company>-<n>` counter (nextTaskId), never derived from the wording,
+ * and no idempotency/dedup key hashes the title or body — so a reword can't shift
+ * any hash (SACRED rule, verified kobo-213). Nothing is Deleted: every changed
+ * field appends an audit note carrying the PREVIOUS value, so the old wording
+ * stays recoverable in the timeline. No auto-advance (an edit is not "working the
+ * card", unlike a note by the assignee). A call that changes nothing is a no-op
+ * (returns the card, no audit noise). Returns null if the card is absent.
+ */
+export function editTask(
+  company: string,
+  id: string,
+  by: string,
+  changes: { title?: string; body?: string },
+): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  const prev: string[] = [];
+  if (typeof changes.title === "string" && changes.title !== task.title) {
+    prev.push(`title was: ${task.title}`);
+    task.title = changes.title;
+  }
+  if (typeof changes.body === "string" && changes.body !== (task.body ?? "")) {
+    prev.push(`body was:\n${task.body && task.body.length ? task.body : "(empty)"}`);
+    task.body = changes.body;
+  }
+  if (!prev.length) return task; // nothing actually changed — no-op, skip the audit note
+  const note: TaskNote = { ts: Date.now(), iso: nowIso(), by, text: `✎ edited — previous values preserved:\n${prev.join("\n")}` };
+  task.notes = [...(task.notes ?? []), note]; // append-only audit (Principle 1)
+  task.updatedTs = note.ts;
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", `edited ${task.id}: ${task.title}`);
+  return task;
+}
+
+/**
  * Resolve who reviews a card (kobo-144, Board Truth rule 12 + kobo-124 addendum) —
  * the chain:
  *   reviewer field  →  creator (`by`)  →  "human"
