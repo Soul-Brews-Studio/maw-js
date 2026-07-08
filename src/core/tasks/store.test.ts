@@ -21,6 +21,7 @@ import {
   blockTask,
   checklistProgress,
   claimTask,
+  ReassignFrictionError,
   commentTask,
   migrateQuestionNotesToComments,
   completeTask,
@@ -145,7 +146,8 @@ describe("task store (file-per-card under Company Home)", () => {
   test("assignTask hands the ball: sets assignee=to, keeps state, by stays real actor (mawjs-5)", () => {
     addTask({ company: "pgw", title: "decide the thing", by: "eq3" });
     claimTask("pgw", "pgw-1", "patchwork"); // owner takes it → in-progress @patchwork
-    const assigned = assignTask("pgw", "pgw-1", "human", "patchwork");
+    // kobo-219: displacing an existing owner is a reassign → needs force (correction)
+    const assigned = assignTask("pgw", "pgw-1", "human", "patchwork", { force: true });
     expect(assigned?.assignee).toBe("human"); // ball flipped to the human decider
     expect(assigned?.state).toBe("in-progress"); // state untouched — NOT taken, just handed
     expect(readTask("pgw", "pgw-1")?.assignee).toBe("human");
@@ -165,7 +167,7 @@ describe("task store (file-per-card under Company Home)", () => {
     addTask({ company: "pgw", title: "t", by: "eq3" });
     claimTask("pgw", "pgw-1", "human"); // human holds → open claim ⛏ human
     expect(openClaims("pgw").some((c) => (c.task ?? c.summary) === "pgw-1" && c.oracle === "human")).toBe(true);
-    assignTask("pgw", "pgw-1", "eq3", "eq3"); // reassign to eq3
+    assignTask("pgw", "pgw-1", "eq3", "eq3", { force: true }); // reassign to eq3 (correction)
     const claims = openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1");
     expect(claims.some((c) => c.oracle === "human")).toBe(false); // old holder freed
     expect(claims.length).toBe(0); // reassign never fabricates a claim for the new owner
@@ -177,8 +179,49 @@ describe("task store (file-per-card under Company Home)", () => {
     addTask({ company: "pgw", title: "t", by: "eq3" });
     claimTask("pgw", "pgw-1", "human");
     completeTask("pgw", "pgw-1", "tony"); // releases human's claim
-    assignTask("pgw", "pgw-1", "eq3", "eq3");
+    assignTask("pgw", "pgw-1", "eq3", "eq3", { force: true });
     expect(openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1").length).toBe(0);
+  });
+
+  // kobo-219 — reassign is friction: displacing an existing owner without --force-reassign
+  // is denied (Board Truth rule 9: assignee is the stable true doer, must not drift by accident).
+  test("assignTask displacing an existing owner without force → throws ReassignFrictionError", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork"); // owner = patchwork
+    expect(() => assignTask("pgw", "pgw-1", "eq3", "eq3")).toThrow(ReassignFrictionError);
+    expect(readTask("pgw", "pgw-1")?.assignee).toBe("patchwork"); // unchanged — not moved silently
+  });
+
+  test("assignTask friction error steers to correction + handoff=subtask", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork");
+    expect(() => assignTask("pgw", "pgw-1", "eq3", "eq3")).toThrow(/--force-reassign/);
+    expect(() => assignTask("pgw", "pgw-1", "eq3", "eq3")).toThrow(/subtask/);
+  });
+
+  // Correction path: with force, reassign proceeds AND kobo-211 auto-release still fires.
+  test("assignTask with force reassigns + releases the previous holder's claim (kobo-211 compat)", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork"); // ⛏ patchwork
+    const t = assignTask("pgw", "pgw-1", "eq3", "eq3", { force: true });
+    expect(t?.assignee).toBe("eq3");
+    const claims = openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1");
+    expect(claims.length).toBe(0); // old holder freed, new owner not fabricated
+  });
+
+  // First-assign (no existing owner) and idempotent (to === current) need no force —
+  // nothing is displaced, so no friction.
+  test("assignTask first-assign (unassigned → someone) needs no force", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" }); // assignee = null
+    const t = assignTask("pgw", "pgw-1", "eq3", "eq3");
+    expect(t?.assignee).toBe("eq3");
+  });
+
+  test("assignTask idempotent (to === current owner) needs no force", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "patchwork");
+    const t = assignTask("pgw", "pgw-1", "patchwork", "patchwork");
+    expect(t?.assignee).toBe("patchwork");
   });
 
   test("isStaleDecisionCard: in-progress + no-PR + owner silent past window → true (visual only)", () => {

@@ -358,18 +358,25 @@ export function claimTask(company: string, id: string, oracle: string): TaskReco
 }
 
 /**
- * Assign = hand the ball to someone else without taking it yourself (mawjs-5).
- * The pass-ball gesture for a no-PR decision/gate card: the owner finishes their
- * part and reassigns the card to the current ball-holder (assignee=human when the
- * next move is Tony's). Unlike claim (assignee=me) this sets assignee=`to` while
- * `by` stays the real actor — no impersonation. State is untouched (an in-progress
- * decision card stays in-progress, and nextAction reads "`by` รอ `to`" = waiting on
- * the new holder), so Tony's `ls --mine` (assignee===me) surfaces his whole
- * decision queue in one filter. Returns null if absent.
+ * Assign = set a card's assignee to `to`. `by` stays the real actor — no
+ * impersonation. State is untouched. Returns null if absent.
+ *
+ * kobo-219 — reassign is friction (deliberate), not a casual move. Displacing an
+ * EXISTING owner (`prev && prev !== to`) requires `opts.force` (the CLI's
+ * `--force-reassign`); a bare reassign throws {@link ReassignFrictionError}.
+ * Rationale (Board Truth rule 9): assignee is the stable true doer — it must not
+ * drift by accident. Reassign is for CORRECTION only (wrong-assignee/board-lie
+ * fix, e.g. the meganechan→doer reconcile). To hand off PART of the work, create a
+ * subtask — the parent keeps its assignee — never reassign the parent. First-assign
+ * (null → someone) and idempotent (to === current) need no force: nothing is displaced.
  */
-export function assignTask(company: string, id: string, to: string, by: string): TaskRecord | null {
+export function assignTask(company: string, id: string, to: string, by: string, opts: { force?: boolean } = {}): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
+  const prev = task.assignee;
+  if (prev && prev !== to && !opts.force) {
+    throw new ReassignFrictionError(id, prev, to);
+  }
   task.assignee = to;
   task.updatedTs = Date.now();
   writeTaskRecord(task);
@@ -1260,6 +1267,26 @@ export function checklistProgress(body?: string): ChecklistProgress | null {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Raised when archiving an epic that still has open (not-done) children (guard a). */
+/**
+ * Thrown by {@link assignTask} when a bare reassign would displace an existing
+ * owner without `--force-reassign`. Message steers to the two legitimate paths:
+ * correction (with the flag) or handoff-as-subtask. (kobo-219, Board Truth rule 9)
+ */
+export class ReassignFrictionError extends Error {
+  constructor(
+    public readonly id: string,
+    public readonly from: string,
+    public readonly to: string,
+  ) {
+    super(
+      `reassign blocked: ${id} is already assigned to ${from}. Reassign is for correction only ` +
+        `(wrong-assignee / board-lie fix) — pass --force-reassign to confirm ${from} → ${to}. ` +
+        `To hand off part of the work, create a subtask (the parent keeps its assignee), not a reassign.`,
+    );
+    this.name = "ReassignFrictionError";
+  }
+}
+
 export class EpicArchiveBlockedError extends Error {
   constructor(
     public readonly epicId: string,

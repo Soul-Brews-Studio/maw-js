@@ -81,9 +81,12 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // `maw company task dep <op> <id> <parentId>` on the canonical surface.
     expect(tools).toContain('["company", "task", "dep", input.op, did, input.parent[0]');
     expect(server).toContain('"dep"'); // enum + title advertise the verb
-    // mawjs-5: assign = pass-the-ball. maps to `maw company task assign <id> --to <who>`.
+    // assign = set assignee. maps to `maw company task assign <id> --to <who>`.
     expect(tools).toContain('["company", "task", "assign", aid, "--to", input.to');
     expect(server).toContain('"assign"'); // enum + title advertise the verb
+    // kobo-219: reassign is friction — input.force appends --force-reassign (correction only).
+    expect(tools).toContain('argv.push("--force-reassign")');
+    expect(server).toContain('force: z.boolean()'); // schema advertises the flag
     // kobo-126: ask = question → subcard (parent id + question text [+ --to answerer]);
     // mentions = the @mention decision queue ([--for who]). Both map to the canonical surface.
     expect(tools).toContain('["company", "task", "ask", askParent, input.text');

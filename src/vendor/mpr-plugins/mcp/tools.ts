@@ -54,6 +54,7 @@ export interface TaskInput {
   mine?: boolean;      // ls
   for?: string;        // ls (decision queue) / block (--for)
   to?: string;         // review / assign (target ball-holder)
+  force?: boolean;     // assign: --force-reassign (reassign is friction, correction only — kobo-219)
   reviewer?: string;   // add (persistent per-card reviewer, kobo-144)
   reason?: string;     // review / hold / block
   kind?: string;       // block (required)
@@ -213,7 +214,9 @@ export function taskArgs(input: TaskInput): string[] {
     case "assign": {
       const aid = needId("assign");
       if (!input.to) throw new Error("task assign requires --to <who>");
-      return ["company", "task", "assign", aid, "--to", input.to, ...common()];
+      const argv = ["company", "task", "assign", aid, "--to", input.to];
+      if (input.force) argv.push("--force-reassign"); // reassign is friction (kobo-219)
+      return [...argv, ...common()];
     }
     case "ask": {
       // Substantive question → subcard (kobo-126). id=parent card, text=question,

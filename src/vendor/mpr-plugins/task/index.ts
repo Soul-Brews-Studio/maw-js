@@ -377,19 +377,19 @@ export async function runTask(
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m⛏ claimed\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
     } else if (subcmd === "assign") {
-      // Pass-the-ball (mawjs-5): hand a no-PR decision/gate card to the current
-      // ball-holder (assignee=human when the next move is Tony's) without taking
-      // it yourself. Unlike claim (assignee=me), `by` stays the real actor — no
-      // impersonation — so the board reads "<by> รอ <to>" and Tony's `ls --mine`
-      // (assignee===me) surfaces his whole decision queue in one filter.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--to": String }, 0);
+      // Reassign = set a card's assignee to <who>. kobo-219: reassign is FRICTION —
+      // displacing an existing owner requires --force-reassign (correction only:
+      // wrong-assignee / board-lie fix). Bare reassign throws ReassignFrictionError,
+      // surfaced by the outer catch. To hand off PART of the work, create a subtask
+      // (parent keeps its assignee) — never reassign the parent (Board Truth rule 9).
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--to": String, "--force-reassign": Boolean }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const to = flags["--to"];
-      if (!id || !to) return { ok: false, error: "usage: maw company task assign <id> --to <who>" };
+      if (!id || !to) return { ok: false, error: "usage: maw company task assign <id> --to <who> [--force-reassign]" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = assignTask(company, id, to, me);
+      const t = assignTask(company, id, to, me, { force: Boolean(flags["--force-reassign"]) });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m→ assigned\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
       if (to !== me) {

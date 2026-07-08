@@ -67,7 +67,9 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("migrateQuestionNotesToComments"); // kobo-142: one-shot copy question-notes → comments (active cards, idempotent)
     expect(src).toContain("startTask"); // eq3-007: assignee picks up own work (todo → in-progress)
     expect(src).toContain("claimTask");
-    expect(src).toContain("assignTask"); // mawjs-5: pass-the-ball — set assignee=ball-holder without taking it
+    expect(src).toContain("assignTask"); // set assignee
+    expect(src).toContain('"--force-reassign": Boolean'); // kobo-219: reassign is friction (correction only)
+    expect(src).toContain('force: Boolean(flags["--force-reassign"])'); // flag → assignTask opts
     expect(src).toContain("isStaleDecisionCard"); // mawjs-5: soft stuck-decision badge (derived, visual only)
     expect(src).toContain("lastActivityByOracle"); // mawjs-5: owner-silence source for the badge
     expect(src).toContain("reviewTask");
