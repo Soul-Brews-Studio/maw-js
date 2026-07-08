@@ -45,7 +45,7 @@ export function stateBadge(task) {
   const state = (task && task.state) || 'todo';
   const LABEL = {
     backlog: 'Backlog', todo: 'Todo', ready: 'Ready', 'in-progress': 'In Progress',
-    review: 'Review', blocked: 'Blocked', done: 'Done', rejected: 'Rejected',
+    review: 'Review', 'need-answer': 'Need answer', approve: 'Approve', blocked: 'Blocked', done: 'Done', rejected: 'Rejected',
   };
   let label = LABEL[state] || state;
   if (state === 'blocked' && task && task.block && task.block.for) label += ' →' + task.block.for;
@@ -260,7 +260,7 @@ function companyBody(): string {
     /* grid-template-columns is a static fallback; applyColumnCollapse (kobo-197)
        overrides it inline with the VISIBLE column count so active lanes reflow to
        full width when the parking columns are hidden. */
-    .board { display:grid; grid-template-columns: repeat(9, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
+    .board { display:grid; grid-template-columns: repeat(10, minmax(150px, 1fr)); gap:10px; overflow-x:auto; }
     .col { background:var(--col); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:120px; min-width:0; } /* kobo-198 — grid item shrinks to its track (min-width:auto would let card content force the column wider → board blowout) */
     /* kobo-197 — reveal/hide control for the parking columns (backlog + rejected). */
     .board-toolbar { display:flex; justify-content:flex-end; margin-bottom:8px; }
@@ -280,7 +280,7 @@ function companyBody(): string {
     .col.lane-empty { display:none; }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
     .col-ready h2 { color:var(--ok); } /* kobo-133 — deps cleared, green light to start */
-    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-approve h2 { color:var(--link); } .col-done h2 { color:var(--ok); }
+    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-need-answer h2 { color:var(--warn); } .col-approve h2 { color:var(--link); } .col-done h2 { color:var(--ok); }
     .col-blocked h2 { color:var(--bad); } /* kobo-199 — Blocked is now a normal grid column (was the floating attention lane, kobo-55) */
     .col-rejected h2 { color:var(--warn); } /* kobo-101 — terminal "not accepted", parallel to Done */
     .task { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-3); }
@@ -291,6 +291,7 @@ function companyBody(): string {
     .task.st-ready { border-left-color:var(--ok); } /* kobo-133 */
     .task.st-in-progress { border-left-color:var(--accent); }
     .task.st-review { border-left-color:var(--epic); }
+    .task.st-need-answer { border-left-color:var(--warn); } /* kobo-218 — Tony's decision queue */
     .task.st-approve { border-left-color:var(--link); } /* kobo-189 — human gate (gold) */
     .task.st-done { border-left-color:var(--ok); }
     .task.st-blocked { border-left-color:var(--bad); }
@@ -723,6 +724,7 @@ function companyBody(): string {
           <div class="col col-ready"><h2><span>Ready</span><span class="count" id="c-ready">0</span></h2><div id="ready"></div></div>
           <div class="col col-in-progress"><h2><span>In&nbsp;progress</span><span class="count" id="c-in-progress">0</span></h2><div id="in-progress"></div></div>
           <div class="col col-review"><h2><span>Review</span><span class="count" id="c-review">0</span></h2><div id="review"></div></div>
+          <div class="col col-need-answer"><h2><span>❓&nbsp;Need&nbsp;answer</span><span class="count" id="c-need-answer">0</span></h2><div id="need-answer"></div></div>
           <div class="col col-approve"><h2><span>Approve</span><span class="count" id="c-approve">0</span></h2><div id="approve"></div></div>
           <div class="col col-blocked"><h2><span>⚑&nbsp;Blocked</span><span class="count" id="c-blocked">0</span></h2><div id="blocked"></div></div>
           <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
@@ -1239,7 +1241,21 @@ function noteBubble(n, src) {
 function renderDetailApprove(task) {
   const host = $('detail-approve');
   host.replaceChildren();
-  if (!task || task.state !== 'approve') { host.hidden = true; return; }
+  // kobo-218 — the same decision-box also renders for need-answer (Tony's OTHER
+  // queue): a question, answered in the comment thread below, NOT via a button.
+  if (!task || (task.state !== 'approve' && task.state !== 'need-answer')) { host.hidden = true; return; }
+  if (task.state === 'need-answer') {
+    const box = el('div', 'approve-box');
+    box.appendChild(el('div', 'approve-head', '❓ รอ Tony ตอบ (decision)'));
+    const prose = el('div', 'approve-prose');
+    prose.textContent = task.reviewReason ? task.reviewReason : (task.body || '(no question given)');
+    box.appendChild(prose);
+    // No button: Tony answers in the comment thread; the owner moves the card to its
+    // next step once answered (existing verbs). Board Truth 12/13 (kobo-218).
+    host.appendChild(box);
+    host.hidden = false;
+    return;
+  }
   const box = el('div', 'approve-box');
   box.appendChild(el('div', 'approve-head', '🔎 รอ Tony อนุมัติ'));
   const repo = task.repo || '';
@@ -1936,13 +1952,13 @@ function renderMentions(tasks) {
 }
 
 const FLOW = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'approve', 'done'];
-const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'approve', 'blocked', 'done', 'rejected']; // board columns = flow + Blocked (kobo-199, off-flow) + Rejected terminal lane (kobo-101)
+const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'need-answer', 'approve', 'blocked', 'done', 'rejected']; // board columns = flow + need-answer (kobo-218, off-flow Tony queue) + Blocked (kobo-199, off-flow) + Rejected terminal lane (kobo-101)
 // kobo-199 — lanes that VANISH from the grid when they hold 0 cards. Parking
 // (backlog/rejected) never join — they use the 194/197 reveal control. Blocked is
 // deliberately EXEMPT (always-on) so it never "disappears" — honoring Tony's original
 // "blocked หายไปไหน" complaint; a card lands there for a decision, so its column stays
 // visible even at 0. To make Blocked hide-when-empty like the rest, add 'blocked' here.
-const HIDE_WHEN_EMPTY = ['todo', 'ready', 'in-progress', 'review', 'approve', 'done'];
+const HIDE_WHEN_EMPTY = ['todo', 'ready', 'in-progress', 'review', 'need-answer', 'approve', 'done'];
 
 // kobo-127 — Done lane fold: newest 5 (by updatedTs) + a "show all N"/"collapse"
 // toggle, so 40 finished cards never bury the live lanes. Sort is a display-only
@@ -2052,7 +2068,7 @@ function renderBoard(tasks) {
   // are real board columns; the Blocked lane is separate (off-flow, below).
   for (const s of COLS) { cols[s] = $(s); cols[s].replaceChildren(); }
   const attn = $('blocked'); attn.replaceChildren();
-  const counts = { backlog: 0, todo: 0, ready: 0, 'in-progress': 0, review: 0, approve: 0, done: 0, rejected: 0, blocked: 0 };
+  const counts = { backlog: 0, todo: 0, ready: 0, 'in-progress': 0, review: 0, 'need-answer': 0, approve: 0, done: 0, rejected: 0, blocked: 0 };
   // Off-flow = explicit block (state) OR derived dependency block (ADR 0003) —
   // ONE Blocked lane, mirroring the CLI board. Derived cards keep their real
   // flow state but are pulled out while a parent is pending; when the parent is

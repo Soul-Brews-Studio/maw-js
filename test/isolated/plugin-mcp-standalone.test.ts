@@ -101,11 +101,16 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // `add` accepts `--state`. taskArgs maps both to the canonical company surface.
     expect(tools).toContain('["company", "task", "move", mid, input.state');
     expect(tools).toContain('argv.push("--state", input.state)');
+    // kobo-218: `add` forwards --reason (born-in-approve deploy card carries WHY; CLI enforces it).
+    expect(tools).toContain('if (input.reason) argv.push("--reason", input.reason)');
     expect(server).toContain('"move"'); // enum + title advertise the verb
     // kobo-133: ready state — move accepts it (auto-promote's manual override);
     // the state enum + move error advertise backlog|todo|ready on both surfaces.
-    expect(server).toContain('z.enum(["backlog", "todo", "ready"])');
+    // kobo-218: approve + need-answer join the move enum (Tony's two queues, reason
+    // mandatory); tools forwards --reason for both. backlog|todo|ready still advertised.
+    expect(server).toContain('z.enum(["backlog", "todo", "ready", "approve", "need-answer"])');
     expect(tools).toContain("backlog|todo|ready");
+    expect(tools).toContain('input.state === "approve" || input.state === "need-answer"'); // both forward a mandatory reason
     // kobo-39: append-only note verb — needs an id + text; taskArgs targets the
     // canonical company surface (`maw company task note <id> <text>`).
     expect(tools).toContain('["company", "task", "note", nid');

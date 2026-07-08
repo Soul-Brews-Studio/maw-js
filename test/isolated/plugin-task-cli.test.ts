@@ -265,11 +265,41 @@ describe("maw company task runner (runTask)", () => {
     expect(t.reviewReason).toBe("cross-company change");
   });
 
+  test("move to need-answer requires a reason (Tony's decision queue) (kobo-218)", async () => {
+    await run(["add", "which way", "--company", "pgw"]); // pgw-1
+    const noReason = await run(["move", "pgw-1", "need-answer", "--company", "pgw"]);
+    expect(noReason.ok).toBe(false);
+    expect(noReason.error).toContain("--reason is required");
+    expect(readTask("pgw", "pgw-1")!.state).toBe("todo");
+    const ok = await run(["move", "pgw-1", "need-answer", "--reason", "A or B?", "--company", "pgw"]);
+    expect(ok.ok).toBe(true);
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.state).toBe("need-answer");
+    expect(t.reviewReason).toBe("A or B?");
+  });
+
   test("move to a non-approve parking state still needs no reason (kobo-191 regression)", async () => {
     await run(["add", "park me", "--company", "pgw"]); // pgw-1
     const r = await run(["move", "pgw-1", "backlog", "--company", "pgw"]);
     expect(r.ok).toBe(true);
     expect(readTask("pgw", "pgw-1")!.state).toBe("backlog");
+  });
+
+  test("add --state approve CREATES a deploy-approval card into the Approve lane; --reason required (kobo-218)", async () => {
+    const noReason = await run(["add", "deploy m5", "--state", "approve", "--company", "pgw"]);
+    expect(noReason.ok).toBe(false);
+    expect(noReason.error).toContain("--reason is required");
+    const ok = await run(["add", "deploy m5", "--state", "approve", "--reason", "restart maw-server", "--company", "pgw"]); // pgw-1
+    expect(ok.ok).toBe(true);
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.state).toBe("approve");
+    expect(t.reviewReason).toBe("restart maw-server"); // carries the WHY
+  });
+
+  test("add --state in-progress is still refused (only backlog|todo|approve addable) (kobo-218)", async () => {
+    const r = await run(["add", "no direct", "--state", "in-progress", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("--state must be backlog, todo or approve");
   });
 
   test("reject on a done card is refused — terminal, no resurrection (kobo-101)", async () => {

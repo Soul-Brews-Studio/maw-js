@@ -12,6 +12,8 @@ describe("stateBadge — pure state → { cls, label } map", () => {
     expect(stateBadge({ state: "ready" })).toEqual({ cls: "pill state st-ready", label: "Ready" });
     expect(stateBadge({ state: "in-progress" })).toEqual({ cls: "pill state st-in-progress", label: "In Progress" });
     expect(stateBadge({ state: "review" })).toEqual({ cls: "pill state st-review", label: "Review" });
+    expect(stateBadge({ state: "need-answer" })).toEqual({ cls: "pill state st-need-answer", label: "Need answer" }); // kobo-218
+    expect(stateBadge({ state: "approve" })).toEqual({ cls: "pill state st-approve", label: "Approve" }); // kobo-189/218
     expect(stateBadge({ state: "done" })).toEqual({ cls: "pill state st-done", label: "Done" });
     expect(stateBadge({ state: "rejected" })).toEqual({ cls: "pill state st-rejected", label: "Rejected" });
   });

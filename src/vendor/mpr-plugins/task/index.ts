@@ -58,6 +58,7 @@ import {
   parseMentions,
   parsePrNumber,
   approveTask,
+  needAnswerTask,
   migrateQuestionNotesToComments,
   parsePrRepo,
   readTask,
@@ -165,6 +166,7 @@ const STATE_LABEL: Record<TaskState, string> = {
   "ready": "READY",
   "in-progress": "IN-PROGRESS",
   "review": "REVIEW",
+  "need-answer": "NEED-ANSWER",
   "approve": "APPROVE",
   "done": "DONE",
   "rejected": "REJECTED",
@@ -258,11 +260,11 @@ export async function runTask(
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reason": String,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
-      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--kind epic|task --repo r --dept d --epic e --assignee a --parent id --body text --state backlog|todo]' };
+      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--kind epic|task --repo r --dept d --epic e --assignee a --parent id --body text --state backlog|todo|approve (approve → --reason required)]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c> (could not resolve from config)" };
       // --kind (kobo-72): mark a container card (epic). Default/absent = task.
@@ -273,9 +275,16 @@ export async function runTask(
       // --state (kobo-70): manual add opens on todo; --state backlog parks it. Only
       // the two "not-yet-in-flow" states are addable here (in-progress/review/done
       // are reached via start/review/done). blocked has its own verb.
+      // kobo-218: `approve` is ALSO addable — the deploy/critical Tony-gate CREATES its
+      // own card straight into the Approve lane (distinct from need-answer, which MOVES
+      // an existing work-card). The Approve lane invariant holds: a born-in-approve card
+      // must carry --reason (why it needs Tony), same as approveTask/move-to-approve.
       const addState = flags["--state"] as TaskState | undefined;
-      if (addState && addState !== "backlog" && addState !== "todo") {
-        return { ok: false, error: `--state must be backlog or todo (in-progress/review/done via start/review/done)` };
+      if (addState && addState !== "backlog" && addState !== "todo" && addState !== "approve") {
+        return { ok: false, error: `--state must be backlog, todo or approve (in-progress/review/done via start/review/done; approve = create a deploy-approval card, --reason required)` };
+      }
+      if (addState === "approve" && (!flags["--reason"] || !flags["--reason"].trim())) {
+        return { ok: false, error: "--reason is required to add a card into approve (the Approve lane is Tony's queue — say why it needs a deploy/critical decision)" };
       }
       // Reject flag-shaped ref values (kobo-126) before they persist as corrupt data.
       for (const [label, v] of [["--epic", flags["--epic"]], ["--assignee", flags["--assignee"]], ["--repo", flags["--repo"]], ["--dept", flags["--dept"]], ["--reviewer", flags["--reviewer"]]] as const) {
@@ -290,6 +299,7 @@ export async function runTask(
         company, title, by: me, kind: addKind,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
         parentIds, body: flags["--body"], state: addState, reviewer: flags["--reviewer"],
+        reviewReason: addState === "approve" ? flags["--reason"]!.trim() : undefined, // kobo-218: Approve lane invariant — carry the WHY
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
       const addProg = checklistProgress(t.body);
@@ -342,12 +352,14 @@ export async function runTask(
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const state = flags._[1] as TaskState | undefined;
-      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready|approve> [--reason <why> (approve)]" };
+      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready|approve|need-answer> [--reason <why> (approve/need-answer)]" };
       // kobo-189: `approve` (the human gate before done) joins the manual-override
-      // targets — a human parks a reviewed card in Approve. in-progress/review/done
-      // still go via start/review/done; blocked via block.
-      if (state !== "backlog" && state !== "todo" && state !== "ready" && state !== "approve") {
-        return { ok: false, error: `move target must be backlog, todo, ready or approve (in-progress/review/done via start/review/done; blocked via block)` };
+      // targets — a human parks a reviewed card in Approve. kobo-218: `need-answer`
+      // (Tony's DECISION queue) joins too — the owner parks a card there instead of
+      // hold+@tony. in-progress/review/done still go via start/review/done; blocked
+      // via block.
+      if (state !== "backlog" && state !== "todo" && state !== "ready" && state !== "approve" && state !== "need-answer") {
+        return { ok: false, error: `move target must be backlog, todo, ready, approve or need-answer (in-progress/review/done via start/review/done; blocked via block)` };
       }
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
@@ -361,6 +373,18 @@ export async function runTask(
         const t = approveTask(company, id, me, flags["--reason"]);
         if (!t) return { ok: false, error: `task not found: ${id}` };
         console.log(`\x1b[32m✋ approve\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)} (${t.reviewReason})\x1b[0m: ${t.title}`);
+        return { ok: true };
+      }
+      // kobo-218: moving INTO need-answer carries a mandatory question (the lane is
+      // Tony's decision queue — every card says WHAT it waits on). Same reason-park
+      // discipline as approve; route through needAnswerTask (single enforcement point).
+      if (state === "need-answer") {
+        if (!flags["--reason"] || !flags["--reason"].trim()) {
+          return { ok: false, error: "--reason is required to move a card to need-answer (Tony's decision queue — say what you need answered)" };
+        }
+        const t = needAnswerTask(company, id, me, flags["--reason"]);
+        if (!t) return { ok: false, error: `task not found: ${id}` };
+        console.log(`\x1b[36m❓ need-answer\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)} (${t.reviewReason})\x1b[0m: ${t.title}`);
         return { ok: true };
       }
       const t = moveTask(company, id, state, me);

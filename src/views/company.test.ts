@@ -170,8 +170,17 @@ describe("board lane visibility — Blocked in grid + hide-empty (kobo-199)", ()
   test("COLS carries blocked; hide-empty set covers the non-parking lanes but EXEMPTS blocked (always-on)", () => {
     expect(html).toContain("'approve', 'blocked', 'done'"); // COLS ordering
     // blocked is deliberately NOT in HIDE_WHEN_EMPTY → always-on (Tony's complaint).
-    expect(html).toContain("const HIDE_WHEN_EMPTY = ['todo', 'ready', 'in-progress', 'review', 'approve', 'done']");
+    expect(html).toContain("const HIDE_WHEN_EMPTY = ['todo', 'ready', 'in-progress', 'review', 'need-answer', 'approve', 'done']");
     expect(html).not.toContain("'approve', 'blocked', 'done']"); // never re-added to the hide set
+  });
+  test("need-answer (kobo-218) is its own Tony-queue column between review and approve, hide-when-empty", () => {
+    expect(html).toContain('class="col col-need-answer"');
+    expect(html).toContain('id="need-answer"');
+    expect(html.indexOf('col-review')).toBeLessThan(html.indexOf('col-need-answer'));
+    expect(html.indexOf('col-need-answer')).toBeLessThan(html.indexOf('col-approve'));
+    // COLS + HIDE_WHEN_EMPTY carry it (own lane, vanishes at 0 like approve — NOT in Blocked)
+    expect(html).toContain("'review', 'need-answer', 'approve', 'blocked', 'done'");
+    expect(html).toContain("'review', 'need-answer', 'approve', 'done']"); // HIDE_WHEN_EMPTY
   });
   test("a hide-empty lane vanishes at 0 cards; parking stays reveal-controlled", () => {
     expect(html).toContain(".col.lane-empty { display:none");

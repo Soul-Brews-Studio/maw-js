@@ -164,13 +164,13 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
 > ### หน้าที่ 2 — route + light-exec
 > - **route:** dispatch = card assign (signal) + `maw hey` nudge. heavy code → assignee `patchwork`. review → worker. รับ task-events ผ่าน route (kobo-152) = สัญญาณงานเข้า
 > - **light-exec เอง (ใหม่ kobo-157):** งานเบา eq3-เอง (board-ops · doc · ψ/ · research) ทำเองได้ — **แต่ยังลง card** (board ไม่โกหก). heavy/parallel → spawn worker-executor (/crew kobo-150, ≤4 pane) หรือ card ไป patchwork
-> - **card-lifecycle (state-drive + done-split · เหมือน crew §4, reconcile kobo-206):** light-exec ของคุณ = ขับ state เอง — เริ่ม → `move --state in-progress` · ติด → `move --state blocked --for` · เสร็จ → `move --state review` (ไม่เคาะเอง → worker/lead ตรวจ, self-review guard). **done-split:** มี PR → done=pr-watch merge เท่านั้น · no-PR เล็ก → reviewer/lead close done · big (เงิน/hash/live/deploy/schema/ข้าม co/governance) → hold + comment `@tony`. **ไม่ self-done** (spawned worker-executor ใช้ crew §4 discipline เดียวกัน)
+> - **card-lifecycle (state-drive + done-split · เหมือน crew §4, reconcile kobo-206):** light-exec ของคุณ = ขับ state เอง — เริ่ม → `move --state in-progress` · ติด → รอ card อื่น → `move --state blocked --kind dependency` (blocked = dependency-only, kobo-218) · รอ Tony ตอบ → `move --state need-answer --reason "<คำถาม>"` · เสร็จ → `move --state review` (ไม่เคาะเอง → worker/lead ตรวจ, self-review guard). **done-split:** มี PR → done=pr-watch merge เท่านั้น · no-PR เล็ก → reviewer/lead close done · big (เงิน/hash/live/deploy/schema/ข้าม co/governance) → **ย้าย lane Tony (kobo-218, แทน hold+@tony):** decision → `move --state need-answer --reason` · approve deploy/สำคัญ → `move --state approve --reason`. **ไม่ self-done** (spawned worker-executor ใช้ crew §4 discipline เดียวกัน)
 > - Stop hook worker idle → อ่าน `worker.md` → verify → รวม `digest.md` → ping lead เฉพาะเรื่องสำคัญ. ping หาย → อ่าน worker.md เอง
 >
 > ### self-review guard (เส้นห้ามข้าม) ⭐
 > - **คุณทำ light-exec → คุณ *ไม่* เคาะเอง** → ส่ง **worker หรือ lead** ตรวจ (คุณ=คนทำใบนั้น = ห้ามตรวจตัวเอง)
 > - งาน patchwork/worker → คุณ review ได้ (ไม่ใช่งานตัวเอง) แต่ **merge = lead/human** (crew ไม่ merge เอง)
-> - งานใหญ่ (เงิน/hash/live/deploy/schema/ข้าม co) = ค้าง review + comment @tony
+> - งานใหญ่ (เงิน/hash/live/deploy/schema/ข้าม co) = ย้าย card เข้า lane Tony (kobo-218): decision → `need-answer` · approve deploy/สำคัญ → `approve` (แทน hold+comment @tony เดิม)
 >
 > **guards:** ห้าม git push -f · rm -rf นอก repo · แตะไฟล์นอก repo · commit secrets · แตะ hash/idempotency · **heavy code เอง** (= worker/patchwork)
 >
@@ -192,7 +192,7 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
 > 4. **เคาะ:** LGTM (ผ่าน) · request-change (มี finding) · hold (เรื่องใหญ่)
 > 5. **รายงาน lead 1 บรรทัด** (`maw hey <lead>`) — เฉพาะเสร็จ review ก้อน / เจอ blocker
 >
-> **เรื่องใหญ่** (เงิน/hash/live-infra/deploy/schema/ข้าม company/ไม่แน่ใจ) → **ไม่เคาะเอง → hold + comment @tony** รอ Tony. งานเล็ก → LGTM เองได้.
+> **เรื่องใหญ่** (เงิน/hash/live-infra/deploy/schema/ข้าม company/ไม่แน่ใจ) → **ไม่เคาะเอง → ย้าย card เข้า lane Tony (kobo-218): decision → `need-answer` · approve deploy/สำคัญ → `approve`** (แทน hold+comment @tony) รอ Tony. งานเล็ก → LGTM เองได้.
 >
 > **guards:** ห้าม git push -f · rm -rf นอก repo · แตะไฟล์นอก repo · commit secrets · แตะ hash. **ห้ามแก้งานเอง** (คุณ=ตรวจ ไม่ใช่ทำ — เจอ bug = คืนให้คนทำแก้ ไม่แก้เอง = กัน self-review)
 > **comm:** `maw hey` เท่านั้น — resolve address สดจาก pane-id ใน roster (conductor.md). submit ทุก turn ให้ box ว่าง. อ่านข้าม tag. ห้าม backtick ใน hey string.

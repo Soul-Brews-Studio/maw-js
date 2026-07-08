@@ -26,6 +26,7 @@ export type TaskState =
   | "ready" // deps cleared, actionable (kobo-133) — auto-promoted from todo when all parentIds are done/archived
   | "in-progress"
   | "review"
+  | "need-answer" // kobo-218 — Tony's DECISION queue ("จะเอายังไง"), off-flow; distinct from approve (yes/no gate) and blocked (waiting on another card)
   | "approve" // kobo-189 — human gate between review (worker-checked) and done (merged)
   | "done"
   | "rejected" // terminal disposition (kobo-101) — "done but not accepted", parallel to done
@@ -37,13 +38,15 @@ export const TASK_STATES: TaskState[] = [
   "ready",
   "in-progress",
   "review",
+  "need-answer",
   "approve",
   "done",
   "rejected",
   "blocked",
 ];
 
-/** Linear flow columns (blocked is off-flow — surfaced separately). */
+// Linear flow columns. Both `need-answer` (kobo-218) and `blocked` are OFF-flow
+// Tony/dependency detours — surfaced as their own lanes, never a progression step.
 export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "approve", "done"];
 
 /**
@@ -287,6 +290,7 @@ export interface AddTaskInput {
   parentIds?: string[]; // card→card deps (ADR 0003 A) — child is blocked until each parent is done/archived
   body?: string; // free text / markdown checklist (ADR 0003 C)
   reviewer?: string; // kobo-144: persistent per-card reviewer (resolve chain head)
+  reviewReason?: string; // kobo-218: born-in-approve deploy-approval card carries WHY (the Approve lane invariant — every card says why it's in Tony's queue)
 }
 
 /**
@@ -316,6 +320,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.parentIds?.length) task.parentIds = [...new Set(input.parentIds)]; // dedupe, drop if empty
   if (input.body?.length) task.body = input.body;
   if (input.reviewer) task.reviewer = input.reviewer; // kobo-144: persistent per-card reviewer
+  if (input.reviewReason) task.reviewReason = input.reviewReason; // kobo-218: born-in-approve card's WHY
 
   // kobo-133: born ready — a todo card whose deps are ALL already done/archived
   // skips the todo lane. Without this it would strand: the parent-done event that
@@ -545,6 +550,32 @@ export function approveTask(company: string, id: string, by: string, reason: str
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-review", `approve ${task.id} → ${resolveReviewer(task)} (${task.reviewReason}): ${task.title}`);
+  return task;
+}
+
+/**
+ * Need-answer = park a card in Tony's DECISION queue (kobo-218) — "จะเอายังไงกับ
+ * สิ่งนี้", an OPEN question of direction, distinct from `approve` (a yes/no gate
+ * before done) and `blocked` (waiting on another CARD, a dependency). The owner
+ * (assignee/reviewer/parent-owner) parks it here instead of the old hold+@tony on
+ * the work-card, so Tony's decision queue is its own lane — not buried in review
+ * comments or conflated with dependency blocks. A `question` is MANDATORY (the
+ * lane is a queue — every card says WHAT it's waiting on); reuse reviewReason so
+ * the card-detail + board render it (same field approve uses). The owner MOVES the
+ * card back to its next step (existing verbs: start/review/…) once Tony answers —
+ * no auto-transition (an answer's next step is Tony's call, not the store's).
+ * Assignee is untouched (Board Truth rule 9: the doer stays the owner). Returns
+ * null on a missing card OR an empty question.
+ */
+export function needAnswerTask(company: string, id: string, by: string, question: string): TaskRecord | null {
+  if (!question || !question.trim()) return null; // question mandatory — no reason-less park (mirrors approve)
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.state = "need-answer";
+  task.reviewReason = question.trim();
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-review", `need-answer ${task.id} → ${resolveReviewer(task)} (${task.reviewReason}): ${task.title}`);
   return task;
 }
 
@@ -1110,6 +1141,9 @@ export function taskNextAction(task: TaskRecord): string {
       return `รอ ${task.reviewer || "ใครก็ได้"} ตรวจ${task.reviewReason ? ` (${task.reviewReason})` : ""}`;
     case "approve":
       return "รอ Tony เคาะ (approve → done)"; // kobo-189 — human gate after worker review
+    case "need-answer":
+      // kobo-218 — Tony's decision queue; owner moves the card on once answered.
+      return `รอ Tony ตอบ${task.reviewReason ? ` (${task.reviewReason})` : ""}`;
 
     case "in-progress":
       if (task.assignee && task.by !== task.assignee) return `${task.by} รอ ${task.assignee}`;

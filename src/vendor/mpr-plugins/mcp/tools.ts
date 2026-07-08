@@ -176,6 +176,7 @@ export function taskArgs(input: TaskInput): string[] {
       if (input.dept) argv.push("--dept", input.dept);
       if (input.epic) argv.push("--epic", input.epic);
       if (input.state) argv.push("--state", input.state);
+      if (input.reason) argv.push("--reason", input.reason); // kobo-218: add --state approve → deploy-approval card carries WHY (CLI enforces reason)
       if (input.assignee) argv.push("--assignee", input.assignee);
       if (input.reviewer) argv.push("--reviewer", input.reviewer);
       for (const p of input.parent ?? []) argv.push("--parent", p);
@@ -184,12 +185,12 @@ export function taskArgs(input: TaskInput): string[] {
     }
     case "move": {
       const mid = needId("move");
-      if (!input.state) throw new Error("task move requires a state (backlog|todo|ready|approve)");
+      if (!input.state) throw new Error("task move requires a state (backlog|todo|ready|approve|need-answer)");
       const argv = ["company", "task", "move", mid, input.state];
-      // kobo-191: moving into approve carries a mandatory reason (the Approve lane
-      // is the human queue — forward it so the CLI doesn't reject the MCP move).
-      if (input.state === "approve") {
-        if (!input.reason) throw new Error("task move to approve requires a reason (why this card needs a human decision)");
+      // kobo-191/218: moving into approve OR need-answer carries a mandatory reason
+      // (both are Tony's queues — forward it so the CLI doesn't reject the MCP move).
+      if (input.state === "approve" || input.state === "need-answer") {
+        if (!input.reason) throw new Error(`task move to ${input.state} requires a reason (${input.state === "approve" ? "why this card needs a human decision" : "what you need Tony to answer"})`);
         argv.push("--reason", input.reason);
       }
       return [...argv, ...common()];

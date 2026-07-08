@@ -56,6 +56,11 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('state !== "ready"'); // kobo-133: move accepts ready (human override)
     expect(src).toContain('"approve": "APPROVE"'); // kobo-189: APPROVE lane label (human gate before done)
     expect(src).toContain('state !== "approve"'); // kobo-189: move accepts approve (human-gate override, parallel to ready)
+    expect(src).toContain('"need-answer": "NEED-ANSWER"'); // kobo-218: NEED-ANSWER lane label (Tony's decision queue)
+    expect(src).toContain('state !== "need-answer"'); // kobo-218: move accepts need-answer (Tony decision queue, reason mandatory)
+    expect(src).toContain("needAnswerTask"); // kobo-218: owner parks a card in Tony's decision queue (reason mandatory)
+    expect(src).toContain('addState !== "approve"'); // kobo-218: add accepts --state approve (CREATE a deploy-approval card into the lane)
+    expect(src).toContain('addState === "approve"'); // kobo-218: born-in-approve requires --reason (Approve lane invariant)
     expect(src).toContain("addTask");
     expect(src).toContain("noteTask"); // kobo-39: append-only note — the only non-terminal verb (mid-flight truth)
     expect(src).toContain("editTask"); // kobo-213: reword title/body in place (same id, audit-noted)

@@ -56,6 +56,7 @@ import {
   reviewTask,
   holdTask,
   approveTask,
+  needAnswerTask,
   moveTask,
   editTask,
   createsDepLoop,
@@ -1000,6 +1001,39 @@ describe("approveTask (kobo-191 — reviewer routes big-work review → approve,
     expect(approveTask("app", t.id, "eq3", "   ")).toBeNull();
     expect(readTask("app", t.id)!.state).not.toBe("approve"); // never parked without a reason
     expect(approveTask("app", "app-999", "eq3", "why")).toBeNull();
+  });
+});
+
+describe("needAnswerTask (kobo-218 — Tony's decision queue, off-flow, question mandatory)", () => {
+  test("parks a card in need-answer with the mandatory question; assignee (owner) untouched", () => {
+    const t = addTask({ company: "app", title: "which schema?", by: "eq3", assignee: "patchwork" });
+    startTask("app", t.id, "patchwork"); // in-progress
+    const n = needAnswerTask("app", t.id, "patchwork", "  A or B for the store shape?  ")!;
+    expect(n.state).toBe("need-answer");
+    expect(n.reviewReason).toBe("A or B for the store shape?"); // trimmed question, persisted
+    expect(n.assignee).toBe("patchwork"); // Board Truth rule 9 — doer stays the owner
+    expect(readWorklog("app").some((e) => e.kind === "task-review" && e.task === t.id)).toBe(true);
+  });
+  test("empty/whitespace question → null (no reason-less park); missing card → null", () => {
+    const t = addTask({ company: "app", title: "x", by: "eq3", assignee: "patchwork" });
+    expect(needAnswerTask("app", t.id, "patchwork", "")).toBeNull();
+    expect(needAnswerTask("app", t.id, "patchwork", "   ")).toBeNull();
+    expect(readTask("app", t.id)!.state).not.toBe("need-answer");
+    expect(needAnswerTask("app", "app-999", "patchwork", "why")).toBeNull();
+  });
+  test("owner moves the card back to its next step via an existing verb (no auto-transition)", () => {
+    const t = addTask({ company: "app", title: "decide", by: "eq3", assignee: "patchwork" });
+    needAnswerTask("app", t.id, "patchwork", "go or no-go?");
+    const back = startTask("app", t.id, "patchwork")!; // Tony answered → owner resumes work
+    expect(back.state).toBe("in-progress");
+  });
+});
+
+describe("addTask born-in-approve (kobo-218 — CREATE a deploy-approval card into the Approve lane)", () => {
+  test("state=approve + reviewReason → card opens in approve carrying the WHY", () => {
+    const t = addTask({ company: "app", title: "deploy m5", by: "eq3", assignee: "patchwork", state: "approve", reviewReason: "restart maw-server on m5" });
+    expect(t.state).toBe("approve");
+    expect(t.reviewReason).toBe("restart maw-server on m5"); // Approve lane invariant — every card says why
   });
 });
 
