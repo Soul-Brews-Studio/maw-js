@@ -16,7 +16,8 @@ import {
   saveCompany,
   type Company,
 } from "../../vendor/mpr-plugins/company/company-helpers";
-import { scopeOfOracle, companyOfOracle, companyRoster, _clearScopeCache } from "./company-scope";
+import { scopeOfOracle, companyOfOracle, companiesOfOracle, companyOfOracleStrict, companyRoster, _clearScopeCache } from "./company-scope";
+import { companyOfOracleLight } from "./presence-away";
 import { handleRosterRequest } from "../roster/route";
 
 const ORIGINAL_DIR = COMPANIES_DIR;
@@ -62,6 +63,85 @@ describe("company-scope resolution", () => {
   it("returns null for an unknown oracle", () => {
     saveCompany(pgw());
     expect(companyOfOracle("stranger")).toBeNull();
+  });
+});
+
+// kobo-216 (Card B of kobo-166) — a shared oracle across 2 companies. `zeta` sorts
+// AFTER `pgw`, so name-sorted iteration deterministically first-matches `pgw`.
+const zeta = (): Company => ({
+  name: "zeta",
+  departments: {
+    core: { kbTag: "dept:zeta:core", lead: "lek", members: [{ oracle: "lek", role: "lead" }] },
+  },
+});
+
+describe("companiesOfOracle + companyOfOracleStrict (kobo-216 option-a)", () => {
+  it("companiesOfOracle lists EVERY company, name-sorted", () => {
+    saveCompany(zeta());
+    saveCompany(pgw());
+    expect(companiesOfOracle("lek")).toEqual(["pgw", "zeta"]); // member of both, sorted
+    expect(companiesOfOracle("nai")).toEqual(["pgw"]);         // single
+    expect(companiesOfOracle("thawanban")).toEqual(["pgw"]);   // manager tier counts
+    expect(companiesOfOracle("stranger")).toEqual([]);         // unknown → empty
+  });
+
+  it("strict: single-company oracle resolves unchanged (no --company needed)", () => {
+    saveCompany(pgw());
+    expect(companyOfOracleStrict("nai")).toBe("pgw");
+    expect(companyOfOracleStrict("thawanban")).toBe("pgw");
+  });
+
+  it("strict: multi-company oracle + no explicit → THROWS loud (option-a, not silent)", () => {
+    saveCompany(zeta());
+    saveCompany(pgw());
+    expect(() => companyOfOracleStrict("lek")).toThrow(/ambiguous: lek belongs to \[pgw, zeta\] — specify --company/);
+  });
+
+  it("strict: explicit --company wins even when ambiguous (no throw)", () => {
+    saveCompany(zeta());
+    saveCompany(pgw());
+    expect(companyOfOracleStrict("lek", "zeta")).toBe("zeta");
+  });
+
+  it("strict: unknown oracle → null (caller falls back to config, unchanged)", () => {
+    saveCompany(pgw());
+    expect(companyOfOracleStrict("stranger")).toBeNull();
+  });
+});
+
+// kobo-216 — the two twin resolvers must AGREE for a multi-company oracle. Point both
+// at the same registry: companyOfOracle via _setCompaniesDir, companyOfOracleLight via
+// mawDataPath("companies") (= MAW_DATA_DIR/companies). Before this fix Light's raw
+// readdir order could first-match a different company than the name-sorted twin.
+describe("twin resolver agreement (kobo-216)", () => {
+  const ORIG_DATA = process.env.MAW_DATA_DIR;
+  let dataTmp: string;
+  beforeEach(() => {
+    dataTmp = mkdtempSync(join(tmpdir(), "twin-data-"));
+    process.env.MAW_DATA_DIR = dataTmp;
+    const companies = join(dataTmp, "companies");
+    _setCompaniesDir(companies); // companyOfOracle writes/reads here
+    _clearScopeCache();
+    saveCompany(zeta());
+    saveCompany(pgw());
+  });
+  afterEach(() => {
+    if (ORIG_DATA === undefined) delete process.env.MAW_DATA_DIR;
+    else process.env.MAW_DATA_DIR = ORIG_DATA;
+    _setCompaniesDir(ORIGINAL_DIR);
+    _clearScopeCache();
+    try { rmSync(dataTmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  it("companyOfOracle === companyOfOracleLight for a 2-company oracle (both name-first)", () => {
+    expect(companyOfOracle("lek")).toBe("pgw");        // name-sorted first
+    expect(companyOfOracleLight("lek")).toBe("pgw");   // sorted readdir → same
+    expect(companyOfOracle("lek")).toBe(companyOfOracleLight("lek"));
+  });
+
+  it("both agree on a single-company oracle too", () => {
+    expect(companyOfOracle("nai")).toBe(companyOfOracleLight("nai"));
+    expect(companyOfOracleLight("nai")).toBe("pgw");
   });
 });
 

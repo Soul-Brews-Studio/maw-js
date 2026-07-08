@@ -14,7 +14,7 @@
  */
 
 import { addTask, listTasks, noteTask, readTask, type TaskRecord } from "./store";
-import { companyOfOracle } from "../worklog/company-scope";
+import { companyOfOracleStrict } from "../worklog/company-scope";
 
 // `[request:<id>]` must lead the message (after optional whitespace). The id is
 // the correlation id (e.g. eq3-company-ui-01).
@@ -102,7 +102,11 @@ export function autoCreateFromDispatch(
 
   const sender = resolveSender();
   if (!sender) return null;
-  const resolveCompany = deps.resolveCompany ?? companyOfOracle;
+  // kobo-216 — strict resolve: a sender that spans 2+ companies THROWS here (before any
+  // card / idempotency-key work), rather than silently first-matching the wrong company
+  // and minting a duplicate card. route-comm wraps this hook in try/catch (best-effort),
+  // so the throw refuses the auto-create without breaking hey delivery.
+  const resolveCompany = deps.resolveCompany ?? companyOfOracleStrict;
   const company = resolveCompany(sender);
   if (!company) return null; // sender has no company → nothing to scope the card to
 

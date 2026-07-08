@@ -23,6 +23,16 @@ describe("home command plugin standalone boundary", () => {
     expect(imports).toContain("maw-js/sdk");
   });
 
+  // kobo-216 — home resolves its company through the STRICT resolver: a multi-company
+  // oracle with no positional/flag throws "ambiguous" instead of silently first-matching.
+  test("company resolution uses companyOfOracleStrict (kobo-216 option-a)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/home/index.ts"),
+      "utf8",
+    );
+    expect(src).toContain("companyOfOracleStrict");
+  });
+
   test("CLI dispatches the two documented subcommands", () => {
     const src = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/home/index.ts"),

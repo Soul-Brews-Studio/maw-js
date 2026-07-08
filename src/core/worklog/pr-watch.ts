@@ -23,7 +23,7 @@ import { appendWorklog } from "./store";
 import { completeTask, findTasksByPr, prOpenedReview, setTaskRepoIfMissing, listTasks, listCompanies } from "../tasks/store";
 import { notifyReviewer } from "../tasks/notify";
 import { pingOnMerge } from "./ping";
-import { scopeOfOracle, companyOfOracle } from "./company-scope";
+import { scopeOfOracle, companyOfOracleStrict } from "./company-scope";
 import type { WorklogEntry } from "./types";
 
 type PrState = "OPEN" | "MERGED" | "CLOSED";
@@ -191,7 +191,19 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
       // Scope the card lookup to THIS repo — a PR number is unique only within a
       // repo, so merged owner/a#5 must not flip a card bound to owner/b#5 (kobo-99).
       const cardHits = findCardsByPrAnywhere(pr.number, repo);
-      const company = cardHits[0]?.company ?? (author ? companyOfOracle(author) : null) ?? fallbackCompany;
+      // kobo-216 — resolve the author's company via the STRICT resolver: no silent
+      // first-match (the AC gap). This is a background daemon with no --company to
+      // supply, so an ambiguous (multi-company) author can't be prompted — catch the
+      // throw and fall to the configured fallbackCompany rather than aborting the whole
+      // poll cycle (matches this file's "never let X break PR-watch" contract). The
+      // primary path (cardHits[0].company) is unaffected; a single-company author
+      // resolves byte-for-byte as before, so no worklog entry shifts company.
+      let authorCompany: string | null = null;
+      if (author) {
+        try { authorCompany = companyOfOracleStrict(author); }
+        catch { authorCompany = null; } // ambiguous → fallbackCompany, never guess a board
+      }
+      const company = cardHits[0]?.company ?? authorCompany ?? fallbackCompany;
       const base = { ts: Date.now(), iso: new Date().toISOString(), oracle: author || "unknown", company, repo, pr: pr.number };
 
       if (cur === "MERGED") {

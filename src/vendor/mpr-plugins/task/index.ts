@@ -29,7 +29,7 @@
 
 import { parseFlags } from "maw-js/sdk";
 import { loadConfig } from "maw-js/config";
-import { companyOfOracle } from "../../../core/worklog/company-scope";
+import { companyOfOracleStrict } from "../../../core/worklog/company-scope";
 import {
   addTask,
   archiveOldDone,
@@ -122,7 +122,10 @@ async function resolveActor(from?: string): Promise<string> {
 }
 
 function resolveCompany(flag: string | undefined, me: string): string | null {
-  return flag ?? companyOfOracle(me) ?? ((loadConfig() as Record<string, unknown>).company as string) ?? null;
+  // kobo-216 — strict: --company wins; else a multi-company `me` THROWS "ambiguous …
+  // specify --company" instead of silently first-matching. Single-company + config
+  // fallback are unchanged.
+  return companyOfOracleStrict(me, flag) ?? ((loadConfig() as Record<string, unknown>).company as string) ?? null;
 }
 
 /**

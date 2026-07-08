@@ -15,7 +15,7 @@ import { readWorklog } from "../../../core/worklog/store";
 import { renderTimeline } from "../../../core/worklog/render";
 import { pollPrsOnce } from "../../../core/worklog/pr-watch";
 import { setupWorklogHooks } from "../../../core/worklog/hook-setup";
-import { companyOfOracle } from "../../../core/worklog/company-scope";
+import { companyOfOracleStrict } from "../../../core/worklog/company-scope";
 import { addClaim, releaseClaim } from "../../../core/worklog/claim";
 import { pingCollision } from "../../../core/worklog/ping";
 import { buildInjectSlice } from "../../../core/worklog/slice";
@@ -40,7 +40,7 @@ export async function runWorklog(
   if (subcmd === "log") {
     const flags = parseFlags(args.slice(1), { "--limit": String, "--oracle": String, "--company": String }, 0);
     if (!args.includes("--no-poll")) { try { await pollPrsOnce(); } catch { /* render anyway */ } }
-    const company = flags["--company"] ?? companyOfOracle(myOracle()) ?? (loadConfig() as any).company;
+    const company = companyOfOracleStrict(myOracle(), flags["--company"]) ?? (loadConfig() as any).company; // kobo-216 — --company wins; multi-company + no flag throws
     const limit = flags["--limit"] ? Math.max(1, parseInt(flags["--limit"], 10) || 50) : 50;
     emit(renderTimeline(readWorklog(company, { limit, oracle: flags["--oracle"] })));
     return { ok: true };

@@ -30,7 +30,11 @@ export function companyOfOracleLight(oracle: string): string | null {
   if (!existsSync(dir)) return null;
   let files: string[];
   try {
-    files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+    // kobo-216 — SORT so this first-match agrees with companyOfOracle's (which iterates
+    // the name-sorted listCompanies). A company file is `<name>.json`, so sorting the
+    // filenames = sorting by company name; both twins now pick the same first company
+    // for a multi-company oracle instead of diverging on raw readdir order.
+    files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
   } catch {
     return null;
   }

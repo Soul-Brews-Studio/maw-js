@@ -16,7 +16,7 @@
 
 import { parseFlags } from "maw-js/sdk";
 import { loadConfig } from "maw-js/config";
-import { companyOfOracle } from "../../../core/worklog/company-scope";
+import { companyOfOracleStrict } from "../../../core/worklog/company-scope";
 import { commitHome, initHome } from "../../../core/home/store";
 
 function resolveCompany(positional: string | undefined, flag: string | undefined): string | null {
@@ -24,7 +24,9 @@ function resolveCompany(positional: string | undefined, flag: string | undefined
   if (flag) return flag;
   const cfg = loadConfig() as Record<string, unknown>;
   const oracle = (cfg.oracle as string) || "";
-  return (oracle && companyOfOracle(oracle)) || (cfg.company as string) || null;
+  // kobo-216 — strict: a multi-company oracle (no positional/flag above) THROWS instead
+  // of silently first-matching; single-company + config fallback are unchanged.
+  return (oracle && companyOfOracleStrict(oracle)) || (cfg.company as string) || null;
 }
 
 /**

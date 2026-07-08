@@ -104,6 +104,19 @@ describe("autoCreateFromDispatch", () => {
   test("skips when sender cannot be resolved", () => {
     expect(create("[request:x-1] do", "patchwork", null)).toBeNull();
   });
+
+  // kobo-216 (Card B of kobo-166) — a multi-company sender resolves via the strict
+  // resolver, which throws "ambiguous …". autoCreate must PROPAGATE (not swallow) the
+  // throw, BEFORE any addTask/idempotency work — route-comm's try/catch then refuses the
+  // auto-create without minting a wrong-company duplicate card. The default resolver IS
+  // companyOfOracleStrict; here we inject its throw to pin the propagation contract.
+  test("propagates the ambiguity throw from a multi-company sender (no card minted)", () => {
+    const ambiguous = () => { throw new Error("ambiguous: eq3 belongs to [eq3, kobo] — specify --company"); };
+    expect(() =>
+      autoCreateFromDispatch("[request:amb-1] do", "patchwork", () => "eq3", { resolveCompany: ambiguous }),
+    ).toThrow(/ambiguous: eq3 belongs to \[eq3, kobo\]/);
+    expect(listTasks("pgw").filter((t) => t.requestId === "amb-1")).toEqual([]); // nothing created
+  });
 });
 
 describe("autoCaptureCardMentions", () => {

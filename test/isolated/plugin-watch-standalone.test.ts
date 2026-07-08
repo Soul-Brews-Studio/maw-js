@@ -130,4 +130,14 @@ describe("watch command plugin standalone boundary", () => {
       expect(src).toContain(verb);
     }
   });
+
+  // kobo-216 — `watch log` resolves its company through the STRICT resolver: --company
+  // wins, else a multi-company oracle throws "ambiguous … specify --company" (option-a).
+  test("company resolution uses companyOfOracleStrict (kobo-216 option-a)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/watch/index.ts"),
+      "utf8",
+    );
+    expect(src).toContain("companyOfOracleStrict");
+  });
 });
