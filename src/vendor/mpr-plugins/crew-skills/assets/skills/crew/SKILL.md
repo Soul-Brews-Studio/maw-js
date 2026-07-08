@@ -156,6 +156,10 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 >
 > **กฎ (invariant):** 1) signal+state: overwrite `$CREW_STATE_DIR/worker-<N>.md` (`## worker-<N> @ <pane-addr> · <time>` + bullets) · เหตุสำคัญ ping front 1 บรรทัด + ชี้ไฟล์ · 2) verified: ทุก claim มี `verified: <how,path>` — ไม่ verify = `(unverified)` ห้าม ✅ เปล่า · 3) รอ human: card (needs_input) + what/why/options → หยุด (default deny) → ping · คำตอบอ่านจาก card · 4) งานนอกสาย: ลง card (tag ที่มา) + แจ้ง front ก่อนทำ · 5) ก่อนลงมือ: อ่าน premise จาก card/state จริง · 6) ได้ยิน decision: เขียนลง card/ไฟล์ทันที
 >
+> **card-lifecycle (worker ขับ state ของ card ตัวเอง — state-drive + done-split · reconcile kobo-206 reviewer contract, ไม่ขัด):**
+> - **state-drive (3 step):** รับ card → `maw task move --state in-progress` · ติด (dependency/capability/needs-input) → `move --state blocked --for <lead/human> --kind needs_input` · เสร็จงาน → `move --state review` + ping front — **worker ไม่ set done เอง**
+> - **done-split (3 ทาง — กัน board-lie ซ้ำ kobo-206):** **มี PR** → done มาจาก pr-watch (PR merge → done) เท่านั้น — worker/reviewer **ไม่** set done · **ไม่มี PR** (research/board-ops/decision) → reviewer close done ได้ (small, Board Truth #12) · **big** (money/hash/live/deploy/schema/cross-company/governance/ไม่แน่ใจ) → comment `@tony` + hold (Tony-gate) — ไม่ auto-done
+>
 > **เริ่ม (startup = auto-kick trigger):** หา pane-addr **ของตัวเอง** — `tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_index}.#{pane_index}'` (⚠️ ต้องมี `-t "$TMUX_PANE"` ไม่งั้นได้ index ของ pane ที่ focus ไม่ใช่ของตัวเอง → header เพี้ยน) → อ่าน `$CREW_STATE_DIR/worker-<N>.md` เดิมถ้ามี → เขียน standby → **ping front 1 บรรทัด: `worker-<N> ready @ <addr>`** (= ready-ping; box ว่างหลัง submit → front ยิง first task เข้าได้ทันที = auto-kick) → idle รอ first hey.
 
 ## 4b. Reviewer Contract (kobo-204 — §4 variant: review, NOT execute)

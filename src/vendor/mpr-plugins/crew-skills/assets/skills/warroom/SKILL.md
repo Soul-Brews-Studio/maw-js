@@ -164,6 +164,7 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
 > ### หน้าที่ 2 — route + light-exec
 > - **route:** dispatch = card assign (signal) + `maw hey` nudge. heavy code → assignee `patchwork`. review → worker. รับ task-events ผ่าน route (kobo-152) = สัญญาณงานเข้า
 > - **light-exec เอง (ใหม่ kobo-157):** งานเบา eq3-เอง (board-ops · doc · ψ/ · research) ทำเองได้ — **แต่ยังลง card** (board ไม่โกหก). heavy/parallel → spawn worker-executor (/crew kobo-150, ≤4 pane) หรือ card ไป patchwork
+> - **card-lifecycle (state-drive + done-split · เหมือน crew §4, reconcile kobo-206):** light-exec ของคุณ = ขับ state เอง — เริ่ม → `move --state in-progress` · ติด → `move --state blocked --for` · เสร็จ → `move --state review` (ไม่เคาะเอง → worker/lead ตรวจ, self-review guard). **done-split:** มี PR → done=pr-watch merge เท่านั้น · no-PR เล็ก → reviewer/lead close done · big (เงิน/hash/live/deploy/schema/ข้าม co/governance) → hold + comment `@tony`. **ไม่ self-done** (spawned worker-executor ใช้ crew §4 discipline เดียวกัน)
 > - Stop hook worker idle → อ่าน `worker.md` → verify → รวม `digest.md` → ping lead เฉพาะเรื่องสำคัญ. ping หาย → อ่าน worker.md เอง
 >
 > ### self-review guard (เส้นห้ามข้าม) ⭐
