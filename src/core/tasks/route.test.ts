@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskNoteRequest, handleTaskResolveRequest, handleTasksRequest } from "./route";
+import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskResolveRequest, handleTasksRequest } from "./route";
 import { addTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
@@ -442,5 +442,34 @@ describe("handleTaskApproveRequest (kobo-192 execution-card)", () => {
     expect((await approve("pgw", "pgw-99999")).status).toBe(404);
     const bad = await handleTaskApproveRequest(new Request("http://x/api/tasks/approve", { method: "POST", headers: { "content-type": "application/json" }, body: "nope" }));
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("handleTaskEventsRequest (GET /api/tasks/events — SSE, kobo-207)", () => {
+  test("missing company/card → 400", () => {
+    expect(handleTaskEventsRequest(new Request("http://x/api/tasks/events")).status).toBe(400);
+    expect(handleTaskEventsRequest(new Request("http://x/api/tasks/events?company=pgw")).status).toBe(400);
+  });
+
+  test("streams SSE headers + pushes a change event when the card gets a note", async () => {
+    process.env.MAW_TASK_EVENTS_POLL_MS = "15"; // poll fast so the test doesn't wait 2s
+    const t = addTask({ company: "sse", title: "live card", by: "eq3", assignee: "patchwork" });
+    const res = handleTaskEventsRequest(new Request(`http://x/api/tasks/events?company=sse&card=${t.id}`));
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const reader = res.body!.getReader();
+    const dec = new TextDecoder();
+    // read until we see a `change` event or time out — the note below is the trigger
+    let seen = "";
+    const deadline = Date.now() + 2000;
+    noteTask("sse", t.id, "eq3", "a peer's note lands"); // mutate the store → snapshot diff → change
+    while (!seen.includes("event: change") && Date.now() < deadline) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      seen += dec.decode(value, { stream: true });
+    }
+    await reader.cancel(); // closes the stream → clearInterval in cancel()
+    expect(seen).toContain(": connected"); // initial comment line
+    expect(seen).toContain("event: change"); // the note produced a push
+    delete process.env.MAW_TASK_EVENTS_POLL_MS;
   });
 });

@@ -1510,6 +1510,7 @@ function openDetail(task) {
   buildWriteSection(task);
   openModal();
   scrollToNewestComment(task); // kobo-180: land on the newest comment (after openModal — hidden = no layout)
+  if (task && task.id) subscribeDetailEvents(task.id); // kobo-207: hot-reload this card via SSE (idempotent for a reopen)
 }
 
 // kobo-180: on open, bring the newest VISIBLE comment into view so a busy card lands
@@ -1719,8 +1720,70 @@ function openModal() {
 function closeDetail() {
   dropCardFromUrl(); // kobo-181: leaving the card → drop ?card in place (popstate close = already dropped, no-op)
   $('detail-overlay').hidden = true;
+  closeDetailEvents(); // kobo-207: stop the SSE stream — no card open
   if (detailReturnFocus && detailReturnFocus.focus) detailReturnFocus.focus();
   detailReturnFocus = null;
+}
+
+// ── kobo-207 — hot-reload the open card via SSE ───────────────────────────────
+// One EventSource per open card. The server pushes a change event when the card's
+// content shifts (a comment/note/state from ANY actor — web or a peer's CLI);
+// we re-render the modal in place, preserving scroll + the comment draft so a
+// live update never yanks the reader or eats what they're typing. EventSource
+// auto-reconnects on drop, so onerror needs no handling beyond not crashing.
+let detailES = null;
+let detailESCard = null;
+function subscribeDetailEvents(id) {
+  const company = currentCompany();
+  if (!company || !id) return;
+  if (detailES && detailESCard === id) return; // already streaming this card (reopen after a write) → keep the conn
+  closeDetailEvents();
+  detailESCard = id;
+  try {
+    detailES = new EventSource('/api/tasks/events?company=' + encodeURIComponent(company) + '&card=' + encodeURIComponent(id));
+    detailES.addEventListener('change', () => liveRefreshDetail(id));
+    // No onerror: EventSource reconnects itself (graceful). A hard failure just
+    // leaves the modal on the last-rendered card until the next open/poll.
+  } catch (e) { detailES = null; detailESCard = null; }
+}
+function closeDetailEvents() {
+  if (detailES) { try { detailES.close(); } catch (e) { /* already closed */ } }
+  detailES = null; detailESCard = null;
+}
+// A pushed change → refresh the open modal from the fresh store, keeping the
+// reader's place. Skip if the modal closed or a different card is now open (a
+// late event for a card we navigated away from).
+async function liveRefreshDetail(id) {
+  if ($('detail-overlay').hidden) return;
+  if (cardFromUrl() !== id) return;
+  const panel = $('detail-panel'), cmts = $('detail-comments');
+  const scrollPanel = panel ? panel.scrollTop : 0;
+  const scrollCmts = cmts ? cmts.scrollTop : 0;
+  const drafts = captureDetailDrafts();
+  await load();     // refresh lastTasks (+ board) so reopenDetail reads the fresh card
+  reopenDetail(id); // rebuild the modal from the freshest payload
+  restoreDetailDrafts(drafts);
+  const p = $('detail-panel'); if (p) p.scrollTop = scrollPanel;
+  const c = $('detail-comments'); if (c) c.scrollTop = scrollCmts;
+}
+// Composer drafts survive the rebuild by DOM order — buildWriteSection always
+// emits the same input sequence (subtask, comment, note), so index maps 1:1.
+// ponytail: covers the #detail-write composer only, not a mid-thread reply box
+// (rebuilt from server state); the reply case is rare and self-heals on next open.
+function captureDetailDrafts() {
+  const active = document.activeElement;
+  return Array.from($('detail-write').querySelectorAll('input, textarea')).map((elm) => ({
+    value: elm.value, focused: elm === active, selStart: elm.selectionStart, selEnd: elm.selectionEnd,
+  }));
+}
+function restoreDetailDrafts(snap) {
+  const inputs = Array.from($('detail-write').querySelectorAll('input, textarea'));
+  snap.forEach((s, i) => {
+    const elm = inputs[i];
+    if (!elm) return;
+    if (s.value) elm.value = s.value;
+    if (s.focused) { elm.focus(); try { elm.setSelectionRange(s.selStart, s.selEnd); } catch (e) { /* number inputs reject range */ } }
+  });
 }
 
 // ── kobo-128 — @mentions queue + ask-subcard (question) helpers ───────────────

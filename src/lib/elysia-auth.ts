@@ -39,6 +39,7 @@ const PROTECTED = new Set([
   "/worklog",         // worklog read/inject — captured prompts + commands are private (Rule 6); loopback hooks bypass, LAN must auth
   "/policy",          // company/dept policy inject — same surface as worklog (Rule 6); loopback hooks bypass, LAN must auth
   "/tasks",           // company-ui board — reveals who-works-on-what within a company (Rule 6); loopback UI bypasses, LAN must auth
+  "/tasks/events",    // company-ui card-detail SSE (kobo-207) — same private card surface (Rule 6); loopback UI bypasses, LAN must auth
   "/state",           // company-ui coordination markdown — company-internal state doc (Rule 6); loopback UI bypasses, LAN must auth
   "/roster",          // company-ui presence roster — company org membership (Rule 6, kobo-50); loopback UI bypasses, LAN must auth
   "/presence",        // company-ui presence detail — per-pane model + context% (Rule 6, kobo-104); loopback UI bypasses, LAN must auth

@@ -13,7 +13,7 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/worklog/route";
-import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskResolveRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskApproveRequest } from "../../../core/tasks/route";
+import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskResolveRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskApproveRequest, handleTaskEventsRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
@@ -30,6 +30,10 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   ctx.http?.route("GET", "/api/worklog/feed", (request: Request) => handleWorklogFeedRequest(request));
   // company-ui kanban board — stub now, backbone later (behind auth — PROTECTED "/tasks")
   ctx.http?.route("GET", "/api/tasks", (request: Request) => handleTasksRequest(request));
+  // company-ui card-detail live push (kobo-207): SSE stream that pushes a `change`
+  // event when the open card's content shifts (comment/note/state), so the detail
+  // modal hot-reloads without waiting on the board poll. Behind auth ("/tasks/events").
+  ctx.http?.route("GET", "/api/tasks/events", (request: Request) => handleTaskEventsRequest(request));
   // company-ui per-card archive (kobo-35): Tony reviews a done card + clicks
   // archive → moves it off the board (behind auth — PROTECTED POST "/tasks/…").
   ctx.http?.route("POST", "/api/tasks/archive", (request: Request) => handleTaskArchiveRequest(request));

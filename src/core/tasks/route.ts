@@ -407,3 +407,71 @@ export async function handleTaskApproveRequest(request: Request): Promise<Respon
     task: { id: exec.id, title: exec.title, state: exec.state, epic: exec.epic ?? null, assignee: exec.assignee ?? null },
   });
 }
+
+/**
+ * GET /api/tasks/events?company=<c>&card=<id> — SSE stream (kobo-207). Pushes an
+ * `event: change` whenever the open card's activity-relevant content (state /
+ * body / notes / comments / block) changes, so the detail modal hot-reloads live
+ * instead of waiting on the 5s board poll.
+ *
+ * ponytail: server-side polls the store + diffs a serialized snapshot, rather
+ * than an in-memory event bus fed by the write routes. Reason (not laziness): a
+ * comment/note from ANOTHER process (a `maw task comment` in a peer pane) writes
+ * the card file directly and never touches this server's memory — an emitter
+ * would silently miss exactly the cross-actor updates this feature exists for.
+ * A file-backed store makes a 2s re-read the honest change signal.
+ */
+export function handleTaskEventsRequest(request: Request): Response {
+  const url = new URL(request.url);
+  const company = (url.searchParams.get("company") || "").trim();
+  const id = (url.searchParams.get("card") || "").trim();
+  if (!company || !id) {
+    return new Response("company and card are required", { status: 400 });
+  }
+  // Only the fields the modal renders — a change here is a change worth pushing.
+  const snapshot = (): string => {
+    const t = readTask(company, id);
+    if (!t) return " gone"; // deleted/unknown → still a distinct, stable snapshot
+    return JSON.stringify({ s: t.state, b: t.body, bl: t.block, n: t.notes, c: t.comments });
+  };
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let last = "";
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      const write = (s: string) => {
+        try {
+          controller.enqueue(enc.encode(s));
+        } catch {
+          /* connection closed mid-write */
+        }
+      };
+      write(": connected\n\n");
+      last = snapshot();
+      timer = setInterval(() => {
+        const cur = snapshot();
+        if (cur !== last) {
+          last = cur;
+          write("event: change\ndata: {}\n\n");
+        } else {
+          write(": ping\n\n"); // heartbeat — keeps idle intermediaries from dropping the conn
+        }
+      }, TASK_EVENTS_POLL_MS);
+      (timer as { unref?: () => void }).unref?.();
+    },
+    cancel() {
+      if (timer) clearInterval(timer);
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    },
+  });
+}
+
+// 2s store re-read is the change signal; env override lets tests poll fast.
+const TASK_EVENTS_POLL_MS = Number(process.env.MAW_TASK_EVENTS_POLL_MS) || 2000;
