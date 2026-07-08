@@ -580,11 +580,15 @@ export function setTaskRepoIfMissing(company: string, id: string, repo: string):
 }
 
 /**
- * PR opened → drive the linked card to review, owned by the PR author (eq3-011
- * kobo-13). Driven by PR-watch off the card.pr link (the SAME link merge→done
- * uses) so the board tracks the PR (truth), not a manual step. Idempotent: a card
- * already review-by-this-author-for-this-reviewer is a no-op, and a done card is
- * never resurrected — so re-polls never churn.
+ * PR opened → drive the linked card to review (eq3-011 kobo-13). Driven by PR-watch
+ * off the card.pr link (the SAME link merge→done uses) so the board tracks the PR
+ * (truth), not a manual step. Idempotent: a card already review-for-this-reviewer is
+ * a no-op, and a done card is never resurrected — so re-polls never churn.
+ *
+ * kobo-217 (Board Truth rule 9): the card is NOT reassigned to the PR author. Every
+ * agent shares one github account, so the author is a meaningless owner — the real
+ * doer (assignee) stays the owner. review-lane + reviewer + the PR link, but the
+ * assignee is left exactly as it was.
  *
  * kobo-144 addendum (Tony grill r2): the reviewer is no longer hardcoded to the
  * human. It resolves through the chain — persistent reviewer field → creator (`by`)
@@ -596,13 +600,17 @@ export function prOpenedReview(company: string, id: string, author: string, revi
   const task = readTask(company, id);
   if (!task) return null;
   if (task.state === "done") return task; // never resurrect a merged/closed card
-  // Resolve the reviewer as if the author already owns it (doer=author): explicit
-  // arg wins, else reviewer field, else creator (unless creator IS the author) →
-  // human. Reuses the same chain resolveReviewer encodes, computed against `author`.
-  const target = reviewer ?? task.reviewer ?? (task.by && task.by !== author ? task.by : "human");
-  if (task.state === "review" && task.assignee === author && task.reviewer === target) return task; // idempotent
+  // kobo-217: the PR author is NOT persisted as the assignee. Every agent opens PRs
+  // from one shared github account, so the author is meaningless as an owner —
+  // overwriting the real doer made the board lie (Board Truth rule 9: assignee = the
+  // stable doer). The doer stays put; the author is used ONLY to resolve the
+  // reviewer's self-review guard, and only as a fallback when there's no doer yet.
+  const doer = task.assignee ?? author;
+  // Reviewer chain (kobo-144): explicit arg wins, else the card's reviewer field,
+  // else the creator (unless the creator IS the doer — self-review banned) → human.
+  const target = reviewer ?? task.reviewer ?? (task.by && task.by !== doer ? task.by : "human");
+  if (task.state === "review" && task.reviewer === target) return task; // idempotent (assignee untouched)
   task.state = "review";
-  task.assignee = author;
   task.reviewer = target;
   task.updatedTs = Date.now();
   writeTaskRecord(task);

@@ -857,20 +857,37 @@ describe("pr-link repo binding (kobo-80 — enforce/backfill card.repo so pr-wat
 });
 
 describe("prOpenedReview (eq3-011 kobo-13 — PR open drives the linked card to review + owner)", () => {
-  test("linked card → review, assignee=author, reviewer=creator (kobo-144 addendum) + emits task-review", () => {
-    const t = addTask({ company: "pgw", title: "ship it", by: "eq3" }); // todo, unassigned
+  test("linked card → review; the doer (assignee) is KEPT, NOT overwritten by the PR author (kobo-217); reviewer=creator + emits task-review", () => {
+    const t = addTask({ company: "pgw", title: "ship it", by: "eq3", assignee: "patchwork" }); // doer = patchwork
     setTaskPr("pgw", t.id, 77, "patchwork"); // worker attaches PR at open (the card.pr link)
-    const r = prOpenedReview("pgw", t.id, "patchwork")!;
+    const r = prOpenedReview("pgw", t.id, "meganechan")!; // PR author = the shared github account
     expect(r.state).toBe("review");
-    expect(r.assignee).toBe("patchwork"); // owner = PR author
+    expect(r.assignee).toBe("patchwork"); // kobo-217: doer kept — NOT reassigned to the PR author (Board Truth rule 9)
     expect(r.reviewer).toBe("eq3"); // kobo-144: creator (who wrote the AC) reviews, not hardcoded human
     expect(readWorklog("pgw").some((e) => e.kind === "task-review" && e.task === t.id)).toBe(true);
+  });
+
+  test("unassigned card + PR open → still no assignee (the meaningless PR author is never stamped as owner) (kobo-217)", () => {
+    const t = addTask({ company: "pgw", title: "no doer yet", by: "eq3" }); // unassigned
+    const r = prOpenedReview("pgw", t.id, "meganechan")!;
+    expect(r.state).toBe("review");
+    expect(r.assignee).toBeFalsy(); // no false owner — never "meganechan"; the derived needsOwner surfaces it
+    expect(r.assignee).not.toBe("meganechan");
+    expect(r.reviewer).toBe("eq3"); // creator reviews
   });
 
   test("creator IS the PR author → self-review banned → reviewer=human (kobo-144 addendum)", () => {
     const t = addTask({ company: "pgw", title: "solo card", by: "patchwork" }); // creator = the doer
     const r = prOpenedReview("pgw", t.id, "patchwork")!; // same person opens the PR
     expect(r.reviewer).toBe("human"); // can't review own work → falls through to the human
+  });
+
+  test("self-review guard keys off the real doer (assignee), not the shared-github PR author (kobo-217)", () => {
+    // creator == doer (patchwork), but the PR is opened from the shared account.
+    const t = addTask({ company: "pgw", title: "solo, shared account", by: "patchwork", assignee: "patchwork" });
+    const r = prOpenedReview("pgw", t.id, "meganechan")!; // author ≠ doer, but doer still can't review own work
+    expect(r.assignee).toBe("patchwork"); // doer kept
+    expect(r.reviewer).toBe("human"); // guard uses assignee → self-review still banned → human
   });
 
   test("explicit reviewer field wins over the creator default (kobo-144)", () => {

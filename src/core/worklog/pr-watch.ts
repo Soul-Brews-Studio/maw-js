@@ -219,9 +219,10 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         record(entry);
         recorded.push(entry);
         // eq3-011 kobo-13: PR open = truth → drive the linked card(s) to review,
-        // owned by the PR author, reviewer = human. Mirrors the merge→done path;
-        // acts off the card.pr link, fires once on this OPEN transition. kobo-43:
-        // flip every card the PR binds, not just the first.
+        // reviewer resolved via the chain. kobo-217: the doer (assignee) is KEPT —
+        // the shared-github PR author is never stamped as owner (Board Truth rule 9).
+        // Mirrors the merge→done path; acts off the card.pr link, fires once on this
+        // OPEN transition. kobo-43: flip every card the PR binds, not just the first.
         try {
           if (author) for (const hit of cardHits) {
             setTaskRepoIfMissing(hit.company, hit.taskId, repo); // kobo-80: bind repo on the open→review flip → merge poll is guaranteed later

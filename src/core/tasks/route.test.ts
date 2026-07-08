@@ -56,15 +56,15 @@ describe("handleTasksRequest (real file-per-card store)", () => {
 
   test("PR-open lifecycle shows on /api/tasks — UI ↔ store match (eq3-011 kobo-13)", async () => {
     process.env.MAW_DATA_DIR = dir;
-    const t = addTask({ company: "prw", title: "ship feature", by: "eq3" }); // todo, unassigned
+    const t = addTask({ company: "prw", title: "ship feature", by: "eq3", assignee: "patchwork" }); // doer = patchwork
     setTaskPr("prw", t.id, 88, "patchwork"); // worker attaches the PR (card.pr link)
-    prOpenedReview("prw", t.id, "patchwork"); // pr-watch drives it on OPEN
+    prOpenedReview("prw", t.id, "meganechan"); // pr-watch drives it on OPEN — PR author is the shared account
     const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=prw")).json()) as {
       tasks: Array<{ title: string; state: string; assignee: string | null; reviewer?: string; pr?: number; nextAction: string }>;
     };
     const card = body.tasks.find((c) => c.title === "ship feature")!;
     expect(card.state).toBe("review"); // board no longer says "todo รอคนหยิบ"
-    expect(card.assignee).toBe("patchwork"); // owner = PR author
+    expect(card.assignee).toBe("patchwork"); // kobo-217: doer kept — NOT the shared-github PR author
     expect(card.reviewer).toBe("eq3"); // kobo-144 addendum: creator reviews their PR (not hardcoded human)
     expect(card.pr).toBe(88);
     expect(card.nextAction).toContain("PR #88"); // "รอ merge PR #88 → done"
