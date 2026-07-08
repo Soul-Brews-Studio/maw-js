@@ -302,6 +302,21 @@ describe("maw company task runner (runTask)", () => {
     expect(r.error).toContain("--state must be backlog, todo or approve");
   });
 
+  test("add --state approve with NO --body PREFILLS the 9-section template (kobo-222)", async () => {
+    const ok = await run(["add", "deploy m5", "--state", "approve", "--reason", "restart", "--company", "pgw"]); // pgw-1
+    expect(ok.ok).toBe(true);
+    const t = readTask("pgw", "pgw-1")!;
+    for (let n = 1; n <= 9; n++) expect(t.body).toContain(`## ${n}.`); // all 9 sections prefilled
+    expect(ok.output).toContain("prefilled 9-section approval template");
+  });
+
+  test("add --state approve with a PARTIAL --body warns which sections are missing (kobo-222)", async () => {
+    const ok = await run(["add", "deploy", "--state", "approve", "--reason", "r", "--body", "## 1. Deploy\n## 4. เงิน", "--company", "pgw"]); // pgw-1
+    expect(ok.ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.body).toBe("## 1. Deploy\n## 4. เงิน"); // supplied body kept as-is
+    expect(ok.output).toContain("missing 7/9 section(s)"); // 2,3,5,6,7,8,9 flagged
+  });
+
   test("reject on a done card is refused — terminal, no resurrection (kobo-101)", async () => {
     await run(["add", "shipped", "--company", "pgw"]); // pgw-1
     await run(["done", "pgw-1", "--company", "pgw"]);

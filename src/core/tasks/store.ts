@@ -1294,6 +1294,53 @@ export function checklistProgress(body?: string): ChecklistProgress | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Approval-card 9-section template (kobo-222) — a deploy/money-path approve-card
+// (born in the Approve lane via `add --state approve`, kobo-218) must give Tony
+// everything to decide without asking. The template is the SINGLE source: it
+// PREFILLS a body when the creator supplies none, and its section numbers drive
+// the soft missing-section warn when they DO supply one. Prototype: pgw-191 c6/c7/c8.
+// Lazy: markdown headings, no per-field schema — the body stays git-diff'able +
+// hand-editable (same call as checklistProgress), and the warn guides without
+// blocking (a reason is already mandatory; over-validation would just annoy).
+export interface ApprovalSection {
+  n: number; // 1–9, drives both the heading and the missing-section scan
+  head: string; // heading text (Thai, matches the board copy)
+  hint: string; // placeholder guidance rendered as an HTML comment in the prefill
+}
+export const APPROVAL_SECTIONS: ApprovalSection[] = [
+  { n: 1, head: "Deploy อะไร", hint: "service + version (from→to) + tool" },
+  { n: 2, head: "แก้อะไร/ทำไม", hint: "plain language" },
+  { n: 3, head: "กระทบใคร", hint: "blast radius — merchant count · shared driver · isolate?" },
+  { n: 4, head: "เงิน", hint: "ทิศทาง in/out · money-out=0?" },
+  { n: 5, head: "Rollback", hint: "command + ปลายทางย้อนกลับ" },
+  { n: 6, head: "เสี่ยง/verify-gap", hint: "+ Tony-accepted-risk ref" },
+  { n: 7, head: "PR + link", hint: "clickable" },
+  { n: 8, head: "Diff summary", hint: "per-PR +/-/ · NET delta (tag→tag) · runtime vs non-runtime" },
+  { n: 9, head: "HONEST delta", hint: "scope เต็ม — commit พ่วง / dep bump ถ้ามี" },
+];
+
+/** The prefilled approval-card body: 9 numbered headings, each with a hint comment. */
+export function approvalTemplate(): string {
+  return APPROVAL_SECTIONS.map((s) => `## ${s.n}. ${s.head}\n<!-- ${s.hint} -->\n`).join("\n");
+}
+
+/**
+ * Section numbers absent from a body → the soft-warn set (kobo-222). A section is
+ * PRESENT when a line starts with its number + dot (optionally under a markdown
+ * heading), e.g. `## 3.` or `3.` — the shape the template writes and a filler
+ * keeps. Returns the missing sections in order (empty = all 9 present). Never
+ * throws on an empty/absent body (every section missing → the whole set).
+ */
+export function missingApprovalSections(body?: string): ApprovalSection[] {
+  const present = new Set<number>();
+  for (const line of (body ?? "").split("\n")) {
+    const m = line.match(/^\s*#{0,6}\s*([1-9])\./);
+    if (m) present.add(Number(m[1]));
+  }
+  return APPROVAL_SECTIONS.filter((s) => !present.has(s.n));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Containment (kobo-45) — epic→task→subtask via the `epic` parent-id field. A
 // SEPARATE axis from parentIds[] deps: containment = "lives under", dep = "waits
 // for". Only the `epic` id is stored; rollup + parent-chip are derived at read,

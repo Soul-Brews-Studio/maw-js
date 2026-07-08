@@ -40,6 +40,8 @@ import {
   blockNextAction,
   blockTask,
   checklistProgress,
+  approvalTemplate,
+  missingApprovalSections,
   claimTask,
   commentTask,
   completeTask,
@@ -295,13 +297,27 @@ export async function runTask(
       const parentIds = (flags["--parent"] ?? []).flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
       const badParent = parentIds.find((p) => p.startsWith("-"));
       if (badParent) return { ok: false, error: badFlagValue("--parent", badParent)! };
+      // kobo-222: a born-in-approve card (deploy/money-path) carries the 9-section
+      // template — PREFILL it when the creator gives no --body, so Tony gets the full
+      // decision picture. A supplied body is kept as-is (warned below if it skips sections).
+      const addBody = (addState === "approve" && !flags["--body"]?.trim()) ? approvalTemplate() : flags["--body"];
       const t = addTask({
         company, title, by: me, kind: addKind,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
-        parentIds, body: flags["--body"], state: addState, reviewer: flags["--reviewer"],
+        parentIds, body: addBody, state: addState, reviewer: flags["--reviewer"],
         reviewReason: addState === "approve" ? flags["--reason"]!.trim() : undefined, // kobo-218: Approve lane invariant — carry the WHY
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
+      // kobo-222: guide (not block) — an approve-card whose body skips required sections
+      // gets a soft warn listing them, so the approver knows what's still missing.
+      if (addState === "approve") {
+        const missing = missingApprovalSections(t.body);
+        if (!flags["--body"]?.trim()) {
+          console.log(`  \x1b[36m↳ prefilled 9-section approval template — fill each section before Tony reviews\x1b[0m`);
+        } else if (missing.length) {
+          console.log(`  \x1b[33m⚠ approval-card missing ${missing.length}/9 section(s): ${missing.map((s) => `${s.n}.${s.head}`).join(", ")}\x1b[0m`);
+        }
+      }
       const addProg = checklistProgress(t.body);
       if (addProg) console.log(`  \x1b[35m↳ checklist: ${addProg.done}/${addProg.total}\x1b[0m`);
       if (t.parentIds?.length) {

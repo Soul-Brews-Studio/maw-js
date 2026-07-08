@@ -20,6 +20,8 @@ import {
   archiveTask,
   blockTask,
   checklistProgress,
+  approvalTemplate,
+  missingApprovalSections,
   claimTask,
   ReassignFrictionError,
   commentTask,
@@ -1034,6 +1036,24 @@ describe("addTask born-in-approve (kobo-218 — CREATE a deploy-approval card in
     const t = addTask({ company: "app", title: "deploy m5", by: "eq3", assignee: "patchwork", state: "approve", reviewReason: "restart maw-server on m5" });
     expect(t.state).toBe("approve");
     expect(t.reviewReason).toBe("restart maw-server on m5"); // Approve lane invariant — every card says why
+  });
+});
+
+describe("approval-card 9-section template (kobo-222)", () => {
+  test("approvalTemplate has all 9 numbered headings + hint comments", () => {
+    const tpl = approvalTemplate();
+    for (let n = 1; n <= 9; n++) expect(tpl).toContain(`## ${n}.`);
+    expect(tpl).toContain("## 4. เงิน");
+    expect(tpl).toContain("<!-- ทิศทาง in/out · money-out=0? -->");
+    expect(missingApprovalSections(tpl)).toEqual([]); // the template itself is complete
+  });
+  test("missingApprovalSections: empty/absent body → all 9 missing", () => {
+    expect(missingApprovalSections("").map((s) => s.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(missingApprovalSections(undefined).map((s) => s.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+  test("missingApprovalSections: matches numbered headings, reports only the gaps in order", () => {
+    const partial = "## 1. Deploy\ntext\n2. change\n### 9. honest";
+    expect(missingApprovalSections(partial).map((s) => s.n)).toEqual([3, 4, 5, 6, 7, 8]);
   });
 });
 
