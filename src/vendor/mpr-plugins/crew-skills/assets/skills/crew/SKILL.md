@@ -1,23 +1,28 @@
 ---
 name: crew
-description: Spin up a crew — worker ×N (raw claude panes, max 3) ใต้ coordinator. worker = raw pane อิสระ (tmux split + --dangerously-skip-permissions) → coordinator toilet/clear แล้ว worker ยังวิ่ง. coordinator = Conductor (ใน warroom) หรือ pane ที่เรียก /crew. spawn = auto-kick (worker boot → รับ first hey อัตโนมัติ ไม่ค้าง idle รอ manual). crew ต้องอยู่ใน company. Use when user says "/crew", "เรียก crew", "ขอ coordinator", or an oracle needs a work team.
+description: Spin up an autonomous crew cell — front pane + worker ×N (raw claude panes, max 3). front = pane ที่เรียก /crew (lowest-index) — orchestrator เดียวที่รับ inbound + plan + split + spawn + route + merge-gate (รวม comm+conductor, ไม่มี pane แยก, ไม่ execution เอง). worker = raw pane อิสระ (tmux split + --dangerously-skip-permissions) → front toilet/clear แล้ว worker ยังวิ่ง. spawn = auto-kick (worker boot → รับ first hey อัตโนมัติ ไม่ค้าง idle รอ manual). crew ต้องอยู่ใน company. Use when user says "/crew", "เรียก crew", "ขอ coordinator", or an oracle needs a work team.
 ---
 
-# /crew — worker ×N (raw engine panes) ใต้ coordinator
+# /crew — autonomous cell: front + worker ×N (raw engine panes)
 
 ```
-        coordinator  (= Conductor ใน warroom · หรือ pane ที่เรียก /crew)
-               │  spawn + auto-kick + dispatch + review — ไม่ execution เอง
-   ┌───────────┼───────────┐
- .N worker-1  .N worker-2  .N worker-3     ← raw claude panes (max 3)
- 1 งาน/pane    parallel = spawn เพิ่ม        --settings crew-worker (Stop hook idle→coordinator)
+   inbound (another oracle · maw hey / card)
+        │
+        ▼
+      front   (= pane ที่เรียก /crew · lowest-index · autonomous orchestrator)
+        │  relay + plan + split + spawn + route + merge-gate — ไม่ execution เอง · ไม่มี comm pane แยก
+   ┌────┼───────────┬──────────────┐
+ .N worker-1  .N worker-2 …    .N reviewer     ← raw claude panes
+ 1 งาน/pane   parallel=spawn เพิ่ม (max 3)   on-demand ตาอิสระ (Card B)
+              --settings crew-worker (Stop hook idle→front)
 ```
 
-**crew = มือล้วน (worker pane).** coordinator **ไม่ใช่ pane ใน crew** — คือ **Conductor** (warroom) หรือ pane ที่เรียก /crew แบบ standalone. Conductor สับงาน→จ่าย→คุม→รวม→review; crew ลงมือ. *(pivot kobo-150: ทิ้ง session-coord mode เดิมที่ `.0 = coordinator` แถวเดียวกับ worker — coordinator (Conductor) อยู่**เหนือ**แถว worker ไม่ปนกับ worker; worker คุยขึ้น Conductor ไม่ใช่ lead)*
+**front = orchestrator pane ของ cell** (pane ที่เรียก /crew, lowest-index). autonomous cell → front **รับ inbound เอง** + plan→split→spawn→route→merge-gate ใน pane เดียว — **ไม่มี comm pane แยก** (autonomous ไม่มีคนอยู่ข้าง → ไม่มี federation-noise ต้อง shield) และ **ไม่ execution เอง** (pure orchestrate → ไม่ผลิต artifact ให้ review = self-review guard สะอาด). worker = มือ; reviewer (Card B) = ตาอิสระ on-demand. *(pivot kobo-202/203: รวม comm+conductor เป็น front pane เดียว — cell autonomous ไม่ผูก caller เป็น coordinator ที่ toilet ไม่ได้. ก่อนหน้า kobo-150 แยก Conductor เหนือแถว worker + comm pane shield; ตอนนี้ front คือ pane ใน cell เอง.)*
+> **บทเดียว, ชื่อเดียว:** front = บท coordinator ของ cell. §1-§7 (กลไก spawn/roster/comm/survive) ที่เขียน "coordinator" = front pane นี้. ใน warroom บท front = **Conductor** (มี lead/comm แยกตาม warroom SKILL — crew kernel เดียวกัน).
 
 **Model: N hands, 1 soul** — worker **ไม่ใช่ sub-oracle แยกร่าง** เป็น oracle คนเดียว (eq3/patchwork) แยก pane ทำงานขนาน. worker = raw claude pane ใน repo → oracle resolve อัตโนมัติจาก session name (hook key) → **เสียบ infra ของ oracle ฟรี** (worklog, status, liveness) โดยไม่ต่อท่อใหม่. *(verified 2026-07-04: raw-pane Bash/Edit logs เป็น oracle เอง)*
 
-- **coordinator** (Conductor) = ถือช่อง board/dispatch, spawn/auto-kick/ปลด worker, รวมผล, review PR ส่งกลับ lead. **ไม่ทำ execution เอง**. duties เต็ม §8. *(contract เต็มของConductor = **kobo-151** — SKILL นี้ไม่เขียนล้ำ; ที่นี่พูดเฉพาะบท coordinator ของ crew)*
+- **front** = รับ inbound + ถือช่อง board/dispatch, plan/split, spawn/auto-kick/ปลด worker+reviewer, รวมผล, merge-gate. **ไม่ทำ execution เอง**. duties เต็ม §8. *(ใน warroom บทนี้ = Conductor, contract เต็ม kobo-151 — SKILL นี้ไม่เขียนล้ำ; ที่นี่พูดเฉพาะบท front ของ cell)*
 - **worker-N** = execution — raw claude pane, 1 worker ต่อ 1 งาน. งาน parallel = spawn เพิ่ม (**max 3**)
 - **🚫 ห้าม `run_in_background`** — งาน bg มองไม่เห็น ค้างไม่รู้. parallel = worker pane เพิ่ม (เห็นบน tmux). ยกเว้น watch เล็ก (รอ CI) รันใน pane ของ worker ที่ถืองานนั้น
 - coordinator↔worker + worker↔worker คุยผ่าน **`maw hey <pane-addr>`**
@@ -174,9 +179,9 @@ worker = oracle pane → fire hook เดิมอัตโนมัติ (work
 - **crew-done = worker idle หมด** → coordinator wrap/notify
 - ⚠️ worklog เก็บเฉพาะ **significant tool** (git/gh/Edit/Write ไม่เก็บ echo trivial) *(verified)* → ใช้ดู activity มีนัย ไม่ใช่ liveness ละเอียด (นั่นใช้ maw ls/api)
 
-## 8. Coordinator duties (บท coordinator = Conductor / pane ที่เรียก /crew)
+## 8. Front duties (บท front = orchestrator ของ cell · ใน warroom = Conductor)
 
-> coordinator = pane เดียวที่เรียก /crew (ใน warroom = Conductor). **spawn worker แต่ไม่ใช่ worker** — อยู่เหนือแถว crew.
+> front = pane ที่เรียก /crew (lowest-index). **รับ inbound เอง + orchestrate** — spawn worker/reviewer แต่ไม่ใช่ worker, ไม่มี comm pane แยก.
 
 1. **spawn + auto-kick**: §1 — worker boot → ready-ping → ยิง first task ทันที (ไม่ปล่อย idle)
 2. **signal+state**: overwrite roster (worker ที่ live + งานค้าง)
@@ -186,12 +191,12 @@ worker = oracle pane → fire hook เดิมอัตโนมัติ (work
 6. **ก่อน dispatch**: อ่าน premise จาก card/state จริง (ground-before-execute)
 7. **loopback**: ได้ยิน decision → เขียนลง card/ไฟล์ทันที
 8. **quiet dispatch**: card assign = signal · `maw peek` ติดตาม · reply-to pane-addr · ไม่ถาม "ถึงไหนแล้ว"
-9. **ไม่ทำ execution เอง** — งานล้น = spawn worker (max 3) ไม่ใช่ทำเอง/bg
+9. **ไม่ทำ execution เอง (pure orchestrate — ไม่มี light-exec)** — front ไม่ผลิต artifact ให้ใคร review (self-review guard สะอาด). งานล้น = spawn worker (max 3) ไม่ใช่ทำเอง/bg
 10. **roster truth**: ก่อน dispatch เช็ค pane ยัง live — ⚠️ **dead-check ต้องใช้ `tmux list-panes -a -F '#{pane_id}' | grep -qx '%ID'`** (kobo-92: `display-message -t <dead-pane>` **ไม่ error** → เช็คด้วย exit code หลอก). ตาย → respawn ก่อน อย่า dispatch เข้า pane ที่ตาย (hey จะ deferred/หาย)
 11. **ping-loss fallback (kobo-91)**: dispatch/spawn แล้วเงียบเกิน ~2-3 นาที → **อ่าน `worker-N.md` verify เอง** (ping/ready-ping หายได้จาก input-guard/index-shift — state file คือความจริง อย่ารอ ping อย่างเดียว). Stop hook + ready-ping ช่วยส่ง signal deterministic แล้ว แต่ fallback นี้ยังต้องมี
-12. **review + ส่งกลับ lead**: worker เสร็จ (idle + PR) → coordinator review → รวมผล ส่งขึ้น lead. **crew ไม่ merge เอง** (reviewer/human เคาะ)
+12. **merge-gate + ส่งกลับ**: worker เสร็จ (idle + PR) → front spawn reviewer (Card B) / รวมผล. **crew ไม่ merge เอง** (reviewer/human เคาะ)
 
-**Inbound routing**: ใน warroom, task-events route เข้าConductor (kobo-152). standalone: pane coordinator รับ maw event ที่เด้ง pane lowest. ถ้า `ψ/active/dnd.on` มี → park non-critical ตาม `/dnd` (critical เท่านั้นแทรก).
+**Inbound routing (front = target)**: autonomous cell → inbound (maw hey / task-event) land ที่ **front** โดยตรง (pane lowest-index ที่เรียก /crew) — ไม่มี comm pane รับแทน. ใน warroom, task-events route เข้า Conductor (kobo-152). ถ้า `ψ/active/dnd.on` มี → front park non-critical ตาม `/dnd` (critical เท่านั้นแทรก).
 
 ## 9. Teardown (เก็บขยะตัวเอง)
 
