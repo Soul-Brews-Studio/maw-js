@@ -158,6 +158,28 @@ describe("task store (file-per-card under Company Home)", () => {
     expect(assignTask("pgw", "pgw-999", "human", "x")).toBeNull();
   });
 
+  // kobo-211 — reassign A→B releases A's stale worklog claim (the "⛏ old-holder"
+  // that used to linger after `assign --to`, needing manual archive/claim cleanup).
+  test("assignTask releases the previous holder's open claim (kobo-211)", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "human"); // human holds → open claim ⛏ human
+    expect(openClaims("pgw").some((c) => (c.task ?? c.summary) === "pgw-1" && c.oracle === "human")).toBe(true);
+    assignTask("pgw", "pgw-1", "eq3", "eq3"); // reassign to eq3
+    const claims = openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1");
+    expect(claims.some((c) => c.oracle === "human")).toBe(false); // old holder freed
+    expect(claims.length).toBe(0); // reassign never fabricates a claim for the new owner
+  });
+
+  // A done/archived card was already claim-released; reassigning it must not resurrect
+  // an orphan claim (AC: done/archived reassigned → no orphan).
+  test("assignTask on a done card leaves no orphan claim (kobo-211)", () => {
+    addTask({ company: "pgw", title: "t", by: "eq3" });
+    claimTask("pgw", "pgw-1", "human");
+    completeTask("pgw", "pgw-1", "tony"); // releases human's claim
+    assignTask("pgw", "pgw-1", "eq3", "eq3");
+    expect(openClaims("pgw").filter((c) => (c.task ?? c.summary) === "pgw-1").length).toBe(0);
+  });
+
   test("isStaleDecisionCard: in-progress + no-PR + owner silent past window → true (visual only)", () => {
     const now = 10_000_000;
     const card = { state: "in-progress", assignee: "patchwork", pr: undefined } as TaskRecord;

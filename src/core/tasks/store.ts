@@ -374,6 +374,12 @@ export function assignTask(company: string, id: string, to: string, by: string):
   task.updatedTs = Date.now();
   writeTaskRecord(task);
   emit(task, by, "task-updated", `assigned ${task.id} → ${to}: ${task.title}`);
+  // kobo-211: reassign transfers ownership → free the PREVIOUS holder's claim so the
+  // open-claims tracker (⛏) doesn't show the old owner still working (sibling of the
+  // kobo-105 done-path fix). We release, never fabricate, a claim: the new assignee's
+  // ⛏ appears when they actually start()/claim() — assigning to `human` must not mint a
+  // fresh "⛏ human" claim, which is the exact stale badge this is meant to clear.
+  releaseAllClaims(task, to);
   return task;
 }
 
@@ -569,10 +575,16 @@ export function prOpenedReview(company: string, id: string, author: string, revi
  * open-claims tracker + a false-positive idle-with-work badge (kobo-105). Emits
  * one claim-release per holder; a never-claimed / already-released card emits
  * nothing (openClaims already excludes released ones + dedups per holder).
+ *
+ * `except` keeps one holder's claim open — used by reassign (kobo-211) to free the
+ * PREVIOUS owner's claim while leaving the new assignee's (if any) untouched. Best-
+ * effort per node: it releases every claim visible in this company's local ledger
+ * (a git-synced foreign claim appears here and is released too). A claim on a node
+ * whose ledger hasn't synced in is invisible → nothing to release here (out of scope).
  */
-function releaseAllClaims(task: TaskRecord): void {
+function releaseAllClaims(task: TaskRecord, except?: string): void {
   for (const c of openClaims(task.company)) {
-    if ((c.task ?? c.summary) === task.id) {
+    if ((c.task ?? c.summary) === task.id && c.oracle !== except) {
       emit(task, c.oracle, "claim-release", `release ${task.id}: ${task.title}`);
     }
   }
