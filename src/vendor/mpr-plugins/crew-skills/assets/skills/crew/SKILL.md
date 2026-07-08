@@ -101,18 +101,29 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
   ```
   → ขอบโชว์ `⚒ worker-1 · kobo-85 · <งานย่อยที่ CC กำลังทำ>`. @task ว่าง = standby
 
+### reviewer spawn (kobo-204 — on-demand, ตาอิสระ)
+
+reviewer = **recipe เดียวกับ worker** เป๊ะ — เปลี่ยนแค่ 3 จุด → **ไม่มีท่อ spawn ใหม่**:
+- `CREW_ROLE=reviewer` (แทน `worker-N`) → Stop hook gate จับ (`worker-*|reviewer`) → idle signal เข้า front เหมือนกัน
+- contract-file = `$STATE_DIR/reviewer-contract.md` (เนื้อ = **§4b Reviewer Contract**, ไม่ใช่ §4 worker)
+- `@role "🔎 reviewer"` (แทน `⚒ worker-N`)
+
+front spawn reviewer **ตอน worker เสร็จ** (idle+PR) เท่านั้น — **on-demand, ไม่ standing** (ไม่ใช่ pane ฐานของ cell). doer ≠ reviewer (worker ที่ทำงานนั้น **ห้าม** เป็น reviewer ของตัวเอง) → front เลือก pane อื่น/spawn ใหม่. verdict เสร็จ → teardown (§9).
+
 ## 2. Roster — coordinator เขียนแถวตอน spawn
 
 `%pane-id` = **stable identity** (นิ่งข้าม reorder). `session:window.index` = **address ที่ maw hey ใช้** แต่ index **เลื่อนเมื่อ pane ตาย/เพิ่ม** → เก็บ `%pane-id` เป็น key, derive index สดตอนจะ hey (§3). roster file = `coord.md` (standalone) / `conductor.md` (warroom, เจ้าของ = Conductor):
 
 ```md
 ## coordinator @ <pane-addr> · company:<co> · <time>
-| role        | pane-id | state-file  | status |
-|-------------|---------|-------------|--------|
-| coordinator | %147    | —           | —      |
-| worker-1    | %691    | worker-1.md | busy   |
-| worker-2    | %693    | worker-2.md | idle   |
+| role        | pane-id | state-file  | status         |
+|-------------|---------|-------------|----------------|
+| coordinator | %147    | —           | —              |
+| worker-1    | %691    | worker-1.md | busy           |
+| worker-2    | %693    | worker-2.md | idle           |
+| reviewer    | %701    | reviewer.md | transient      |
 ```
+reviewer row = **transient** — เพิ่มตอน front spawn (worker เสร็จ), ลบทันทีหลัง verdict+teardown (§9). ไม่ค้างใน roster ระหว่าง cell idle (on-demand ไม่ standing).
 **กฎแกน: `%pane-id` เปลี่ยน/หายเฉพาะตอน process ตายจริง** — toilet/clear ของ worker ไม่แตะ pane-id → roster ยังตรง (index อาจเลื่อน แต่ resolve จาก pane-id ได้เสมอ).
 **roster ต้องมีแถว coordinator ด้วย** (kobo-91 บทเรียนจริง: layout จัดใหม่ index เลื่อน → coord จำ addr ตัวเองแบบ index → ยิงใส่ตัวเอง) — ทุก address รวม coordinator ต้อง resolve สดจาก pane-id.
 
@@ -148,6 +159,27 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 > **กฎ (invariant):** 1) signal+state: overwrite `$CREW_STATE_DIR/worker-<N>.md` (`## worker-<N> @ <pane-addr> · <time>` + bullets) · เหตุสำคัญ ping coordinator 1 บรรทัด + ชี้ไฟล์ · 2) verified: ทุก claim มี `verified: <how,path>` — ไม่ verify = `(unverified)` ห้าม ✅ เปล่า · 3) รอ human: card (needs_input) + what/why/options → หยุด (default deny) → ping · คำตอบอ่านจาก card · 4) งานนอกสาย: ลง card (tag ที่มา) + แจ้ง coordinator ก่อนทำ · 5) ก่อนลงมือ: อ่าน premise จาก card/state จริง · 6) ได้ยิน decision: เขียนลง card/ไฟล์ทันที
 >
 > **เริ่ม (startup = auto-kick trigger):** หา pane-addr **ของตัวเอง** — `tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_index}.#{pane_index}'` (⚠️ ต้องมี `-t "$TMUX_PANE"` ไม่งั้นได้ index ของ pane ที่ focus ไม่ใช่ของตัวเอง → header เพี้ยน) → อ่าน `$CREW_STATE_DIR/worker-<N>.md` เดิมถ้ามี → เขียน standby → **ping coordinator 1 บรรทัด: `worker-<N> ready @ <addr>`** (= ready-ping; box ว่างหลัง submit → coordinator ยิง first task เข้าได้ทันที = auto-kick) → idle รอ first hey.
+
+## 4b. Reviewer Contract (kobo-204 — §4 variant: review, NOT execute)
+
+> เนื้อไฟล์ `reviewer-contract.md` — spawn ด้วย recipe §1 (`CREW_ROLE=reviewer`). แทน `<co>`/`<dept>`/`<board>` + ระบุ **card/PR ที่ต้องรีวิว** ตอน spawn.
+
+> คุณคือ **reviewer** ของ crew cell (raw claude pane ใน repo, company `<co>`, dept `<dept>`, board `<board>`) — **ตาอิสระ on-demand**. คุณคือ **มือของ oracle เดียวกัน แต่บทตรวจ** ไม่ใช่ oracle แยกร่าง. งาน: ตรวจ output ของ **worker หนึ่งคน** (PR/artifact ที่ front ชี้มา) ด้าน **correctness + scope** — คุณ **ไม่เขียนงานเอง** (doer ≠ reviewer; ถ้า worker ที่ทำคือคุณ → refuse, บอก front หา pane อื่น).
+>
+> **🚫 ห้าม `run_in_background`** · ห้ามแก้โค้ด/แตะไฟล์งาน (คุณ **ตรวจ ไม่แก้**) · behavior guards เท่า oracle (ห้าม `git push -f`, `rm -rf` นอก repo, commit secrets, แตะ hash/idempotency)
+>
+> **comm**: `maw hey <addr>` เท่านั้น. tag `[<host>:<oracle>]` นำหน้า — อ่านข้าม. **⚠️ submit ทุก turn ให้ box ว่าง** (box ค้าง = hey deferred). backtick ใน hey → quote ธรรมดา. front addr resolve สดจาก `CREW_COORD_PANE`.
+>
+> **verdict routing (Board Truth rule 12):**
+> 1. อ่าน premise จาก card จริง + diff จริง (`gh pr diff <n> --repo <owner/name>`) — ground ก่อนตัดสิน
+> 2. เขียน finding ลง `$CREW_STATE_DIR/reviewer.md` + **comment บน card** (หลักฐาน + verdict)
+> 3. **งานเล็ก (doc/typo/small) + correctness+scope ผ่าน** → reviewer **ปิด done เอง** (`maw task done`)
+> 4. **งานใหญ่ (เงิน/hash/live/deploy/schema/ข้าม company/ไม่แน่ใจ)** → **`maw task hold` + comment `@tony`** (human gate — **ห้าม auto-done**)
+> 5. **ไม่ผ่าน (scope ล้ำ / ไม่ตรง AC / มี broken ref)** → comment finding + ตีกลับ (request-change) ให้ worker แก้
+>
+> **verdict เสร็จ → ping front 1 บรรทัด** (`verdict: pass|hold|reject + card`) → front loopback + teardown pane นี้ (§9). reviewer = **transient ไม่ re-seat** (จบ verdict = จบชีวิต pane; ไม่มี state ต่อเนื่องข้าม /clear แบบ worker)
+>
+> **เริ่ม (startup = auto-kick trigger):** หา pane-addr ตัวเอง — `tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_index}.#{pane_index}'` → **ping front: `reviewer ready @ <addr>`** (box ว่างหลัง submit → front ยิง review target ทันที) → รับ card/PR → ตรวจ.
 
 ## 5. Scale (fanout = pane ไม่ใช่ background · max 3)
 
@@ -194,7 +226,7 @@ worker = oracle pane → fire hook เดิมอัตโนมัติ (work
 9. **ไม่ทำ execution เอง (pure orchestrate — ไม่มี light-exec)** — front ไม่ผลิต artifact ให้ใคร review (self-review guard สะอาด). งานล้น = spawn worker (max 3) ไม่ใช่ทำเอง/bg
 10. **roster truth**: ก่อน dispatch เช็ค pane ยัง live — ⚠️ **dead-check ต้องใช้ `tmux list-panes -a -F '#{pane_id}' | grep -qx '%ID'`** (kobo-92: `display-message -t <dead-pane>` **ไม่ error** → เช็คด้วย exit code หลอก). ตาย → respawn ก่อน อย่า dispatch เข้า pane ที่ตาย (hey จะ deferred/หาย)
 11. **ping-loss fallback (kobo-91)**: dispatch/spawn แล้วเงียบเกิน ~2-3 นาที → **อ่าน `worker-N.md` verify เอง** (ping/ready-ping หายได้จาก input-guard/index-shift — state file คือความจริง อย่ารอ ping อย่างเดียว). Stop hook + ready-ping ช่วยส่ง signal deterministic แล้ว แต่ fallback นี้ยังต้องมี
-12. **merge-gate + ส่งกลับ**: worker เสร็จ (idle + PR) → front spawn reviewer (Card B) / รวมผล. **crew ไม่ merge เอง** (reviewer/human เคาะ)
+12. **merge-gate ผ่าน reviewer (kobo-204) — front ไม่ review เอง**: worker เสร็จ (idle+PR) → front **spawn reviewer on-demand** (§1 recipe, `CREW_ROLE=reviewer`, doer ≠ reviewer) → reviewer ตรวจ correctness+scope → verdict (§4b: เล็กผ่าน=done เอง · ใหญ่=hold+`@tony` · ไม่ผ่าน=ตีกลับ) → **ping front** → front **loopback verdict ลง card/board** + **teardown reviewer** (§9). front แค่ orchestrate verdict ไม่ตัดสินเอง (pure-orchestrate = self-review guard). **crew ไม่ merge เอง** (reviewer เล็ก/ human ใหญ่ เคาะ)
 
 **Inbound routing (front = target)**: autonomous cell → inbound (maw hey / task-event) land ที่ **front** โดยตรง (pane lowest-index ที่เรียก /crew) — ไม่มี comm pane รับแทน. ใน warroom, task-events route เข้า Conductor (kobo-152). ถ้า `ψ/active/dnd.on` มี → front park non-critical ตาม `/dnd` (critical เท่านั้นแทรก).
 
@@ -203,7 +235,8 @@ worker = oracle pane → fire hook เดิมอัตโนมัติ (work
 1. **graceful**: worker เขียน state ครบ + card sync ก่อน (ping ขอ flush หรือเช็คไฟล์ว่า worker เขียน "done")
 2. **kill panes** (state flushed = safe): `tmux kill-pane -t %691` (ต่อ worker ตาม pane-id ใน roster) แล้ว `rm -f "$CREW_STATE_DIR"/*.md`
 3. **card ค้าง** → done/archive ให้ board ตรงความจริง
-4. ⚠️ **fresh-start ล้าง stale ก่อน spawn รอบใหม่** — `$CREW_STATE_DIR` เก่าค้าง → worker รอบใหม่อ่าน worker-N.md เก่าเป็น **false continuity** (POC #3). เริ่ม crew ใหม่: **`rm -f "$CREW_STATE_DIR"/*.md` ก่อน spawn เสมอ**
+4. **reviewer = kill-after-verdict (kobo-204)**: reviewer transient → front รับ verdict + loopback ลง card เสร็จ → **kill pane reviewer ทันที** (`tmux kill-pane -t <reviewer-pane-id>` + `rm -f "$CREW_STATE_DIR/reviewer.md"` + ลบ roster row) ไม่รอ teardown ทั้ง cell. reviewer ไม่ standing → ไม่เหลือค้างระหว่าง cell idle
+5. ⚠️ **fresh-start ล้าง stale ก่อน spawn รอบใหม่** — `$CREW_STATE_DIR` เก่าค้าง → worker รอบใหม่อ่าน worker-N.md เก่าเป็น **false continuity** (POC #3). เริ่ม crew ใหม่: **`rm -f "$CREW_STATE_DIR"/*.md` ก่อน spawn เสมอ**
 
 ---
 
