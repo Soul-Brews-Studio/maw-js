@@ -315,6 +315,8 @@ function companyBody(): string {
        Board face only — the modal (#detail-notes .note) still shows every note full. */
     .task .t-notes-full .t-note { color:var(--fg); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; border-left:2px solid var(--line); padding-left:var(--s-3); display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; line-clamp:4; overflow:hidden; }
     .task .t-note-by { color:var(--muted); font-weight:600; }
+    /* kobo-215 — "+K earlier — full in modal" hint when the Blocked face caps to latest N notes. */
+    .task .t-notes-more { color:var(--muted); font-size:var(--t-xs); font-style:italic; opacity:.8; }
     /* kobo-127 — Done-lane fold control ("show all N" / "collapse"). */
     .done-fold { grid-column:1 / -1; margin-top:var(--s-2); font-size:var(--t-xs); color:var(--muted); background:none; border:1px dashed var(--line); border-radius:var(--r-md); padding:var(--s-2) var(--s-4); cursor:pointer; width:100%; }
     .done-fold:hover { color:var(--fg); border-color:var(--accent); }
@@ -1075,7 +1077,16 @@ function taskCard(task, opts) {
   if (notes.length) {
     if (opts.notes === 'full') {
       const wrap = el('div', 't-notes-full');
-      for (const n of notes) {
+      // kobo-215 — cap the board face at the latest N notes so a many-note Blocked
+      // card no longer stacks into a full-column wall (kobo-201 clamped each note to
+      // ~4 lines; N of them was still a wall). Recent decision context shows first;
+      // the '+K earlier' hint says the rest lives in the modal (card click opens it).
+      const CAP = 3;
+      const shown = notes.length > CAP ? notes.slice(-CAP) : notes;
+      if (notes.length > CAP) {
+        wrap.appendChild(el('div', 't-notes-more', '↑ +' + (notes.length - CAP) + ' earlier — full in modal'));
+      }
+      for (const n of shown) {
         const ln = el('div', 't-note');
         ln.appendChild(el('span', 't-note-by', (n.by || '?') + ' · '));
         ln.appendChild(document.createTextNode(n.text || ''));
