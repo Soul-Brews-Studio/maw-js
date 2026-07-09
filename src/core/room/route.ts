@@ -20,6 +20,7 @@ import { addTask, readTask } from "../tasks/store";
 import { roomActivity } from "./activity";
 import { readWorklog } from "../worklog/store";
 import { readPresenceRows } from "../presence/route";
+import { listCompanies, companyExists, companyLead } from "../../vendor/mpr-plugins/company/company-helpers";
 
 /** The tag that scopes a message to a room (both directions carry it). */
 export function roomTag(room: string): string {
@@ -115,6 +116,9 @@ export async function handleRoomOpenRequest(request: Request): Promise<Response>
   if (!body) return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   const company = str(body.company), room = str(body.room), topic = str(body.topic);
   if (!company || !room) return Response.json({ ok: false, error: "company and room are required" }, { status: 400 });
+  // kobo-258 baseline: a room is ALWAYS ⊂ a company — never mint one under a company
+  // that doesn't exist (no orphan room). Enforced server-side at the birth point.
+  if (!companyExists(company)) return Response.json({ ok: false, error: `unknown company: ${company}` }, { status: 404 });
   return Response.json({ ok: true, room: openRoom(company, room, topic) });
 }
 
@@ -177,6 +181,23 @@ export function handleRoomThreadRequest(request: Request): Response {
   const r = readRoom(company, room);
   if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
   return Response.json({ ok: true, room: r });
+}
+
+/**
+ * GET /api/rooms?company=<c> — the company-scoped room list for the 2-pane chat
+ * (kobo-258). Drives the topic list + the company selector + the default partner:
+ *   { ok, company, lead, companies:[names], rooms:[{id,topic,status,updatedTs,cardId}] }
+ * `company` omitted / unknown → default to the first company (rooms are ALWAYS ⊂ a
+ * company — the UI never operates without one). `lead` = the oracle that runs that
+ * company's warroom (kobo→eq3, pgw→thawanban). Read-only.
+ */
+export function handleRoomsListRequest(request: Request): Response {
+  const companies = listCompanies().map((c) => c.name);
+  const asked = (new URL(request.url).searchParams.get("company") ?? "").trim();
+  const company = asked && companies.includes(asked) ? asked : (companies[0] ?? "");
+  if (!company) return Response.json({ ok: true, company: "", lead: null, companies: [], rooms: [] });
+  const rooms = listRooms(company).map((r) => ({ id: r.id, topic: r.topic, status: r.status, updatedTs: r.updatedTs, cardId: r.cardId }));
+  return Response.json({ ok: true, company, lead: companyLead(company), companies, rooms });
 }
 
 // ── kobo-244 slice 5: distill room-artifact → kanban card (the ONE room→board touch) ──

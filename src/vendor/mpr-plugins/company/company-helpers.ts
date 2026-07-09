@@ -93,6 +93,22 @@ export function listCompanies(): Company[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * The oracle that leads a company (kobo-258 — "who runs its warroom"): the
+ * company-level `manager` if set (pgw → thawanban), else the conventional `core`
+ * dept lead (kobo → eq3), else any dept's lead. null if the company has none.
+ * Same mapping the board uses for reviewer=company-lead (Board Truth #14).
+ */
+export function companyLead(name: string): string | null {
+  const c = loadCompany(name);
+  if (!c) return null;
+  if (c.manager) return c.manager;
+  const depts = c.departments ?? {};
+  if (depts.core?.lead) return depts.core.lead;
+  for (const d of Object.values(depts)) if (d.lead) return d.lead;
+  return null;
+}
+
 export function createCompany(name: string): Company {
   assertValidName("company", name);
   if (companyExists(name)) {

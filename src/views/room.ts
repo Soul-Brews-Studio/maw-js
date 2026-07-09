@@ -1,284 +1,369 @@
 import { Hono } from "hono";
 
-// Brainstorm Room (kobo-245 wire + kobo-241 artifact). A clean web surface to consult
-// the company lead: type → hey to the lead (POST /api/room/send) → the lead replies
-// with a `[room:<id>]`-tagged hey → the room feed listener appends both turns to the
-// OFF-CARD artifact rooms/<id>.json → this view renders the persisted thread from
-// GET /api/room/thread (durable, so a reopen reloads the full conversation). NO new
-// transport/session/pane. This whole file is ONE template literal: keep the client JS
-// backtick-free (string concat), mirroring messages.ts.
+// Brainstorm Room — 2-pane chat (kobo-258, UX spec eq3 2026-07-10). A company-scoped
+// chat surface to ground a problem with the company LEAD: LEFT = topic/room list of the
+// current company · RIGHT = the conversation. Every turn is attributed (you / lead /
+// teammate) by pill + alignment + colour (a11y: colour is never the only signal). The
+// engine is untouched — this view only CONSUMES the existing room endpoints:
+//   GET  /api/rooms?company=<c>        → { company, lead, companies[], rooms[] } (kobo-258)
+//   GET  /api/room/thread?company&room → persisted thread (kobo-241)
+//   GET  /api/room/activity?…          → who's-here CC-strip (kobo-242)
+//   POST /api/room/open|close|send     → lifecycle + hey delivery (kobo-241/245/248)
+//   POST /api/room/distill|merge       → room→card + consolidate (kobo-244/243)
+// ONE template literal; keep the client JS backtick-free (string concat), like messages.ts.
 export function roomHtml(): string {
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>maw brainstorm room</title>
+  <title>maw · brainstorm rooms</title>
   <style>
-    :root { color-scheme: dark; --bg:#0b0f14; --card:#121822; --muted:#91a0b5; --fg:#e8edf5; --line:#243044; --ok:#8ddf9a; --bad:#ff8e8e; --accent:#ff5f87; --link:#ffd700; }
-    * { box-sizing: border-box; }
-    body { margin:0; padding:24px; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--fg); }
-    header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:14px; }
-    h1 { margin:0; font-size:20px; }
-    .sub { color:var(--muted); margin-top:4px; font-size:12px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; }
-    .setup { display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
-    label { color:var(--muted); font-size:12px; display:flex; flex-direction:column; gap:4px; }
-    input, button { background:#0d131c; color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:8px 10px; font:inherit; }
-    button { cursor:pointer; border-color:#31516b; color:var(--accent); }
-    .roomctl { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
-    .rstatus { font-size:12px; color:var(--muted); }
-    .rstatus .open { color:var(--ok); } .rstatus .closed { color:var(--bad); }
-    #thread { display:flex; flex-direction:column; gap:8px; max-height:56vh; overflow-y:auto; margin-bottom:12px; }
-    .msg { border:1px solid var(--line); border-left:3px solid var(--line); border-radius:10px; padding:8px 11px; }
-    .msg .who { color:var(--muted); font-size:12px; margin-bottom:3px; }
-    .msg .body { white-space:pre-wrap; word-break:break-word; }
-    .msg.mine { border-left-color:var(--accent); } .msg.lead { border-left-color:var(--link); } .msg.peer { border-left-color:#6fb3ff; }
-    #activity { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
+    :root {
+      color-scheme: dark;
+      --bg:#0F172A; --surface:#1E293B; --surface-2:#334155; --muted:#272F42; --border:#475569;
+      --fg:#F8FAFC; --dim:#94A3B8; --lead:#22C55E; --human:#38BDF8; --teammate:#C084FC; --danger:#EF4444;
+      --r-bubble:12px; --r-pill:999px;
+    }
+    * { box-sizing:border-box; }
+    html,body { height:100%; }
+    body { margin:0; font:15px/1.5 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+    .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+    button, select, input, textarea { font:inherit; color:var(--fg); }
+    button { cursor:pointer; }
+    :focus-visible { outline:2px solid var(--human); outline-offset:2px; }
+
+    /* top bar */
+    .topbar { position:sticky; top:0; z-index:5; height:56px; display:flex; align-items:center; gap:12px;
+      padding:0 16px; background:var(--surface); border-bottom:1px solid var(--border); }
+    .brand { font-weight:700; color:var(--lead); letter-spacing:.02em; }
+    .topbar select { background:var(--muted); border:1px solid var(--border); border-radius:8px; padding:6px 10px; }
+    .leadlbl { color:var(--dim); font-size:13px; }
+    .leadlbl b { color:var(--lead); }
+    .topbar h1 { margin:0 auto; font-size:15px; font-weight:600; color:var(--dim); }
+    .primary { background:var(--lead); color:#04120A; border:none; border-radius:8px; padding:8px 14px; font-weight:600; }
+    .primary:hover { filter:brightness(1.08); }
+
+    /* 2-pane */
+    .app { display:grid; grid-template-columns:minmax(260px,28%) 1fr; height:calc(100vh - 56px); }
+    .topics { border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; background:var(--surface); }
+    .topics h2 { margin:0; padding:14px 16px 8px; font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
+    #roomlist { overflow-y:auto; flex:1; padding:0 8px 12px; }
+    .roomrow { display:flex; align-items:center; gap:10px; min-height:44px; padding:8px 10px; border-radius:8px;
+      cursor:pointer; border-left:2px solid transparent; transition:background .15s; }
+    @media (prefers-reduced-motion:reduce) { .roomrow { transition:none; } }
+    .roomrow:hover { background:var(--muted); }
+    .roomrow.active { background:var(--surface-2); border-left-color:var(--lead); }
+    .roomrow .dot { font-size:10px; color:var(--lead); }
+    .roomrow.st-closed .dot, .roomrow.st-merged .dot { color:var(--dim); }
+    .roomrow .rtopic { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .roomrow.st-merged, .roomrow.st-closed { color:var(--dim); }
+    .roomrow input[type=checkbox] { width:16px; height:16px; accent-color:var(--lead); }
+    .list-empty { padding:24px 16px; color:var(--dim); text-align:center; }
+    .list-empty .primary { margin-top:12px; }
+
+    /* chat */
+    .chat { display:flex; flex-direction:column; min-height:0; }
+    .chat-header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); }
+    .chat-header .back { display:none; background:none; border:none; color:var(--dim); font-size:20px; padding:0 4px; }
+    .chat-header .htopic { font-weight:600; }
+    .chat-header .hsub { color:var(--dim); font-size:13px; }
+    .chat-header .spacer { flex:1; }
+    .chat-header .act { background:var(--muted); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:13px; color:var(--dim); }
+    .chat-header .act.accent { color:var(--lead); border-color:var(--lead); }
+    #activity { display:flex; flex-wrap:wrap; gap:12px; padding:8px 16px; border-bottom:1px solid var(--border); color:var(--dim); font-size:12px; }
     #activity:empty { display:none; }
-    .act { display:flex; gap:8px; align-items:baseline; font-size:12px; color:var(--muted); }
-    .act .name { color:var(--fg); } .act .dot { font-size:10px; } .act .on { color:var(--ok); } .act .off { color:var(--muted); }
-    .act .doing { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .composer { display:flex; gap:8px; }
-    .composer input { flex:1 1 auto; }
-    .status { color:var(--muted); font-size:12px; margin-top:8px; } .status.err { color:var(--bad); }
-    .empty { color:var(--muted); padding:18px; text-align:center; }
-    .rstatus.err { color:var(--bad); }
-    .roomlist { display:flex; flex-direction:column; gap:6px; max-height:30vh; overflow-y:auto; margin-bottom:10px; }
-    .roomrow { display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:9px; padding:6px 10px; }
-    .roomrow .rid { color:var(--fg); } .roomrow .rtopic { color:var(--muted); font-size:12px; }
-    .roomrow .tag { font-size:11px; color:var(--muted); } .roomrow.merged { opacity:0.5; }
+    .act-who .dot { font-size:9px; } .act-who .on { color:var(--lead); } .act-who .off { color:var(--dim); }
+    .act-who .nm { color:var(--fg); }
+
+    #thread { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .bubble { max-width:72%; padding:8px 12px; border-radius:var(--r-bubble); background:var(--surface); border:1px solid var(--border); }
+    .bubble .head { display:flex; align-items:center; gap:8px; margin-bottom:4px; font-size:13px; }
+    .bubble .nm { font-weight:600; }
+    .bubble .pill { font-size:11px; padding:1px 8px; border-radius:var(--r-pill); background:var(--muted); color:var(--dim); }
+    .bubble .ts { margin-left:auto; color:var(--dim); font-size:11px; }
+    .bubble .body { white-space:pre-wrap; word-break:break-word; }
+    .bubble .tag { font-size:11px; color:var(--teammate); }
+    /* you = right + sky · lead = left + green · teammate = left + violet */
+    .bubble.you { align-self:flex-end; background:rgba(56,189,248,.10); border-color:rgba(56,189,248,.35); }
+    .bubble.you .nm { color:var(--human); } .bubble.you .pill { color:var(--human); }
+    .bubble.lead { align-self:flex-start; } .bubble.lead .nm { color:var(--lead); } .bubble.lead .pill { color:var(--lead); }
+    .bubble.teammate { align-self:flex-start; border-color:rgba(192,132,252,.35); }
+    .bubble.teammate .nm { color:var(--teammate); } .bubble.teammate .pill { color:var(--teammate); }
+    .thread-empty { margin:auto; max-width:420px; text-align:center; color:var(--dim); }
+    .banner { margin:0 16px 8px; padding:8px 12px; border-radius:8px; background:var(--muted); color:var(--dim); font-size:13px; }
+    .banner a { color:var(--lead); }
+
+    .composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); align-items:flex-end;
+      box-shadow:0 -4px 12px rgba(0,0,0,.25); }
+    .composer textarea { flex:1; resize:none; min-height:40px; max-height:140px; background:var(--muted);
+      border:1px solid var(--border); border-radius:10px; padding:9px 12px; }
+    .composer .send { background:var(--lead); color:#04120A; border:none; border-radius:10px; padding:9px 16px; font-weight:600; }
+    .composer .send:disabled { opacity:.5; cursor:default; }
+    .status { padding:0 16px 8px; color:var(--dim); font-size:12px; } .status.err { color:var(--danger); }
+
+    /* mobile single-pane slide */
+    @media (max-width:768px) {
+      .app { grid-template-columns:1fr; }
+      .chat { display:none; }
+      .app.showchat .topics { display:none; }
+      .app.showchat .chat { display:flex; }
+      .chat-header .back { display:inline; }
+      .bubble { max-width:88%; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>🧠 brainstorm room</h1>
-      <div class="sub">web ⇄ lead over hey; thread persists off-card in <code>rooms/&lt;id&gt;.json</code> (kobo-241)</div>
-    </div>
-    <button id="refresh" type="button">refresh</button>
-  </header>
-  <main class="card">
-    <div class="setup">
-      <label>company <input id="company" value="kobo" /></label>
-      <label>room <input id="room" value="demo" /></label>
-      <label>topic <input id="topic" placeholder="what to brainstorm" /></label>
-      <label>lead (hey target) <input id="lead" placeholder="e.g. eq3 or m5:eq3" /></label>
-      <label>me <input id="me" value="web" /></label>
-    </div>
-    <div class="roomctl">
-      <button id="open" type="button">open / reopen</button>
-      <button id="close" type="button">close</button>
-      <span id="rstatus" class="rstatus"></span>
-    </div>
-    <div id="activity"></div>
-    <div id="thread"><div class="empty">open a room to start the thread</div></div>
-    <div class="composer">
-      <input id="text" placeholder="ask the lead… (Enter to send)" />
-      <button id="send" type="button">send</button>
-    </div>
-    <div class="roomctl" style="margin-top:12px">
-      <label>distill → card <input id="dtitle" placeholder="distilled outcome (problem+approach)" /></label>
-      <label>assignee <input id="dassignee" placeholder="optional" /></label>
-      <label>reviewer <input id="dreviewer" placeholder="optional" /></label>
-      <button id="distill" type="button">distill → card</button>
-    </div>
-    <div id="status" class="status"></div>
-  </main>
-
-  <section class="card merge" style="margin-top:14px;">
-    <div class="sub" style="margin-bottom:8px;">lead: merge same-problem rooms into one thread — <b>propose + confirm</b> (never automatic; sources are archived, not deleted)</div>
-    <div id="roomlist" class="roomlist"><div class="empty">no rooms yet</div></div>
-    <div class="roomctl">
-      <button id="proposeMerge" type="button">propose merge</button>
-      <span id="mergeStatus" class="rstatus"></span>
-    </div>
-    <div class="sub">check the rooms to fold in, pick one target (radio) to survive; you confirm before anything is written.</div>
-  </section>
+  <div class="topbar">
+    <span class="brand">◆ maw</span>
+    <select id="company" aria-label="company"></select>
+    <span class="leadlbl">lead: <b id="leadName">—</b></span>
+    <h1>Brainstorm Rooms</h1>
+    <button id="newTopic" class="primary" type="button">+ New topic</button>
+  </div>
+  <div class="app" id="app">
+    <aside class="topics">
+      <h2 id="topicsHead">Topics</h2>
+      <div id="roomlist"><div class="list-empty">loading…</div></div>
+      <div id="mergebar" style="display:none; padding:8px 12px; border-top:1px solid var(--border);">
+        <button id="mergeConfirm" class="act accent" type="button">confirm merge into this topic</button>
+        <button id="mergeCancel" class="act" type="button">cancel</button>
+      </div>
+    </aside>
+    <section class="chat" id="chat">
+      <div class="chat-header">
+        <button id="back" class="back" type="button" aria-label="back to topics">‹</button>
+        <div>
+          <div class="htopic" id="hTopic"># —</div>
+          <div class="hsub" id="hSub"></div>
+        </div>
+        <span class="spacer"></span>
+        <button id="mergeBtn" class="act" type="button">merge</button>
+        <button id="distillBtn" class="act accent" type="button">distill ▸</button>
+      </div>
+      <div id="banner" class="banner" style="display:none;"></div>
+      <div id="activity"></div>
+      <div id="thread" aria-live="polite"><div class="thread-empty">เลือกหัวข้อ หรือเปิดใหม่เพื่อปรึกษา lead.</div></div>
+      <div id="status" class="status"></div>
+      <div class="composer">
+        <textarea id="text" rows="1" placeholder="type to lead…" aria-label="message"></textarea>
+        <button id="send" class="send" type="button">send ▸</button>
+      </div>
+    </section>
+  </div>
 <script>
 const $ = (id) => document.getElementById(id);
-const thread = $('thread'), statusEl = $('status');
 function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
-function setStatus(msg, err) { statusEl.textContent = msg; statusEl.className = 'status' + (err ? ' err' : ''); }
-function ctx() { return { company: $('company').value.trim(), room: $('room').value.trim() }; }
+function setStatus(msg, err) { const s = $('status'); s.textContent = msg || ''; s.className = 'status' + (err ? ' err' : ''); }
 
+// ── state ────────────────────────────────────────────────────────────────
+const q = new URLSearchParams(location.search);
+let company = q.get('company') || '';
+let roomId = q.get('room') || '';
+let lead = '';
+let rooms = [];
+let mergeMode = false;
+
+function syncUrl() {
+  const u = new URL(location.href);
+  u.searchParams.set('company', company);
+  if (roomId) u.searchParams.set('room', roomId); else u.searchParams.delete('room');
+  history.replaceState(null, '', u);
+}
+
+async function getJson(url) { const r = await fetch(url, { headers: { accept: 'application/json' } }); return { status: r.status, body: await r.json().catch(() => ({})) }; }
 async function post(url, body) {
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const j = await res.json();
+  const j = await res.json().catch(() => ({}));
   if (!j.ok) throw new Error(j.error || (url + ' failed'));
   return j;
 }
 
-// Render the PERSISTED thread from the off-card artifact (survives restart / reopen).
-async function load() {
-  const { company, room } = ctx();
-  if (!company || !room) return;
-  try {
-    const res = await fetch('/api/room/thread?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(room), { headers: { accept: 'application/json' } });
-    if (res.status === 404) { renderStatus(null); thread.replaceChildren(el('div', 'empty', 'room "' + room + '" not opened yet')); return; }
-    const j = await res.json();
-    if (!j.ok || !j.room) { renderStatus(null); return; }
-    renderStatus(j.room);
-    const msgs = Array.isArray(j.room.messages) ? j.room.messages.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0)) : [];
-    thread.replaceChildren();
-    if (!msgs.length) { thread.appendChild(el('div', 'empty', 'no messages in room "' + room + '" yet')); return; }
-    const me = $('me').value.trim(), lead = $('lead').value.trim();
-    for (const m of msgs) {
-      // attribution: my turn / the lead / a teammate the lead pulled in (kobo-242)
-      const role = m.from === me ? 'mine' : (m.from === lead ? 'lead' : 'peer');
-      const box = el('div', 'msg ' + role);
-      box.appendChild(el('div', 'who', (m.from || '?') + (role === 'peer' ? ' · by ' + (m.from || '?') : '')));
-      box.appendChild(el('div', 'body', m.text || ''));
-      thread.appendChild(box);
-    }
-    thread.scrollTop = thread.scrollHeight;
-    loadActivity();
-  } catch (err) { setStatus('thread load failed: ' + (err && err.message ? err.message : err), true); }
-}
-
-// CC-style "who's doing what" for the room's teammates — reuses /api/room/activity
-// (a join over the worklog feed + presence, no new store). kobo-242.
-async function loadActivity() {
-  const { company, room } = ctx();
-  if (!company || !room) return;
-  try {
-    const res = await fetch('/api/room/activity?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(room), { headers: { accept: 'application/json' } });
-    if (!res.ok) { $('activity').replaceChildren(); return; }
-    const j = await res.json();
-    const parts = (j && j.ok && Array.isArray(j.participants)) ? j.participants : [];
-    const box = $('activity');
-    box.replaceChildren();
-    for (const p of parts) {
-      const row = el('div', 'act');
-      row.appendChild(el('span', 'dot ' + (p.busy ? 'on' : 'off'), p.busy ? '●' : '○'));
-      row.appendChild(el('span', 'name', p.oracle));
-      const doing = p.activity ? ('· ' + p.activity) : (p.busy ? '· active' : '· idle');
-      const ctxPct = (p.ctxRemaining != null) ? (' (' + p.ctxRemaining + '% ctx)') : '';
-      row.appendChild(el('span', 'doing', doing + ctxPct));
-      box.appendChild(row);
-    }
-  } catch { $('activity').replaceChildren(); } // activity is best-effort — never break the thread
-}
-
-function renderStatus(room) {
-  const s = $('rstatus');
-  if (!room) { s.replaceChildren(); return; }
-  s.replaceChildren();
-  s.appendChild(el('span', room.status === 'open' ? 'open' : 'closed', room.status === 'open' ? '● open' : '○ closed'));
-  if (room.topic) s.appendChild(el('span', '', ' · ' + room.topic));
-  if (room.cardId) s.appendChild(el('span', '', ' · 🧵 card ' + room.cardId)); // kobo-244: bidirectional link, artifact side
-}
-
-async function openRoom() {
-  const { company, room } = ctx(); const topic = $('topic').value.trim();
-  if (!company || !room) { setStatus('company and room are required', true); return; }
-  try { await post('/api/room/open', { company, room, topic }); setStatus('room "' + room + '" open'); load(); }
-  catch (err) { setStatus('open failed: ' + (err && err.message ? err.message : err), true); }
-}
-async function closeRoom() {
-  const { company, room } = ctx();
-  try { await post('/api/room/close', { company, room }); setStatus('room "' + room + '" closed (thread kept — reopen anytime)'); load(); }
-  catch (err) { setStatus('close failed: ' + (err && err.message ? err.message : err), true); }
-}
-
-async function send() {
-  const { room } = ctx(); const to = $('lead').value.trim(), text = $('text').value.trim();
-  const from = $('me').value.trim() || 'web'; // kobo-248: attribute the web turn to the human, not the host oracle
-  if (!room || !to || !text) { setStatus('room, lead and message are required', true); return; }
-  $('send').disabled = true;
-  try {
-    await post('/api/room/send', { room, to, text, from });
-    $('text').value = ''; setStatus('sent to ' + to + ' — waiting for reply…');
-    setTimeout(load, 500);
-  } catch (err) { setStatus('send failed: ' + (err && err.message ? err.message : err), true); }
-  finally { $('send').disabled = false; }
-}
-
-// kobo-244: distill the grounding conversation into a board card (the one room→board
-// touch). Server reuses addTask + writes the bidirectional card↔room link.
-async function distill() {
-  const { company, room } = ctx(); const title = $('dtitle').value.trim();
-  if (!company || !room || !title) { setStatus('company, room and card title are required', true); return; }
-  $('distill').disabled = true;
-  try {
-    const j = await post('/api/room/distill', { company, room, title, assignee: $('dassignee').value.trim(), reviewer: $('dreviewer').value.trim() });
-    const id = j.card && j.card.id ? j.card.id : '?';
-    setStatus('distilled → card ' + id + (j.deduped ? ' (already linked)' : ' created + linked'));
-    $('dtitle').value = '';
-    load();
-  } catch (err) { setStatus('distill failed: ' + (err && err.message ? err.message : err), true); }
-  finally { $('distill').disabled = false; }
-}
-
-$('open').addEventListener('click', openRoom);
-$('close').addEventListener('click', closeRoom);
-$('send').addEventListener('click', send);
-$('distill').addEventListener('click', distill);
-$('text').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
-$('refresh').addEventListener('click', load);
-$('room').addEventListener('change', load);
-$('company').addEventListener('change', load);
-
-// kobo-243 — lead-driven merge. List the company's rooms; the lead checks the
-// same-problem rooms to fold in, picks one target to survive, then CONFIRMS. Nothing
-// is written until the confirm — the merge is a proposal, never automatic.
-const roomlist = $('roomlist');
-let allRooms = [];
-function setMergeStatus(msg, err) { const s = $('mergeStatus'); s.textContent = msg; s.className = 'rstatus' + (err ? ' err' : ''); }
-
+// ── company + room list (scoped, server-enforced) ──────────────────────────
 async function loadRooms() {
-  const company = $('company').value.trim();
-  if (!company) return;
-  try {
-    const res = await fetch('/api/room/thread?company=' + encodeURIComponent(company), { headers: { accept: 'application/json' } });
-    const j = await res.json();
-    allRooms = (j.ok && Array.isArray(j.rooms)) ? j.rooms : [];
-    renderRooms();
-  } catch (err) { /* keep the last list on a transient error */ }
+  const { body } = await getJson('/api/rooms' + (company ? '?company=' + encodeURIComponent(company) : ''));
+  if (!body || !body.ok) { setStatus('could not load rooms', true); return; }
+  company = body.company || company;
+  lead = body.lead || '';
+  rooms = Array.isArray(body.rooms) ? body.rooms : [];
+  renderCompanies(body.companies || []);
+  $('leadName').textContent = lead || '—';
+  renderRoomList();
+  syncUrl();
 }
 
-function renderRooms() {
-  roomlist.replaceChildren();
-  if (!allRooms.length) { roomlist.appendChild(el('div', 'empty', 'no rooms yet')); return; }
-  for (const r of allRooms) {
-    const merged = r.status === 'merged';
-    const row = el('div', 'roomrow' + (merged ? ' merged' : ''));
-    if (!merged) {
-      const src = el('input'); src.type = 'checkbox'; src.className = 'msrc'; src.value = r.id; row.appendChild(src);
-      const tgt = el('input'); tgt.type = 'radio'; tgt.name = 'mtarget'; tgt.className = 'mtgt'; tgt.value = r.id; row.appendChild(tgt);
+function renderCompanies(list) {
+  const sel = $('company');
+  if (sel.dataset.filled === '1' && sel.value === company) { /* keep */ }
+  sel.replaceChildren();
+  for (const c of list) { const o = el('option', null, c); o.value = c; if (c === company) o.selected = true; sel.appendChild(o); }
+  sel.dataset.filled = '1';
+}
+
+function statusClass(s) { return s === 'open' ? 'st-open' : (s === 'merged' ? 'st-merged' : 'st-closed'); }
+function statusDot(s) { return s === 'open' ? '●' : (s === 'merged' ? '○' : '◐'); }
+
+function renderRoomList() {
+  const box = $('roomlist');
+  box.replaceChildren();
+  if (!rooms.length) {
+    const e = el('div', 'list-empty');
+    e.appendChild(el('div', null, 'ยังไม่มีห้องใน ' + company + '. เปิดหัวข้อแรกเพื่อปรึกษา ' + (lead || 'lead') + '.'));
+    const b = el('button', 'primary', '+ New topic'); b.type = 'button'; b.addEventListener('click', newTopic);
+    e.appendChild(b);
+    box.appendChild(e);
+    return;
+  }
+  for (const r of rooms) {
+    const row = el('div', 'roomrow ' + statusClass(r.status) + (r.id === roomId ? ' active' : ''));
+    row.tabIndex = 0;
+    if (mergeMode && r.id !== roomId && r.status !== 'merged') {
+      const cb = el('input'); cb.type = 'checkbox'; cb.className = 'msrc'; cb.value = r.id;
+      cb.addEventListener('click', (ev) => ev.stopPropagation());
+      row.appendChild(cb);
     }
-    const meta = el('div');
-    meta.appendChild(el('span', 'rid', r.id));
-    if (r.topic) meta.appendChild(el('span', 'rtopic', ' · ' + r.topic));
-    meta.appendChild(el('span', 'tag', '  [' + r.status + ']'));
-    row.appendChild(meta);
-    roomlist.appendChild(row);
+    row.appendChild(el('span', 'dot', statusDot(r.status)));
+    row.appendChild(el('span', 'rtopic', r.topic || r.id));
+    const open = () => selectRoom(r.id);
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') open(); });
+    box.appendChild(row);
   }
 }
 
-async function proposeMerge() {
-  const company = $('company').value.trim();
-  const sources = Array.from(document.querySelectorAll('.msrc:checked')).map((c) => c.value);
-  const targetEl = document.querySelector('.mtgt:checked');
-  const target = targetEl ? targetEl.value : '';
-  if (!target) { setMergeStatus('pick one target room (radio) to survive', true); return; }
-  const fold = sources.filter((s) => s !== target);
-  if (!fold.length) { setMergeStatus('check at least one OTHER room to fold into the target', true); return; }
-  // The confirm gate — a human OKs the proposal before a single byte is written.
-  if (!window.confirm('Merge ' + fold.length + ' room(s) into "' + target + '"? Their threads consolidate into one; the sources are archived (kept, not deleted).')) return;
-  try {
-    await post('/api/room/merge', { company, target: target, sources: fold, confirm: true });
-    setMergeStatus('merged ' + fold.length + ' room(s) into "' + target + '" — sources archived, not deleted', false);
-    loadRooms(); load();
-  } catch (err) { setMergeStatus('merge failed: ' + (err && err.message ? err.message : err), true); }
+function selectRoom(id) {
+  roomId = id;
+  $('app').classList.add('showchat'); // mobile: slide to chat
+  renderRoomList();
+  syncUrl();
+  loadThread();
 }
 
-$('proposeMerge').addEventListener('click', proposeMerge);
-$('company').addEventListener('change', loadRooms);
+// ── thread + attribution (you / lead / teammate — pill + alignment + colour) ─
+function roleOf(from) {
+  if (from === 'web' || from === 'you') return 'you';
+  if (lead && from === lead) return 'lead';
+  return 'teammate';
+}
+function pillText(role) { return role === 'you' ? 'you' : (role === 'lead' ? 'lead' : 'teammate'); }
+function fmtTs(ts) { if (!ts) return ''; const d = new Date(ts); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
 
-load();
-loadRooms();
-setInterval(load, 2500); // poll the artifact for the lead's reply (kobo-240: reply is async)
+async function loadThread() {
+  if (!company || !roomId) return;
+  const { status, body } = await getJson('/api/room/thread?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(roomId));
+  const thread = $('thread');
+  if (status === 404 || !body.ok || !body.room) { thread.replaceChildren(el('div', 'thread-empty', 'ห้องนี้ยังไม่ถูกเปิด')); return; }
+  const room = body.room;
+  $('hTopic').textContent = '# ' + (room.topic || room.id);
+  const inRoom = new Set(room.messages.map((m) => m.from).filter((f) => f && roleOf(f) !== 'you'));
+  $('hSub').textContent = 'with ' + (lead || '—') + ' (lead) · ' + inRoom.size + ' in room';
+  const banner = $('banner');
+  if (room.cardId) { banner.style.display = ''; banner.replaceChildren(document.createTextNode('กลั่นเป็น card '), Object.assign(el('a', null, room.cardId), { href: '/company?company=' + encodeURIComponent(company) })); }
+  else if (room.status !== 'open') { banner.style.display = ''; banner.textContent = 'ห้องนี้ ' + room.status + ' — thread read-only'; }
+  else banner.style.display = 'none';
+
+  const msgs = room.messages.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  thread.replaceChildren();
+  if (!msgs.length) { thread.appendChild(el('div', 'thread-empty', (lead || 'lead') + ' พร้อมช่วย ground ปัญหา. พิมพ์ข้อความแรกด้านล่าง.')); loadActivity(); return; }
+  for (const m of msgs) {
+    const role = roleOf(m.from);
+    const b = el('div', 'bubble ' + role);
+    const head = el('div', 'head');
+    head.appendChild(el('span', 'nm', m.from || '?'));
+    head.appendChild(el('span', 'pill', pillText(role)));
+    head.appendChild(el('span', 'ts mono', fmtTs(m.ts)));
+    b.appendChild(head);
+    if (role === 'teammate') b.appendChild(el('div', 'tag', '🔎 pulled in'));
+    b.appendChild(el('div', 'body', m.text || ''));
+    thread.appendChild(b);
+  }
+  thread.scrollTop = thread.scrollHeight;
+  loadActivity();
+}
+
+// ── activity strip (who's here — reuse kobo-242 projection) ─────────────────
+async function loadActivity() {
+  if (!company || !roomId) { $('activity').replaceChildren(); return; }
+  const { body } = await getJson('/api/room/activity?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(roomId));
+  const parts = (body && body.ok && Array.isArray(body.participants)) ? body.participants : [];
+  const box = $('activity'); box.replaceChildren();
+  for (const p of parts) {
+    const w = el('span', 'act-who');
+    w.appendChild(el('span', 'dot ' + (p.busy ? 'on' : 'off'), p.busy ? '●' : '○'));
+    w.appendChild(el('span', 'nm', ' ' + p.oracle + ' '));
+    w.appendChild(el('span', null, p.activity ? '· ' + p.activity : (p.busy ? '· active' : '· idle')));
+    box.appendChild(w);
+  }
+}
+
+// ── compose / send (Enter=send, Shift+Enter=newline; default target = lead) ──
+function autogrow() { const t = $('text'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 140) + 'px'; }
+async function send() {
+  const text = $('text').value.trim();
+  if (!company || !roomId) { setStatus('เลือกหรือเปิดหัวข้อก่อน', true); return; }
+  if (!lead) { setStatus('company นี้ไม่มี lead', true); return; }
+  if (!text) return;
+  $('send').disabled = true;
+  try {
+    await post('/api/room/send', { room: roomId, to: lead, text: text, from: 'web' }); // web turn tagged human (kobo-248)
+    $('text').value = ''; autogrow(); setStatus('sent to ' + lead + ' — waiting…');
+    setTimeout(loadThread, 500);
+  } catch (err) { setStatus('ส่งไม่สำเร็จ — retry: ' + (err && err.message ? err.message : err), true); }
+  finally { $('send').disabled = false; }
+}
+
+// ── new topic / distill / merge (reuse the engine endpoints) ────────────────
+function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || ('room-' + Date.now()); }
+async function newTopic() {
+  const topic = prompt('New topic (what to brainstorm with ' + (lead || 'lead') + '):');
+  if (!topic || !topic.trim()) return;
+  const id = slug(topic.trim());
+  try { await post('/api/room/open', { company, room: id, topic: topic.trim() }); await loadRooms(); selectRoom(id); }
+  catch (err) { setStatus('เปิดหัวข้อไม่สำเร็จ: ' + (err && err.message ? err.message : err), true); }
+}
+async function distill() {
+  if (!roomId) { setStatus('เลือกหัวข้อก่อน distill', true); return; }
+  const title = prompt('Distill this room into a card — outcome (problem + approach):');
+  if (!title || !title.trim()) return;
+  try {
+    const j = await post('/api/room/distill', { company, room: roomId, title: title.trim() });
+    const id = j.card && j.card.id ? j.card.id : '?';
+    setStatus('distilled → card ' + id + (j.deduped ? ' (already linked)' : ''));
+    loadThread();
+  } catch (err) { setStatus('distill failed: ' + (err && err.message ? err.message : err), true); }
+}
+function enterMerge() {
+  if (!roomId) { setStatus('เลือก target topic (ห้องปัจจุบัน) ก่อน merge', true); return; }
+  mergeMode = true; $('mergebar').style.display = ''; $('topicsHead').textContent = 'Merge into: ' + roomId; renderRoomList();
+}
+function cancelMerge() { mergeMode = false; $('mergebar').style.display = 'none'; $('topicsHead').textContent = 'Topics'; renderRoomList(); }
+async function confirmMerge() {
+  const sources = Array.from(document.querySelectorAll('.msrc:checked')).map((c) => c.value);
+  if (!sources.length) { setStatus('เลือกอย่างน้อย 1 ห้องเพื่อ fold เข้า ' + roomId, true); return; }
+  if (!window.confirm('Merge ' + sources.length + ' room(s) into "' + roomId + '"? Sources are archived (kept, not deleted).')) return;
+  try {
+    await post('/api/room/merge', { company, target: roomId, sources: sources, confirm: true });
+    setStatus('merged ' + sources.length + ' room(s) into "' + roomId + '"'); cancelMerge(); await loadRooms(); loadThread();
+  } catch (err) { setStatus('merge failed: ' + (err && err.message ? err.message : err), true); }
+}
+
+// ── wire ────────────────────────────────────────────────────────────────
+$('company').addEventListener('change', () => { company = $('company').value; roomId = ''; $('app').classList.remove('showchat'); loadRooms().then(() => loadThread()); });
+$('newTopic').addEventListener('click', newTopic);
+$('send').addEventListener('click', send);
+$('text').addEventListener('input', autogrow);
+$('text').addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } });
+$('back').addEventListener('click', () => { $('app').classList.remove('showchat'); });
+$('distillBtn').addEventListener('click', distill);
+$('mergeBtn').addEventListener('click', enterMerge);
+$('mergeConfirm').addEventListener('click', confirmMerge);
+$('mergeCancel').addEventListener('click', cancelMerge);
+
+(async function init() {
+  await loadRooms();
+  if (roomId) selectRoom(roomId);
+})();
+setInterval(() => { if (roomId) loadThread(); }, 2500); // poll for the lead's async reply (kobo-240)
 </script>
 </body>
 </html>`;

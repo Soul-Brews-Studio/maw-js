@@ -18,7 +18,7 @@ import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
-import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest } from "../../../core/room/route";
+import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest, handleRoomsListRequest } from "../../../core/room/route";
 import { registerRoomListener } from "../../../core/room/listener";
 import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
@@ -90,6 +90,9 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // kobo-242 — CC-style activity for a room's participants: a pure join over the
   // worklog feed + presence (reuses both readers, no new store). Behind auth ("/room/…").
   ctx.http?.route("GET", "/api/room/activity", (request: Request) => handleRoomActivityRequest(request));
+  // kobo-258 — company-scoped room list (topic pane + company selector + default lead).
+  // Public read like the /room view; the thread/activity reads stay auth-gated.
+  ctx.http?.route("GET", "/api/rooms", (request: Request) => handleRoomsListRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company-ui presence roster (kobo-50): authoritative company membership for the

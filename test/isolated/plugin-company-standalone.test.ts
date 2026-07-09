@@ -6,6 +6,7 @@ import { expectStandalonePluginBoundary } from "./helpers/plugin-standalone-boun
 import {
   COMPANIES_DIR,
   _setCompaniesDir,
+  companyLead,
   loadCompany,
   saveCompany,
 } from "../../src/vendor/mpr-plugins/company/company-helpers";
@@ -125,6 +126,20 @@ describe("company command plugin standalone boundary", () => {
     test("a company with no manager loads cleanly (field is optional)", () => {
       saveCompany({ name: "acme", departments: {} });
       expect(loadCompany("acme")!.manager).toBeUndefined();
+    });
+
+    // kobo-258 — the company lead (default room partner / reviewer): manager wins,
+    // else the `core` dept lead, else any dept lead, else null.
+    test("companyLead: manager > core dept lead > any dept lead > null", () => {
+      saveCompany({ name: "pgw", manager: "thawanban", departments: { core: { kbTag: "k", lead: "nai", members: [] } } });
+      expect(companyLead("pgw")).toBe("thawanban"); // manager wins
+      saveCompany({ name: "kobo", departments: { core: { kbTag: "k", lead: "eq3", members: [] }, utils: { kbTag: "k", lead: "pm1", members: [] } } });
+      expect(companyLead("kobo")).toBe("eq3"); // no manager → core dept lead
+      saveCompany({ name: "solo", departments: { ops: { kbTag: "k", lead: "zed", members: [] } } });
+      expect(companyLead("solo")).toBe("zed"); // no core → any dept lead
+      saveCompany({ name: "empty", departments: {} });
+      expect(companyLead("empty")).toBeNull(); // no lead anywhere
+      expect(companyLead("nonexistent")).toBeNull(); // unknown company
     });
   });
 });

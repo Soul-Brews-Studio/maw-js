@@ -2,9 +2,21 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest } from "./route";
+import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest, handleRoomsListRequest } from "./route";
 import { appendRoomMessage, readRoom } from "./store";
 import { readTask } from "../tasks/store";
+import { _setCompaniesDir, saveCompany, COMPANIES_DIR } from "../../vendor/mpr-plugins/company/company-helpers";
+
+const origCompaniesDir = COMPANIES_DIR;
+// A room is ALWAYS ⊂ a company (kobo-258 open-guard), so the artifact-route tests seed a
+// real company registry in the temp dir. Helper: point company-helpers at <dir>/companies
+// and register the given companies (each with a `core` dept lead = its warroom lead).
+function seedCompanies(dir: string, companies: Record<string, string>): void {
+  _setCompaniesDir(join(dir, "companies"));
+  for (const [name, lead] of Object.entries(companies)) {
+    saveCompany({ name, departments: { core: { lead, kbTag: "kb", members: [{ oracle: lead, role: "lead" }] } } });
+  }
+}
 
 const post = (body: unknown, spawn?: (a: string[]) => { exited: Promise<number> }) =>
   handleRoomSendRequest(
@@ -96,8 +108,8 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
 
 describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread)", () => {
   let dir: string; const prev = process.env.MAW_DATA_DIR;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomroute-")); process.env.MAW_DATA_DIR = dir; });
-  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; rmSync(dir, { recursive: true, force: true }); });
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomroute-")); process.env.MAW_DATA_DIR = dir; seedCompanies(dir, { kobo: "eq3" }); });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; _setCompaniesDir(origCompaniesDir); rmSync(dir, { recursive: true, force: true }); });
 
   const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
   const closeR = (b: unknown) => handleRoomCloseRequest(new Request("http://x/api/room/close", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
@@ -200,5 +212,43 @@ describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread
     expect(readRoom("kobo", "s")!.status).toBe("merged"); // archived, not deleted
     expect((await mergeR({ company: "kobo", target: "t", confirm: true })).status).toBe(400); // no sources
     expect((await mergeR({ company: "kobo", target: "ghost", sources: ["s"], confirm: true })).status).toBe(404);
+  });
+});
+
+describe("Brainstorm Room company-scope + default lead (kobo-258)", () => {
+  let dir: string; const prev = process.env.MAW_DATA_DIR;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-rooms-")); process.env.MAW_DATA_DIR = dir; seedCompanies(dir, { kobo: "eq3", pgw: "thawanban" }); });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; _setCompaniesDir(origCompaniesDir); rmSync(dir, { recursive: true, force: true }); });
+
+  const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const rooms = (q: string) => handleRoomsListRequest(new Request("http://x/api/rooms" + q));
+
+  test("GET /api/rooms is company-scoped + resolves the default lead + lists companies", async () => {
+    await openR({ company: "kobo", room: "demo", topic: "what to build" });
+    const j = await rooms("?company=kobo").json() as { ok: boolean; company: string; lead: string; companies: string[]; rooms: Array<{ id: string; topic: string }> };
+    expect(j.company).toBe("kobo");
+    expect(j.lead).toBe("eq3"); // kobo → core dept lead (default partner)
+    expect(j.companies).toEqual(["kobo", "pgw"]); // selector options (name-sorted)
+    expect(j.rooms.map((r) => r.id)).toEqual(["demo"]); // only THIS company's rooms
+  });
+
+  test("unknown/absent ?company falls back to the first company (never operates without one)", async () => {
+    const none = await rooms("?company=ghost").json() as { company: string; lead: string };
+    expect(none.company).toBe("kobo"); // ghost isn't real → default to the first
+    expect(none.lead).toBe("eq3");
+    const bare = await rooms("").json() as { company: string };
+    expect(bare.company).toBe("kobo");
+  });
+
+  test("pgw resolves its company-level manager as lead (thawanban)", async () => {
+    // pgw seeded with a core lead, but a manager (if present) wins — seed one to prove precedence
+    saveCompany({ name: "pgw", manager: "thawanban", departments: { core: { lead: "nai", kbTag: "kb", members: [] } } });
+    const j = await rooms("?company=pgw").json() as { lead: string };
+    expect(j.lead).toBe("thawanban"); // manager > dept lead
+  });
+
+  test("open enforces room ⊂ company — a room under an unknown company is rejected (no orphan)", async () => {
+    expect((await openR({ company: "ghost", room: "x", topic: "t" })).status).toBe(404); // unknown company
+    expect((await openR({ company: "kobo", room: "x", topic: "t" })).status).toBe(200); // real company OK
   });
 });
