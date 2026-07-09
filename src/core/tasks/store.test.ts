@@ -874,6 +874,76 @@ describe("transition guards: every transition re-checks deps (kobo-253 slice B)"
   });
 });
 
+// kobo-254 (slice C): auto-promote-back to prevState on dep-clear, GENERALIZED to every
+// lane. The restore logic pre-exists (promoteReadyChildren exact-restore, kobo-223) — this
+// suite LOCKS it across all lanes so a refactor can't regress it, with special focus on the
+// review lane that slice B (kobo-253) newly made reachable as a prevState. Verified against
+// alpha before writing (the mechanism is already correct); these are regression pins.
+describe("auto-promote-back restores prevState on dep-clear — all lanes (kobo-254 slice C)", () => {
+  // block a child from a specific lane (via a pending dep), returning ids + the parent to clear.
+  const blockedFrom = (co: string, lane: "todo" | "in-progress" | "review") => {
+    const parent = addTask({ company: co, title: "parent", by: "x" });
+    const child = addTask({ company: co, title: "child", by: "x", assignee: "p", state: lane === "review" ? "in-progress" : lane, parentIds: [parent.id] });
+    if (lane === "review") setTaskPr(co, child.id, 7, "p", "o/r"); // slice B: PR-open while dep pending → blocked, prevState=review
+    const t = readTask(co, child.id)!;
+    expect(t.state).toBe("blocked");
+    expect(t.prevState).toBe(lane); // forced out of `lane`, remembered
+    return { parent: parent.id, child: child.id };
+  };
+
+  test("prevState=review → parent done → auto-returns to REVIEW (the slice-B-enabled lane)", () => {
+    const { parent, child } = blockedFrom("k254r", "review");
+    completeTask("k254r", parent, "x");
+    expect(readTask("k254r", child)!.state).toBe("review"); // restored to review, not todo/ready
+    expect(readTask("k254r", child)!.block).toBeUndefined(); // block context cleared
+    expect(readTask("k254r", child)!.prevState).toBeUndefined();
+  });
+
+  test("prevState=in-progress → parent done → auto-returns to IN-PROGRESS (not ready)", () => {
+    const { parent, child } = blockedFrom("k254i", "in-progress");
+    completeTask("k254i", parent, "x");
+    expect(readTask("k254i", child)!.state).toBe("in-progress");
+  });
+
+  test("prevState=todo → parent done → TODO promotes to READY (kobo-133 no-regress)", () => {
+    const { parent, child } = blockedFrom("k254t", "todo");
+    completeTask("k254t", parent, "x");
+    expect(readTask("k254t", child)!.state).toBe("ready");
+  });
+
+  test("multi-dep: restore fires only when the LAST dep clears (not on the first)", () => {
+    const p1 = addTask({ company: "k254m", title: "p1", by: "x" });
+    const p2 = addTask({ company: "k254m", title: "p2", by: "x" });
+    const child = addTask({ company: "k254m", title: "child", by: "x", assignee: "p", state: "in-progress", parentIds: [p1.id, p2.id] });
+    expect(readTask("k254m", child.id)!.state).toBe("blocked");
+    completeTask("k254m", p1.id, "x");
+    expect(readTask("k254m", child.id)!.state).toBe("blocked"); // p2 still pending → stays blocked
+    completeTask("k254m", p2.id, "x");
+    expect(readTask("k254m", child.id)!.state).toBe("in-progress"); // ALL clear → restore
+  });
+
+  test("archive satisfies a dep too — an archived parent promotes the child back", () => {
+    const { parent, child } = blockedFrom("k254a", "review");
+    archiveTask("k254a", parent, "x", { force: true });
+    expect(readTask("k254a", child)!.state).toBe("review"); // archived parent = satisfied dep
+  });
+
+  test("removing the last dep (setTaskDep rm) also restores the exact prevState", () => {
+    const { parent, child } = blockedFrom("k254d", "in-progress");
+    setTaskDep("k254d", child, parent, "rm", "x"); // drop the dep instead of completing it
+    expect(readTask("k254d", child)!.state).toBe("in-progress"); // exact restore via reconcile EXIT
+  });
+
+  test("an EXPLICIT block (kind≠dependency) is NOT auto-promoted when the dep clears (3a)", () => {
+    const parent = addTask({ company: "k254x", title: "parent", by: "x" });
+    const child = addTask({ company: "k254x", title: "child", by: "x", assignee: "p", state: "in-progress", parentIds: [parent.id] });
+    blockTask("k254x", child.id, "eq3", { kind: "needs_input", for: "tony" }); // explicit block on top
+    completeTask("k254x", parent.id, "x"); // dep source clears...
+    expect(readTask("k254x", child.id)!.state).toBe("blocked"); // ...explicit source remains → stays blocked
+    expect(readTask("k254x", child.id)!.block?.kind).toBe("needs_input");
+  });
+});
+
 describe("dep verbs (kobo-134 — setTaskDep edits parentIds after create)", () => {
   test("add links a dep; rm unlinks; field dropped when the last dep goes", () => {
     const p = addTask({ company: "pgw", title: "parent", by: "x" });
