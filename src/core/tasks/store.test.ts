@@ -945,6 +945,65 @@ describe("auto-promote-back restores prevState on dep-clear — all lanes (kobo-
   });
 });
 
+// kobo-256 (slice E): explicit block (maw task block) and dep-block resolve to ONE
+// exclusive blocked lane — the same {state:"blocked", block:{kind}, prevState} shape,
+// through the same write-path + invariant (slice A). Both surfaces (CLI/MCP) drive the
+// same store verbs, so the lane is identical no matter how a card got blocked. The logic
+// pre-exists (A's enforceBlockInvariant made "blocked ⟺ block" true for BOTH paths); this
+// suite LOCKS the unification so a refactor can't split them back into two representations.
+describe("explicit-block + dep-block unify to one exclusive lane (kobo-256 slice E)", () => {
+  test("explicit block on an in-progress card → EXCLUSIVE blocked (state=blocked, prevState, block) — not in-progress+field", () => {
+    const t = addTask({ company: "k256x", title: "t", by: "x", assignee: "p", state: "in-progress" });
+    blockTask("k256x", t.id, "eq3", { kind: "needs_input", reason: "waiting on Tony", for: "tony" });
+    const b = readTask("k256x", t.id)!;
+    expect(b.state).toBe("blocked"); // the card LEFT in-progress — exclusive, not layered
+    expect(b.prevState).toBe("in-progress"); // remembers the lane it was pulled from
+    expect(b.block).toMatchObject({ kind: "needs_input", reason: "waiting on Tony", for: "tony" });
+  });
+
+  test("explicit-block and dep-block produce the SAME exclusive shape (one lane, two sources)", () => {
+    // explicit
+    const e = addTask({ company: "k256s", title: "e", by: "x", assignee: "p", state: "in-progress" });
+    blockTask("k256s", e.id, "eq3", { kind: "capability" });
+    const eb = readTask("k256s", e.id)!;
+    // dep
+    const parent = addTask({ company: "k256s", title: "parent", by: "x" });
+    const d = addTask({ company: "k256s", title: "d", by: "x", assignee: "p", state: "in-progress", parentIds: [parent.id] });
+    const db = readTask("k256s", d.id)!;
+    // same lane, same structural shape — only the kind differs (the source)
+    expect(eb.state).toBe("blocked");
+    expect(db.state).toBe("blocked");
+    expect(Object.keys(eb).filter((k) => k === "state" || k === "block" || k === "prevState").sort())
+      .toEqual(Object.keys(db).filter((k) => k === "state" || k === "block" || k === "prevState").sort());
+    expect(eb.block!.kind).toBe("capability"); // explicit source
+    expect(db.block!.kind).toBe("dependency"); // dep source
+    expect(eb.prevState).toBe("in-progress");
+    expect(db.prevState).toBe("in-progress");
+  });
+
+  test("unblock an explicitly-blocked card → restores the exact prevState (one lane out, same as dep-clear)", () => {
+    const t = addTask({ company: "k256u", title: "t", by: "x", assignee: "p", state: "review" });
+    blockTask("k256u", t.id, "eq3", { kind: "transient", reason: "flaky infra" });
+    expect(readTask("k256u", t.id)!.state).toBe("blocked");
+    unblockTask("k256u", t.id, "eq3");
+    const u = readTask("k256u", t.id)!;
+    expect(u.state).toBe("review"); // exact restore
+    expect(u.block).toBeUndefined();
+    expect(u.prevState).toBeUndefined();
+  });
+
+  test("a card blocked by BOTH sources: unblock clears the explicit one but a pending dep keeps it blocked (3a — still one lane)", () => {
+    const parent = addTask({ company: "k256b", title: "parent", by: "x" });
+    const child = addTask({ company: "k256b", title: "child", by: "x", assignee: "p", state: "in-progress", parentIds: [parent.id] });
+    blockTask("k256b", child.id, "eq3", { kind: "needs_input", for: "tony" }); // explicit ON TOP of the dep block
+    expect(readTask("k256b", child.id)!.block?.kind).toBe("needs_input"); // explicit wins the kind
+    unblockTask("k256b", child.id, "eq3"); // human clears the explicit source
+    const t = readTask("k256b", child.id)!;
+    expect(t.state).toBe("blocked"); // dep still pending → STAYS on the one blocked lane
+    expect(t.block?.kind).toBe("dependency"); // re-resolves to the remaining source
+  });
+});
+
 describe("dep verbs (kobo-134 — setTaskDep edits parentIds after create)", () => {
   test("add links a dep; rm unlinks; field dropped when the last dep goes", () => {
     const p = addTask({ company: "pgw", title: "parent", by: "x" });

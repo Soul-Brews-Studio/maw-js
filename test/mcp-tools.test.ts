@@ -278,6 +278,19 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "block", id: "kobo-3" })).toThrow(/kind/);
   });
 
+  // kobo-256 (slice E): cli/mcp PARITY — the MCP block/unblock actions forward to the
+  // SAME `company task block/unblock` verbs the CLI dispatches, which drive the SAME store
+  // fns (blockTask/unblockTask → writeTaskRecord → slice-A invariant). MCP never has its
+  // own block code path, so both surfaces resolve to the one exclusive blocked lane.
+  test("cli/mcp parity: block/unblock map to the same `company task` verbs, no MCP-only path", () => {
+    expect(taskArgs({ action: "block", id: "kobo-3", kind: "dependency" }).slice(0, 4)).toEqual(["company", "task", "block", "kobo-3"]);
+    expect(taskArgs({ action: "unblock", id: "kobo-3" })).toEqual(["company", "task", "unblock", "kobo-3"]);
+    // all block flags the CLI reads are forwarded verbatim — no divergence in behavior
+    expect(taskArgs({ action: "block", id: "kobo-3", kind: "capability", reason: "no runner", for: "tony" })).toEqual([
+      "company", "task", "block", "kobo-3", "--kind", "capability", "--reason", "no runner", "--for", "tony",
+    ]);
+  });
+
   test("dep: op add/rm + id + exactly one parent (kobo-134)", () => {
     expect(taskArgs({ action: "dep", id: "kobo-3", op: "add", parent: ["kobo-1"] })).toEqual([
       "company", "task", "dep", "add", "kobo-3", "kobo-1",
