@@ -55,6 +55,7 @@ export interface TaskInput {
   for?: string;        // ls (decision queue) / block (--for)
   to?: string;         // review / assign (target ball-holder)
   force?: boolean;     // assign: --force-reassign (reassign is friction, correction only — kobo-219)
+  gate?: boolean;      // hold: --gate — route the brake to the approve lane (Tony's queue), not review (kobo-224)
   reviewer?: string;   // add (persistent per-card reviewer, kobo-144)
   reason?: string;     // review / hold / block
   kind?: string;       // block (required)
@@ -305,8 +306,11 @@ export function taskArgs(input: TaskInput): string[] {
     }
     case "hold": {
       // kobo-144: reviewer's brake — pull card into review from any state.
+      // kobo-224: gate=true → route to the approve lane (Tony's queue) instead of
+      // review, replacing hold+@tony (reason required with gate).
       const argv = ["company", "task", "hold", needId("hold")];
       if (input.reason) argv.push("--reason", input.reason);
+      if (input.gate) argv.push("--gate");
       return [...argv, ...common()];
     }
     case "pr": {

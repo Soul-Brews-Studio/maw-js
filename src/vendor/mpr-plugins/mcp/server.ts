@@ -168,6 +168,7 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
         for: z.string().optional().describe("ls: decision queue for who · block: --for · mentions: filter to one person's queue"),
         to: z.string().optional().describe("review: reviewer oracle · assign: new assignee · ask: answerer (default tony)"),
         force: z.boolean().optional().describe("assign: --force-reassign — required to displace an existing owner (reassign is friction, correction only; handoff = subtask, kobo-219)"),
+        gate: z.boolean().optional().describe("hold: --gate — the reviewer judges this a Tony-gate (big) card → route the brake to the approve lane (Tony's queue) instead of review, replacing hold+@tony; reason required. Pure lane move, never auto-deploys (kobo-224)"),
         reviewer: z.string().optional().describe("add: persistent per-card reviewer (resolve chain head → creator → human, kobo-144)"),
         reason: z.string().optional().describe("review/hold/block: reason text · approve/move-to-approve/move-to-need-answer/add-state-approve: REQUIRED (why it's in Tony's queue)"),
         text: z.string().optional().describe("note: append-only note text (required for note) · ask: the question (required for ask) · comment: the comment body (required for comment)"),

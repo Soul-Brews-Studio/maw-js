@@ -527,8 +527,17 @@ export function reviewTask(company: string, id: string, by: string, opts: Review
  * company). Unlike `review --to` this doesn't reassign the reviewer: the card's
  * persistent reviewer field (or the resolve chain) still names who's up. Records
  * why (`reason`, default "held"). Returns null if absent.
+ *
+ * kobo-224 — a GATED brake (`opts.gate`) = the reviewer judged this a Tony-gate (big:
+ * money/hash/live-infra/deploy/schema/cross-company) card. Route it straight to the
+ * approve lane (Tony's decision queue) instead of review — REPLACING the old hold+@tony
+ * step so a reviewer's "big → needs Tony" verdict populates Tony's queue by itself
+ * (kobo-222 c10). It reuses approveTask verbatim (reason mandatory, enforced there) and
+ * NEVER triggers a deploy or any action: approve = queue-for-bless only, Tony bless ≠
+ * auto-deploy (deploy stays a human's hand). Pure lane move, no classifier.
  */
-export function holdTask(company: string, id: string, by: string, reason?: string): TaskRecord | null {
+export function holdTask(company: string, id: string, by: string, reason?: string, opts: { gate?: boolean } = {}): TaskRecord | null {
+  if (opts.gate) return approveTask(company, id, by, reason ?? "");
   const task = readTask(company, id);
   if (!task) return null;
   task.state = "review";

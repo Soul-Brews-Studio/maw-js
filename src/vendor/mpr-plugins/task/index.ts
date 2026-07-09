@@ -490,15 +490,27 @@ export async function runTask(
       // kobo-144: reviewer's brake — pull a card into review from any state so it
       // can't proceed until looked at (big change / unsure). Reviewer stays the
       // resolved chain (reviewer field → creator → human); notify them.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reason": String }, 0);
+      // kobo-224: `--gate` = the reviewer judged it a Tony-gate (big) card → route
+      // straight to the approve lane (Tony's queue) instead of review, replacing the
+      // old hold+@tony. --reason is mandatory in the gate path (the Approve lane says
+      // WHY). Pure lane move — approve = queue-for-bless only, NEVER auto-deploys.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reason": String, "--gate": Boolean }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: 'usage: maw company task hold <id> [--reason "<text>"]' };
+      if (!id) return { ok: false, error: 'usage: maw company task hold <id> [--reason "<text>"] [--gate]' };
+      const gate = Boolean(flags["--gate"]);
+      if (gate && (!flags["--reason"] || !flags["--reason"].trim())) {
+        return { ok: false, error: "--reason is required with --gate (the Approve lane is Tony's queue — say why this card needs a human decision, e.g. money/hash/live/deploy/schema)" };
+      }
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = holdTask(company, id, me, flags["--reason"]);
+      const t = holdTask(company, id, me, flags["--reason"], { gate });
       if (!t) return { ok: false, error: `task not found: ${id}` };
-      console.log(`\x1b[35m⏸ hold\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)}\x1b[0m: ${t.title}${flags["--reason"] ? ` \x1b[90m(${flags["--reason"]})\x1b[0m` : ""}`);
+      if (gate) {
+        console.log(`\x1b[32m✋ approve\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)} (${t.reviewReason})\x1b[0m: ${t.title} \x1b[90m[gated brake → Tony queue]\x1b[0m`);
+      } else {
+        console.log(`\x1b[35m⏸ hold\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)}\x1b[0m: ${t.title}${flags["--reason"] ? ` \x1b[90m(${flags["--reason"]})\x1b[0m` : ""}`);
+      }
       const hrv = notifyReviewer(t, me);
       if (hrv) console.log(`  \x1b[36m→ pinged ${hrv}\x1b[0m`);
     } else if (subcmd === "approve") {

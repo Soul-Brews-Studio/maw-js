@@ -1054,6 +1054,41 @@ describe("holdTask (kobo-144 — reviewer's brake, any state → review)", () =>
     expect(holdTask("hold", t.id, "eq3")!.reviewReason).toBe("held");
     expect(holdTask("hold", "hold-999", "eq3")).toBeNull();
   });
+
+  // kobo-224 — a GATED brake = reviewer judged it a Tony-gate (big) card → route to
+  // the approve lane (Tony's queue) instead of review, replacing hold+@tony.
+  test("gate:true routes the brake to the APPROVE lane, not review (kobo-224)", () => {
+    const t = addTask({ company: "hold", title: "deploy migration", by: "eq3", assignee: "patchwork", state: "todo" });
+    startTask("hold", t.id, "patchwork"); // in-progress
+    const gated = holdTask("hold", t.id, "eq3", "live deploy — Tony must bless", { gate: true })!;
+    expect(gated.state).toBe("approve"); // Tony's queue, NOT review
+    expect(gated.reviewReason).toBe("live deploy — Tony must bless");
+    expect(readTask("hold", t.id)!.state).toBe("approve");
+  });
+
+  test("gate:true with an empty reason → null (approve-lane invariant: no reason-less park)", () => {
+    const t = addTask({ company: "hold", title: "x", by: "eq3", assignee: "patchwork" });
+    expect(holdTask("hold", t.id, "eq3", "", { gate: true })).toBeNull();
+    expect(holdTask("hold", t.id, "eq3", "   ", { gate: true })).toBeNull();
+    expect(readTask("hold", t.id)!.state).not.toBe("approve"); // never parked without a reason
+    expect(holdTask("hold", t.id, "eq3", undefined, { gate: true })).toBeNull();
+  });
+
+  // 🔒🔒 CRITICAL (Tony): approve = queue-for-bless ONLY. Tony bless ≠ auto-deploy.
+  // A gated brake is a PURE lane move — it emits only a review event and triggers no
+  // deploy/exec/action of any kind (there must be NO approve→deploy wire).
+  test("gate:true is a pure lane move — emits only task-review, ZERO deploy/exec side-effect (kobo-224)", () => {
+    const t = addTask({ company: "gatewire", title: "prod deploy card", by: "eq3", assignee: "patchwork" });
+    reviewTask("gatewire", t.id, "patchwork");
+    const before = readWorklog("gatewire").length;
+    holdTask("gatewire", t.id, "eq3", "deploy needs Tony", { gate: true });
+    const added = readWorklog("gatewire").slice(before);
+    // the ONLY event is the review/lane move — no deploy/run/exec/action kind exists
+    expect(added.every((e) => e.kind === "task-review")).toBe(true);
+    expect(added.some((e) => /deploy|exec|run|action|trigger/i.test(e.kind))).toBe(false);
+    // card carries no deploy trigger — it just sits in the approve lane awaiting a human
+    expect(readTask("gatewire", t.id)!.state).toBe("approve");
+  });
 });
 
 describe("approveTask (kobo-191 — reviewer routes big-work review → approve, reason mandatory)", () => {

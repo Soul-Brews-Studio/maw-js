@@ -139,6 +139,9 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(tools).toContain('["company", "task", "hold", needId("hold")');
     expect(tools).toContain('argv.push("--reviewer", input.reviewer)');
     expect(server).toContain('"hold"'); // enum + title advertise the verb
+    // kobo-224: gated brake — input.gate appends --gate → approve lane (Tony's queue).
+    expect(tools).toContain('argv.push("--gate")');
+    expect(server).toContain("gate: z.boolean()"); // schema advertises the flag
     expect(server).toContain("reviewer:"); // add: persistent per-card reviewer input
     // kobo-146 C7: decompose materializes a plan (children[]) into cards+links; the
     // plan rides --plan as JSON (runMaw is argv-only). Advertised in enum + schema.

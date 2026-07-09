@@ -82,6 +82,8 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("reviewTask");
     // kobo-144: reviewer system — per-card reviewer field + resolve chain + brake.
     expect(src).toContain("holdTask"); // hold verb: reviewer's brake, any state → review
+    expect(src).toContain('"--gate": Boolean'); // kobo-224: gated brake → approve lane (Tony's queue), replace hold+@tony
+    expect(src).toContain("holdTask(company, id, me, flags[\"--reason\"], { gate })"); // flag → holdTask opts
     expect(src).toContain("approveTask"); // kobo-191: reviewer routes big-work review → approve (reason mandatory, Tony's queue)
     expect(src).toContain("resolveReviewer"); // chain: reviewer field → creator → human
     expect(src).toContain("notifyReviewer"); // review-lane → poke the resolved reviewer
