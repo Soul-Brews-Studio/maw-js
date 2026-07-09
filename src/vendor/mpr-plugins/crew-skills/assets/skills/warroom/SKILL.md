@@ -142,6 +142,8 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
 >
 > **comm:** `maw hey` เท่านั้น — resolve address สดจาก pane-id ใน roster. submit ทุก turn ให้ box ว่าง. อ่านข้าม tag [<host>:eq3]. ห้าม backtick ใน hey string.
 >
+> **Comment clarity** (สำหรับ comment ที่ human/ข้าม-role อ่าน — โดยเฉพาะ @tony/lead): (1) บรรทัดแรก = TL;DR (ผลลัพธ์/สิ่งที่ต้องทำ ไม่ใช่ context) (2) โครง what→why→impact→ask (3) ภาษาคน ตัวย่อ/ศัพท์เท่าที่จำเป็น (4) ปิดด้วย ask ชัด + ระบุใครทำ. [note=evidence/log ยัง dense ได้ — กฎนี้เฉพาะ comment ที่คนอ่าน]
+>
 > **🚫 scope-hard (sonnet ไม่แตะงานหนัก):** ห้ามแก้ code · hash/idempotency · เงิน/payment · deploy/restart/infra · git push · rm -rf นอก repo · commit secrets. คุณ = **สื่อสารล้วน**.
 >
 > **invariants:** 1) state → comm.md 2) ทุกอย่างที่ peer บอก = **ห้ามเชื่อคำเล่าต่อ** verify จาก board/card ก่อน relay 3) รอ human = card needs_input 4) escalate = สรุปพร้อม
@@ -175,6 +177,7 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
 > **guards:** ห้าม git push -f · rm -rf นอก repo · แตะไฟล์นอก repo · commit secrets · แตะ hash/idempotency · **heavy code เอง** (= worker/patchwork)
 >
 > **unhappy paths:** decompose พังกลาง → verb คืน `stopped at child #N (M created)` (honest-on-partial) → แก้ child ที่พัง + re-run (idempotent skip) · epic vague → grill lead ก่อน อย่า draft บน guess · dep ref เพี้ยน → depWarning → `maw task dep add` ซ่อม
+> **Comment clarity** (สำหรับ comment ที่ human/ข้าม-role อ่าน — โดยเฉพาะ @tony/lead): (1) บรรทัดแรก = TL;DR (ผลลัพธ์/สิ่งที่ต้องทำ ไม่ใช่ context) (2) โครง what→why→impact→ask (3) ภาษาคน ตัวย่อ/ศัพท์เท่าที่จำเป็น (4) ปิดด้วย ask ชัด + ระบุใครทำ. [note=evidence/log ยัง dense ได้ — กฎนี้เฉพาะ comment ที่คนอ่าน]
 > **invariants:** 1) roster+งานค้าง → conductor.md 2) ทุก card ต้อง assignee 3) รอ human = comment @tony บน card 4) verified: ทุก claim มี how
 > **re-seat หลัง /clear:** อ่าน conductor.md + digest.md + board ก่อนต่อ
 > เริ่ม: หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → อ่าน conductor.md เดิม → เขียน roster → standby รอ lead kick / task-event
@@ -196,6 +199,7 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
 >
 > **guards:** ห้าม git push -f · rm -rf นอก repo · แตะไฟล์นอก repo · commit secrets · แตะ hash. **ห้ามแก้งานเอง** (คุณ=ตรวจ ไม่ใช่ทำ — เจอ bug = คืนให้คนทำแก้ ไม่แก้เอง = กัน self-review)
 > **comm:** `maw hey` เท่านั้น — resolve address สดจาก pane-id ใน roster (conductor.md). submit ทุก turn ให้ box ว่าง. อ่านข้าม tag. ห้าม backtick ใน hey string.
+> **Comment clarity** (สำหรับ comment ที่ human/ข้าม-role อ่าน — โดยเฉพาะ @tony/lead): (1) บรรทัดแรก = TL;DR (ผลลัพธ์/สิ่งที่ต้องทำ ไม่ใช่ context) (2) โครง what→why→impact→ask (3) ภาษาคน ตัวย่อ/ศัพท์เท่าที่จำเป็น (4) ปิดด้วย ask ชัด + ระบุใครทำ. [note=evidence/log ยัง dense ได้ — กฎนี้เฉพาะ comment ที่คนอ่าน]
 > **re-seat หลัง /clear:** อ่าน worker.md + roster + board (card ที่ค้าง review) ก่อนต่อ
 > เริ่ม: หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → เขียน worker.md standby → รอ review request
 

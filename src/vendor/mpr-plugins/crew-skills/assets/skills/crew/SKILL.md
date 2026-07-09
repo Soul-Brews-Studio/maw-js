@@ -150,6 +150,8 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 >
 > **comm**: คุยผ่าน `maw hey <addr>` เท่านั้น (ไม่มี SendMessage). ข้อความมี tag `[<host>:<oracle>]` นำหน้า — อ่านข้าม tag ได้. ไม่มี auto-idle-notif → **ping เอง** (Stop hook เสริม signal ให้ แต่เนื้อ = ไฟล์). **⚠️ submit ทุก turn ให้ input box ว่าง** — box ค้าง = `maw hey` deferred (มาไม่ถึง). backtick ใน hey string → quote ธรรมดา
 >
+> **Comment clarity** (สำหรับ comment ที่ human/ข้าม-role อ่าน — โดยเฉพาะ @tony/lead): (1) บรรทัดแรก = TL;DR (ผลลัพธ์/สิ่งที่ต้องทำ ไม่ใช่ context) (2) โครง what→why→impact→ask (3) ภาษาคน ตัวย่อ/ศัพท์เท่าที่จำเป็น (4) ปิดด้วย ask ชัด + ระบุใครทำ. [note=evidence/log ยัง dense ได้ — กฎนี้เฉพาะ comment ที่คนอ่าน]
+>
 > **⚠️ skip-permissions = ไม่มี gate → behavior guards (เด็ดขาด)**: ห้าม `git push -f` · ห้าม `rm -rf` นอก repo / `rm -rf ~` · ห้ามแตะไฟล์นอก repo · ห้าม commit secrets · ห้ามแตะ hash/idempotency logic. trust = oracle → ระวังเท่า oracle
 >
 > **re-seat หลัง clear**: `--append-system-prompt` รอด /clear แต่ context หาย *(verified 2026-07-04: identity คงหลัง clear)* → ทุก fresh turn/หลัง clear: **อ่าน `$CREW_STATE_DIR/worker-<N>.md` เดิมก่อน** แล้วทำต่อ. `worker-<N>.md` = ความจำเดียวที่รอด
@@ -171,6 +173,8 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 > **🚫 ห้าม `run_in_background`** · ห้ามแก้โค้ด/แตะไฟล์งาน (คุณ **ตรวจ ไม่แก้**) · behavior guards เท่า oracle (ห้าม `git push -f`, `rm -rf` นอก repo, commit secrets, แตะ hash/idempotency)
 >
 > **comm**: `maw hey <addr>` เท่านั้น. tag `[<host>:<oracle>]` นำหน้า — อ่านข้าม. **⚠️ submit ทุก turn ให้ box ว่าง** (box ค้าง = hey deferred). backtick ใน hey → quote ธรรมดา. front addr resolve สดจาก `CREW_COORD_PANE`.
+>
+> **Comment clarity** (สำหรับ comment ที่ human/ข้าม-role อ่าน — โดยเฉพาะ @tony/lead): (1) บรรทัดแรก = TL;DR (ผลลัพธ์/สิ่งที่ต้องทำ ไม่ใช่ context) (2) โครง what→why→impact→ask (3) ภาษาคน ตัวย่อ/ศัพท์เท่าที่จำเป็น (4) ปิดด้วย ask ชัด + ระบุใครทำ. [note=evidence/log ยัง dense ได้ — กฎนี้เฉพาะ comment ที่คนอ่าน]
 >
 > **verdict routing (Board Truth rule 12 + rule 3 — PR drives lifecycle):** reviewer = **pre-PR quality gate ไม่ใช่ done-closer**. **ไม่มี path ไหน reviewer ปิด card done เอง** — done มาจาก pr-watch ตอน PR merge เท่านั้น (kobo-205 dogfound board-lie: reviewer ปิด done ขณะ PR ยัง open + unstamped = board โกหก).
 > 1. อ่าน premise จาก card จริง + diff จริง (`gh pr diff <n> --repo <owner/name>`) — ground ก่อนตัดสิน
