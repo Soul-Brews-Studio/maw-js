@@ -27,9 +27,14 @@ const post = (body: unknown, spawn?: (a: string[]) => { exited: Promise<number> 
 describe("Brainstorm Room core wire (kobo-245)", () => {
   // kobo-249: /room/send now reads the room store (persist-at-send). Point it at an empty
   // temp home so these wire-only tests never touch real ~/.maw rooms.
+  // Hermetic-fix: /room/send's openR path hits the kobo-258 open-guard (companyExists),
+  // which reads company-helpers' FROZEN COMPANIES_DIR (= real ~/.maw at import). Without a
+  // registered company these tests passed LOCALLY (real ~/.maw has kobo) but were CI-fragile
+  // (empty ~/.maw → companyExists false → 404). Seed the company registry into the temp dir
+  // so the guard is satisfied hermetically; restore the frozen dir after.
   let dir: string; const prev = process.env.MAW_DATA_DIR;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomsend-")); process.env.MAW_DATA_DIR = dir; });
-  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; rmSync(dir, { recursive: true, force: true }); });
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomsend-")); process.env.MAW_DATA_DIR = dir; seedCompanies(dir, { kobo: "eq3" }); });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; _setCompaniesDir(origCompaniesDir); rmSync(dir, { recursive: true, force: true }); });
 
   test("roomTag / messageInRoom scope a message to one room", () => {
     expect(roomTag("demo")).toBe("[room:demo]");
