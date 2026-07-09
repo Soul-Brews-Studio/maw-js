@@ -970,6 +970,68 @@ export function migrateQuestionNotesToComments(
   return { cards, migrated: totalMigrated, skipped: totalSkipped, outcomes };
 }
 
+export interface LaneReconcileOutcome {
+  id: string; // card id
+  company: string;
+  from: TaskState; // lane before reconcile
+  to: TaskState; // lane after reconcile
+  action: "blocked" | "restored"; // forced off-flow, or restored to prevState
+}
+export interface LaneReconcileResult {
+  companies: number; // companies scanned
+  scanned: number; // active cards examined
+  changed: number; // cards whose lane was corrected
+  outcomes: LaneReconcileOutcome[];
+}
+
+/**
+ * One-shot board-wide reconcile (kobo-257, epic 251 slice F). Repairs cards written
+ * BEFORE the state-machine fix (kobo-252/253) that could sit in a FLOW lane
+ * (review/in-progress/todo/ready) while a dep was still pending — the "2-lane"
+ * board-lie (pgw-237 repro: state=review with only a derived blocked overlay). Runs
+ * the SAME {@link reconcileDependencyState} the live write-path now enforces on every
+ * card, so each lands on its single correct lane:
+ *   - pending dep in a flow lane  → blocked (+prevState remembering the lane)
+ *   - dep cleared on a dep-blocked → restored to prevState (the pre-fix backlog the
+ *     live auto-promote-back never fired on)
+ * Idempotent (a card already reconciled → reconcile returns null → skipped) and
+ * NON-destructive (only state/prevState/block change; nothing is deleted — the
+ * original lane is preserved in prevState, Principle 1). Scans ALL companies by
+ * default (`opts.company` narrows to one). `dryRun` reports what WOULD change
+ * without writing. Emits one worklog event per corrected card.
+ *
+ * Snapshot safety: the parent-state resolver is built once per company. Reconcile
+ * never moves a card to done/archived, so no dep becomes newly-satisfied mid-pass —
+ * the snapshot stays correct for the whole sweep.
+ */
+export function reconcileTwoLaneCards(
+  opts: { dryRun?: boolean; by?: string; company?: string } = {},
+): LaneReconcileResult {
+  const dryRun = opts.dryRun ?? false;
+  const actor = opts.by ?? "system";
+  const companies = opts.company ? [opts.company] : listCompanies();
+  const outcomes: LaneReconcileOutcome[] = [];
+  let scanned = 0;
+
+  for (const company of companies) {
+    const resolve = parentStateResolver(company);
+    for (const task of listTasks(company)) {
+      scanned++;
+      const from = task.state;
+      const action = reconcileDependencyState(task, resolve);
+      if (!action) continue; // already one truth — idempotent no-op
+      if (!dryRun) {
+        task.updatedTs = Date.now();
+        writeTaskRecord(task);
+        emit(task, actor, "task-updated", `reconcile ${action} ${task.id}: ${from}→${task.state} (kobo-257 migration)`);
+      }
+      outcomes.push({ id: task.id, company, from, to: task.state, action });
+    }
+  }
+
+  return { companies: companies.length, scanned, changed: outcomes.length, outcomes };
+}
+
 // ── @mentions + ask (kobo-126) ───────────────────────────────────────────────
 
 /**

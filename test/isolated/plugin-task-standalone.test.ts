@@ -39,7 +39,7 @@ describe("task command plugin standalone boundary", () => {
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "migrate-comments"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "approve"', 'subcmd === "need-answer"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "edit"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "decompose"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "migrate-comments"', 'subcmd === "migrate-lanes"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "approve"', 'subcmd === "need-answer"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "edit"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "decompose"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("setTaskDep"); // kobo-134: dep add/rm — edit parentIds post-create
@@ -74,6 +74,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).not.toContain('subcmd === "resolve"'); // kobo-237: resolve subcommand gone
     expect(src).not.toContain("|resolve|"); // kobo-238 fold: usage string must not advertise the removed verb
     expect(src).toContain("migrateQuestionNotesToComments"); // kobo-142: one-shot copy question-notes → comments (active cards, idempotent)
+    expect(src).toContain("reconcileTwoLaneCards"); // kobo-257: one-shot board-wide 2-lane reconcile migration (idempotent, non-destructive)
     expect(src).toContain("startTask"); // eq3-007: assignee picks up own work (todo → in-progress)
     expect(src).toContain("claimTask");
     expect(src).toContain("assignTask"); // set assignee

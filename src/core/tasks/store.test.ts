@@ -26,6 +26,7 @@ import {
   ReassignFrictionError,
   commentTask,
   migrateQuestionNotesToComments,
+  reconcileTwoLaneCards,
   completeTask,
   isStaleDecisionCard,
   lastActivityByOracle,
@@ -1725,6 +1726,69 @@ describe("@mentions + ask (kobo-126)", () => {
     const done = completeTask("pgw", q.id, "tony");
     expect(done!.state).toBe("done");
     expect(readTask("pgw", parent.id)!.state).toBe("in-progress"); // notify only — parent state never flipped
+  });
+});
+
+describe("reconcileTwoLaneCards — one-shot 2-lane migration (kobo-257, epic 251 slice F)", () => {
+  // Fabricate a PRE-FIX 2-lane lie: a card persisted in a FLOW lane with a still-pending
+  // dep and NO block — the shape the write-path now prevents but old records still hold.
+  const fabricate2Lane = (co: string, flowState: "review" | "in-progress") => {
+    const parent = addTask({ company: co, title: "parent", by: "x" }); // stays todo → pending
+    const child = addTask({ company: co, title: "child", by: "x", assignee: "p" });
+    const rec = readTask(co, child.id)!;
+    rec.state = flowState; rec.parentIds = [parent.id]; delete rec.block; delete rec.prevState;
+    require("fs").writeFileSync(taskFilePath(co, child.id), JSON.stringify(rec));
+    return { parent: parent.id, child: child.id };
+  };
+
+  test("forces a review/in-progress card with a pending dep → blocked + prevState (restorable)", () => {
+    for (const lane of ["review", "in-progress"] as const) {
+      const co = "k257f-" + lane;
+      const { child } = fabricate2Lane(co, lane);
+      const res = reconcileTwoLaneCards({ company: co });
+      expect(res.changed).toBe(1);
+      const t = readTask(co, child)!;
+      expect(t.state).toBe("blocked");
+      expect(t.block?.kind).toBe("dependency");
+      expect(t.prevState).toBe(lane); // remembers the flow lane — Nothing Deleted
+    }
+  });
+
+  test("restores a dep-blocked card whose dep already cleared → prevState (pre-fix backlog)", () => {
+    const co = "k257r";
+    const parent = addTask({ company: co, title: "parent", by: "x" });
+    const child = addTask({ company: co, title: "child", by: "x", assignee: "p" });
+    completeTask(co, parent.id, "x"); // parent done BEFORE child got the dep — live promote never fired
+    const rec = readTask(co, child.id)!;
+    rec.state = "blocked"; rec.block = { kind: "dependency" }; rec.prevState = "review"; rec.parentIds = [parent.id];
+    require("fs").writeFileSync(taskFilePath(co, child.id), JSON.stringify(rec));
+    const res = reconcileTwoLaneCards({ company: co });
+    expect(res.changed).toBe(1);
+    const t = readTask(co, child.id)!;
+    expect(t.state).toBe("review"); // restored to exact prevState
+    expect(t.block).toBeUndefined();
+    expect(t.prevState).toBeUndefined();
+  });
+
+  test("idempotent + non-destructive + dry-run writes nothing", () => {
+    const co = "k257i";
+    const { child } = fabricate2Lane(co, "review");
+    const dry = reconcileTwoLaneCards({ company: co, dryRun: true });
+    expect(dry.changed).toBe(1); // reports what WOULD change
+    expect(readTask(co, child)!.state).toBe("review"); // but writes nothing
+    expect(reconcileTwoLaneCards({ company: co }).changed).toBe(1); // real run corrects it
+    const t = readTask(co, child)!;
+    expect(t.title).toBe("child"); expect(t.assignee).toBe("p"); // identity intact — non-destructive
+    expect(reconcileTwoLaneCards({ company: co }).changed).toBe(0); // rerun → no-op (one truth)
+  });
+
+  test("scans ALL companies by default", () => {
+    fabricate2Lane("k257all-a", "review");
+    fabricate2Lane("k257all-b", "in-progress");
+    const res = reconcileTwoLaneCards();
+    expect(res.outcomes.some((o) => o.company === "k257all-a")).toBe(true);
+    expect(res.outcomes.some((o) => o.company === "k257all-b")).toBe(true);
+    expect(res.changed).toBeGreaterThanOrEqual(2);
   });
 });
 

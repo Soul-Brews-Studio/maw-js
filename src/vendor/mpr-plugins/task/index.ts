@@ -62,6 +62,7 @@ import {
   approveTask,
   needAnswerTask,
   migrateQuestionNotesToComments,
+  reconcileTwoLaneCards,
   parsePrRepo,
   readTask,
   rejectTask,
@@ -874,8 +875,22 @@ export async function runTask(
       for (const o of res.outcomes) {
         console.log(`  \x1b[90m${o.id}\x1b[0m +${o.migrated}${o.skipped ? ` \x1b[90m(${o.skipped} skipped)\x1b[0m` : ""}`);
       }
+    } else if (subcmd === "migrate-lanes") {
+      // One-shot board-wide reconcile (kobo-257, epic 251 slice F): repair pre-fix
+      // "2-lane" cards — a flow lane (review/in-progress) with a still-pending dep —
+      // to their single correct lane (pending → blocked+prevState · cleared →
+      // restore). Idempotent, non-destructive. Scans ALL companies (--company narrows).
+      // `maw company task migrate-lanes [--dry-run] [--company <c>]`.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--dry-run": Boolean }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const dryRun = flags["--dry-run"] === true;
+      const res = reconcileTwoLaneCards({ dryRun, by: me, company: flags["--company"] || undefined });
+      console.log(`${dryRun ? "\x1b[33mDRY-RUN\x1b[0m " : ""}\x1b[36m↦ reconcile\x1b[0m 2-lane cards: \x1b[32m${res.changed} corrected\x1b[0m \x1b[90m(${res.scanned} scanned across ${res.companies} company/ies)\x1b[0m`);
+      for (const o of res.outcomes) {
+        console.log(`  \x1b[90m${o.company}/${o.id}\x1b[0m ${o.from}→${o.to} \x1b[90m(${o.action})\x1b[0m`);
+      }
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|migrate-comments|review|hold|pr|done|note|edit|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|migrate-comments|migrate-lanes|review|hold|pr|done|note|edit|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };
