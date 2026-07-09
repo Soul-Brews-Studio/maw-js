@@ -102,6 +102,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("archiveTask"); // kobo-35: per-card archive by id (human "checked" a done card)
     expect(src).toContain("isOnBoard"); // board hides done outside the window
     expect(src).toContain("dependencyBlock"); // eq3-009a: derived blocked-by-dependency at board read
+    expect(src).toContain("isTerminalState(t.state)"); // kobo-246: a terminal card's dep-block is gated off the board render
     expect(src).toContain("needsOwner"); // eq3-011 kobo-14: todo+unassigned → Blocked lane
     expect(src).toContain("parentStateResolver");
     expect(src).toContain('"--parent"'); // add accepts parent deps

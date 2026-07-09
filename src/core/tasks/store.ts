@@ -49,6 +49,15 @@ export const TASK_STATES: TaskState[] = [
 // Tony/dependency detours — surfaced as their own lanes, never a progression step.
 export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "approve", "done"];
 
+// Terminal dispositions — a finished card. Derived off-flow signals (a still-pending
+// dependency, needs-owner) must NOT re-surface it: a done/rejected card doesn't care
+// that a parent is still open (kobo-246 — DISPLAY gate only; dependencyBlock itself is
+// unchanged). "archived" isn't a live board state but is terminal for parent-resolution.
+export const TERMINAL_STATES: readonly (TaskState | "archived")[] = ["done", "rejected", "archived"];
+export function isTerminalState(state: TaskState | "archived"): boolean {
+  return TERMINAL_STATES.includes(state);
+}
+
 /**
  * Why a card is held off the flow (ADR 0003 B). `dependency` is also the kind
  * the board DERIVES for a card waiting on a parent (Card A) — `block` is the

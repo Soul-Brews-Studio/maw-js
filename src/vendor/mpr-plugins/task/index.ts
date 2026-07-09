@@ -51,6 +51,7 @@ import {
   holdTask,
   isOnBoard,
   isStaleDecisionCard,
+  isTerminalState,
   lastActivityByOracle,
   listTasks,
   needsOwner,
@@ -198,7 +199,9 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, 
   // todo+unassigned). All three share ONE group — computed at read.
   const resolveParent = parentStateResolver(company);
   const dep = new Map(tasks.map((t) => [t.id, dependencyBlock(t, resolveParent)] as const));
-  const isDepBlocked = (t: TaskRecord) => dep.get(t.id)!.blockedBy.length > 0;
+  // A terminal card (done/rejected) is finished — a still-pending parent no longer
+  // holds it off-flow, so it stays in its lane without a 🚫 label (kobo-246).
+  const isDepBlocked = (t: TaskRecord) => !isTerminalState(t.state) && dep.get(t.id)!.blockedBy.length > 0;
   const offFlow = (t: TaskRecord) => t.state === "blocked" || isDepBlocked(t) || needsOwner(t);
   const flow = tasks.filter((t) => !offFlow(t));
   const blocked = tasks.filter(offFlow);

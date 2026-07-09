@@ -444,4 +444,21 @@ describe("maw company task runner (runTask)", () => {
     expect(r.ok).toBe(false);
     expect(readTask("pgw", "pgw-1")!.epic).toBeUndefined(); // never set to garbage
   });
+
+  // kobo-246 — the `ls` board (emitted via the runner) must NOT show the derived 🚫
+  // dep-block label on a done card whose parent is still pending, nor pull it off-flow;
+  // an active card with the same pending parent still must (no regression).
+  test("done card with a still-backlog parent → no 🚫 label, not pulled off-flow (kobo-246)", async () => {
+    await run(["add", "parent", "--company", "pgw"]); // pgw-1
+    await run(["move", "pgw-1", "backlog", "--company", "pgw"]); // parent parked → exempt from needsOwner
+    await run(["add", "child", "--company", "pgw", "--parent", "pgw-1"]); // pgw-2 depends on the pending parent
+    const active = (await run(["ls", "--company", "pgw"])).output;
+    expect(active).toContain("🚫 รอ: pgw-1"); // control: the not-yet-done child IS dep-blocked
+
+    await run(["done", "pgw-2", "--company", "pgw"]);
+    expect(readTask("pgw", "pgw-2")!.state).toBe("done");
+    const finished = (await run(["ls", "--company", "pgw"])).output;
+    expect(finished).not.toContain("🚫 รอ: pgw-1"); // done child no longer shows the label
+    expect(finished).not.toContain("BLOCKED"); // and isn't pulled into the Blocked lane
+  });
 });

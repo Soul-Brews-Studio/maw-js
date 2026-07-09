@@ -36,6 +36,7 @@ import {
   dependencyBlock,
   descendantCards,
   epicChildren,
+  isTerminalState,
   EpicArchiveBlockedError,
   epicRollup,
   familyNotes,
@@ -571,6 +572,15 @@ describe("dependency graph (ADR 0003 A — derived blocked-by-dependency, 1 hop)
     const r = dependencyBlock(child(["p1", "p2", "p3", "p4"]), resolve);
     expect(r.blockedBy).toEqual(["p1"]); // only the not-done active parent blocks
     expect(r.missing).toEqual(["p4"]); // unknown id → satisfied + surfaced
+  });
+
+  // kobo-246 — the shared display gate: a terminal card's derived dep-block must not
+  // re-surface it. dependencyBlock itself is unchanged; renders gate on this.
+  test("isTerminalState: done/rejected/archived terminal; every active/off-flow state is not", () => {
+    for (const s of ["done", "rejected", "archived"] as const) expect(isTerminalState(s)).toBe(true);
+    for (const s of ["backlog", "todo", "ready", "in-progress", "review", "need-answer", "approve", "blocked"] as const) {
+      expect(isTerminalState(s)).toBe(false); // an in-flow/off-flow card can still be dep-blocked
+    }
   });
 
   test("isBlockedByDependency: true while any parent pending, false once all satisfied", () => {
