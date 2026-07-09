@@ -9,9 +9,13 @@
  * `[room:<id>]`-tagged hey → another feed event → the web renders both sides by
  * filtering `/api/feed` on the room tag. Round-trip = hey + feed, zero new transport.
  *
- * Out of scope (later slices): thread persistence (2), attribution (3), merge (4),
- * distill-to-card (5). This is only the wire.
+ * kobo-241 (slice 2): the room is now a persisted OFF-CARD artifact
+ * (rooms/<id>.json). open/close/reopen + the thread render read/write that artifact;
+ * turns land in it via the room feed listener. Out of scope (later): attribution (3),
+ * merge (4), distill-to-card (5).
  */
+
+import { openRoom, closeRoom, reopenRoom, readRoom, listRooms } from "./store";
 
 /** The tag that scopes a message to a room (both directions carry it). */
 export function roomTag(room: string): string {
@@ -60,4 +64,61 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
   } catch (e) {
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "send failed" }, { status: 500 });
   }
+}
+
+// ── kobo-241 slice 2: off-card room-artifact lifecycle + thread read ──────────
+
+async function parseBody(request: Request): Promise<Record<string, unknown> | null> {
+  try { return (await request.json()) as Record<string, unknown>; } catch { return null; }
+}
+const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+
+/**
+ * POST /api/room/open — body { company, room, topic } → create/reopen the off-card
+ * artifact rooms/<id>.json (idempotent; a reopen keeps the thread). Returns the room.
+ */
+export async function handleRoomOpenRequest(request: Request): Promise<Response> {
+  const body = await parseBody(request);
+  if (!body) return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  const company = str(body.company), room = str(body.room), topic = str(body.topic);
+  if (!company || !room) return Response.json({ ok: false, error: "company and room are required" }, { status: 400 });
+  return Response.json({ ok: true, room: openRoom(company, room, topic) });
+}
+
+/** POST /api/room/close — { company, room } → status→closed (thread preserved). */
+export async function handleRoomCloseRequest(request: Request): Promise<Response> {
+  const body = await parseBody(request);
+  if (!body) return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  const company = str(body.company), room = str(body.room);
+  if (!company || !room) return Response.json({ ok: false, error: "company and room are required" }, { status: 400 });
+  const r = closeRoom(company, room);
+  if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
+  return Response.json({ ok: true, room: r });
+}
+
+/** POST /api/room/reopen — { company, room } → status→open (thread preserved). */
+export async function handleRoomReopenRequest(request: Request): Promise<Response> {
+  const body = await parseBody(request);
+  if (!body) return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  const company = str(body.company), room = str(body.room);
+  if (!company || !room) return Response.json({ ok: false, error: "company and room are required" }, { status: 400 });
+  const r = reopenRoom(company, room);
+  if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
+  return Response.json({ ok: true, room: r });
+}
+
+/**
+ * GET /api/room/thread?company=<c>&room=<id> — the persisted thread for the /room web
+ * view (durable, so a reopen reloads the full conversation). Omit `room` → the room
+ * list for the picker. Read-only.
+ */
+export function handleRoomThreadRequest(request: Request): Response {
+  const url = new URL(request.url);
+  const company = (url.searchParams.get("company") ?? "").trim();
+  const room = (url.searchParams.get("room") ?? "").trim();
+  if (!company) return Response.json({ ok: false, error: "company is required" }, { status: 400 });
+  if (!room) return Response.json({ ok: true, rooms: listRooms(company).map((r) => ({ id: r.id, topic: r.topic, status: r.status, updatedTs: r.updatedTs })) });
+  const r = readRoom(company, room);
+  if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
+  return Response.json({ ok: true, room: r });
 }

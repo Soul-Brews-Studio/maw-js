@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest } from "./route";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest } from "./route";
+import { appendRoomMessage } from "./store";
 
 const post = (body: unknown, spawn?: (a: string[]) => { exited: Promise<number> }) =>
   handleRoomSendRequest(
@@ -37,5 +41,42 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     const bad = await handleRoomSendRequest(new Request("http://x/api/room/send", { method: "POST", headers: { "content-type": "application/json" }, body: "nope" }), spawn);
     expect(bad.status).toBe(400);
     expect(calls).toEqual([]); // nothing delivered on a bad request
+  });
+});
+
+describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread)", () => {
+  let dir: string; const prev = process.env.MAW_DATA_DIR;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomroute-")); process.env.MAW_DATA_DIR = dir; });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; rmSync(dir, { recursive: true, force: true }); });
+
+  const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const closeR = (b: unknown) => handleRoomCloseRequest(new Request("http://x/api/room/close", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const reopenR = (b: unknown) => handleRoomReopenRequest(new Request("http://x/api/room/reopen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const thread = (q: string) => handleRoomThreadRequest(new Request("http://x/api/room/thread?" + q));
+
+  test("open → thread persists → close → reopen reloads the full thread", async () => {
+    const o = await openR({ company: "kobo", room: "demo", topic: "what to build" });
+    expect(o.status).toBe(200);
+    expect(((await o.json()) as { room: { status: string; topic: string } }).room).toMatchObject({ status: "open", topic: "what to build" });
+    appendRoomMessage("kobo", "demo", { id: "m1", from: "web", text: "hi", ts: 1 }); // simulate a captured turn
+    // thread read returns the persisted artifact
+    const t = await thread("company=kobo&room=demo").json() as { ok: boolean; room: { messages: unknown[]; status: string } };
+    expect(t.room.messages).toHaveLength(1);
+    // close keeps the thread
+    const closed = await (await closeR({ company: "kobo", room: "demo" })).json() as { room: { status: string } };
+    expect(closed.room.status).toBe("closed");
+    // reopen reloads it
+    const re = await (await reopenR({ company: "kobo", room: "demo" })).json() as { room: { status: string; messages: unknown[] } };
+    expect(re.room.status).toBe("open");
+    expect(re.room.messages).toHaveLength(1);
+  });
+
+  test("thread without room → the room list; guards: missing fields → 400/404", async () => {
+    await openR({ company: "kobo", room: "a", topic: "ta" });
+    const list = await thread("company=kobo").json() as { ok: boolean; rooms: Array<{ id: string }> };
+    expect(list.rooms.map((r) => r.id)).toEqual(["a"]);
+    expect(thread("").status).toBe(400); // no company
+    expect((await closeR({ company: "kobo", room: "ghost" })).status).toBe(404); // absent room
+    expect((await openR({ company: "kobo" })).status).toBe(400); // no room
   });
 });

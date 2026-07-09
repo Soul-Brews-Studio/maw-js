@@ -92,6 +92,12 @@ describe("watch command plugin standalone boundary", () => {
     // kobo-245: Brainstorm Room core wire — web input → hey to lead (delivery + MessageSend feed event).
     expect(serveSrc).toContain("handleRoomSendRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/send["']/);
+    // kobo-241: off-card room artifact — open/close/reopen + thread read + the feed listener that persists turns.
+    expect(serveSrc).toContain("registerRoomListener");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/open["']/);
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/close["']/);
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/reopen["']/);
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/room\/thread["']/);
     expect(serveSrc).toContain("handleRosterRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
     // kobo-104: per-pane presence detail GET (model + context%).
@@ -123,6 +129,8 @@ describe("watch command plugin standalone boundary", () => {
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/create"); // kobo-48
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/done"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/send"); // kobo-245 Brainstorm Room wire
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/open"); // kobo-241 artifact lifecycle
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/thread"); // kobo-241 persisted thread
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/roster"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/presence"); // kobo-104
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/state");

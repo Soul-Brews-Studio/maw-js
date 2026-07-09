@@ -18,13 +18,17 @@ import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
-import { handleRoomSendRequest } from "../../../core/room/route";
+import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest } from "../../../core/room/route";
+import { registerRoomListener } from "../../../core/room/listener";
 import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
 
 export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // capture (idempotent across reloads)
   registerWorklogListener(feedListeners);
+  // kobo-241 — persist room turns to the off-card artifact off the SAME feed events
+  // (both directions carry [room:<id>]); idempotent, no new capture.
+  registerRoomListener(feedListeners);
   // read/inject route
   ctx.http?.route("GET", "/api/worklog", (request: Request) => handleWorklogRequest(request));
   // company-ui timeline feed (behind auth — see PROTECTED "/worklog/feed")
@@ -70,6 +74,13 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // MessageSend feed event). The reply renders back on /room by filtering /api/feed on
   // the room tag — no new transport/session/pane. Behind auth (PROTECTED "/room/…").
   ctx.http?.route("POST", "/api/room/send", (request: Request) => handleRoomSendRequest(request));
+  // kobo-241 — off-card room artifact lifecycle + thread read. open/close/reopen write
+  // rooms/<id>.json (NEVER a kanban card); GET thread reloads the persisted conversation
+  // (private company convo, Rule 6). Behind auth (PROTECTED "/room/…").
+  ctx.http?.route("POST", "/api/room/open", (request: Request) => handleRoomOpenRequest(request));
+  ctx.http?.route("POST", "/api/room/close", (request: Request) => handleRoomCloseRequest(request));
+  ctx.http?.route("POST", "/api/room/reopen", (request: Request) => handleRoomReopenRequest(request));
+  ctx.http?.route("GET", "/api/room/thread", (request: Request) => handleRoomThreadRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company-ui presence roster (kobo-50): authoritative company membership for the
