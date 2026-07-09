@@ -18,7 +18,7 @@ import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
-import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest } from "../../../core/room/route";
+import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest } from "../../../core/room/route";
 import { registerRoomListener } from "../../../core/room/listener";
 import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
@@ -84,6 +84,9 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // kobo-244 — distill a room-artifact into a kanban card (the ONE room→board touch);
   // reuses addTask + writes the bidirectional card↔room link. Behind auth (PROTECTED).
   ctx.http?.route("POST", "/api/room/distill", (request: Request) => handleRoomDistillRequest(request));
+  // kobo-243 — lead-driven merge: consolidate same-problem rooms into one thread. Gated
+  // by confirm:true (NEVER auto-merge); sources archived (status→merged), not deleted.
+  ctx.http?.route("POST", "/api/room/merge", (request: Request) => handleRoomMergeRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company-ui presence roster (kobo-50): authoritative company membership for the

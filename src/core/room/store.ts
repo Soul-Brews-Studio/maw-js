@@ -16,7 +16,7 @@
 import { mkdirSync, writeFileSync, renameSync, readFileSync, existsSync, readdirSync } from "fs";
 import { mawDataPath } from "../xdg";
 
-export type RoomStatus = "open" | "closed";
+export type RoomStatus = "open" | "closed" | "merged";
 
 export interface RoomMessage {
   id: string; // source message-lifecycle id — dedup key (a hey can emit >1 feed event)
@@ -34,6 +34,8 @@ export interface RoomArtifact {
   updatedTs: number;
   messages: RoomMessage[];
   cardId?: string; // kobo-244: the kanban card distilled FROM this room (bidirectional provenance — the card records this room id back). The single point where a room touches the board.
+  mergedInto?: string; // kobo-243: set on a SOURCE room — the target it was consolidated into (archived, not deleted)
+  mergedFrom?: string[]; // kobo-243: set on the TARGET room — the source ids it absorbed (provenance)
 }
 
 /** company/id → safe single path segment (no traversal / separators / dots). */
@@ -134,6 +136,41 @@ export function linkRoomCard(company: string, id: string, cardId: string): RoomA
   room.updatedTs = Date.now();
   writeRoom(room);
   return room;
+}
+
+/**
+ * Consolidate SOURCE rooms into a TARGET room (kobo-243, slice 4). Lead-proposed +
+ * human-CONFIRMED at the route layer — this fn only EXECUTES a confirmed merge, it never
+ * decides to merge. The target absorbs every source thread (messages merged, deduped by
+ * id, time-ordered) so it holds all conversations; each source is ARCHIVED
+ * (status→"merged", mergedInto=target) and NEVER deleted (Principle 1: Nothing is
+ * Deleted — the source artifact stays on disk, linked for provenance). The target records
+ * every absorbed id in mergedFrom. Returns the merged target, or null if the target is
+ * absent. Sources that don't exist, equal the target, or are already merged are skipped.
+ */
+export function mergeRooms(company: string, targetId: string, sourceIds: string[]): RoomArtifact | null {
+  const target = readRoom(company, targetId);
+  if (!target) return null;
+  const absorbed: string[] = [];
+  for (const sid of sourceIds) {
+    if (sid === targetId) continue; // never merge a room into itself
+    const src = readRoom(company, sid);
+    if (!src || src.status === "merged") continue; // absent / already consolidated
+    for (const m of src.messages) {
+      if (!target.messages.some((t) => t.id === m.id)) target.messages.push(m); // dedup by source msg id
+    }
+    src.status = "merged";
+    src.mergedInto = targetId;
+    src.updatedTs = Date.now();
+    writeRoom(src); // archive the source — kept, not deleted
+    absorbed.push(sid);
+  }
+  if (!absorbed.length) return target; // nothing to merge — target unchanged
+  target.messages.sort((a, b) => (a.ts || 0) - (b.ts || 0)); // one time-ordered thread
+  target.mergedFrom = [...(target.mergedFrom ?? []), ...absorbed];
+  target.updatedTs = Date.now();
+  writeRoom(target);
+  return target;
 }
 
 /** Every room in a company (for the room list / picker). Absent dir → []. */

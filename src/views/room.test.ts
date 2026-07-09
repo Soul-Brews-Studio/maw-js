@@ -21,6 +21,16 @@ describe("Brainstorm Room view (kobo-245 wire + kobo-241 artifact)", () => {
     expect(isProtected("/room/send", "POST")).toBe(true); // control op (hey delivery)
     expect(isProtected("/room/thread", "GET")).toBe(true); // reveals a private company conversation (Rule 6)
     expect(isProtected("/room/open", "POST")).toBe(true);
+    expect(isProtected("/room/merge", "POST")).toBe(true); // kobo-243: merge writes artifacts → protected by the /room/ prefix
     expect(isProtected("/room", "GET")).toBe(false); // the /room VIEW itself stays public read
+  });
+
+  test("kobo-243 lead-driven merge: propose + human-confirm gate, no auto-merge", () => {
+    expect(html).toContain("/api/room/merge"); // the merge endpoint
+    expect(html).toContain("proposeMerge"); // lead proposes (never automatic)
+    expect(html).toContain("window.confirm"); // a human OKs before anything is written
+    expect(html).toContain("confirm: true"); // the server-side gate flag
+    expect(html).toContain("tgt.name = 'mtarget'"); // one target room survives (radio group)
+    expect(html).toContain("archived"); // sources kept, not deleted (Principle 1)
   });
 });

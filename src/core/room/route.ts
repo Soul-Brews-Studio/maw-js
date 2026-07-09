@@ -15,7 +15,7 @@
  * merge (4), distill-to-card (5).
  */
 
-import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard } from "./store";
+import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms } from "./store";
 import { addTask, readTask } from "../tasks/store";
 
 /** The tag that scopes a message to a room (both directions carry it). */
@@ -105,6 +105,29 @@ export async function handleRoomReopenRequest(request: Request): Promise<Respons
   if (!company || !room) return Response.json({ ok: false, error: "company and room are required" }, { status: 400 });
   const r = reopenRoom(company, room);
   if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
+  return Response.json({ ok: true, room: r });
+}
+
+/**
+ * POST /api/room/merge — { company, target, sources:[], confirm:true } → consolidate the
+ * source rooms INTO the target (kobo-243, lead-proposed merge of same-problem rooms). The
+ * `confirm` flag is the GATE: without confirm===true it 400s — a merge is NEVER automatic
+ * (the lead proposes, a human confirms, only then does it run). Sources are archived
+ * (status→"merged", linked via mergedInto), never deleted. Returns the merged target.
+ */
+export async function handleRoomMergeRequest(request: Request): Promise<Response> {
+  const body = await parseBody(request);
+  if (!body) return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  const company = str(body.company), target = str(body.target);
+  const sources = Array.isArray(body.sources) ? body.sources.map(str).filter(Boolean) : [];
+  if (!company || !target || !sources.length) {
+    return Response.json({ ok: false, error: "company, target and at least one source are required" }, { status: 400 });
+  }
+  if (body.confirm !== true) {
+    return Response.json({ ok: false, error: "merge requires confirm:true (never auto-merge — lead proposes, human confirms)" }, { status: 400 });
+  }
+  const r = mergeRooms(company, target, sources);
+  if (!r) return Response.json({ ok: false, error: `target room not found: ${target}` }, { status: 404 });
   return Response.json({ ok: true, room: r });
 }
 

@@ -38,6 +38,11 @@ export function roomHtml(): string {
     .composer input { flex:1 1 auto; }
     .status { color:var(--muted); font-size:12px; margin-top:8px; } .status.err { color:var(--bad); }
     .empty { color:var(--muted); padding:18px; text-align:center; }
+    .rstatus.err { color:var(--bad); }
+    .roomlist { display:flex; flex-direction:column; gap:6px; max-height:30vh; overflow-y:auto; margin-bottom:10px; }
+    .roomrow { display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:9px; padding:6px 10px; }
+    .roomrow .rid { color:var(--fg); } .roomrow .rtopic { color:var(--muted); font-size:12px; }
+    .roomrow .tag { font-size:11px; color:var(--muted); } .roomrow.merged { opacity:0.5; }
   </style>
 </head>
 <body>
@@ -74,6 +79,16 @@ export function roomHtml(): string {
     </div>
     <div id="status" class="status"></div>
   </main>
+
+  <section class="card merge" style="margin-top:14px;">
+    <div class="sub" style="margin-bottom:8px;">lead: merge same-problem rooms into one thread — <b>propose + confirm</b> (never automatic; sources are archived, not deleted)</div>
+    <div id="roomlist" class="roomlist"><div class="empty">no rooms yet</div></div>
+    <div class="roomctl">
+      <button id="proposeMerge" type="button">propose merge</button>
+      <span id="mergeStatus" class="rstatus"></span>
+    </div>
+    <div class="sub">check the rooms to fold in, pick one target (radio) to survive; you confirm before anything is written.</div>
+  </section>
 <script>
 const $ = (id) => document.getElementById(id);
 const thread = $('thread'), statusEl = $('status');
@@ -169,7 +184,66 @@ $('text').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.pre
 $('refresh').addEventListener('click', load);
 $('room').addEventListener('change', load);
 $('company').addEventListener('change', load);
+
+// kobo-243 — lead-driven merge. List the company's rooms; the lead checks the
+// same-problem rooms to fold in, picks one target to survive, then CONFIRMS. Nothing
+// is written until the confirm — the merge is a proposal, never automatic.
+const roomlist = $('roomlist');
+let allRooms = [];
+function setMergeStatus(msg, err) { const s = $('mergeStatus'); s.textContent = msg; s.className = 'rstatus' + (err ? ' err' : ''); }
+
+async function loadRooms() {
+  const company = $('company').value.trim();
+  if (!company) return;
+  try {
+    const res = await fetch('/api/room/thread?company=' + encodeURIComponent(company), { headers: { accept: 'application/json' } });
+    const j = await res.json();
+    allRooms = (j.ok && Array.isArray(j.rooms)) ? j.rooms : [];
+    renderRooms();
+  } catch (err) { /* keep the last list on a transient error */ }
+}
+
+function renderRooms() {
+  roomlist.replaceChildren();
+  if (!allRooms.length) { roomlist.appendChild(el('div', 'empty', 'no rooms yet')); return; }
+  for (const r of allRooms) {
+    const merged = r.status === 'merged';
+    const row = el('div', 'roomrow' + (merged ? ' merged' : ''));
+    if (!merged) {
+      const src = el('input'); src.type = 'checkbox'; src.className = 'msrc'; src.value = r.id; row.appendChild(src);
+      const tgt = el('input'); tgt.type = 'radio'; tgt.name = 'mtarget'; tgt.className = 'mtgt'; tgt.value = r.id; row.appendChild(tgt);
+    }
+    const meta = el('div');
+    meta.appendChild(el('span', 'rid', r.id));
+    if (r.topic) meta.appendChild(el('span', 'rtopic', ' · ' + r.topic));
+    meta.appendChild(el('span', 'tag', '  [' + r.status + ']'));
+    row.appendChild(meta);
+    roomlist.appendChild(row);
+  }
+}
+
+async function proposeMerge() {
+  const company = $('company').value.trim();
+  const sources = Array.from(document.querySelectorAll('.msrc:checked')).map((c) => c.value);
+  const targetEl = document.querySelector('.mtgt:checked');
+  const target = targetEl ? targetEl.value : '';
+  if (!target) { setMergeStatus('pick one target room (radio) to survive', true); return; }
+  const fold = sources.filter((s) => s !== target);
+  if (!fold.length) { setMergeStatus('check at least one OTHER room to fold into the target', true); return; }
+  // The confirm gate — a human OKs the proposal before a single byte is written.
+  if (!window.confirm('Merge ' + fold.length + ' room(s) into "' + target + '"? Their threads consolidate into one; the sources are archived (kept, not deleted).')) return;
+  try {
+    await post('/api/room/merge', { company, target: target, sources: fold, confirm: true });
+    setMergeStatus('merged ' + fold.length + ' room(s) into "' + target + '" — sources archived, not deleted', false);
+    loadRooms(); load();
+  } catch (err) { setMergeStatus('merge failed: ' + (err && err.message ? err.message : err), true); }
+}
+
+$('proposeMerge').addEventListener('click', proposeMerge);
+$('company').addEventListener('change', loadRooms);
+
 load();
+loadRooms();
 setInterval(load, 2500); // poll the artifact for the lead's reply (kobo-240: reply is async)
 </script>
 </body>

@@ -101,6 +101,9 @@ describe("watch command plugin standalone boundary", () => {
     // kobo-244: distill room-artifact → kanban card (the one room→board touch).
     expect(serveSrc).toContain("handleRoomDistillRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/distill["']/);
+    // kobo-243: lead-driven merge — consolidate same-problem rooms (confirm-gated).
+    expect(serveSrc).toContain("handleRoomMergeRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/merge["']/);
     expect(serveSrc).toContain("handleRosterRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
     // kobo-104: per-pane presence detail GET (model + context%).
@@ -135,6 +138,7 @@ describe("watch command plugin standalone boundary", () => {
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/open"); // kobo-241 artifact lifecycle
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/thread"); // kobo-241 persisted thread
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/distill"); // kobo-244 distill room→card
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/merge"); // kobo-243 lead-driven merge
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/roster"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/presence"); // kobo-104
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/state");

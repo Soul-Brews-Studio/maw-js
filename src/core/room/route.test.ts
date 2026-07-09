@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest } from "./route";
+import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest } from "./route";
 import { appendRoomMessage, readRoom } from "./store";
 import { readTask } from "../tasks/store";
 
@@ -115,5 +115,30 @@ describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread
     await openR({ company: "kobo", room: "g", topic: "t" });
     expect((await distill({ company: "kobo", room: "g" })).status).toBe(400); // no title
     expect((await distill({ room: "g", title: "x" })).status).toBe(400); // no company
+  });
+
+  const mergeR = (b: unknown) => handleRoomMergeRequest(new Request("http://x/api/room/merge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+
+  test("merge REQUIRES confirm:true — the gate blocks an auto-merge (400, no write)", async () => {
+    await openR({ company: "kobo", room: "t", topic: "survivor" });
+    await openR({ company: "kobo", room: "s", topic: "same problem" });
+    appendRoomMessage("kobo", "s", { id: "s1", from: "web", text: "src", ts: 1 });
+    // no confirm → 400, and the source is untouched
+    const blocked = await mergeR({ company: "kobo", target: "t", sources: ["s"] });
+    expect(blocked.status).toBe(400);
+    expect(readRoom("kobo", "s")!.status).toBe("open"); // NOT merged — nothing written
+    expect(((await blocked.json()) as { error: string }).error).toContain("confirm");
+  });
+
+  test("merge with confirm:true consolidates; missing fields → 400; absent target → 404", async () => {
+    await openR({ company: "kobo", room: "t", topic: "survivor" });
+    await openR({ company: "kobo", room: "s", topic: "same problem" });
+    appendRoomMessage("kobo", "s", { id: "s1", from: "web", text: "src", ts: 1 });
+    const ok = await mergeR({ company: "kobo", target: "t", sources: ["s"], confirm: true });
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as { room: { mergedFrom: string[] } }).room.mergedFrom).toEqual(["s"]);
+    expect(readRoom("kobo", "s")!.status).toBe("merged"); // archived, not deleted
+    expect((await mergeR({ company: "kobo", target: "t", confirm: true })).status).toBe(400); // no sources
+    expect((await mergeR({ company: "kobo", target: "ghost", sources: ["s"], confirm: true })).status).toBe(404);
   });
 });
