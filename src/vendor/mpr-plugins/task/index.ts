@@ -43,6 +43,7 @@ import {
   approvalTemplate,
   missingApprovalSections,
   claimTask,
+  commentClarityNudge,
   commentTask,
   completeTask,
   decomposeEpic,
@@ -821,6 +822,11 @@ export async function runTask(
       if (!t) return { ok: false, error: `task not found: ${id}` };
       const added = t.comments![t.comments!.length - 1];
       console.log(`\x1b[36m💬 comment\x1b[0m ${t.id} \x1b[90m(${added.id}${added.replyTo ? ` ↳ ${added.replyTo}` : ""})\x1b[0m: ${t.title}`);
+      // kobo-262 (interim nudge): a comment addressed to Tony/human gets a format reminder
+      // (tldr + ask, evidence folded). REMINDER only — the comment above is already posted;
+      // agent↔agent comments get nothing. Reject/structured = S2 (kobo-263).
+      const clarityNudge = commentClarityNudge(text);
+      if (clarityNudge) console.log(clarityNudge);
       // @mentions route the ask (kobo-140): ping each mentioned person (not self).
       for (const who of parseMentions(text)) {
         if (who === me) continue;

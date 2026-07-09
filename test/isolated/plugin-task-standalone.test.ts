@@ -70,6 +70,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("notifyTaskComment"); // kobo-46: a note by a non-author pokes the assignee (comment = poke) on task-events
     expect(src).toContain("notifyCommentReply"); // kobo-156: a reply also pokes the parent comment's author (thread reaches the person answered)
     expect(src).toContain("commentTask"); // kobo-140: threaded ask/answer comment (the ask channel — thread/@mention)
+    expect(src).toContain("commentClarityNudge"); // kobo-262: @tony/@human comment → tldr+ask format reminder (interim nudge)
     expect(src).not.toContain("resolveComment"); // kobo-237: resolve concept removed
     expect(src).not.toContain('subcmd === "resolve"'); // kobo-237: resolve subcommand gone
     expect(src).not.toContain("|resolve|"); // kobo-238 fold: usage string must not advertise the removed verb

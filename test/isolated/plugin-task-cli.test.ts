@@ -384,6 +384,16 @@ describe("maw company task runner (runTask)", () => {
     expect(bad.error).toContain("usage"); // resolve subcommand is gone → generic usage
   });
 
+  test("kobo-262: a comment @tony/@human emits the tldr+ask clarity nudge; agent↔agent doesn't (reminder, not reject)", async () => {
+    await run(["add", "card A", "--company", "pgw", "--assignee", "patchwork"]);
+    const toTony = await run(["comment", "pgw-1", "@tony", "approve", "the", "deploy?", "--from", "eq3", "--company", "pgw"]);
+    expect(toTony.ok).toBe(true); // NOT rejected — comment still posted (interim nudge)
+    expect(toTony.output).toContain("TL;DR"); // the format reminder is injected
+    const agent = await run(["comment", "pgw-1", "@patchwork", "rebased,", "ready", "--from", "eq3", "--company", "pgw"]);
+    expect(agent.ok).toBe(true);
+    expect(agent.output).not.toContain("TL;DR"); // agent↔agent → no nudge
+  });
+
   test("a @mention inside a NOTE does NOT enter the mentions queue (rule 10 — notes are log, not asks)", async () => {
     await run(["add", "card A", "--company", "pgw"]);
     await run(["note", "pgw-1", "logged:", "pinged", "@tony", "elsewhere", "--company", "pgw"]);

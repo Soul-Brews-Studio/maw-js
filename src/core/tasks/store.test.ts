@@ -14,6 +14,7 @@ import {
   TASK_STATES,
   mentionKey,
   parseMentions,
+  commentClarityNudge,
   pendingMentions,
   BLOCK_KINDS,
   blockNextAction,
@@ -1672,6 +1673,13 @@ describe("@mentions + ask (kobo-126)", () => {
   test("parseMentions pulls distinct canonical @mentions out of a note", () => {
     expect(parseMentions("hey @tony and @human, ask @eq3 too @tony").sort()).toEqual(["eq3", "tony"]);
     expect(parseMentions("no mentions here")).toEqual([]);
+  });
+
+  test("commentClarityNudge: a @tony/@human comment gets the tldr+ask reminder; agent↔agent gets nothing (kobo-262)", () => {
+    expect(commentClarityNudge("@tony can you approve?")).toContain("TL;DR"); // @tony → reminder
+    expect(commentClarityNudge("@human please decide")).toContain("ask"); // @human collapses to tony → reminder
+    expect(commentClarityNudge("@eq3 lgtm, merging")).toBeNull(); // agent↔agent → no nudge
+    expect(commentClarityNudge("no mention at all")).toBeNull(); // plain → no nudge
   });
 
   test("askTask creates a subcard assigned to the answerer + parent-linked (one shot)", () => {

@@ -1052,6 +1052,19 @@ export function parseMentions(text: string): string[] {
   return [...out];
 }
 
+/**
+ * A comment addressed to Tony/human (a `@tony`/`@human` mention, canonicalized to "tony")
+ * gets a format REMINDER — lead with a 1-line TL;DR + the ask, evidence folded (Board Truth
+ * rule 10 / kobo-226). kobo-262 (S1 #2, interim): this is a NUDGE only — the comment is
+ * still free-text and accepted; the tool just surfaces the reminder so the author reads
+ * cross-role comments the way Tony will. Structured fields + reject = S2 (kobo-263).
+ * agent↔agent comments (no human mention) get nothing → returns null.
+ */
+export function commentClarityNudge(text: string): string | null {
+  if (!parseMentions(text).includes("tony")) return null;
+  return "💡 this @-mentions Tony — lead with a 1-line TL;DR (the outcome/decision) + a clear ask (what Tony must do); put evidence in a folded detail. (reminder only — your comment was still posted)";
+}
+
 export interface PendingMention {
   id: string; // card id the mention is on
   title: string;
