@@ -18,7 +18,7 @@ import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
-import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest } from "../../../core/room/route";
+import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest } from "../../../core/room/route";
 import { registerRoomListener } from "../../../core/room/listener";
 import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
@@ -87,6 +87,9 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // kobo-243 — lead-driven merge: consolidate same-problem rooms into one thread. Gated
   // by confirm:true (NEVER auto-merge); sources archived (status→merged), not deleted.
   ctx.http?.route("POST", "/api/room/merge", (request: Request) => handleRoomMergeRequest(request));
+  // kobo-242 — CC-style activity for a room's participants: a pure join over the
+  // worklog feed + presence (reuses both readers, no new store). Behind auth ("/room/…").
+  ctx.http?.route("GET", "/api/room/activity", (request: Request) => handleRoomActivityRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company-ui presence roster (kobo-50): authoritative company membership for the

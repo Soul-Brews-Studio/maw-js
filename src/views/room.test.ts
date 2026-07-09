@@ -13,6 +13,12 @@ describe("Brainstorm Room view (kobo-245 wire + kobo-241 artifact)", () => {
     expect(html).toContain('id="company"'); // rooms are per-company
     expect(html).not.toContain("/api/feed"); // kobo-241: no longer renders from the ephemeral feed
   });
+  test("kobo-242: renders the participant activity panel (reuses /api/room/activity) + peer attribution", () => {
+    expect(html).toContain("/api/room/activity"); // CC-style activity, joins worklog+presence
+    expect(html).toContain('id="activity"'); // the activity panel
+    expect(html).toContain(".msg.peer"); // teammate turns styled distinctly from the lead
+    expect(html).toContain("· by "); // attribution label on a teammate turn
+  });
   test("no nested backtick breaks the single template literal (renders non-empty)", () => {
     expect(html.length).toBeGreaterThan(1000);
     expect(html).toContain("<!doctype html>");

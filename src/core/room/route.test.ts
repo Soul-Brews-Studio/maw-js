@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest } from "./route";
+import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest } from "./route";
 import { appendRoomMessage, readRoom } from "./store";
 import { readTask } from "../tasks/store";
 
@@ -70,6 +70,17 @@ describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread
     const re = await (await reopenR({ company: "kobo", room: "demo" })).json() as { room: { status: string; messages: unknown[] } };
     expect(re.room.status).toBe("open");
     expect(re.room.messages).toHaveLength(1);
+  });
+
+  test("activity → participants from the thread (worklog/presence absent → nulls); guards 400/404", async () => {
+    await openR({ company: "kobo", room: "demo", topic: "t" });
+    appendRoomMessage("kobo", "demo", { id: "m1", from: "conductor", text: "on it", ts: 1 });
+    const act = (q: string) => handleRoomActivityRequest(new Request("http://x/api/room/activity?" + q));
+    const j = await act("company=kobo&room=demo").json() as { ok: boolean; participants: Array<{ oracle: string; activity: string | null; busy: boolean }> };
+    expect(j.participants.map((p) => p.oracle)).toEqual(["conductor"]);
+    expect(j.participants[0]).toMatchObject({ activity: null, busy: false }); // no worklog/presence in the temp dir
+    expect(act("company=kobo").status).toBe(400); // no room
+    expect(act("company=kobo&room=ghost").status).toBe(404); // absent room
   });
 
   test("thread without room → the room list; guards: missing fields → 400/404", async () => {

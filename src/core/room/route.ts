@@ -17,6 +17,9 @@
 
 import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms } from "./store";
 import { addTask, readTask } from "../tasks/store";
+import { roomActivity } from "./activity";
+import { readWorklog } from "../worklog/store";
+import { readPresenceRows } from "../presence/route";
 
 /** The tag that scopes a message to a room (both directions carry it). */
 export function roomTag(room: string): string {
@@ -181,4 +184,20 @@ export async function handleRoomDistillRequest(request: Request): Promise<Respon
   const card = addTask({ company, title, by: "tony", room, ...(detail ? { body: detail } : {}), ...(assignee ? { assignee } : {}), ...(reviewer ? { reviewer } : {}) });
   const linked = linkRoomCard(company, room, card.id) ?? artifact;
   return Response.json({ ok: true, card, room: linked });
+}
+
+/**
+ * GET /api/room/activity?company=<c>&room=<id> — CC-style "who's doing what" for the
+ * room's participants (kobo-242, slice 3). A pure projection: participants from the
+ * artifact, "doing X" from the worklog feed, busy/ctx from presence — reuses all three
+ * readers, no new store. Read-only.
+ */
+export function handleRoomActivityRequest(request: Request): Response {
+  const url = new URL(request.url);
+  const company = (url.searchParams.get("company") ?? "").trim();
+  const room = (url.searchParams.get("room") ?? "").trim();
+  if (!company || !room) return Response.json({ ok: false, error: "company and room are required" }, { status: 400 });
+  const r = readRoom(company, room);
+  if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
+  return Response.json({ ok: true, participants: roomActivity(r, readWorklog(company, { limit: 200 }), readPresenceRows(Date.now())) });
 }

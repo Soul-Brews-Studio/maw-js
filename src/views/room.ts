@@ -33,7 +33,12 @@ export function roomHtml(): string {
     .msg { border:1px solid var(--line); border-left:3px solid var(--line); border-radius:10px; padding:8px 11px; }
     .msg .who { color:var(--muted); font-size:12px; margin-bottom:3px; }
     .msg .body { white-space:pre-wrap; word-break:break-word; }
-    .msg.mine { border-left-color:var(--accent); } .msg.lead { border-left-color:var(--link); }
+    .msg.mine { border-left-color:var(--accent); } .msg.lead { border-left-color:var(--link); } .msg.peer { border-left-color:#6fb3ff; }
+    #activity { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
+    #activity:empty { display:none; }
+    .act { display:flex; gap:8px; align-items:baseline; font-size:12px; color:var(--muted); }
+    .act .name { color:var(--fg); } .act .dot { font-size:10px; } .act .on { color:var(--ok); } .act .off { color:var(--muted); }
+    .act .doing { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .composer { display:flex; gap:8px; }
     .composer input { flex:1 1 auto; }
     .status { color:var(--muted); font-size:12px; margin-top:8px; } .status.err { color:var(--bad); }
@@ -66,6 +71,7 @@ export function roomHtml(): string {
       <button id="close" type="button">close</button>
       <span id="rstatus" class="rstatus"></span>
     </div>
+    <div id="activity"></div>
     <div id="thread"><div class="empty">open a room to start the thread</div></div>
     <div class="composer">
       <input id="text" placeholder="ask the lead… (Enter to send)" />
@@ -116,15 +122,42 @@ async function load() {
     const msgs = Array.isArray(j.room.messages) ? j.room.messages.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0)) : [];
     thread.replaceChildren();
     if (!msgs.length) { thread.appendChild(el('div', 'empty', 'no messages in room "' + room + '" yet')); return; }
-    const me = $('me').value.trim();
+    const me = $('me').value.trim(), lead = $('lead').value.trim();
     for (const m of msgs) {
-      const box = el('div', 'msg ' + (m.from === me ? 'mine' : 'lead'));
-      box.appendChild(el('div', 'who', m.from || '?'));
+      // attribution: my turn / the lead / a teammate the lead pulled in (kobo-242)
+      const role = m.from === me ? 'mine' : (m.from === lead ? 'lead' : 'peer');
+      const box = el('div', 'msg ' + role);
+      box.appendChild(el('div', 'who', (m.from || '?') + (role === 'peer' ? ' · by ' + (m.from || '?') : '')));
       box.appendChild(el('div', 'body', m.text || ''));
       thread.appendChild(box);
     }
     thread.scrollTop = thread.scrollHeight;
+    loadActivity();
   } catch (err) { setStatus('thread load failed: ' + (err && err.message ? err.message : err), true); }
+}
+
+// CC-style "who's doing what" for the room's teammates — reuses /api/room/activity
+// (a join over the worklog feed + presence, no new store). kobo-242.
+async function loadActivity() {
+  const { company, room } = ctx();
+  if (!company || !room) return;
+  try {
+    const res = await fetch('/api/room/activity?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(room), { headers: { accept: 'application/json' } });
+    if (!res.ok) { $('activity').replaceChildren(); return; }
+    const j = await res.json();
+    const parts = (j && j.ok && Array.isArray(j.participants)) ? j.participants : [];
+    const box = $('activity');
+    box.replaceChildren();
+    for (const p of parts) {
+      const row = el('div', 'act');
+      row.appendChild(el('span', 'dot ' + (p.busy ? 'on' : 'off'), p.busy ? '●' : '○'));
+      row.appendChild(el('span', 'name', p.oracle));
+      const doing = p.activity ? ('· ' + p.activity) : (p.busy ? '· active' : '· idle');
+      const ctxPct = (p.ctxRemaining != null) ? (' (' + p.ctxRemaining + '% ctx)') : '';
+      row.appendChild(el('span', 'doing', doing + ctxPct));
+      box.appendChild(row);
+    }
+  } catch { $('activity').replaceChildren(); } // activity is best-effort — never break the thread
 }
 
 function renderStatus(room) {
