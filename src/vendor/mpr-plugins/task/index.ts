@@ -43,7 +43,7 @@ import {
   approvalTemplate,
   missingApprovalSections,
   claimTask,
-  commentClarityNudge,
+  commentClarityError,
   commentTask,
   completeTask,
   decomposeEpic,
@@ -811,22 +811,22 @@ export async function runTask(
       // `--reply-to <cid>` threads under an existing comment. @mentions in the text
       // ping the mentioned people (the ask channel) AND poke the assignee.
       // `maw company task comment <id> "<text>" [--reply-to c2]`.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reply-to": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reply-to": String, "--tldr": String, "--ask": String, "--detail": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const text = flags._.slice(1).join(" ").trim();
-      if (!id || !text) return { ok: false, error: 'usage: maw company task comment <id> "<text>" [--reply-to <cid>]' };
+      if (!id || !text) return { ok: false, error: 'usage: maw company task comment <id> "<text>" [--reply-to <cid>] [--tldr <..> --ask <..> --detail <..>]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = commentTask(company, id, me, text, flags["--reply-to"]);
+      // kobo-263 GATE: a comment to @tony/@human must carry --tldr + --ask (structured
+      // enforce, supersedes the kobo-262 nudge). agent↔agent → free. Reject before the write.
+      const clarityErr = commentClarityError(text, flags["--tldr"], flags["--ask"], flags["--detail"]);
+      if (clarityErr) return { ok: false, error: clarityErr };
+      const t = commentTask(company, id, me, text, flags["--reply-to"], { tldr: flags["--tldr"], ask: flags["--ask"], detail: flags["--detail"] });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       const added = t.comments![t.comments!.length - 1];
       console.log(`\x1b[36m💬 comment\x1b[0m ${t.id} \x1b[90m(${added.id}${added.replyTo ? ` ↳ ${added.replyTo}` : ""})\x1b[0m: ${t.title}`);
-      // kobo-262 (interim nudge): a comment addressed to Tony/human gets a format reminder
-      // (tldr + ask, evidence folded). REMINDER only — the comment above is already posted;
-      // agent↔agent comments get nothing. Reject/structured = S2 (kobo-263).
-      const clarityNudge = commentClarityNudge(text);
-      if (clarityNudge) console.log(clarityNudge);
+      if (added.tldr) console.log(`  \x1b[1mTL;DR\x1b[0m ${added.tldr}${added.ask ? `\n  \x1b[36mask:\x1b[0m ${added.ask}` : ""}`); // structured echo (kobo-263)
       // @mentions route the ask (kobo-140): ping each mentioned person (not self).
       for (const who of parseMentions(text)) {
         if (who === me) continue;

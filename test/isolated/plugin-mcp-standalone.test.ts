@@ -121,6 +121,9 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // kobo-140: comment/comments — threaded ask channel. comment maps to
     // `comment <id> <text> [--reply-to cid]`. kobo-237: the resolve action is gone.
     expect(tools).toContain('["company", "task", "comment", cid, input.text');
+    // kobo-263: structured clarity (tldr/ask/detail) rides to the CLI gate — mcp/cli parity.
+    expect(tools).toContain('argv.push("--tldr", input.tldr)');
+    expect(tools).toContain('argv.push("--ask", input.ask)');
     expect(tools).toContain('["company", "task", "comments", needId("comments")');
     expect(tools).not.toContain('"task", "resolve"'); // kobo-237: resolve action removed
     expect(server).toContain('"comment"'); // enum + title advertise the verbs

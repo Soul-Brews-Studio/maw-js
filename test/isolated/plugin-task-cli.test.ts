@@ -374,7 +374,8 @@ describe("maw company task runner (runTask)", () => {
 
   test("mentions reads @mentions from COMMENTS (kobo-140 repoint; kobo-237: no resolve drop)", async () => {
     await run(["add", "card A", "--company", "pgw"]);
-    await run(["comment", "pgw-1", "@tony", "rename", "please?", "--company", "pgw"]);
+    // kobo-263: a @tony comment now needs --tldr + --ask (structured gate)
+    await run(["comment", "pgw-1", "@tony", "--tldr", "rename?", "--ask", "rename the card?", "--company", "pgw"]);
     const q = await run(["mentions", "--for", "tony", "--company", "pgw"]);
     expect(q.output).toContain("pgw-1");
     expect(q.output).toContain("@tony");
@@ -384,14 +385,21 @@ describe("maw company task runner (runTask)", () => {
     expect(bad.error).toContain("usage"); // resolve subcommand is gone → generic usage
   });
 
-  test("kobo-262: a comment @tony/@human emits the tldr+ask clarity nudge; agent↔agent doesn't (reminder, not reject)", async () => {
+  test("kobo-263: a @tony/@human comment REJECTS without --tldr+--ask; agent↔agent is free", async () => {
     await run(["add", "card A", "--company", "pgw", "--assignee", "patchwork"]);
-    const toTony = await run(["comment", "pgw-1", "@tony", "approve", "the", "deploy?", "--from", "eq3", "--company", "pgw"]);
-    expect(toTony.ok).toBe(true); // NOT rejected — comment still posted (interim nudge)
-    expect(toTony.output).toContain("TL;DR"); // the format reminder is injected
+    // @tony, no structured fields → rejected (must distill first)
+    const bare = await run(["comment", "pgw-1", "@tony", "approve", "the", "deploy?", "--from", "eq3", "--company", "pgw"]);
+    expect(bare.ok).toBe(false);
+    expect(bare.error).toContain("--tldr");
+    expect(readTask("pgw", "pgw-1")!.comments ?? []).toHaveLength(0); // nothing written on a reject
+    // @tony WITH tldr+ask → accepted + the structured echo renders
+    const full = await run(["comment", "pgw-1", "@tony", "--tldr", "deploy is green", "--ask", "approve prod?", "--from", "eq3", "--company", "pgw"]);
+    expect(full.ok).toBe(true);
+    expect(full.output).toContain("TL;DR");
+    expect(readTask("pgw", "pgw-1")!.comments!.at(-1)).toMatchObject({ tldr: "deploy is green", ask: "approve prod?" });
+    // agent↔agent → free, no fields required
     const agent = await run(["comment", "pgw-1", "@patchwork", "rebased,", "ready", "--from", "eq3", "--company", "pgw"]);
     expect(agent.ok).toBe(true);
-    expect(agent.output).not.toContain("TL;DR"); // agent↔agent → no nudge
   });
 
   test("a @mention inside a NOTE does NOT enter the mentions queue (rule 10 — notes are log, not asks)", async () => {

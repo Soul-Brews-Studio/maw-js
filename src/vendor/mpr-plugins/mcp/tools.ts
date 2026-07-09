@@ -62,6 +62,9 @@ export interface TaskInput {
   days?: number;       // archive
   text?: string;       // note/comment (required) — note or comment content
   replyTo?: string;    // comment: thread under this comment id
+  tldr?: string;       // comment: 1-line outcome/decision — REQUIRED on a @tony/@human comment (kobo-263)
+  ask?: string;        // comment: what Tony must do — REQUIRED on a @tony/@human comment (kobo-263)
+  detail?: string;     // comment: optional evidence/context (rendered collapsed)
   children?: DecomposePlanChild[]; // decompose (required): the plan's child cards
 }
 
@@ -270,6 +273,11 @@ export function taskArgs(input: TaskInput): string[] {
       if (!input.text) throw new Error("task comment requires text");
       const argv = ["company", "task", "comment", cid, input.text];
       if (input.replyTo) argv.push("--reply-to", input.replyTo);
+      // kobo-263 — structured clarity for a @tony/@human comment (tldr + ask required,
+      // detail optional). Passed through to the CLI gate (parity: same reject on the wire).
+      if (input.tldr) argv.push("--tldr", input.tldr);
+      if (input.ask) argv.push("--ask", input.ask);
+      if (input.detail) argv.push("--detail", input.detail);
       return [...argv, ...common()];
     }
     case "comments":

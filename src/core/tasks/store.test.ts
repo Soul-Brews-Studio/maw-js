@@ -14,7 +14,7 @@ import {
   TASK_STATES,
   mentionKey,
   parseMentions,
-  commentClarityNudge,
+  commentClarityError,
   pendingMentions,
   BLOCK_KINDS,
   blockNextAction,
@@ -1734,11 +1734,28 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(parseMentions("no mentions here")).toEqual([]);
   });
 
-  test("commentClarityNudge: a @tony/@human comment gets the tldr+ask reminder; agent↔agent gets nothing (kobo-262)", () => {
-    expect(commentClarityNudge("@tony can you approve?")).toContain("TL;DR"); // @tony → reminder
-    expect(commentClarityNudge("@human please decide")).toContain("ask"); // @human collapses to tony → reminder
-    expect(commentClarityNudge("@eq3 lgtm, merging")).toBeNull(); // agent↔agent → no nudge
-    expect(commentClarityNudge("no mention at all")).toBeNull(); // plain → no nudge
+  test("commentClarityError: a @tony/@human comment REQUIRES tldr+ask; agent↔agent is free (kobo-263)", () => {
+    // addressed to the human, missing fields → error (the tool rejects)
+    expect(commentClarityError("@tony approve?", undefined, undefined)).toContain("--tldr");
+    expect(commentClarityError("@tony", "deploy ready", undefined)).toContain("--ask"); // tldr but no ask
+    expect(commentClarityError("@human decide", "x", "  ")).not.toBeNull(); // blank ask → still error
+    // mention can live in any field (detected across text+tldr+ask+detail)
+    expect(commentClarityError("see below", undefined, "@tony approve X?")).toContain("--tldr");
+    // satisfied → null (accepted)
+    expect(commentClarityError("@tony", "deploy is green", "approve prod?")).toBeNull();
+    // agent↔agent → free (no requirement) even without fields
+    expect(commentClarityError("@eq3 lgtm merging", undefined, undefined)).toBeNull();
+    expect(commentClarityError("no mention at all", undefined, undefined)).toBeNull();
+  });
+
+  test("commentTask persists tldr/ask/detail; blanks are dropped (kobo-263)", () => {
+    const t = addTask({ company: "pgw", title: "c", by: "eq3" });
+    commentTask("pgw", t.id, "eq3", "@tony", undefined, { tldr: "deploy green", ask: "approve prod?", detail: "logs: ok" });
+    const c = readTask("pgw", t.id)!.comments!.at(-1)!;
+    expect(c).toMatchObject({ tldr: "deploy green", ask: "approve prod?", detail: "logs: ok" });
+    commentTask("pgw", t.id, "eq3", "plain agent note", undefined, { tldr: "  ", ask: "" });
+    const c2 = readTask("pgw", t.id)!.comments!.at(-1)!;
+    expect(c2.tldr).toBeUndefined(); expect(c2.ask).toBeUndefined(); // blanks not stored
   });
 
   test("askTask creates a subcard assigned to the answerer + parent-linked (one shot)", () => {

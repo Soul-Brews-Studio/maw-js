@@ -317,6 +317,12 @@ describe("taskArgs", () => {
     ]);
   });
 
+  test("comment: structured tldr/ask/detail ride to the CLI gate — parity (kobo-263)", () => {
+    expect(taskArgs({ action: "comment", id: "kobo-3", text: "@tony", tldr: "deploy green", ask: "approve prod?", detail: "logs ok" })).toEqual([
+      "company", "task", "comment", "kobo-3", "@tony", "--tldr", "deploy green", "--ask", "approve prod?", "--detail", "logs ok",
+    ]);
+  });
+
   test("comments: id only (kobo-140)", () => {
     expect(taskArgs({ action: "comments", id: "kobo-3" })).toEqual(["company", "task", "comments", "kobo-3"]);
   });

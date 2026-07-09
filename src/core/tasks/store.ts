@@ -105,6 +105,12 @@ export interface TaskComment {
   by: string; // author (oracle / human)
   text: string; // comment content (rendered escape-first on the web)
   replyTo?: string; // parent comment id — a reply in the thread (kobo-140)
+  // kobo-263: structured clarity for a comment addressed to Tony/human. tldr + ask are
+  // REQUIRED on a @tony/@human comment (the tool rejects without them); detail is optional.
+  // Absent on an agent↔agent comment (fields are free there) and on legacy comments.
+  tldr?: string; // 1-line outcome/decision
+  ask?: string; // what Tony must do (pick X? approve Y?)
+  detail?: string; // optional evidence/context — rendered collapsed
   // kobo-237: the resolve concept is removed (verb/read/write gone everywhere). These
   // three fields are KEPT in the type as LEGACY-ONLY (Nothing is Deleted) so a comment
   // that carries them from before still deserializes — nothing reads or writes them now.
@@ -865,6 +871,7 @@ export function commentTask(
   by: string,
   text: string,
   replyTo?: string,
+  opts: { tldr?: string; ask?: string; detail?: string } = {},
 ): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
@@ -874,6 +881,9 @@ export function commentTask(
   }
   const comment: TaskComment = { id: `c${existing.length + 1}`, ts: Date.now(), iso: nowIso(), by, text };
   if (replyTo) comment.replyTo = replyTo;
+  if (opts.tldr?.trim()) comment.tldr = opts.tldr.trim();
+  if (opts.ask?.trim()) comment.ask = opts.ask.trim();
+  if (opts.detail?.trim()) comment.detail = opts.detail.trim();
   task.comments = [...existing, comment]; // append-only — prior comments untouched
   task.updatedTs = comment.ts;
   writeTaskRecord(task);
@@ -1053,16 +1063,20 @@ export function parseMentions(text: string): string[] {
 }
 
 /**
- * A comment addressed to Tony/human (a `@tony`/`@human` mention, canonicalized to "tony")
- * gets a format REMINDER — lead with a 1-line TL;DR + the ask, evidence folded (Board Truth
- * rule 10 / kobo-226). kobo-262 (S1 #2, interim): this is a NUDGE only — the comment is
- * still free-text and accepted; the tool just surfaces the reminder so the author reads
- * cross-role comments the way Tony will. Structured fields + reject = S2 (kobo-263).
- * agent↔agent comments (no human mention) get nothing → returns null.
+ * The clarity GATE for a comment addressed to Tony/human (kobo-263, S2 — supersedes the
+ * kobo-262 interim nudge). A comment that @-mentions the human (@tony/@human, canonicalized
+ * to "tony", detected across text + tldr + ask + detail) MUST carry a `tldr` (1-line
+ * outcome/decision) AND an `ask` (what Tony must do) — the same shape as the need-answer
+ * gate. Returns an error string when the requirement is unmet (the tool rejects); null when
+ * the comment is fine — either it satisfies the gate, or it's agent↔agent (fields are free).
  */
-export function commentClarityNudge(text: string): string | null {
-  if (!parseMentions(text).includes("tony")) return null;
-  return "💡 this @-mentions Tony — lead with a 1-line TL;DR (the outcome/decision) + a clear ask (what Tony must do); put evidence in a folded detail. (reminder only — your comment was still posted)";
+export function commentClarityError(text: string, tldr?: string, ask?: string, detail?: string): string | null {
+  const addressed = parseMentions([text, tldr, ask, detail].filter(Boolean).join(" ")).includes("tony");
+  if (!addressed) return null; // agent↔agent — tldr/ask not required
+  if (!tldr?.trim() || !ask?.trim()) {
+    return "a comment to @tony/@human must lead with --tldr <1-line outcome/decision> and --ask <what Tony must do> (--detail optional). distill it first — same gate as need-answer --reason.";
+  }
+  return null;
 }
 
 export interface PendingMention {

@@ -501,6 +501,12 @@ function companyBody(): string {
     #detail-comments .cmt-author { font-weight:600; color:var(--fg); }
     #detail-comments .cmt-ts { color:var(--muted); font-size:11px; margin-left:auto; font-variant-numeric:tabular-nums; }
     #detail-comments .cmt-body { color:var(--fg); font-size:13px; word-break:break-word; }
+    /* kobo-263 structured @tony comment: tldr prominent · ask clear · detail folded */
+    #detail-comments .cmt-tldr { color:var(--fg); font-weight:600; font-size:13px; margin:2px 0; word-break:break-word; }
+    #detail-comments .cmt-ask { display:flex; gap:6px; align-items:baseline; font-size:13px; margin:3px 0; color:var(--fg); }
+    #detail-comments .cmt-ask .cmt-ask-lbl { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--accent); border:1px solid var(--accent); border-radius:6px; padding:0 5px; }
+    #detail-comments .cmt-detail { margin-top:4px; font-size:12px; }
+    #detail-comments .cmt-detail .cmt-detail-sum { color:var(--muted); cursor:pointer; user-select:none; }
     #detail-comments .cmt-body.md p { margin:6px 0; line-height:1.6; }
     #detail-comments .cmt-body.md p:first-child { margin-top:0; }
     #detail-comments .cmt-body.md p:last-child { margin-bottom:0; }
@@ -1444,9 +1450,22 @@ function commentBubble(task, c, indent, parent) {
     });
     main.appendChild(chip);
   }
-  const body = el('div', 'cmt-body md');
-  body.innerHTML = renderNoteBody(c.text || ''); // same escape-first markdown+image path as notes
-  main.appendChild(body);
+  // kobo-263 — a structured @tony/@human comment renders tldr-prominent, ask clear, detail
+  // COLLAPSED (click-expand). A plain/legacy/agent comment renders its text as before.
+  if (c.tldr) {
+    const tldr = el('div', 'cmt-tldr', c.tldr); main.appendChild(tldr); // 1-line outcome/decision, prominent (textContent = escape-safe)
+    if (c.ask) { const ask = el('div', 'cmt-ask'); ask.appendChild(el('span', 'cmt-ask-lbl', 'ask')); ask.appendChild(el('span', '', c.ask)); main.appendChild(ask); }
+    if (c.detail) {
+      const det = el('details', 'cmt-detail');
+      det.appendChild(el('summary', 'cmt-detail-sum', 'detail'));
+      const db = el('div', 'cmt-body md'); db.innerHTML = renderNoteBody(c.detail); // evidence, folded
+      det.appendChild(db); main.appendChild(det);
+    }
+  } else {
+    const body = el('div', 'cmt-body md');
+    body.innerHTML = renderNoteBody(c.text || ''); // same escape-first markdown+image path as notes
+    main.appendChild(body);
+  }
   // reply action (kobo-237: the resolve button is removed — resolve concept gone).
   const actions = el('div', 'cmt-actions');
   const replyBtn = el('button', 'cmt-act', '↩ reply'); replyBtn.type = 'button';
