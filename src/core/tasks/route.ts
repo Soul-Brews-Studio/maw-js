@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, ReassignFrictionError, rejectTask, resolveComment, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, ReassignFrictionError, rejectTask, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyCommentReply, notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -173,40 +173,10 @@ export async function handleTaskCommentRequest(request: Request): Promise<Respon
   return Response.json({ ok: true, id: task.id, comments: task.comments });
 }
 
-/**
- * POST /api/tasks/resolve — resolve a threaded comment from the web board (kobo-141).
- * Flips the comment's `resolved` flag (c1's resolveComment — Principle 1: the text
- * is never removed) so an @mention drops out of the mentions queue. Idempotent.
- * `by` is "tony" (the web board is Tony's surface).
- *
- * Body: { company, id, commentId } → { ok:true, id, comments } | { ok:false, error }.
- * A commentId not on this card → 404.
- */
-export async function handleTaskResolveRequest(request: Request): Promise<Response> {
-  let body: { company?: unknown; id?: unknown; commentId?: unknown };
-  try {
-    body = (await request.json()) as { company?: unknown; id?: unknown; commentId?: unknown };
-  } catch {
-    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
-  }
-  const company = typeof body.company === "string" ? body.company : "";
-  const id = typeof body.id === "string" ? body.id : "";
-  const commentId = typeof body.commentId === "string" ? body.commentId.trim() : "";
-  if (!company || !id || !commentId) {
-    return Response.json({ ok: false, error: "company, id, and commentId are required" }, { status: 400 });
-  }
-  let task: TaskRecord | null;
-  try {
-    task = resolveComment(company, id, commentId, "tony");
-  } catch (e) {
-    // c1 throws when the commentId isn't on this card → 404 (nothing to resolve).
-    return Response.json({ ok: false, error: e instanceof Error ? e.message : "comment not found" }, { status: 404 });
-  }
-  if (!task) {
-    return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
-  }
-  return Response.json({ ok: true, id: task.id, comments: task.comments });
-}
+// kobo-237: POST /api/tasks/resolve removed — the resolve concept is gone
+// end-to-end. The mentions queue is trimmed by the reader's mark-as-read (kobo-238),
+// not by resolving a comment. Legacy `resolved` fields on stored comments are kept
+// but never read/written.
 
 /**
  * POST /api/tasks/archive — per-card archive from the web board (kobo-35). The

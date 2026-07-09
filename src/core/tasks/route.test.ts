@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskAssignRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskEditRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskRejectRequest, handleTaskResolveRequest, handleTasksRequest } from "./route";
+import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskAssignRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskEditRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskRejectRequest, handleTasksRequest } from "./route";
 import { addTask, assignTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
@@ -224,17 +224,13 @@ describe("handleTaskNoteRequest (POST /api/tasks/note — kobo-46)", () => {
   });
 });
 
-describe("handleTaskCommentRequest / handleTaskResolveRequest (POST /api/tasks/comment + /resolve — kobo-141)", () => {
+describe("handleTaskCommentRequest (POST /api/tasks/comment — kobo-141; kobo-237 removed resolve)", () => {
   const comment = (body: unknown) =>
     handleTaskCommentRequest(new Request("http://x/api/tasks/comment", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     }));
-  const resolve = (body: unknown) =>
-    handleTaskResolveRequest(new Request("http://x/api/tasks/resolve", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-    }));
 
-  test("adds a threaded comment by=tony (+ reply) and resolve flips the flag", async () => {
+  test("adds a threaded comment by=tony (+ reply) — thread still works with no resolve", async () => {
     const t = addTask({ company: "cmt", title: "ask target", by: "eq3", assignee: "patchwork" });
     const c1 = await comment({ company: "cmt", id: t.id, text: "@tony ship?" });
     expect(c1.status).toBe(200);
@@ -242,18 +238,14 @@ describe("handleTaskCommentRequest / handleTaskResolveRequest (POST /api/tasks/c
     expect(j1.ok).toBe(true);
     expect(j1.comments).toHaveLength(1);
     expect(j1.comments[0]).toMatchObject({ id: "c1", by: "tony", text: "@tony ship?" });
-    // reply threads under c1
+    // reply threads under c1 (Phase C — no regress)
     const c2 = await comment({ company: "cmt", id: t.id, text: "yes", replyTo: "c1" });
-    const j2 = (await c2.json()) as { comments: Array<{ id: string; replyTo?: string }> };
+    const j2 = (await c2.json()) as { comments: Array<{ id: string; replyTo?: string; resolved?: boolean }> };
     expect(j2.comments[1]).toMatchObject({ id: "c2", replyTo: "c1" });
-    // resolve c1 → resolved flag set, text preserved (Principle 1)
-    const r = await resolve({ company: "cmt", id: t.id, commentId: "c1" });
-    expect(r.status).toBe(200);
-    const jr = (await r.json()) as { comments: Array<{ id: string; resolved?: boolean; resolvedBy?: string; text: string }> };
-    expect(jr.comments[0]).toMatchObject({ id: "c1", resolved: true, resolvedBy: "tony", text: "@tony ship?" });
+    expect(j2.comments[0].resolved).toBeUndefined(); // never resolved (concept gone)
   });
 
-  test("comment GET-projection exposes comments[]; bad replyTo → 400; unknown id/comment → 404; missing fields/bad JSON → 400", async () => {
+  test("comment GET-projection exposes comments[]; bad replyTo → 400; unknown id → 404; missing fields/bad JSON → 400", async () => {
     const t = addTask({ company: "cmt2", title: "proj", by: "eq3", assignee: "patchwork" });
     commentTask("cmt2", t.id, "eq3", "hi");
     const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=cmt2")).json()) as {
@@ -264,8 +256,6 @@ describe("handleTaskCommentRequest / handleTaskResolveRequest (POST /api/tasks/c
     expect((await comment({ company: "cmt2", id: t.id, text: "x", replyTo: "c99" })).status).toBe(400);
     expect((await comment({ company: "cmt2", id: t.id })).status).toBe(400); // no text
     expect((await comment({ company: "cmt2", id: "cmt2-999", text: "x" })).status).toBe(404);
-    expect((await resolve({ company: "cmt2", id: t.id, commentId: "c99" })).status).toBe(404); // no such comment
-    expect((await resolve({ company: "cmt2", id: t.id })).status).toBe(400); // no commentId
     const bad = await handleTaskCommentRequest(new Request("http://x/api/tasks/comment", { method: "POST", headers: { "content-type": "application/json" }, body: "not json" }));
     expect(bad.status).toBe(400);
   });

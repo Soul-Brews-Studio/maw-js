@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "approve" | "need-answer" | "pr" | "done" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "review" | "hold" | "approve" | "need-answer" | "pr" | "done" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
 
 /** One child in a decompose plan (kobo-146 C7). Mirror of the store's DecomposeChild — kept local so tools.ts stays a pure argv mapper with no core import. */
 export interface DecomposePlanChild {
@@ -62,7 +62,6 @@ export interface TaskInput {
   days?: number;       // archive
   text?: string;       // note/comment (required) — note or comment content
   replyTo?: string;    // comment: thread under this comment id
-  commentId?: string;  // resolve (required): the comment id to resolve
   children?: DecomposePlanChild[]; // decompose (required): the plan's child cards
 }
 
@@ -275,12 +274,7 @@ export function taskArgs(input: TaskInput): string[] {
     }
     case "comments":
       return ["company", "task", "comments", needId("comments"), ...common()];
-    case "resolve": {
-      // kobo-140 — resolve a comment thread. id=card, commentId=the comment.
-      const rid = needId("resolve");
-      if (!input.commentId) throw new Error("task resolve requires commentId");
-      return ["company", "task", "resolve", rid, input.commentId, ...common()];
-    }
+    // kobo-237: the `resolve` action is removed — the resolve concept is gone.
     case "epic": {
       // kobo-72 — set/clear containment parent. epic set → re-link; omit → --clear.
       const eid = needId("epic");

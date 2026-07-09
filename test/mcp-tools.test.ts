@@ -308,18 +308,12 @@ describe("taskArgs", () => {
     expect(taskArgs({ action: "comments", id: "kobo-3" })).toEqual(["company", "task", "comments", "kobo-3"]);
   });
 
-  test("resolve: id + commentId (kobo-140)", () => {
-    expect(taskArgs({ action: "resolve", id: "kobo-3", commentId: "c2" })).toEqual([
-      "company", "task", "resolve", "kobo-3", "c2",
-    ]);
-  });
-
-  test("comment/comments/resolve: missing required parts throw (kobo-140)", () => {
+  // kobo-237: the `resolve` action is removed — taskArgs no longer maps it (falls
+  // through the switch → undefined). The standalone boundary test pins its absence.
+  test("comment/comments: missing required parts throw (kobo-140)", () => {
     expect(() => taskArgs({ action: "comment", id: "kobo-3" })).toThrow(/text/);
     expect(() => taskArgs({ action: "comment", text: "x" })).toThrow(/requires an id/);
     expect(() => taskArgs({ action: "comments" })).toThrow(/requires an id/);
-    expect(() => taskArgs({ action: "resolve", id: "kobo-3" })).toThrow(/commentId/);
-    expect(() => taskArgs({ action: "resolve", commentId: "c1" })).toThrow(/requires an id/);
   });
 
   test("archive: bare + --days + --company", () => {

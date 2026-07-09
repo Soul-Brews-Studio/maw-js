@@ -27,7 +27,6 @@ import {
   commentTask,
   migrateQuestionNotesToComments,
   completeTask,
-  resolveComment,
   isStaleDecisionCard,
   lastActivityByOracle,
   STALE_DECISION_MS,
@@ -1502,7 +1501,7 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(askTask("pgw", "pgw-nope", "q?", "tony", "patchwork")).toBeNull(); // no parent → null
   });
 
-  test("pendingMentions reads unresolved COMMENTS with @mentions and drops resolved ones (kobo-140 repoint)", () => {
+  test("pendingMentions reads every COMMENT with an @mention (kobo-237: no resolve drop)", () => {
     const a = addTask({ company: "pgw", title: "card A", by: "eq3" });
     commentTask("pgw", a.id, "eq3", "@tony rename to Foo?");
     const b = addTask({ company: "pgw", title: "card B", by: "eq3" });
@@ -1510,14 +1509,9 @@ describe("@mentions + ask (kobo-126)", () => {
 
     const all = pendingMentions("pgw");
     expect(all.map((m) => m.id).sort()).toEqual([a.id, b.id].sort());
-    expect(all.every((m) => m.commentId === "c1")).toBe(true); // carries the resolve target
+    expect(all.every((m) => m.commentId === "c1")).toBe(true); // carries the comment id
     // --for filters (and @human aliases to tony)
     expect(pendingMentions("pgw", "human").map((m) => m.id)).toEqual([a.id]);
-
-    // resolving A's comment drops it from the queue (explicit resolve, not "noted after")
-    resolveComment("pgw", a.id, "c1", "tony");
-    expect(pendingMentions("pgw", "tony")).toEqual([]);
-    expect(pendingMentions("pgw", "patchwork").map((m) => m.id)).toEqual([b.id]); // B still pending
   });
 
   test("pendingMentions ignores @mentions inside NOTES (notes are log/evidence, not asks — rule 10)", () => {
@@ -1540,23 +1534,12 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(commentTask("pgw", "pgw-nope", "eq3", "x")).toBeNull();
   });
 
-  test("resolveComment flips the flag once (idempotent, Principle 1: text kept), throws on a bad id", () => {
-    const card = addTask({ company: "pgw", title: "card", by: "eq3" });
-    commentTask("pgw", card.id, "eq3", "@tony ok?");
-    const r = resolveComment("pgw", card.id, "c1", "tony")!;
-    expect(r.comments![0].resolved).toBe(true);
-    expect(r.comments![0].resolvedBy).toBe("tony");
-    expect(r.comments![0].text).toBe("@tony ok?"); // text never removed
-    // idempotent — resolving again keeps the original resolver
-    resolveComment("pgw", card.id, "c1", "eq3");
-    expect(readTask("pgw", card.id)!.comments![0].resolvedBy).toBe("tony");
-    expect(() => resolveComment("pgw", card.id, "c99", "eq3")).toThrow();
-    expect(resolveComment("pgw", "pgw-nope", "c1", "eq3")).toBeNull();
-  });
+  // kobo-237: resolveComment removed — the resolve concept is gone. The comment/reply
+  // thread (above) still works; a comment is never resolved/closed.
 
   // kobo-142 (C3): migrate question-notes (notes with @mentions — the old ask
-  // channel) into comments[] on ACTIVE cards. COPY (note kept), idempotent, and
-  // already-answered questions migrate as resolved so the queue isn't resurfaced.
+  // channel) into comments[] on ACTIVE cards. COPY (note kept), idempotent.
+  // kobo-237: NO resolve stamping — migrated comments are plain comments.
   test("migrateQuestionNotesToComments copies @-notes to comments (note kept), skips plain notes + done/rejected cards", () => {
     const a = addTask({ company: "pgw", title: "card A", by: "eq3", assignee: "patchwork" });
     noteTask("pgw", a.id, "eq3", "@tony rename to Foo?"); // question-note → migrates
@@ -1581,16 +1564,15 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(readTask("pgw", done.id)!.comments ?? []).toEqual([]);
   });
 
-  test("migrateQuestionNotesToComments marks an ANSWERED question-note as resolved (queue not resurfaced)", () => {
+  test("migrateQuestionNotesToComments does NOT resolve an answered note (kobo-237: resolve gone)", () => {
     const b = addTask({ company: "pgw", title: "card B", by: "eq3" });
     noteTask("pgw", b.id, "eq3", "@tony ship X or Y?");
-    noteTask("pgw", b.id, "tony", "Y please"); // tony replied later → answered
+    noteTask("pgw", b.id, "tony", "Y please"); // tony replied later — no longer special
 
     migrateQuestionNotesToComments("pgw");
     const cb = readTask("pgw", b.id)!;
-    expect(cb.comments![0].resolved).toBe(true);
-    expect(cb.comments![0].resolvedBy).toBe("tony");
-    expect(pendingMentions("pgw", "tony")).toEqual([]); // stays out of the queue
+    expect(cb.comments![0].resolved).toBeUndefined(); // no resolve stamping anymore
+    expect(pendingMentions("pgw", "tony").map((m) => m.id)).toEqual([b.id]); // stays in the queue
   });
 
   test("migrateQuestionNotesToComments is idempotent (fromNote marker) and dry-run writes nothing", () => {

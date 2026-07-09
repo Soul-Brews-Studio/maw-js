@@ -64,7 +64,7 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"hold"', '"approve"', '"need-answer"', '"pr"', '"done"', '"note"', '"edit"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"review"', '"hold"', '"approve"', '"need-answer"', '"pr"', '"done"', '"note"', '"edit"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
     // kobo-213: edit = reword title/body in place (same id) → `maw company task edit <id> [--title] [--body]`.
@@ -118,13 +118,13 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // canonical company surface (`maw company task note <id> <text>`).
     expect(tools).toContain('["company", "task", "note", nid');
     expect(server).toContain('"note"'); // enum + title advertise the verb
-    // kobo-140: comment/comments/resolve — threaded ask channel. comment maps to
-    // `comment <id> <text> [--reply-to cid]`, resolve to `resolve <id> <commentId>`.
+    // kobo-140: comment/comments — threaded ask channel. comment maps to
+    // `comment <id> <text> [--reply-to cid]`. kobo-237: the resolve action is gone.
     expect(tools).toContain('["company", "task", "comment", cid, input.text');
     expect(tools).toContain('["company", "task", "comments", needId("comments")');
-    expect(tools).toContain('["company", "task", "resolve", rid, input.commentId');
+    expect(tools).not.toContain('"task", "resolve"'); // kobo-237: resolve action removed
     expect(server).toContain('"comment"'); // enum + title advertise the verbs
-    expect(server).toContain('"resolve"');
+    expect(server).not.toContain('"resolve"'); // kobo-237: enum/title no longer advertise resolve
     // kobo-147: pr forwards --repo. MCP has no CWD git remote, so without this the
     // CLI stamps card.repo from the subprocess CWD (wrong repo). Pin that taskArgs
     // emits --repo and the schema advertises repo for pr (not add-only).

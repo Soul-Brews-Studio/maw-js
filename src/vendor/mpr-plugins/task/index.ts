@@ -65,7 +65,6 @@ import {
   parsePrRepo,
   readTask,
   rejectTask,
-  resolveComment,
   resolveReviewer,
   reviewTask,
   setTaskDep,
@@ -839,7 +838,7 @@ export async function runTask(
         if (repliedTo) console.log(`  \x1b[36m→ pinged ${repliedTo} (reply)\x1b[0m`);
       }
     } else if (subcmd === "comments") {
-      // List a card's comment thread (kobo-140), oldest first, resolved marked.
+      // List a card's comment thread (kobo-140), oldest first.
       // `maw company task comments <id>`.
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
@@ -856,28 +855,14 @@ export async function runTask(
         console.log(`\x1b[1mcomments\x1b[0m \x1b[90m(${comments.length}) on ${t.id}\x1b[0m: ${t.title}`);
         for (const c of comments) {
           const one = c.text.replace(/\s+/g, " ").trim();
-          const mark = c.resolved ? `\x1b[32m✓ resolved${c.resolvedBy ? ` by ${c.resolvedBy}` : ""}\x1b[0m` : "";
           const thread = c.replyTo ? `\x1b[90m↳${c.replyTo}\x1b[0m ` : "";
-          console.log(`  \x1b[90m${c.id}\x1b[0m ${thread}\x1b[90m(${c.by})\x1b[0m ${mark}: ${one.length > 70 ? one.slice(0, 67) + "…" : one}`);
+          console.log(`  \x1b[90m${c.id}\x1b[0m ${thread}\x1b[90m(${c.by})\x1b[0m: ${one.length > 70 ? one.slice(0, 67) + "…" : one}`);
         }
       }
-    } else if (subcmd === "resolve") {
-      // Resolve a comment thread (kobo-140) — drops it from the mentions queue.
-      // `maw company task resolve <id> <commentId>`.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
-      const me = await resolveActor(flags["--from"]);
-      const id = flags._[0];
-      const commentId = flags._[1];
-      if (!id || !commentId) return { ok: false, error: "usage: maw company task resolve <id> <commentId>" };
-      const company = resolveCompany(flags["--company"], me);
-      if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = resolveComment(company, id, commentId, me);
-      if (!t) return { ok: false, error: `task not found: ${id}` };
-      console.log(`\x1b[32m✔ resolved\x1b[0m ${t.id} \x1b[90m(${commentId})\x1b[0m: ${t.title}`);
     } else if (subcmd === "migrate-comments") {
       // One-shot migration (kobo-142, Phase C C3): copy question-notes (notes with
       // an @mention — the old ask channel) into comments[] on ACTIVE cards. COPY
-      // (note kept), idempotent (fromNote marker), already-answered → resolved.
+      // (note kept), idempotent (fromNote marker). kobo-237: no resolve stamping.
       // `maw company task migrate-comments [--dry-run]`.
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--dry-run": Boolean }, 0);
       const me = await resolveActor(flags["--from"]);

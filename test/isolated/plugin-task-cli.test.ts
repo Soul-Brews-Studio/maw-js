@@ -367,16 +367,16 @@ describe("maw company task runner (runTask)", () => {
     expect((await run(["ask", "pgw-999", "q?", "--to", "patchwork", "--company", "pgw", "--from", "patchwork"])).error).toContain("parent card not found");
   });
 
-  test("mentions reads @mentions from COMMENTS and clears once resolved (kobo-140 repoint)", async () => {
+  test("mentions reads @mentions from COMMENTS (kobo-140 repoint; kobo-237: no resolve drop)", async () => {
     await run(["add", "card A", "--company", "pgw"]);
     await run(["comment", "pgw-1", "@tony", "rename", "please?", "--company", "pgw"]);
     const q = await run(["mentions", "--for", "tony", "--company", "pgw"]);
     expect(q.output).toContain("pgw-1");
     expect(q.output).toContain("@tony");
-    expect(q.output).toContain("c1"); // the resolve target rides the queue line
-    // resolve the comment → the mention drops out (explicit, not "noted after")
-    await run(["resolve", "pgw-1", "c1", "--from", "tony", "--company", "pgw"]);
-    expect((await run(["mentions", "--for", "tony", "--company", "pgw"])).output).toContain("no pending mentions");
+    expect(q.output).toContain("c1"); // the comment id rides the queue line
+    // kobo-237: no resolve verb — the mention stays until trimmed by mark-as-read (kobo-238)
+    const bad = await run(["resolve", "pgw-1", "c1", "--from", "tony", "--company", "pgw"]);
+    expect(bad.error).toContain("usage"); // resolve subcommand is gone → generic usage
   });
 
   test("a @mention inside a NOTE does NOT enter the mentions queue (rule 10 — notes are log, not asks)", async () => {
@@ -385,7 +385,7 @@ describe("maw company task runner (runTask)", () => {
     expect((await run(["mentions", "--for", "tony", "--company", "pgw"])).output).toContain("no pending mentions");
   });
 
-  test("comment threads (--reply-to), comments lists them, resolve marks the thread (kobo-140)", async () => {
+  test("comment threads (--reply-to), comments lists them (kobo-140; kobo-237: no resolve)", async () => {
     await run(["add", "card A", "--company", "pgw", "--assignee", "patchwork"]);
     const c1 = await run(["comment", "pgw-1", "can you look?", "--from", "eq3", "--company", "pgw"]);
     expect(c1.ok).toBe(true);
@@ -395,15 +395,13 @@ describe("maw company task runner (runTask)", () => {
     const list = await run(["comments", "pgw-1", "--company", "pgw"]);
     expect(list.output).toContain("can you look?");
     expect(list.output).toContain("on it");
-    // resolve → the list shows it resolved
-    await run(["resolve", "pgw-1", "c1", "--from", "patchwork", "--company", "pgw"]);
-    expect((await run(["comments", "pgw-1", "--company", "pgw"])).output).toContain("resolved");
+    expect(list.output).not.toContain("resolved"); // kobo-237: no resolved marker
     // usage / not-found errors are clean
     expect((await run(["comment", "pgw-1", "--company", "pgw"])).error).toContain("usage");
     expect((await run(["comment", "pgw-999", "hi", "--company", "pgw"])).error).toContain("task not found");
-    expect((await run(["resolve", "pgw-1", "--company", "pgw"])).error).toContain("usage");
-    expect((await run(["resolve", "pgw-1", "c99", "--company", "pgw"])).error).toContain("comment not found");
     expect((await run(["comment", "pgw-1", "x", "--reply-to", "c99", "--company", "pgw"])).error).toContain("reply target not found");
+    // kobo-237: the resolve subcommand is gone → generic usage error
+    expect((await run(["resolve", "pgw-1", "c1", "--company", "pgw"])).error).toContain("usage");
   });
 
   test("migrate-comments copies @-notes → comments (note kept), dry-run + idempotent (kobo-142)", async () => {

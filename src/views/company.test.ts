@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orderCommentTree, foldableResolvedIds, newestVisibleCommentId, parseCardId, columnCollapsed, COLLAPSIBLE_COLS, companyHtml, lastActivityTs, hasUnread } from "./company";
+import { orderCommentTree, newestVisibleCommentId, parseCardId, columnCollapsed, COLLAPSIBLE_COLS, companyHtml, lastActivityTs, hasUnread } from "./company";
 
 // A comment factory — id, replyTo, ts, author. ts drives sibling order.
 const c = (id: string, replyTo: string | null, ts: number, by = "sapan") => ({ id, replyTo, ts, by, text: id + " body" });
@@ -52,41 +52,14 @@ describe("orderCommentTree (kobo-171)", () => {
   });
 });
 
-// r = a resolved comment; u = unresolved. ts drives sibling order.
-const r = (id: string, replyTo: string | null, ts: number) => ({ id, replyTo, ts, by: "sapan", text: id, resolved: true });
-const u = (id: string, replyTo: string | null, ts: number) => ({ id, replyTo, ts, by: "sapan", text: id, resolved: false });
-const has = (set: Set<string>) => [...set].sort();
-
-describe("foldableResolvedIds (kobo-176)", () => {
-  test("a resolved leaf folds", () => {
-    expect(has(foldableResolvedIds([u("c1", null, 1), r("c2", "c1", 2)]))).toEqual(["c2"]);
-  });
-  test("an unresolved comment never folds", () => {
-    expect(foldableResolvedIds([u("c1", null, 1)]).size).toBe(0);
-  });
-  test("a resolved comment with an unresolved descendant stays visible (no orphan)", () => {
-    // c1 resolved → c2 resolved → c3 UNRESOLVED. c1,c2 must NOT fold (ancestors of active reply)
-    const set = foldableResolvedIds([r("c1", null, 1), r("c2", "c1", 2), u("c3", "c2", 3)]);
-    expect(set.size).toBe(0);
-  });
-  test("a fully-resolved branch folds entirely; a sibling active branch keeps its resolved ancestor shown", () => {
-    // c1 resolved root; c2 resolved-leaf (folds); c3 resolved but has unresolved child c4 (c3 shown)
-    const set = foldableResolvedIds([r("c1", null, 1), r("c2", "c1", 2), r("c3", "c1", 3), u("c4", "c3", 4)]);
-    // c1 has unresolved descendant c4 → shown; c3 shown; only c2 folds
-    expect(has(set)).toEqual(["c2"]);
-  });
-  test("all-resolved thread folds every node", () => {
-    expect(has(foldableResolvedIds([r("c1", null, 1), r("c2", "c1", 2), r("c3", "c2", 3)]))).toEqual(["c1", "c2", "c3"]);
-  });
-});
-
-describe("companyHtml injection (kobo-171 + kobo-176)", () => {
-  test("the served client script contains the walker + fold fns and calls them (single source)", () => {
+// kobo-237: the resolve concept is removed — comment-fold tests deleted.
+describe("companyHtml injection (kobo-171; kobo-237 removed resolve-fold)", () => {
+  test("the served client script contains the walker fns and calls them (single source)", () => {
     const html = companyHtml();
     expect(html).toContain("function orderCommentTree"); // injected verbatim
     expect(html).toContain("orderCommentTree(comments)"); // and consumed by the renderer
-    expect(html).toContain("function foldableResolvedIds"); // kobo-176 injected
-    expect(html).toContain("foldableResolvedIds(comments)"); // and consumed
+    expect(html).not.toContain("function foldableResolvedIds"); // kobo-237: fold removed
+    expect(html).not.toContain("/api/tasks/resolve"); // kobo-237: resolve route gone
     expect(html).toContain("function newestVisibleCommentId"); // kobo-180 injected
     expect(html).toContain("scrollToNewestComment(task)"); // and called on open
     expect(html).toContain("function parseCardId"); // kobo-181 injected
@@ -220,27 +193,19 @@ describe("approve column (kobo-189)", () => {
   });
 });
 
-describe("newestVisibleCommentId (kobo-180)", () => {
-  const r = (id: string, ts: number) => ({ id, replyTo: null, ts, by: "sapan", text: id, resolved: true });
-  const u = (id: string, ts: number) => ({ id, replyTo: null, ts, by: "sapan", text: id, resolved: false });
+describe("newestVisibleCommentId (kobo-180; kobo-237: single-arg, no fold)", () => {
+  const cm = (id: string, ts: number) => ({ id, replyTo: null, ts, by: "sapan", text: id });
   test("picks the newest comment by ts", () => {
-    expect(newestVisibleCommentId([u("c1", 1), u("c2", 3), u("c3", 2)], new Set())).toBe("c2");
+    expect(newestVisibleCommentId([cm("c1", 1), cm("c2", 3), cm("c3", 2)])).toBe("c2");
   });
-  test("newest is folded → falls back to the newest VISIBLE one", () => {
-    // c3 is newest but resolved-leaf (folded) → target c2 (newest unresolved)
-    const comments = [u("c1", 1), u("c2", 2), r("c3", 3)];
-    const folded = foldableResolvedIds(comments); // {c3}
-    expect(newestVisibleCommentId(comments, folded)).toBe("c2");
-  });
-  test("all comments folded → null (nothing visible to scroll to)", () => {
-    const comments = [r("c1", 1), r("c2", 2)];
-    expect(newestVisibleCommentId(comments, foldableResolvedIds(comments))).toBeNull();
+  test("every comment is a candidate (no fold) → newest wins", () => {
+    expect(newestVisibleCommentId([cm("c1", 1), cm("c2", 2), cm("c3", 3)])).toBe("c3");
   });
   test("tie on ts → later in creation order wins", () => {
-    expect(newestVisibleCommentId([u("c1", 5), u("c2", 5)], new Set())).toBe("c2");
+    expect(newestVisibleCommentId([cm("c1", 5), cm("c2", 5)])).toBe("c2");
   });
   test("empty → null", () => {
-    expect(newestVisibleCommentId([], new Set())).toBeNull();
+    expect(newestVisibleCommentId([])).toBeNull();
   });
 });
 

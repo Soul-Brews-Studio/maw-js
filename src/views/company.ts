@@ -96,50 +96,15 @@ export function orderCommentTree(comments) {
   return out;
 }
 
-// kobo-176: which resolved comments are foldable (safe to hide when "show
-// resolved" is off). A resolved comment folds ONLY when its ENTIRE subtree is
-// resolved — a resolved comment that is the ancestor of an unresolved reply must
-// stay visible, or its child's indent/reply-target chip (kobo-171) would orphan.
-// DOM-free + annotation-free: unit-tested, then injected verbatim into the client
-// script via `${foldableResolvedIds.toString()}` (single source, no drift).
-// Returns a Set of comment ids that are foldable.
-export function foldableResolvedIds(comments) {
-  const byId = new Map();
-  for (const c of comments) byId.set(c.id, c);
-  const kids = new Map();
-  for (const c of comments) {
-    if (c.replyTo && byId.has(c.replyTo)) {
-      const a = kids.get(c.replyTo) || []; a.push(c); kids.set(c.replyTo, a);
-    }
-  }
-  const memo = new Map();
-  const stack = new Set(); // cycle guard
-  const subtreeAllResolved = (c) => {
-    if (memo.has(c.id)) return memo.get(c.id);
-    if (stack.has(c.id)) return false; // cycle → conservative: not all-resolved, so never hide
-    stack.add(c.id);
-    let all = !!c.resolved;
-    for (const k of (kids.get(c.id) || [])) { if (!subtreeAllResolved(k)) all = false; }
-    stack.delete(c.id);
-    memo.set(c.id, all);
-    return all;
-  };
-  const foldable = new Set();
-  for (const c of comments) if (c.resolved && subtreeAllResolved(c)) foldable.add(c.id);
-  return foldable;
-}
-
-// kobo-180: the id of the newest comment that is actually VISIBLE — the auto-scroll
-// target on card open. Skips folded (fully-resolved) comments (foldableIds from
-// foldableResolvedIds, kobo-176) so we never scroll to a display:none element.
-// Newest = max ts; ties break to the later one in creation order (comments are
-// append-only). Returns null when nothing is visible (every comment folded) → the
-// caller then does nothing. DOM-free + annotation-free: unit-tested, injected into
-// the client script via `${newestVisibleCommentId.toString()}` (single source).
-export function newestVisibleCommentId(comments, foldableIds) {
+// kobo-180 (kobo-237: simplified): the id of the newest comment — the auto-scroll
+// target on card open. Every comment is visible now (kobo-237 removed the
+// resolve-fold), so this is just max ts; ties break to the later one in creation
+// order (comments are append-only). Returns null when there are no comments. DOM-free
+// + annotation-free: unit-tested, injected into the client script via
+// `${newestVisibleCommentId.toString()}` (single source).
+export function newestVisibleCommentId(comments) {
   let best = null;
   for (const c of comments) {
-    if (foldableIds && foldableIds.has && foldableIds.has(c.id)) continue; // folded → not a scroll target
     if (best === null || (c.ts || 0) >= (best.ts || 0)) best = c; // >= → later-in-array wins a tie
   }
   return best ? best.id : null;
@@ -516,24 +481,19 @@ function companyBody(): string {
     #detail-notes .note-img-link:focus-visible { outline:none; box-shadow:0 0 0 2px var(--accent); border-radius:9px; }
     /* kobo-141 — Comments thread: the ask/answer channel (Board Truth rule 10),
        distinct from notes. Reuses the note bubble look; adds threading indent +
-       reply/resolve affordances + a resolved (dimmed) state. */
+       a reply affordance. (kobo-237: the resolve concept is removed.) */
     #detail-comments { max-height:72vh; overflow-y:auto; } /* kobo-176: scroll cap (mirror .timeline) so a long thread can't run off-screen */
     #detail-comments .comments-head { margin:14px 0 8px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
-    #detail-comments .cmt-resolved-toggle { display:block; background:none; border:0; padding:2px 0 8px; margin:0; font:inherit; font-size:12px; color:var(--muted); cursor:pointer; }
-    #detail-comments .cmt-resolved-toggle:hover, #detail-comments .cmt-resolved-toggle:focus-visible { color:var(--link); }
-    #detail-comments:not(.show-resolved) .cmt-foldable { display:none; } /* kobo-176: fold fully-resolved branches until toggled */
     #detail-comments .cmt { display:flex; gap:10px; padding:9px 12px; margin-bottom:10px; background:var(--col); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:10px; }
     #detail-comments .cmt.reply { /* indent set inline from clamped level (kobo-171) */ }
     #detail-comments .cmt-replytarget { align-self:flex-start; margin:2px 0 4px; padding:2px 8px; font-size:11px; line-height:1.4; color:var(--muted); background:var(--panel2, rgba(127,127,127,.12)); border:1px solid var(--border, rgba(127,127,127,.25)); border-radius:10px; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     #detail-comments .cmt-replytarget:hover, #detail-comments .cmt-replytarget:focus-visible { color:var(--link); border-color:var(--link); }
     #detail-comments .cmt.cmt-flash { animation:cmtFlash 1.5s ease-out; }
     @keyframes cmtFlash { 0% { background:var(--link, #4aa3ff); } 12% { background:color-mix(in srgb, var(--link, #4aa3ff) 35%, transparent); } 100% { background:transparent; } }
-    #detail-comments .cmt.resolved { opacity:.55; }
     #detail-comments .cmt-avatar { flex:0 0 auto; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; }
     #detail-comments .cmt-main { flex:1 1 auto; min-width:0; }
     #detail-comments .cmt-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
     #detail-comments .cmt-author { font-weight:600; color:var(--fg); }
-    #detail-comments .cmt-resolved-badge { font-size:11px; color:var(--ok, #3fb950); border:1px solid var(--line); border-radius:999px; padding:0 7px; }
     #detail-comments .cmt-ts { color:var(--muted); font-size:11px; margin-left:auto; font-variant-numeric:tabular-nums; }
     #detail-comments .cmt-body { color:var(--fg); font-size:13px; word-break:break-word; }
     #detail-comments .cmt-body.md p { margin:6px 0; line-height:1.6; }
@@ -1407,12 +1367,12 @@ function renderDetailFamily(task) {
     const owner = el('span', 'ft-owner' + (t.assignee ? '' : ' unassigned'), '🎯 ' + (t.assignee || '—'));
     if (t.assignee) { owner.style.borderColor = authorColor(t.assignee); owner.style.color = authorColor(t.assignee); }
     row.appendChild(owner);
-    // 💬 comment count (from c1 comments[]) — unresolved emphasized in the tooltip
+    // 💬 comment count (from c1 comments[]). kobo-237: the resolve concept is gone,
+    // so this is just the total thread size (no unresolved/resolved split).
     const nCmt = (t.comments || []).length;
     if (nCmt) {
-      const nOpen = (t.comments || []).filter((c) => !c.resolved).length;
-      const badge = el('span', 'ft-cmt' + (nOpen ? ' has-open' : ''), '💬 ' + nCmt);
-      badge.title = nOpen ? (nOpen + ' unresolved of ' + nCmt) : (nCmt + ' resolved');
+      const badge = el('span', 'ft-cmt' + (nCmt ? ' has-open' : ''), '💬 ' + nCmt);
+      badge.title = nCmt + ' comment' + (nCmt === 1 ? '' : 's');
       row.appendChild(badge);
     }
     row.appendChild(el('span', 'ft-state', t.state || ''));
@@ -1447,7 +1407,7 @@ function renderDetailFamily(task) {
 // this one replies to (null for a root) → drives the uniform reply-target chip.
 function commentBubble(task, c, indent, parent) {
   const color = authorColor(c.by);
-  const box = el('div', 'cmt' + (indent ? ' reply' : '') + (c.resolved ? ' resolved' : ''));
+  const box = el('div', 'cmt' + (indent ? ' reply' : ''));
   box.id = 'cmt-' + c.id; // scroll/highlight target for a child's reply-target chip
   if (indent) box.style.marginLeft = (indent * 26) + 'px'; // 2-level clamp done upstream
   box.style.borderLeftColor = color;
@@ -1457,7 +1417,6 @@ function commentBubble(task, c, indent, parent) {
   const main = el('div', 'cmt-main');
   const head = el('div', 'cmt-head');
   head.appendChild(el('span', 'cmt-author', c.by || '?'));
-  if (c.resolved) head.appendChild(el('span', 'cmt-resolved-badge', '✓ resolved' + (c.resolvedBy ? ' · ' + c.resolvedBy : '')));
   head.appendChild(el('span', 'cmt-ts', c.iso ? (relTime(c.ts) + ' · ' + localTs(c.iso)) : text(c.ts)));
   main.appendChild(head);
   // Uniform reply-target chip on EVERY reply (any depth) — since indent caps at 2,
@@ -1480,38 +1439,28 @@ function commentBubble(task, c, indent, parent) {
   const body = el('div', 'cmt-body md');
   body.innerHTML = renderNoteBody(c.text || ''); // same escape-first markdown+image path as notes
   main.appendChild(body);
-  // reply + resolve actions (unresolved only — a resolved thread is closed)
-  if (!c.resolved) {
-    const actions = el('div', 'cmt-actions');
-    const replyBtn = el('button', 'cmt-act', '↩ reply'); replyBtn.type = 'button';
-    const resolveBtn = el('button', 'cmt-act', '✓ resolve'); resolveBtn.type = 'button';
-    actions.appendChild(replyBtn); actions.appendChild(resolveBtn);
-    main.appendChild(actions);
-    replyBtn.addEventListener('click', () => {
-      if (main.querySelector('.cmt-reply-box')) return; // one open reply box at a time
-      const rb = el('div', 'cmt-reply-box');
-      const rin = el('input'); rin.type = 'text'; rin.placeholder = 'reply…'; rin.maxLength = 2000;
-      const rsend = el('button', '', 'send'); rsend.type = 'button';
-      rb.appendChild(rin); rb.appendChild(rsend);
-      main.appendChild(rb); rin.focus();
-      const doReply = async () => {
-        const company = currentCompany(); const val = rin.value.trim();
-        if (!company || !val) return;
-        rsend.disabled = true;
-        try { await postJson('/api/tasks/comment', { company: company, id: task.id, text: val, replyTo: c.id }); await load(); reopenDetail(task.id); }
-        catch (err) { rsend.disabled = false; statusEl.textContent = 'reply failed: ' + errMsg(err); statusEl.className = 'error'; }
-      };
-      rsend.addEventListener('click', doReply);
-      rin.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); doReply(); } });
-    });
-    resolveBtn.addEventListener('click', async () => {
-      const company = currentCompany();
-      if (!company) return;
-      resolveBtn.disabled = true;
-      try { await postJson('/api/tasks/resolve', { company: company, id: task.id, commentId: c.id }); await load(); reopenDetail(task.id); }
-      catch (err) { resolveBtn.disabled = false; statusEl.textContent = 'resolve failed: ' + errMsg(err); statusEl.className = 'error'; }
-    });
-  }
+  // reply action (kobo-237: the resolve button is removed — resolve concept gone).
+  const actions = el('div', 'cmt-actions');
+  const replyBtn = el('button', 'cmt-act', '↩ reply'); replyBtn.type = 'button';
+  actions.appendChild(replyBtn);
+  main.appendChild(actions);
+  replyBtn.addEventListener('click', () => {
+    if (main.querySelector('.cmt-reply-box')) return; // one open reply box at a time
+    const rb = el('div', 'cmt-reply-box');
+    const rin = el('input'); rin.type = 'text'; rin.placeholder = 'reply…'; rin.maxLength = 2000;
+    const rsend = el('button', '', 'send'); rsend.type = 'button';
+    rb.appendChild(rin); rb.appendChild(rsend);
+    main.appendChild(rb); rin.focus();
+    const doReply = async () => {
+      const company = currentCompany(); const val = rin.value.trim();
+      if (!company || !val) return;
+      rsend.disabled = true;
+      try { await postJson('/api/tasks/comment', { company: company, id: task.id, text: val, replyTo: c.id }); await load(); reopenDetail(task.id); }
+      catch (err) { rsend.disabled = false; statusEl.textContent = 'reply failed: ' + errMsg(err); statusEl.className = 'error'; }
+    };
+    rsend.addEventListener('click', doReply);
+    rin.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); doReply(); } });
+  });
   box.appendChild(main);
   return box;
 }
@@ -1519,7 +1468,6 @@ function commentBubble(task, c, indent, parent) {
 // kobo-171: pure tree walker injected from the module fn (single source, unit-tested).
 ${stateBadge.toString()}
 ${orderCommentTree.toString()}
-${foldableResolvedIds.toString()}
 ${newestVisibleCommentId.toString()}
 ${parseCardId.toString()}
 const COLLAPSIBLE_COLS = ${JSON.stringify(COLLAPSIBLE_COLS)}; // kobo-194 — injected literal (columnCollapsed reads it)
@@ -1530,27 +1478,16 @@ ${hasUnread.toString()}
 function renderDetailComments(task) {
   const host = $('detail-comments');
   host.replaceChildren();
-  host.classList.remove('show-resolved'); // fresh open = resolved folded
   const comments = task.comments || [];
   if (!comments.length) return;
   host.appendChild(el('div', 'comments-head', 'comments (' + comments.length + ')'));
   const byId = new Map();
   for (const c of comments) byId.set(c.id, c);
-  const foldable = foldableResolvedIds(comments); // resolved comments whose whole subtree is resolved (kobo-176)
-  // toggle folds ONLY fully-resolved branches — unresolved (and resolved ancestors
-  // of unresolved) always show, so threading/indent/chip (kobo-171) is untouched.
-  if (foldable.size) {
-    const label = (shown) => (shown ? '▾' : '▸') + ' ' + foldable.size + ' resolved · ' + (shown ? 'hide' : 'show');
-    const toggle = el('button', 'cmt-resolved-toggle', label(false)); toggle.type = 'button';
-    toggle.addEventListener('click', () => { toggle.textContent = label(host.classList.toggle('show-resolved')); });
-    host.appendChild(toggle);
-  }
-  // recurse the FULL tree (depth-3+ no longer dropped); indent clamped to 2 levels.
+  // kobo-237: every comment shows (the resolve-fold is gone). Recurse the FULL tree
+  // (depth-3+ no longer dropped); indent clamped to 2 levels.
   for (const node of orderCommentTree(comments)) {
     const parent = node.c.replyTo ? byId.get(node.c.replyTo) : null;
-    const bubble = commentBubble(task, node.c, node.indent, parent);
-    if (foldable.has(node.c.id)) bubble.classList.add('cmt-foldable'); // CSS hides unless .show-resolved
-    host.appendChild(bubble);
+    host.appendChild(commentBubble(task, node.c, node.indent, parent));
   }
 }
 
@@ -1614,8 +1551,8 @@ function openDetail(task) {
 function scrollToNewestComment(task) {
   const comments = task.comments || [];
   if (!comments.length) return;
-  const id = newestVisibleCommentId(comments, foldableResolvedIds(comments));
-  if (!id) return; // every comment folded → no visible target
+  const id = newestVisibleCommentId(comments);
+  if (!id) return; // no comments → no target
   const target = document.getElementById('cmt-' + id);
   if (target) target.scrollIntoView({ block: 'nearest' });
 }
@@ -1990,15 +1927,14 @@ function restoreDetailDrafts(snap) {
 const HUMAN_ALIASES = { tony: 1, human: 1 };
 function mentionKey(name) { const n = String(name == null ? '' : name).trim().toLowerCase().replace(/^@/, ''); return HUMAN_ALIASES[n] ? 'tony' : n; }
 function parseMentions(t) { const out = new Set(); const re = /@([a-z0-9_-]+)/gi; let m; while ((m = re.exec(String(t || '')))) out.add(mentionKey(m[1])); return Array.from(out); }
-// Unanswered @mentions across on-board cards (kobo-140 repoint): the ask/answer
-// channel moved from notes to COMMENTS (Board Truth rule 10), so a mention is
-// pending until its comment is RESOLVED (explicit), not "someone noted after".
-// Mirrors store.pendingMentions — an unresolved comment carrying an @mention.
+// @mentions across on-board cards (kobo-140 repoint): the ask/answer channel is in
+// COMMENTS (Board Truth rule 10). kobo-237: the resolve concept is gone — every
+// comment carrying an @mention is listed (the reader trims via mark-as-read,
+// kobo-238). Mirrors store.pendingMentions.
 function pendingMentions(tasks) {
   const out = [];
   for (const t of tasks) {
     for (const c of (t.comments || [])) {
-      if (c.resolved) continue; // resolved thread → out of the queue
       for (const who of parseMentions(c.text)) out.push({ id: t.id, title: t.title, who: who, by: c.by, ts: c.ts, text: c.text, commentId: c.id });
     }
   }
@@ -2013,10 +1949,10 @@ function questionSubcards(task) {
   return kids.filter((c) => c.assignee && mentionKey(c.assignee) === 'tony');
 }
 
-// kobo-128 → kobo-141 — the @mention decision queue at the board head: pending
-// @tony/@human mentions (unresolved comments now), each with a quick reply (POST
-// /api/tasks/comment, reply-to the mention's comment) + a resolve button (POST
-// /api/tasks/resolve → clears it from the queue). actor=tony.
+// kobo-128 → kobo-141 — the @mention decision queue at the board head: @tony/@human
+// mentions, each with a quick reply (POST /api/tasks/comment, reply-to the mention's
+// comment). kobo-237: the resolve button is removed (resolve concept gone); the
+// reader trims the queue via mark-as-read (kobo-238). actor=tony.
 function renderMentions(tasks) {
   const bar = $('mentions-bar');
   const pend = pendingMentions(tasks).filter((m) => m.who === 'tony'); // Tony's board = his decision queue
@@ -2037,26 +1973,17 @@ function renderMentions(tasks) {
     row.appendChild(txt);
     const rin = el('input'); rin.type = 'text'; rin.className = 'mention-reply-in'; rin.placeholder = 'reply…';
     const rbtn = el('button', 'mention-reply-btn', 'reply'); rbtn.type = 'button';
-    const resbtn = el('button', 'mention-reply-btn', '✓ resolve'); resbtn.type = 'button';
     const send = async () => {
       const val = rin.value.trim();
       if (!currentCompany() || !val) return;
       rbtn.disabled = true;
-      // reply-to the mention's comment → threads the answer; the thread stays in the
-      // queue until resolved (explicit). Use ✓ resolve to clear it.
+      // reply-to the mention's comment → threads the answer (kobo-237: no resolve).
       try { await postJson('/api/tasks/comment', { company: currentCompany(), id: m.id, text: val, replyTo: m.commentId }); rin.value = ''; await load(); }
       catch (err) { rbtn.disabled = false; statusEl.textContent = 'reply failed: ' + errMsg(err); statusEl.className = 'error'; }
     };
-    const resolve = async () => {
-      if (!currentCompany()) return;
-      resbtn.disabled = true;
-      try { await postJson('/api/tasks/resolve', { company: currentCompany(), id: m.id, commentId: m.commentId }); await load(); }
-      catch (err) { resbtn.disabled = false; statusEl.textContent = 'resolve failed: ' + errMsg(err); statusEl.className = 'error'; }
-    };
     rbtn.addEventListener('click', send);
-    resbtn.addEventListener('click', resolve);
     rin.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
-    row.appendChild(rin); row.appendChild(rbtn); row.appendChild(resbtn);
+    row.appendChild(rin); row.appendChild(rbtn);
     bar.appendChild(row);
   }
   bar.hidden = false;

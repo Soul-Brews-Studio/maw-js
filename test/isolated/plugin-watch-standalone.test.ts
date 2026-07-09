@@ -66,11 +66,11 @@ describe("watch command plugin standalone boundary", () => {
     // kobo-46: web comment POST → append note + poke assignee (task-events).
     expect(serveSrc).toContain("handleTaskNoteRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/note["']/);
-    // kobo-141: threaded comment POST + resolve POST (ask/answer channel).
+    // kobo-141: threaded comment POST (ask/answer channel). kobo-237: resolve removed.
     expect(serveSrc).toContain("handleTaskCommentRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/comment["']/);
-    expect(serveSrc).toContain("handleTaskResolveRequest");
-    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/resolve["']/);
+    expect(serveSrc).not.toContain("handleTaskResolveRequest"); // kobo-237: resolve route gone
+    expect(serveSrc).not.toContain("/api/tasks/resolve");
     // kobo-48: web create POST → +subtask (child card, epic = parent).
     expect(serveSrc).toContain("handleTaskCreateRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/create["']/);
@@ -115,7 +115,7 @@ describe("watch command plugin standalone boundary", () => {
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/archive"); // kobo-35
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/note"); // kobo-46
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/comment"); // kobo-141
-    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/resolve"); // kobo-141
+    expect(manifest.hooks!.serve!.ensures).not.toContain("http:route:/api/tasks/resolve"); // kobo-237: route removed → manifest must not declare it
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/create"); // kobo-48
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/done"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/roster"); // kobo-50

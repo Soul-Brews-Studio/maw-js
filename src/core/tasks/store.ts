@@ -96,9 +96,12 @@ export interface TaskComment {
   by: string; // author (oracle / human)
   text: string; // comment content (rendered escape-first on the web)
   replyTo?: string; // parent comment id — a reply in the thread (kobo-140)
-  resolved?: boolean; // answered/closed — clears it from the mentions queue
-  resolvedBy?: string; // who resolved it
-  resolvedTs?: number; // when (epoch ms)
+  // kobo-237: the resolve concept is removed (verb/read/write gone everywhere). These
+  // three fields are KEPT in the type as LEGACY-ONLY (Nothing is Deleted) so a comment
+  // that carries them from before still deserializes — nothing reads or writes them now.
+  resolved?: boolean; // LEGACY (kobo-237) — no longer read/written
+  resolvedBy?: string; // LEGACY (kobo-237)
+  resolvedTs?: number; // LEGACY (kobo-237)
   fromNote?: number; // origin note ts when copied from a question-note (kobo-142 migration) — idempotency marker + provenance
 }
 
@@ -793,7 +796,8 @@ export function noteTask(company: string, id: string, by: string, text: string, 
  * target it without ts collisions. Returns null if the card is absent; throws if
  * `replyTo` names a comment that doesn't exist on this card (no dangling threads).
  * Emits a `task-comment` worklog event. @mentions in the text are surfaced by the
- * mentions queue (pendingMentions) until the comment is resolved.
+ * mentions queue (pendingMentions) — kobo-237: they no longer drop out on a resolve
+ * (the resolve concept is gone); the queue is trimmed by mark-as-read (kobo-238).
  */
 export function commentTask(
   company: string,
@@ -818,28 +822,10 @@ export function commentTask(
   return task;
 }
 
-/**
- * Resolve a comment (kobo-140) — mark an ask/answer thread closed so it drops out
- * of the mentions queue. FLIPS a flag only (Principle 1: the text is never
- * removed); stamps who/when. Idempotent — resolving an already-resolved comment is
- * a no-op that still returns the card. Returns null if the card is absent; throws
- * if the comment id doesn't exist. Emits a `task-comment` worklog event.
- */
-export function resolveComment(company: string, id: string, commentId: string, by: string): TaskRecord | null {
-  const task = readTask(company, id);
-  if (!task) return null;
-  const comment = task.comments?.find((c) => c.id === commentId);
-  if (!comment) throw new Error(`comment not found on ${id}: ${commentId}`);
-  if (!comment.resolved) {
-    comment.resolved = true;
-    comment.resolvedBy = by;
-    comment.resolvedTs = Date.now();
-    task.updatedTs = comment.resolvedTs;
-    writeTaskRecord(task);
-    emit(task, by, "task-comment", `resolved ${task.id} (${commentId})`);
-  }
-  return task;
-}
+// kobo-237: resolveComment removed — the resolve concept is gone end-to-end (CLI/MCP/
+// UI verb + read/write). Legacy `resolved` fields on stored comments are kept but
+// never read/written (Nothing is Deleted). The mentions queue is trimmed by
+// mark-as-read (kobo-238), not by resolve.
 
 export interface CommentMigrateOutcome {
   id: string; // card id
@@ -888,7 +874,7 @@ export function migrateQuestionNotesToComments(
     if (task.state === "done" || task.state === "rejected") continue; // active only
     const notes = task.notes ?? [];
     const questionNotes = notes
-      .map((n, i) => ({ n, i }))
+      .map((n) => ({ n }))
       .filter(({ n }) => parseMentions(n.text).length > 0);
     if (!questionNotes.length) continue;
     cards++;
@@ -896,23 +882,16 @@ export function migrateQuestionNotesToComments(
     const comments = [...(task.comments ?? [])];
     let migrated = 0;
     let skipped = 0;
-    for (const { n, i } of questionNotes) {
+    for (const { n } of questionNotes) {
       // idempotency: this exact note already copied? (ts + author + text)
       if (comments.some((c) => c.fromNote === n.ts && c.by === n.by && c.text === n.text)) {
         skipped++;
         continue;
       }
-      const mentions = parseMentions(n.text);
-      // old "answered" test: every mentioned person noted AFTER this note on the card
-      const answered = mentions.every((who) => notes.slice(i + 1).some((n2) => mentionKey(n2.by) === who));
+      // kobo-237: a migrated question-note becomes a plain comment — no resolve
+      // stamping (the resolve concept is gone; the mentions queue is trimmed by
+      // mark-as-read, kobo-238). The `fromNote` idempotency marker is still set.
       const comment: TaskComment = { id: `c${comments.length + 1}`, ts: n.ts, iso: n.iso, by: n.by, text: n.text, fromNote: n.ts };
-      if (answered) {
-        const replies = notes.slice(i + 1).filter((n2) => mentions.includes(mentionKey(n2.by)));
-        const last = replies[replies.length - 1];
-        comment.resolved = true;
-        comment.resolvedBy = last?.by ?? n.by;
-        comment.resolvedTs = last?.ts ?? n.ts;
-      }
       comments.push(comment);
       migrated++;
     }
@@ -959,17 +938,18 @@ export interface PendingMention {
   ts: number; // mention comment ts
   iso: string;
   text: string; // the mentioning comment text
-  commentId: string; // the comment carrying the mention (resolve target — kobo-140)
+  commentId: string; // the comment carrying the mention (kobo-140)
 }
 
 /**
  * Unanswered @mentions across the on-board cards (kobo-126 → repointed kobo-140).
  * Phase C moved the ask/answer channel from notes to COMMENTS (Board Truth rule
- * 10), so the queue now reads unresolved COMMENTS that carry an @mention — a
- * mention is PENDING until its comment is `resolve`d (explicit, not "someone noted
- * after"). `forWho` filters to one person's queue (canonicalized, so --for tony
- * also catches @human). Read-only derivation — never mutates; both CLI `mentions`
- * and the web queue read this one source.
+ * 10), so the queue reads every COMMENT that carries an @mention. kobo-237: the
+ * resolve concept is gone — the queue no longer drops a comment when it's resolved
+ * (nor reads the legacy `resolved` field); it's trimmed instead by the reader's
+ * mark-as-read (kobo-238). `forWho` filters to one person's queue (canonicalized, so
+ * --for tony also catches @human). Read-only derivation — never mutates; both CLI
+ * `mentions` and the web queue read this one source.
  */
 export function pendingMentions(company: string, forWho?: string): PendingMention[] {
   const want = forWho ? mentionKey(forWho) : null;
@@ -977,7 +957,6 @@ export function pendingMentions(company: string, forWho?: string): PendingMentio
   for (const t of listTasks(company)) {
     if (!isOnBoard(t) || !t.comments?.length) continue;
     for (const c of t.comments) {
-      if (c.resolved) continue; // resolved thread → out of the queue
       for (const who of parseMentions(c.text)) {
         if (want && who !== want) continue;
         out.push({ id: t.id, title: t.title, who, by: c.by, ts: c.ts, iso: c.iso, text: c.text, commentId: c.id });
