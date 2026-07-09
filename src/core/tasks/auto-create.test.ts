@@ -121,11 +121,11 @@ describe("autoCreateFromDispatch", () => {
 
 describe("autoCaptureCardMentions", () => {
   const existing = new Set(["kobo-1", "kobo-2", "kob-payment-5", "eq3-11"]);
-  const noted: { company: string; id: string; by: string; text: string }[] = [];
+  const noted: { company: string; id: string; by: string; text: string; captured?: boolean }[] = [];
   const deps = {
     readCard: (_c: string, id: string) => (existing.has(id) ? ({ id } as never) : null),
-    note: (company: string, id: string, by: string, text: string) => {
-      noted.push({ company, id, by, text });
+    note: (company: string, id: string, by: string, text: string, opts?: { captured?: boolean }) => {
+      noted.push({ company, id, by, text, captured: opts?.captured });
       return {} as never;
     },
   };
@@ -139,6 +139,8 @@ describe("autoCaptureCardMentions", () => {
     expect(noted).toHaveLength(1);
     expect(noted[0]).toMatchObject({ company: "kobo", id: "kobo-1", by: "eq3" });
     expect(noted[0].text).toBe("[via hey→patchwork] pls look at kobo-1 today");
+    // kobo-229: captured notes are tagged so noteTask skips auto-advance (mention ≠ work)
+    expect(noted[0].captured).toBe(true);
   });
   test("dedups a repeated id, captures multiple distinct cards", () => {
     expect(cap("kobo-1 and kobo-1 and kobo-2")).toEqual(["kobo-1", "kobo-2"]);

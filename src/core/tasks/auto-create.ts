@@ -135,7 +135,7 @@ export interface AutoCaptureDeps {
   /** existence check — defaults to the real store reader. */
   readCard?: (company: string, id: string) => TaskRecord | null;
   /** append a note — defaults to the real store writer. */
-  note?: (company: string, id: string, by: string, text: string) => TaskRecord | null;
+  note?: (company: string, id: string, by: string, text: string, opts?: { captured?: boolean }) => TaskRecord | null;
 }
 
 /**
@@ -175,7 +175,9 @@ export function autoCaptureCardMentions(
     if (!readCard(company, id)) continue; // unknown card → skip silently
     if (sender === undefined) sender = resolveSender();
     if (!sender) break; // can't attribute the note (same reason for every ref) → stop
-    if (note(company, id, sender, `${VIA_HEY}→${targetOracle(target)}] ${message}`)) captured.push(id);
+    // kobo-229: tag as `captured` so noteTask stores it (audit trail) but never
+    // auto-advances the card — a hey mention is chatter, not work (mention ≠ work).
+    if (note(company, id, sender, `${VIA_HEY}→${targetOracle(target)}] ${message}`, { captured: true })) captured.push(id);
   }
   return captured;
 }

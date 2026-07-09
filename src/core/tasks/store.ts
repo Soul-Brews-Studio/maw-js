@@ -76,6 +76,7 @@ export interface TaskNote {
   iso: string; // ISO-8601 timestamp
   by: string; // author (oracle / human)
   text: string; // note content (rendered escape-first on the web)
+  captured?: boolean; // kobo-229: auto-captured from a hey card-id mention (not deliberately authored) — shows on the card but never auto-advances state (mention ≠ work)
 }
 
 /**
@@ -761,14 +762,22 @@ export function rejectTask(company: string, id: string, by: string, reason: stri
  * when the author IS the assignee — a note by anyone else (e.g. eq3 asking a
  * question on the card) is NOT the doer working, so the card holds. An
  * unassigned card never auto-advances (fall back to explicit `task start`).
+ *
+ * kobo-229: a CAPTURED note (`opts.captured`) is one auto-captured from a hey that
+ * merely mentioned this card-id in chatter — it is stored for the audit trail but
+ * NEVER auto-advances (mention ≠ work). Only a deliberately authored note (the real
+ * `note` verb, opts.captured falsy) carries the "I'm working on this" signal. This
+ * fixes the board-lie where a self-mention flipped an assignee's own todo/ready card
+ * to in-progress (kobo-221 finding).
  */
-export function noteTask(company: string, id: string, by: string, text: string): TaskRecord | null {
+export function noteTask(company: string, id: string, by: string, text: string, opts: { captured?: boolean } = {}): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
-  const note: TaskNote = { ts: Date.now(), iso: nowIso(), by, text };
+  const note: TaskNote = { ts: Date.now(), iso: nowIso(), by, text, ...(opts.captured ? { captured: true } : {}) };
   task.notes = [...(task.notes ?? []), note]; // append-only — prior notes are untouched
   task.updatedTs = note.ts;
-  const advance = (task.state === "todo" || task.state === "ready") && !!task.assignee && task.assignee === by;
+  // A captured mention is never work — only a deliberately authored note advances (kobo-229).
+  const advance = !opts.captured && (task.state === "todo" || task.state === "ready") && !!task.assignee && task.assignee === by;
   if (advance) task.state = "in-progress"; // assignee working their own todo/ready card (kobo-54, kobo-133)
   writeTaskRecord(task);
   const oneLine = text.replace(/\s+/g, " ").trim();
