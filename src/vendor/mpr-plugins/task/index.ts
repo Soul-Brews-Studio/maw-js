@@ -51,7 +51,6 @@ import {
   holdTask,
   isOnBoard,
   isStaleDecisionCard,
-  isTerminalState,
   lastActivityByOracle,
   listTasks,
   needsOwner,
@@ -194,15 +193,13 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, 
   lines.push(`\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""}`);
   if (!tasks.length) { lines.push("  \x1b[90m(no tasks)\x1b[0m"); return lines.join("\n"); }
 
-  // Off-flow = explicit block (ADR 0003 B, state="blocked") OR derived
-  // blocked-by-dependency (ADR 0003 A) OR derived needs-owner (eq3-011 kobo-14,
-  // todo+unassigned). All three share ONE group — computed at read.
+  // Off-flow = explicit-or-dependency block (state="blocked") OR derived needs-owner
+  // (eq3-011 kobo-14, todo+unassigned). kobo-255/slice-A: a dep-pending card now IS
+  // state="blocked" (state is the source of truth), so render reads state — no derived
+  // overlay-on-other-state. `dep` is still computed for the WHICH-parents label content.
   const resolveParent = parentStateResolver(company);
   const dep = new Map(tasks.map((t) => [t.id, dependencyBlock(t, resolveParent)] as const));
-  // A terminal card (done/rejected) is finished — a still-pending parent no longer
-  // holds it off-flow, so it stays in its lane without a 🚫 label (kobo-246).
-  const isDepBlocked = (t: TaskRecord) => !isTerminalState(t.state) && dep.get(t.id)!.blockedBy.length > 0;
-  const offFlow = (t: TaskRecord) => t.state === "blocked" || isDepBlocked(t) || needsOwner(t);
+  const offFlow = (t: TaskRecord) => t.state === "blocked" || needsOwner(t);
   const flow = tasks.filter((t) => !offFlow(t));
   const blocked = tasks.filter(offFlow);
 

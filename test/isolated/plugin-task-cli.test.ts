@@ -461,4 +461,18 @@ describe("maw company task runner (runTask)", () => {
     expect(finished).not.toContain("🚫 รอ: pgw-1"); // done child no longer shows the label
     expect(finished).not.toContain("BLOCKED"); // and isn't pulled into the Blocked lane
   });
+
+  // kobo-255 — the wait-label lives in the Blocked lane only. slice-A makes a dep-pending
+  // card really state="blocked", so a card in a flow lane (in-progress) never carries a
+  // derived dep-block overlay. A child of an ALREADY-DONE parent isn't dep-pending → it
+  // sits in its flow lane with no 🚫, proving the overlay isn't derived onto other states.
+  test("in-progress child of a done parent → flow lane, no 🚫 overlay (kobo-255)", async () => {
+    await run(["add", "parent", "--company", "acme"]); // acme-1
+    await run(["done", "acme-1", "--company", "acme"]); // parent finished before the child exists
+    await run(["add", "child", "--company", "acme", "--parent", "acme-1"]); // acme-2, deps all clear
+    await run(["start", "acme-2", "--company", "acme"]); // → in-progress
+    expect(readTask("acme", "acme-2")!.state).toBe("in-progress");
+    const board = (await run(["ls", "--company", "acme"])).output;
+    expect(board).not.toContain("🚫 รอ"); // no dep-block overlay on the in-progress card
+  });
 });

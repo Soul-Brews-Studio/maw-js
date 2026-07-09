@@ -770,9 +770,6 @@ $('update-dismiss').addEventListener('click', async () => {
 });
 
 function text(v) { return v == null ? '' : String(v); }
-// A terminal card is finished — derived dep-block signals must not re-surface it
-// (kobo-246; mirrors TERMINAL_STATES in core/tasks/store). Used at every dep-block gate.
-function isTerminal(state) { return state === 'done' || state === 'rejected' || state === 'archived'; }
 function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = String(txt); return e; }
 function currentCompany() { return (companyInput.value || '').trim(); }
 
@@ -1035,7 +1032,10 @@ function taskCard(task, opts) {
   if (task.pr) meta.appendChild(el('span', 'pill pr', 'PR #' + task.pr));
   // blocked-lane reason signals — explain WHY a card is off-flow (only set on such cards).
   if (task.block) meta.appendChild(el('span', 'pill attn', '⚑ ' + task.block.kind + (task.block.for ? ' →' + task.block.for : '') + (task.block.reason ? ': ' + task.block.reason : '')));
-  if (!isTerminal(task.state) && task.dependency && task.dependency.blockedBy.length) meta.appendChild(el('span', 'pill attn', '🚫 รอ: ' + task.dependency.blockedBy.join(', ')));
+  // kobo-255: the wait-label belongs to the blocked lane only. slice-A makes a
+  // dep-pending card state="blocked", so gate on the real state — no overlay on a
+  // review/in-progress card. (blocked ≠ terminal, so kobo-246 terminal-gate holds.)
+  if (task.state === 'blocked' && task.dependency && task.dependency.blockedBy.length) meta.appendChild(el('span', 'pill attn', '🚫 รอ: ' + task.dependency.blockedBy.join(', ')));
   if (task.dependency && task.dependency.missing.length) meta.appendChild(el('span', 'pill wait', '⚠ parent ไม่พบ: ' + task.dependency.missing.join(', ')));
   if (task.needsOwner) meta.appendChild(el('span', 'pill attn', '⚑ ยังไม่มีเจ้าของ')); // derived needs-owner (kobo-14)
   if (task.stale) meta.appendChild(el('span', 'pill wait', '⏳ stuck? ball on?')); // soft stuck-decision badge (mawjs-5) — visual only
@@ -2158,11 +2158,11 @@ function renderBoard(tasks) {
   for (const s of COLS) { cols[s] = $(s); cols[s].replaceChildren(); }
   const attn = $('blocked'); attn.replaceChildren();
   const counts = { backlog: 0, todo: 0, ready: 0, 'in-progress': 0, review: 0, 'need-answer': 0, approve: 0, done: 0, rejected: 0, blocked: 0 };
-  // Off-flow = explicit block (state) OR derived dependency block (ADR 0003) —
-  // ONE Blocked lane, mirroring the CLI board. Derived cards keep their real
-  // flow state but are pulled out while a parent is pending; when the parent is
-  // done the next poll drops the dependency field and the card returns.
-  const isOffFlow = (task) => task.state === 'blocked' || (!isTerminal(task.state) && task.dependency && task.dependency.blockedBy.length > 0) || task.needsOwner;
+  // Off-flow = block state (explicit OR dependency) OR derived needs-owner — ONE
+  // Blocked lane, mirroring the CLI board. kobo-255/slice-A: a dep-pending card now
+  // IS state="blocked" (state = source of truth), so group by the real state — no
+  // derived overlay pulling a card out of its flow lane.
+  const isOffFlow = (task) => task.state === 'blocked' || task.needsOwner;
   const doneCards = []; // kobo-127 — deferred so the Done lane can fold to newest 5
   for (const task of shown) {
     // kobo-199 — Blocked moved from the floating attention lane (kobo-55) into the
