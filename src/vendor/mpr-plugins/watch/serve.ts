@@ -18,7 +18,7 @@ import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
-import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest } from "../../../core/room/route";
+import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest } from "../../../core/room/route";
 import { registerRoomListener } from "../../../core/room/listener";
 import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
@@ -81,6 +81,9 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   ctx.http?.route("POST", "/api/room/close", (request: Request) => handleRoomCloseRequest(request));
   ctx.http?.route("POST", "/api/room/reopen", (request: Request) => handleRoomReopenRequest(request));
   ctx.http?.route("GET", "/api/room/thread", (request: Request) => handleRoomThreadRequest(request));
+  // kobo-244 — distill a room-artifact into a kanban card (the ONE room→board touch);
+  // reuses addTask + writes the bidirectional card↔room link. Behind auth (PROTECTED).
+  ctx.http?.route("POST", "/api/room/distill", (request: Request) => handleRoomDistillRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company-ui presence roster (kobo-50): authoritative company membership for the

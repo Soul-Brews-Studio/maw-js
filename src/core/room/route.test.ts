@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest } from "./route";
-import { appendRoomMessage } from "./store";
+import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest } from "./route";
+import { appendRoomMessage, readRoom } from "./store";
+import { readTask } from "../tasks/store";
 
 const post = (body: unknown, spawn?: (a: string[]) => { exited: Promise<number> }) =>
   handleRoomSendRequest(
@@ -78,5 +79,41 @@ describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread
     expect(thread("").status).toBe(400); // no company
     expect((await closeR({ company: "kobo", room: "ghost" })).status).toBe(404); // absent room
     expect((await openR({ company: "kobo" })).status).toBe(400); // no room
+  });
+
+  const distill = (b: unknown) => handleRoomDistillRequest(new Request("http://x/api/room/distill", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+
+  test("distill promotes a room → a real kanban card with a bidirectional link (kobo-244)", async () => {
+    await openR({ company: "kobo", room: "brainstorm", topic: "how to X" });
+    const res = await distill({ company: "kobo", room: "brainstorm", title: "Build X", body: "problem+approach", assignee: "patchwork", reviewer: "eq3" });
+    expect(res.status).toBe(200);
+    const j = await res.json() as { ok: boolean; card: { id: string; title: string; room: string; assignee: string; reviewer: string; body: string }; room: { cardId: string } };
+    expect(j.ok).toBe(true);
+    // card was created via the REUSED addTask path (real card on the board, has an id)
+    expect(j.card.title).toBe("Build X");
+    expect(j.card.assignee).toBe("patchwork");
+    expect(j.card.reviewer).toBe("eq3");
+    expect(j.card.body).toBe("problem+approach");
+    // bidirectional link — card→room (provenance) AND room→card (recorded)
+    expect(j.card.room).toBe("brainstorm");
+    expect(j.room.cardId).toBe(j.card.id);
+    expect(readTask("kobo", j.card.id)!.room).toBe("brainstorm"); // persisted card side
+    expect(readRoom("kobo", "brainstorm")!.cardId).toBe(j.card.id); // persisted artifact side
+  });
+
+  test("distill is idempotent — a re-distill returns the SAME card, no duplicate", async () => {
+    await openR({ company: "kobo", room: "once", topic: "t" });
+    const first = await (await distill({ company: "kobo", room: "once", title: "First" })).json() as { card: { id: string } };
+    const again = await (await distill({ company: "kobo", room: "once", title: "Second attempt" })).json() as { card: { id: string; title: string }; deduped: boolean };
+    expect(again.deduped).toBe(true);
+    expect(again.card.id).toBe(first.card.id); // same card, not a second one
+    expect(again.card.title).toBe("First"); // original card unchanged
+  });
+
+  test("distill guards: absent room → 404; missing title/company → 400", async () => {
+    expect((await distill({ company: "kobo", room: "ghost", title: "x" })).status).toBe(404);
+    await openR({ company: "kobo", room: "g", topic: "t" });
+    expect((await distill({ company: "kobo", room: "g" })).status).toBe(400); // no title
+    expect((await distill({ room: "g", title: "x" })).status).toBe(400); // no company
   });
 });

@@ -136,6 +136,7 @@ export interface TaskRecord {
   body?: string; // free text: why/detail + markdown checklist (ADR 0003 C) — git-diff'able
   notes?: TaskNote[]; // append-only notes (kobo-39) — mid-flight truth, oldest first, NEVER mutated/deleted
   comments?: TaskComment[]; // threaded ask/answer comments (kobo-140) — resolve flips a flag, never deleted
+  room?: string; // provenance (kobo-244) — the brainstorm-room artifact id this card was distilled from (bidirectional; the room records this card id back)
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -295,6 +296,7 @@ export interface AddTaskInput {
   body?: string; // free text / markdown checklist (ADR 0003 C)
   reviewer?: string; // kobo-144: persistent per-card reviewer (resolve chain head)
   reviewReason?: string; // kobo-218: born-in-approve deploy-approval card carries WHY (the Approve lane invariant — every card says why it's in Tony's queue)
+  room?: string; // kobo-244: brainstorm-room artifact id this card is distilled from (provenance)
 }
 
 /**
@@ -325,6 +327,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.body?.length) task.body = input.body;
   if (input.reviewer) task.reviewer = input.reviewer; // kobo-144: persistent per-card reviewer
   if (input.reviewReason) task.reviewReason = input.reviewReason; // kobo-218: born-in-approve card's WHY
+  if (input.room) task.room = input.room; // kobo-244: room-artifact provenance (bidirectional link)
 
   // kobo-133/223: born blocked-or-ready. A card that opens with deps → if any
   // parent is still pending it's born BLOCKED (state=blocked, kind=dependency —

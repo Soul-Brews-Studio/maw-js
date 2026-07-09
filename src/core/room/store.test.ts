@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath } from "./store";
+import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard } from "./store";
 import { taskFilePath } from "../tasks/store";
 
 let dir: string; const prev = process.env.MAW_DATA_DIR;
@@ -54,5 +54,14 @@ describe("room artifact store (kobo-241 — off-card, file-per-room)", () => {
     const ids = listRooms("kobo").map((r) => r.id);
     expect(ids.sort()).toEqual(["a", "b"]);
     expect(listRooms("other")).toEqual([]);
+  });
+
+  test("linkRoomCard records the distilled card id (bidirectional back-half); null if absent", () => {
+    openRoom("kobo", "r3", "t");
+    const linked = linkRoomCard("kobo", "r3", "kobo-99");
+    expect(linked!.cardId).toBe("kobo-99");
+    expect(readRoom("kobo", "r3")!.cardId).toBe("kobo-99"); // persisted
+    expect(linkRoomCard("kobo", "r3", "kobo-99")!.cardId).toBe("kobo-99"); // idempotent re-link
+    expect(linkRoomCard("kobo", "ghost", "kobo-1")).toBeNull(); // absent room
   });
 });

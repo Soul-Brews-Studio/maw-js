@@ -66,6 +66,12 @@ export function roomHtml(): string {
       <input id="text" placeholder="ask the lead… (Enter to send)" />
       <button id="send" type="button">send</button>
     </div>
+    <div class="roomctl" style="margin-top:12px">
+      <label>distill → card <input id="dtitle" placeholder="distilled outcome (problem+approach)" /></label>
+      <label>assignee <input id="dassignee" placeholder="optional" /></label>
+      <label>reviewer <input id="dreviewer" placeholder="optional" /></label>
+      <button id="distill" type="button">distill → card</button>
+    </div>
     <div id="status" class="status"></div>
   </main>
 <script>
@@ -112,6 +118,7 @@ function renderStatus(room) {
   s.replaceChildren();
   s.appendChild(el('span', room.status === 'open' ? 'open' : 'closed', room.status === 'open' ? '● open' : '○ closed'));
   if (room.topic) s.appendChild(el('span', '', ' · ' + room.topic));
+  if (room.cardId) s.appendChild(el('span', '', ' · 🧵 card ' + room.cardId)); // kobo-244: bidirectional link, artifact side
 }
 
 async function openRoom() {
@@ -138,9 +145,26 @@ async function send() {
   finally { $('send').disabled = false; }
 }
 
+// kobo-244: distill the grounding conversation into a board card (the one room→board
+// touch). Server reuses addTask + writes the bidirectional card↔room link.
+async function distill() {
+  const { company, room } = ctx(); const title = $('dtitle').value.trim();
+  if (!company || !room || !title) { setStatus('company, room and card title are required', true); return; }
+  $('distill').disabled = true;
+  try {
+    const j = await post('/api/room/distill', { company, room, title, assignee: $('dassignee').value.trim(), reviewer: $('dreviewer').value.trim() });
+    const id = j.card && j.card.id ? j.card.id : '?';
+    setStatus('distilled → card ' + id + (j.deduped ? ' (already linked)' : ' created + linked'));
+    $('dtitle').value = '';
+    load();
+  } catch (err) { setStatus('distill failed: ' + (err && err.message ? err.message : err), true); }
+  finally { $('distill').disabled = false; }
+}
+
 $('open').addEventListener('click', openRoom);
 $('close').addEventListener('click', closeRoom);
 $('send').addEventListener('click', send);
+$('distill').addEventListener('click', distill);
 $('text').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
 $('refresh').addEventListener('click', load);
 $('room').addEventListener('change', load);

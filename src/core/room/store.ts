@@ -33,6 +33,7 @@ export interface RoomArtifact {
   ts: number; // opened at
   updatedTs: number;
   messages: RoomMessage[];
+  cardId?: string; // kobo-244: the kanban card distilled FROM this room (bidirectional provenance — the card records this room id back). The single point where a room touches the board.
 }
 
 /** company/id → safe single path segment (no traversal / separators / dots). */
@@ -117,6 +118,20 @@ export function appendRoomMessage(company: string, id: string, msg: RoomMessage)
   if (room.messages.some((m) => m.id === msg.id)) return room; // dedup — already captured
   room.messages.push(msg);
   room.updatedTs = msg.ts || Date.now();
+  writeRoom(room);
+  return room;
+}
+
+/**
+ * Record on the artifact the kanban card it was distilled into (kobo-244) — the
+ * back-half of the bidirectional link (the card already carries room=<id>). Returns
+ * the room, or null if absent. Idempotent: re-linking the same card is a no-op write.
+ */
+export function linkRoomCard(company: string, id: string, cardId: string): RoomArtifact | null {
+  const room = readRoom(company, id);
+  if (!room) return null;
+  room.cardId = cardId;
+  room.updatedTs = Date.now();
   writeRoom(room);
   return room;
 }
