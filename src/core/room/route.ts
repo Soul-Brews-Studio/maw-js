@@ -15,12 +15,12 @@
  * merge (4), distill-to-card (5).
  */
 
-import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms, findRoomCompany, appendRoomMessage } from "./store";
+import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms, findRoomCompany, appendRoomMessage, addRoomParticipant } from "./store";
 import { addTask, readTask } from "../tasks/store";
-import { roomActivity } from "./activity";
+import { roomActivity, bareName } from "./activity";
 import { readWorklog } from "../worklog/store";
 import { readPresenceRows } from "../presence/route";
-import { listCompanies, companyExists, companyLead } from "../../vendor/mpr-plugins/company/company-helpers";
+import { listCompanies, companyExists, companyLead, companyOracles } from "../../vendor/mpr-plugins/company/company-helpers";
 
 /** The tag that scopes a message to a room (both directions carry it). */
 export function roomTag(room: string): string {
@@ -44,10 +44,16 @@ export function roomSender(from: string | undefined): string {
   return `web:${name}`;
 }
 
-/** The `maw hey` argv that delivers a room message to the lead (reuses hey 100%). The
- *  web turn is stamped `--from web:<author>` so it isn't attributed to the host oracle. */
-export function roomSendArgs(room: string, to: string, text: string, from = "web"): string[] {
-  return ["hey", "--from", roomSender(from), to, `${roomTag(room)} ${text}`];
+/**
+ * The `maw hey` argv that NUDGES the lead about a new room turn (kobo-260). It is
+ * deliberately PLAIN / UNTAGGED — no `[room:<id>]` — so the room feed listener does NOT
+ * re-capture it (that re-capture was the finding-#4 self-echo). The turn itself is already
+ * persisted to the artifact at send time (kobo-249); this hey only tells the lead to go
+ * look + reply via /api/room/reply. Still stamped `--from web:<author>` so the nudge isn't
+ * attributed to the host oracle.
+ */
+export function roomNudgeArgs(room: string, to: string, from = "web"): string[] {
+  return ["hey", "--from", roomSender(from), to, `💬 new turn in room "${room}" — open the brainstorm room to reply`];
 }
 
 export type SpawnFn = (argv: string[]) => { exited: Promise<number> };
@@ -79,20 +85,25 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
   if (!room || !to || !text) {
     return Response.json({ ok: false, error: "room, to and text are required" }, { status: 400 });
   }
+  const company = findRoomCompany(room);
+  // Rule-6 (kobo-260): the web/human side may NOT impersonate a company oracle. The stored
+  // identity is bareName(web:<from>); reject it if it collides with a real teammate name.
+  const author = bareName(roomSender(from));
+  if (company && companyOracles(company).has(author)) {
+    return Response.json({ ok: false, error: `"${author}" is a company oracle — the web side can't send as a teammate` }, { status: 403 });
+  }
   try {
-    // kobo-249 — persist the outbound turn NOW (source of truth), decoupled from the
-    // idle-gated delivery feed event. Only an OPEN room has an artifact; findRoomCompany
-    // returns null otherwise (a send to an unopened room delivers but persists nothing,
-    // same as before). Persist under the SAME web:<author> identity the hey stamps
-    // (roomSender), so the turn's own lagging feed event dedups against this write.
-    const company = findRoomCompany(room);
+    // kobo-249 — persist the outbound turn NOW (source of truth), decoupled from delivery.
+    // Only an OPEN room has an artifact (findRoomCompany null → deliver but persist nothing).
+    // kobo-260: store the BARE identity ("web") — the SAME one roleOf renders as "you" — so
+    // the turn shows as the human, not a teammate.
     if (company) {
-      const author = roomSender(from);
       appendRoomMessage(company, room, { id: `send-${author}-${Date.now()}`, from: author, text, ts: Date.now() });
     }
-    const proc = spawn(roomSendArgs(room, to, text, from));
-    // Best-effort delivery: don't block the response on it. Persistence already happened
-    // above, so a busy pane no longer lags the thread (kobo-240 spike / finding #3).
+    // kobo-260: nudge the lead with a PLAIN/UNTAGGED hey (no [room:<id>]) → the listener
+    // does NOT re-capture it → no self-echo (finding #4 dissolves at the root; no dedup
+    // needed). The turn is already persisted above; the lead replies via /api/room/reply.
+    const proc = spawn(roomNudgeArgs(room, to, from));
     void proc.exited;
     return Response.json({ ok: true, room, to });
   } catch (e) {
@@ -106,6 +117,67 @@ async function parseBody(request: Request): Promise<Record<string, unknown> | nu
   try { return (await request.json()) as Record<string, unknown>; } catch { return null; }
 }
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+
+// ── kobo-260: reply primitive + teammate invite ───────────────────────────────
+
+/**
+ * The oracles allowed to REPLY into a room (kobo-260 Rule-6 verify set): the company's own
+ * oracles (lead + members) ∪ the explicitly invited teammates (may be cross-company, e.g. a
+ * pgw reviewer pulled into a kobo room) ∪ anyone who has already spoken. Never the human
+ * "web" side. A reply `from` outside this set is rejected — no impersonating a human/oracle.
+ */
+function roomRepliers(company: string, room: RoomArtifact): Set<string> {
+  const s = companyOracles(company);
+  for (const p of room.participants ?? []) s.add(bareName(p));
+  for (const m of room.messages) { const n = bareName(m.from || ""); if (n) s.add(n); }
+  s.delete("web");
+  return s;
+}
+
+/**
+ * POST /api/room/reply — body { company, room, from, text } → a teammate/lead replies
+ * DIRECTLY into the room artifact (kobo-260). This is the room-target reply primitive that
+ * replaces the "hey a hand-picked pane with a [room:] tag" hack (finding #5): the room is
+ * the target, not a pane. Rule-6: `from` is server-verified against roomRepliers — it must
+ * be a real oracle of the room, never the human "web" side (no impersonation). id/ts minted
+ * server-side. No hey, no feed event — the web renders it on the next artifact poll.
+ */
+export async function handleRoomReplyRequest(request: Request): Promise<Response> {
+  const body = await parseBody(request);
+  if (!body) return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  const company = str(body.company), room = str(body.room), text = str(body.text);
+  const from = bareName(str(body.from));
+  if (!company || !room || !from || !text) return Response.json({ ok: false, error: "company, room, from and text are required" }, { status: 400 });
+  const r = readRoom(company, room);
+  if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
+  if (from === "web" || !roomRepliers(company, r).has(from)) {
+    return Response.json({ ok: false, error: `"${from}" may not reply here — reply must come from a room oracle (Rule 6: no impersonation)` }, { status: 403 });
+  }
+  const updated = appendRoomMessage(company, room, { id: `reply-${from}-${Date.now()}`, from, text, ts: Date.now() });
+  return Response.json({ ok: true, room: updated });
+}
+
+/**
+ * POST /api/room/invite — body { company, room, oracle } → explicitly pull a teammate into
+ * the room (kobo-260). Records them on the artifact (they show in "who's here" before their
+ * first turn) and sends exactly ONE hey — the model's only room-related hey — a plain notify
+ * with a deep-link to the room. `oracle` may be cross-company (a reviewer from another
+ * company is a valid pull-in). Their later turns attribute via the reply primitive. `spawn`
+ * injectable for tests.
+ */
+export async function handleRoomInviteRequest(request: Request, spawn: SpawnFn = defaultSpawn): Promise<Response> {
+  const body = await parseBody(request);
+  if (!body) return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  const company = str(body.company), room = str(body.room);
+  const oracle = bareName(str(body.oracle));
+  if (!company || !room || !oracle) return Response.json({ ok: false, error: "company, room and oracle are required" }, { status: 400 });
+  if (oracle === "web") return Response.json({ ok: false, error: "cannot invite the web/human side as a teammate" }, { status: 400 });
+  const updated = addRoomParticipant(company, room, oracle);
+  if (!updated) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
+  // exactly one hey — a plain notify with a deep-link to the room web view (kobo-258 route).
+  try { void spawn(["hey", oracle, `🧵 you're pulled into brainstorm room "${room}" (${company}) — /room?company=${encodeURIComponent(company)}&room=${encodeURIComponent(room)}`]).exited; } catch { /* notify best-effort */ }
+  return Response.json({ ok: true, room: updated });
+}
 
 /**
  * POST /api/room/open — body { company, room, topic } → create/reopen the off-card

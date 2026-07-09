@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms } from "./store";
+import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms, addRoomParticipant } from "./store";
 import { taskFilePath } from "../tasks/store";
 
 let dir: string; const prev = process.env.MAW_DATA_DIR;
@@ -16,6 +16,15 @@ describe("room artifact store (kobo-241 — off-card, file-per-room)", () => {
     expect(existsSync(roomFilePath("kobo", "demo"))).toBe(true);
     expect(roomFilePath("kobo", "demo")).toContain("/rooms/"); // NOT /tasks/
     expect(existsSync(taskFilePath("kobo", "demo"))).toBe(false); // never a kanban card
+  });
+
+  test("addRoomParticipant records a pulled-in teammate, idempotent; null on an absent room (kobo-260)", () => {
+    openRoom("kobo", "r1", "topic");
+    expect(addRoomParticipant("kobo", "r1", "thawanban")!.participants).toEqual(["thawanban"]);
+    expect(addRoomParticipant("kobo", "r1", "thawanban")!.participants).toEqual(["thawanban"]); // idempotent — no dup
+    expect(addRoomParticipant("kobo", "r1", "worker-2")!.participants).toEqual(["thawanban", "worker-2"]);
+    expect(readRoom("kobo", "r1")!.participants).toEqual(["thawanban", "worker-2"]); // persisted
+    expect(addRoomParticipant("kobo", "ghost", "x")).toBeNull(); // absent room
   });
 
   test("close / reopen flip status but PRESERVE the thread (persist + reload)", () => {

@@ -39,11 +39,15 @@ export function roomActivity(
 ): RoomParticipant[] {
   const order: string[] = [];
   const seen = new Set<string>();
-  for (const m of room.messages) {
-    const name = bareName(m.from || "");
-    if (!name || name === "web") continue; // the human/web side isn't a teammate
+  const add = (raw: string) => {
+    const name = bareName(raw || "");
+    if (!name || name === "web") return; // the human/web side isn't a teammate
     if (!seen.has(name)) { seen.add(name); order.push(name); }
-  }
+  };
+  // explicitly pulled-in teammates first (kobo-260 invite) — they show in "who's here"
+  // before their first turn — then everyone who has spoken (derived from the thread).
+  for (const p of room.participants ?? []) add(p);
+  for (const m of room.messages) add(m.from || "");
 
   const wl = new Map<string, WorklogEntry>();
   for (const e of worklog) wl.set(bareName(e.oracle), e); // append-order → last write = newest

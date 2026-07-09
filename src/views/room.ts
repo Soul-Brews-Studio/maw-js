@@ -138,6 +138,7 @@ export function roomHtml(): string {
           <div class="hsub" id="hSub"></div>
         </div>
         <span class="spacer"></span>
+        <button id="inviteBtn" class="act" type="button">+ teammate</button>
         <button id="mergeBtn" class="act" type="button">merge</button>
         <button id="distillBtn" class="act accent" type="button">distill ▸</button>
       </div>
@@ -332,6 +333,16 @@ async function distill() {
     loadThread();
   } catch (err) { setStatus('distill failed: ' + (err && err.message ? err.message : err), true); }
 }
+// kobo-260 — pull a teammate into the room: records them + sends one plain notify hey.
+async function invite() {
+  if (!roomId) { setStatus('เลือกหัวข้อก่อน invite', true); return; }
+  const oracle = prompt('Pull a teammate into this room (oracle name, e.g. thawanban):');
+  if (!oracle || !oracle.trim()) return;
+  try {
+    await post('/api/room/invite', { company, room: roomId, oracle: oracle.trim() });
+    setStatus(oracle.trim() + ' pulled in — notified'); loadThread();
+  } catch (err) { setStatus('invite failed: ' + (err && err.message ? err.message : err), true); }
+}
 function enterMerge() {
   if (!roomId) { setStatus('เลือก target topic (ห้องปัจจุบัน) ก่อน merge', true); return; }
   mergeMode = true; $('mergebar').style.display = ''; $('topicsHead').textContent = 'Merge into: ' + roomId; renderRoomList();
@@ -355,6 +366,7 @@ $('text').addEventListener('input', autogrow);
 $('text').addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } });
 $('back').addEventListener('click', () => { $('app').classList.remove('showchat'); });
 $('distillBtn').addEventListener('click', distill);
+$('inviteBtn').addEventListener('click', invite);
 $('mergeBtn').addEventListener('click', enterMerge);
 $('mergeConfirm').addEventListener('click', confirmMerge);
 $('mergeCancel').addEventListener('click', cancelMerge);

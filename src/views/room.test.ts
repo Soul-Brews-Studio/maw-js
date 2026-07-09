@@ -17,7 +17,13 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("/api/room/open"); // new topic
     expect(html).toContain("/api/room/distill"); // room → card (kobo-244)
     expect(html).toContain("/api/room/merge"); // consolidate (kobo-243)
+    expect(html).toContain("/api/room/invite"); // kobo-260 pull a teammate in
     expect(html).not.toContain("/api/feed"); // never the ephemeral feed
+  });
+
+  test("kobo-260: invite affordance pulls a teammate in (reachable from the chat header)", () => {
+    expect(html).toContain('id="inviteBtn"');
+    expect(html).toContain("async function invite");
   });
 
   test("2-pane structure: company selector, topic list, thread, composer, lead label", () => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { roomTag, messageInRoom, roomSendArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest, handleRoomsListRequest } from "./route";
+import { roomTag, messageInRoom, roomNudgeArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest, handleRoomsListRequest, handleRoomReplyRequest, handleRoomInviteRequest } from "./route";
 import { appendRoomMessage, readRoom } from "./store";
 import { readTask } from "../tasks/store";
 import { _setCompaniesDir, saveCompany, COMPANIES_DIR } from "../../vendor/mpr-plugins/company/company-helpers";
@@ -43,19 +43,23 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     expect(messageInRoom(undefined, "demo")).toBe(false);
   });
 
-  test("roomSendArgs stamps the web author (--from web:<name>) so the turn isn't the host oracle (kobo-248)", () => {
-    expect(roomSendArgs("demo", "eq3", "what next?")).toEqual(["hey", "--from", "web:web", "eq3", "[room:demo] what next?"]); // default author
-    expect(roomSendArgs("demo", "eq3", "hi", "tony")).toEqual(["hey", "--from", "web:tony", "eq3", "[room:demo] hi"]); // named human
-    expect(roomSendArgs("demo", "eq3", "hi", "m5:eq3")[2]).toBe("web:m5eq3"); // sanitized to the sender-part charset (no stray ':')
+  test("roomNudgeArgs is PLAIN/UNTAGGED — no [room:<id>] so the listener can't re-capture it (kobo-260)", () => {
+    const args = roomNudgeArgs("demo", "eq3", "web");
+    expect(args.slice(0, 3)).toEqual(["hey", "--from", "web:web"]); // still web-attributed (kobo-248)
+    expect(args[3]).toBe("eq3"); // to the lead
+    expect(args[4]).not.toContain("[room:"); // NO tag → the room feed listener ignores it (no self-echo)
+    expect(args[4]).toContain("demo"); // but still tells the lead which room
   });
 
-  test("POST /api/room/send delivers via the injected hey spawn, tagged web:<from> (kobo-248)", async () => {
+  test("POST /api/room/send nudges the lead with an UNTAGGED hey (kobo-260 — no self-echo)", async () => {
     const calls: string[][] = [];
     const spawn = (argv: string[]) => { calls.push(argv); return { exited: Promise.resolve(0) }; };
     const res = await post({ room: "demo", to: "eq3", text: "hello lead", from: "web" }, spawn);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
-    expect(calls).toEqual([["hey", "--from", "web:web", "eq3", "[room:demo] hello lead"]]); // one hey, web-attributed
+    expect(calls).toHaveLength(1);
+    expect(calls[0].slice(0, 4)).toEqual(["hey", "--from", "web:web", "eq3"]); // one nudge to the lead
+    expect(calls[0][4]).not.toContain("[room:"); // untagged
   });
 
   test("missing room/to/text → 400; bad JSON → 400 (no spawn)", async () => {
@@ -75,39 +79,92 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
   const noopSpawn = () => ({ exited: Promise.resolve(0) });
   const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
 
-  test("a send persists the turn synchronously under web:<author> — no feed/delivery event needed", async () => {
+  test("a send persists the turn synchronously under the BARE author — renders as the human (kobo-260)", async () => {
     await openR({ company: "kobo", room: "r", topic: "t" });
     const res = await post({ room: "r", to: "eq3", text: "urgent turn", from: "tony" }, noopSpawn);
     expect(res.status).toBe(200);
     const room = readRoom("kobo", "r")!;
     expect(room.messages).toHaveLength(1); // present IMMEDIATELY, not after delivery drains
-    // persisted under the SAME web:<author> the hey stamps via --from (kobo-248), so the
-    // lagging feed event dedups against it.
-    expect(room.messages[0]).toMatchObject({ from: "web:tony", text: "urgent turn" });
+    // kobo-260: stored under the BARE identity ("tony"), the same one roleOf renders as the
+    // human — NOT the raw "web:tony" that used to render as a teammate.
+    expect(room.messages[0]).toMatchObject({ from: "tony", text: "urgent turn" });
   });
 
-  test("the lagging delivery feed event for the SAME turn is deduped (no double-persist)", async () => {
+  test("send persists EXACTLY ONCE — the untagged nudge can't self-echo (kobo-260, finding #4)", async () => {
     await openR({ company: "kobo", room: "r", topic: "t" });
-    await post({ room: "r", to: "eq3", text: "hi" }, noopSpawn); // default author → web:web
-    // the delayed feed event arrives later with a DIFFERENT random lifecycle id but the
-    // same (from, text), inside the send-dedup window — the listener path lands here.
-    appendRoomMessage("kobo", "r", { id: "random-lifecycle-id", from: "web:web", text: "hi", ts: Date.now() + 40_000 });
-    expect(readRoom("kobo", "r")!.messages).toHaveLength(1); // still one — deduped
+    const calls: string[][] = [];
+    await post({ room: "r", to: "eq3", text: "hi" }, (a) => { calls.push(a); return { exited: Promise.resolve(0) }; });
+    // the nudge is untagged, so onRoomFeedEvent (which only captures [room:<id>] heys) is a
+    // no-op for it — nothing re-persists the web turn. Exactly one message, from the human.
+    const msgs = readRoom("kobo", "r")!.messages;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].from).toBe("web");
+    expect(calls[0][4]).not.toContain("[room:"); // proves the nudge carries no tag to re-capture
   });
 
-  test("a lead reply (different text) still persists — slice-1 round-trip intact", async () => {
+  test("Rule-6: the web side can't send AS a company oracle (no impersonating a teammate)", async () => {
     await openR({ company: "kobo", room: "r", topic: "t" });
-    await post({ room: "r", to: "eq3", text: "question" }, noopSpawn);
-    appendRoomMessage("kobo", "r", { id: "lead-1", from: "m5:eq3", text: "answer", ts: Date.now() });
-    expect(readRoom("kobo", "r")!.messages.map((m) => m.text)).toEqual(["question", "answer"]);
+    const res = await post({ room: "r", to: "eq3", text: "sneaky", from: "eq3" }, noopSpawn); // eq3 = kobo lead
+    expect(res.status).toBe(403);
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(0); // nothing written
   });
 
   test("send to an UNOPENED room delivers but persists nothing (no artifact minted)", async () => {
     const calls: string[][] = [];
     const res = await post({ room: "ghost", to: "eq3", text: "x" }, (a) => { calls.push(a); return { exited: Promise.resolve(0) }; });
     expect(res.status).toBe(200); // delivery still best-effort
-    expect(calls).toHaveLength(1); // hey still spawned
+    expect(calls).toHaveLength(1); // nudge still spawned
     expect(readRoom("kobo", "ghost")).toBeNull(); // stray traffic never mints an artifact
+  });
+
+  // ── kobo-260: reply primitive + invite ──
+  const reply = (b: unknown) => handleRoomReplyRequest(new Request("http://x/api/room/reply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const inviteR = (b: unknown, spawn = noopSpawn) => handleRoomInviteRequest(new Request("http://x/api/room/invite", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }), spawn);
+
+  test("reply writes the lead's turn directly into the artifact — no pane hack (kobo-260)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const res = await reply({ company: "kobo", room: "r", from: "eq3", text: "here is my answer" });
+    expect(res.status).toBe(200);
+    const msgs = readRoom("kobo", "r")!.messages;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ from: "eq3", text: "here is my answer" }); // attributed to the lead
+  });
+
+  test("Rule-6: reply `from` is server-verified — human/web or unknown is rejected 403", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    expect((await reply({ company: "kobo", room: "r", from: "web", text: "x" })).status).toBe(403); // can't reply as the human
+    expect((await reply({ company: "kobo", room: "r", from: "tony", text: "x" })).status).toBe(403); // random human name
+    expect((await reply({ company: "kobo", room: "r", from: "randobot", text: "x" })).status).toBe(403); // not an oracle of the room
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(0);
+    expect((await reply({ company: "kobo", room: "ghost", from: "eq3", text: "x" })).status).toBe(404); // absent room
+    expect((await reply({ company: "kobo", room: "r", text: "x" })).status).toBe(400); // no from
+  });
+
+  test("an invited (cross-company) teammate may reply — participant unlocks the Rule-6 gate", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    // thawanban is pgw's lead, NOT a kobo oracle — but once invited into the kobo room they can reply
+    expect((await reply({ company: "kobo", room: "r", from: "thawanban", text: "early" })).status).toBe(403);
+    await inviteR({ company: "kobo", room: "r", oracle: "thawanban" });
+    expect((await reply({ company: "kobo", room: "r", from: "thawanban", text: "now allowed" })).status).toBe(200);
+  });
+
+  test("invite records the teammate + sends exactly one plain notify hey (kobo-260)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const calls: string[][] = [];
+    const res = await inviteR({ company: "kobo", room: "r", oracle: "worker-2" }, (a) => { calls.push(a); return { exited: Promise.resolve(0) }; });
+    expect(res.status).toBe(200);
+    expect(readRoom("kobo", "r")!.participants).toEqual(["worker-2"]); // recorded on the artifact
+    expect(calls).toHaveLength(1); // exactly one hey
+    expect(calls[0][0]).toBe("hey"); expect(calls[0][1]).toBe("worker-2");
+    expect(calls[0][2]).toContain("/room?company=kobo"); // deep-link to the room
+    expect(calls[0][2]).not.toContain("[room:"); // untagged notify — no re-capture
+  });
+
+  test("invite guards: absent room → 404; missing oracle → 400; can't invite web → 400", async () => {
+    expect((await inviteR({ company: "kobo", room: "ghost", oracle: "x" })).status).toBe(404);
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    expect((await inviteR({ company: "kobo", room: "r" })).status).toBe(400); // no oracle
+    expect((await inviteR({ company: "kobo", room: "r", oracle: "web" })).status).toBe(400); // can't invite the human
   });
 });
 

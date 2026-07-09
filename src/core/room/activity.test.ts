@@ -26,6 +26,14 @@ describe("room activity projection (kobo-242)", () => {
     expect(out.map((p) => p.oracle)).toEqual(["eq3", "conductor"]); // web dropped, deduped, ordered
   });
 
+  test("kobo-260: explicitly-invited participants union with derived, before their first turn", () => {
+    const r = room(["web", "eq3"]); // eq3 has spoken
+    r.participants = ["m5:thawanban", "eq3"]; // thawanban invited but hasn't spoken; eq3 dup
+    const out = roomActivity(r, [], []);
+    // invited-first, then spoken; deduped + bareName'd + web excluded
+    expect(out.map((p) => p.oracle)).toEqual(["thawanban", "eq3"]);
+  });
+
   test("joins latest worklog summary + live presence per participant (host/pane-insensitive)", () => {
     const out = roomActivity(
       room(["web", "m5:conductor"]),

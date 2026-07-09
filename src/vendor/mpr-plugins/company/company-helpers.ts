@@ -109,6 +109,25 @@ export function companyLead(name: string): string | null {
   return null;
 }
 
+/**
+ * Every oracle that belongs to a company — the manager, each dept lead, and all dept
+ * members (kobo-260). Used as the Rule-6 verify set: a `/api/room/reply` may only claim a
+ * `from` that is a real oracle of the company (no impersonating a human/web or an outsider),
+ * and `/api/room/send` (the human side) may NOT claim one of these (no impersonating a
+ * teammate). Returns the bare oracle names.
+ */
+export function companyOracles(name: string): Set<string> {
+  const c = loadCompany(name);
+  const out = new Set<string>();
+  if (!c) return out;
+  if (c.manager) out.add(c.manager);
+  for (const d of Object.values(c.departments ?? {})) {
+    if (d.lead) out.add(d.lead);
+    for (const m of d.members ?? []) if (m.oracle) out.add(m.oracle);
+  }
+  return out;
+}
+
 export function createCompany(name: string): Company {
   assertValidName("company", name);
   if (companyExists(name)) {

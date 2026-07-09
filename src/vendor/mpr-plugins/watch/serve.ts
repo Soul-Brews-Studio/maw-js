@@ -18,7 +18,7 @@ import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
-import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest, handleRoomsListRequest } from "../../../core/room/route";
+import { handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest, handleRoomsListRequest, handleRoomReplyRequest, handleRoomInviteRequest } from "../../../core/room/route";
 import { registerRoomListener } from "../../../core/room/listener";
 import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
@@ -74,6 +74,11 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // MessageSend feed event). The reply renders back on /room by filtering /api/feed on
   // the room tag — no new transport/session/pane. Behind auth (PROTECTED "/room/…").
   ctx.http?.route("POST", "/api/room/send", (request: Request) => handleRoomSendRequest(request));
+  // kobo-260 — the room-target reply primitive (a lead/teammate writes into the artifact
+  // directly, replacing the pane-hey hack) + teammate invite (record + one-shot notify).
+  // Behind auth (PROTECTED "/room/…"); reply `from` is server-verified (Rule 6).
+  ctx.http?.route("POST", "/api/room/reply", (request: Request) => handleRoomReplyRequest(request));
+  ctx.http?.route("POST", "/api/room/invite", (request: Request) => handleRoomInviteRequest(request));
   // kobo-241 — off-card room artifact lifecycle + thread read. open/close/reopen write
   // rooms/<id>.json (NEVER a kanban card); GET thread reloads the persisted conversation
   // (private company convo, Rule 6). Behind auth (PROTECTED "/room/…").

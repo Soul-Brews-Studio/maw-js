@@ -36,6 +36,7 @@ export interface RoomArtifact {
   cardId?: string; // kobo-244: the kanban card distilled FROM this room (bidirectional provenance — the card records this room id back). The single point where a room touches the board.
   mergedInto?: string; // kobo-243: set on a SOURCE room — the target it was consolidated into (archived, not deleted)
   mergedFrom?: string[]; // kobo-243: set on the TARGET room — the source ids it absorbed (provenance)
+  participants?: string[]; // kobo-260: teammates EXPLICITLY pulled in (invite) — union'd with the derived (spoken-in-thread) participants so a pulled-in teammate shows before their first turn
 }
 
 /** company/id → safe single path segment (no traversal / separators / dots). */
@@ -132,6 +133,23 @@ export function appendRoomMessage(company: string, id: string, msg: RoomMessage)
   if (msg.text && room.messages.some((m) => m.from === msg.from && m.text === msg.text && Math.abs((m.ts || 0) - (msg.ts || 0)) < SEND_DEDUP_WINDOW_MS)) return room; // dedup — same turn (send-write ↔ lagging feed event), windowed so genuine later repeats survive (kobo-249)
   room.messages.push(msg);
   room.updatedTs = msg.ts || Date.now();
+  writeRoom(room);
+  return room;
+}
+
+/**
+ * Record an explicitly pulled-in teammate on the room (kobo-260 invite). Idempotent —
+ * a re-invite is a no-op. Returns the room, or null if absent. The stored list is union'd
+ * with the derived (spoken-in-thread) participants by roomActivity, so a teammate shows in
+ * "who's here" the moment they're invited, before their first turn.
+ */
+export function addRoomParticipant(company: string, id: string, oracle: string): RoomArtifact | null {
+  const room = readRoom(company, id);
+  if (!room) return null;
+  if (!room.participants) room.participants = [];
+  if (room.participants.includes(oracle)) return room; // already in — no-op
+  room.participants.push(oracle);
+  room.updatedTs = Date.now();
   writeRoom(room);
   return room;
 }

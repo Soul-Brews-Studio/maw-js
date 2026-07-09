@@ -7,6 +7,7 @@ import {
   COMPANIES_DIR,
   _setCompaniesDir,
   companyLead,
+  companyOracles,
   loadCompany,
   saveCompany,
 } from "../../src/vendor/mpr-plugins/company/company-helpers";
@@ -140,6 +141,17 @@ describe("company command plugin standalone boundary", () => {
       saveCompany({ name: "empty", departments: {} });
       expect(companyLead("empty")).toBeNull(); // no lead anywhere
       expect(companyLead("nonexistent")).toBeNull(); // unknown company
+    });
+
+    // kobo-260 — the Rule-6 verify set: manager + every dept lead + every dept member.
+    test("companyOracles = manager ∪ dept leads ∪ dept members (Rule-6 verify set)", () => {
+      saveCompany({ name: "pgw", manager: "thawanban", departments: {
+        core: { kbTag: "k", lead: "nai", members: [{ oracle: "nai", role: "lead" }, { oracle: "dev1", role: "dev" }] },
+        driver: { kbTag: "k", lead: "sapan", members: [{ oracle: "sapan", role: "lead" }] },
+      } });
+      const set = companyOracles("pgw");
+      expect([...set].sort()).toEqual(["dev1", "nai", "sapan", "thawanban"]); // manager + leads + members, deduped
+      expect(companyOracles("nonexistent").size).toBe(0); // unknown company → empty
     });
   });
 });

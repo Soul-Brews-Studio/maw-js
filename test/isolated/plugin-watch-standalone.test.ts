@@ -110,6 +110,11 @@ describe("watch command plugin standalone boundary", () => {
     // kobo-258: company-scoped room list — topic pane + company selector + default lead.
     expect(serveSrc).toContain("handleRoomsListRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/rooms["']/);
+    // kobo-260: room-target reply primitive + teammate invite (write-in + one-shot notify).
+    expect(serveSrc).toContain("handleRoomReplyRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/reply["']/);
+    expect(serveSrc).toContain("handleRoomInviteRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/invite["']/);
     expect(serveSrc).toContain("handleRosterRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
     // kobo-104: per-pane presence detail GET (model + context%).
@@ -146,6 +151,8 @@ describe("watch command plugin standalone boundary", () => {
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/distill"); // kobo-244 distill room→card
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/merge"); // kobo-243 lead-driven merge
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/rooms"); // kobo-258 company-scoped room list
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/reply"); // kobo-260 reply primitive
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/invite"); // kobo-260 teammate invite
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/activity"); // kobo-242 participant activity
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/roster"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/presence"); // kobo-104
