@@ -251,6 +251,25 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("todo"); // untouched, not parked
   });
 
+  test("need-answer is a STANDALONE verb (mirrors approve) — parks a card in Tony's decision queue (kobo-235)", async () => {
+    await run(["add", "which direction", "--company", "pgw"]); // pgw-1
+    await run(["start", "pgw-1", "--company", "pgw"]); // in-progress
+    const r = await run(["need-answer", "pgw-1", "--reason", "A or B for the schema?", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("need-answer");
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.state).toBe("need-answer");
+    expect(t.reviewReason).toBe("A or B for the schema?");
+  });
+
+  test("need-answer WITHOUT --reason is refused — the decision queue never lies (kobo-235)", async () => {
+    await run(["add", "no reason", "--company", "pgw"]); // pgw-1
+    const r = await run(["need-answer", "pgw-1", "--company", "pgw"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("--reason is required");
+    expect(readTask("pgw", "pgw-1")!.state).toBe("todo"); // untouched, not parked
+  });
+
   test("move to approve also requires a reason (no reason-less bypass) (kobo-191)", async () => {
     await run(["add", "bypass attempt", "--company", "pgw"]); // pgw-1
     const noReason = await run(["move", "pgw-1", "approve", "--company", "pgw"]);

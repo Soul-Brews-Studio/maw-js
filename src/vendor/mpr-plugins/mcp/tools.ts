@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "approve" | "pr" | "done" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "resolve" | "review" | "hold" | "approve" | "need-answer" | "pr" | "done" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
 
 /** One child in a decompose plan (kobo-146 C7). Mirror of the store's DecomposeChild — kept local so tools.ts stays a pure argv mapper with no core import. */
 export interface DecomposePlanChild {
@@ -202,6 +202,13 @@ export function taskArgs(input: TaskInput): string[] {
       const aid = needId("approve");
       if (!input.reason) throw new Error("task approve requires a reason (money/hash/live/deploy/schema/cross-co/unsure — why it needs Tony)");
       return ["company", "task", "approve", aid, "--reason", input.reason, ...common()];
+    }
+    case "need-answer": {
+      // kobo-235: mirror `approve` — the Need-answer lane is Tony's DECISION queue.
+      // reason mandatory (what decision/direction the card waits on).
+      const nid = needId("need-answer");
+      if (!input.reason) throw new Error("task need-answer requires a reason (what decision/direction you need Tony to answer)");
+      return ["company", "task", "need-answer", nid, "--reason", input.reason, ...common()];
     }
     case "ls": {
       const argv = ["company", "task", "ls", ...common()];

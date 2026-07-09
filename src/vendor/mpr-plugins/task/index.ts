@@ -532,6 +532,26 @@ export async function runTask(
       console.log(`\x1b[32m✋ approve\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)} (${t.reviewReason})\x1b[0m: ${t.title}`);
       const arv = notifyReviewer(t, me);
       if (arv) console.log(`  \x1b[36m→ pinged ${arv}\x1b[0m`);
+    } else if (subcmd === "need-answer") {
+      // kobo-235: the standalone `need-answer` verb — mirrors `approve` (kobo-218 wired
+      // approve as a subcommand + the move path, but left need-answer only on the move
+      // path, so `maw company task need-answer <id>` fell through to generic usage).
+      // Routes the SAME needAnswerTask the move path uses — --reason is MANDATORY (the
+      // Need-answer lane is Tony's decision queue; every card says WHAT it waits on).
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--reason": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: 'usage: maw company task need-answer <id> --reason "<what you need Tony to answer>"' };
+      if (!flags["--reason"] || !flags["--reason"].trim()) {
+        return { ok: false, error: "--reason is required for need-answer (the Need-answer lane is Tony's decision queue — say what decision/direction you need)" };
+      }
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = needAnswerTask(company, id, me, flags["--reason"]);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      console.log(`\x1b[36m❓ need-answer\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)} (${t.reviewReason})\x1b[0m: ${t.title}`);
+      const nrv = notifyReviewer(t, me);
+      if (nrv) console.log(`  \x1b[36m→ pinged ${nrv}\x1b[0m`);
     } else if (subcmd === "pr") {
       // Worker links the PR to the card directly (eq3-013): the ONLY prod path
       // that sets card.pr — `maw reply` can't (replier≠requester bug), so

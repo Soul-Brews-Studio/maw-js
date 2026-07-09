@@ -64,7 +64,7 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"hold"', '"approve"', '"pr"', '"done"', '"note"', '"edit"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"resolve"', '"review"', '"hold"', '"approve"', '"need-answer"', '"pr"', '"done"', '"note"', '"edit"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
     // kobo-213: edit = reword title/body in place (same id) → `maw company task edit <id> [--title] [--body]`.
@@ -77,6 +77,9 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // kobo-191: approve = reviewer routes big-work review → approve (reason mandatory).
     expect(tools).toContain('["company", "task", "approve", aid, "--reason", input.reason');
     expect(server).toContain('"approve"'); // enum + title advertise the verb
+    // kobo-235: need-answer = standalone verb mirroring approve (Tony's decision queue, reason mandatory).
+    expect(tools).toContain('["company", "task", "need-answer", nid, "--reason", input.reason');
+    expect(server).toContain('"need-answer"'); // enum + title advertise the verb
     // kobo-134: dep verb — op add|rm + exactly one parent id, maps to
     // `maw company task dep <op> <id> <parentId>` on the canonical surface.
     expect(tools).toContain('["company", "task", "dep", input.op, did, input.parent[0]');
