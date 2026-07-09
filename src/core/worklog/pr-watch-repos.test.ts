@@ -181,3 +181,51 @@ describe("repo-less card heal (kobo-80)", () => {
     expect(readTask("kobo", "kobo-71")?.repo).toBe("meganechan/maw-js");        // healed for next time
   });
 });
+
+// kobo-228: pr-watch is a single-fire snapshot transition-diff — the merge→done
+// EDGE fires once. A server restart reseeds the snapshot (firstRun baselines the
+// current MERGED state without acting), or a card is routed into review/approve
+// AFTER the edge passed → the card strands until a manual `task done`. An approve
+// card is most exposed (it waits on Tony). The reconcile pass closes that gap.
+describe("reconcileMergedCards — swallowed merge-edge recovery (kobo-228)", () => {
+  it("flips an APPROVE-lane card whose merge edge was swallowed (the reported bug)", async () => {
+    const { reconcileMergedCards } = await import("./pr-watch.ts?recon-approve");
+    const { readTask } = await import("../tasks/store.ts?recon-approve");
+    card("kobo", "kobo-1", { state: "approve", pr: 50, repo: "meganechan/maw-js", assignee: "patchwork", reviewReason: "deploy blessing" });
+    const flipped = reconcileMergedCards(50, "meganechan/maw-js", "pr-watch");
+    expect(flipped).toEqual(["kobo-1"]);
+    expect(readTask("kobo", "kobo-1")?.state).toBe("done"); // no manual task done
+  });
+
+  it("flips a REVIEW card too (no regress) and EVERY card the PR binds (kobo-43)", async () => {
+    const { reconcileMergedCards } = await import("./pr-watch.ts?recon-multi");
+    const { readTask } = await import("../tasks/store.ts?recon-multi");
+    card("kobo", "kobo-2", { state: "review", pr: 51, repo: "meganechan/maw-js", assignee: "p" });
+    card("kobo", "kobo-3", { state: "approve", pr: 51, repo: "meganechan/maw-js", assignee: "p", reviewReason: "why" });
+    const flipped = reconcileMergedCards(51, "meganechan/maw-js", "pr-watch").sort();
+    expect(flipped).toEqual(["kobo-2", "kobo-3"]);
+    expect(readTask("kobo", "kobo-2")?.state).toBe("done");
+    expect(readTask("kobo", "kobo-3")?.state).toBe("done");
+  });
+
+  it("is idempotent — a done/rejected card is never resurrected (kobo-99/101), no churn", async () => {
+    const { reconcileMergedCards } = await import("./pr-watch.ts?recon-idem");
+    const { readTask } = await import("../tasks/store.ts?recon-idem");
+    card("kobo", "already", { state: "done", pr: 52, repo: "meganechan/maw-js" });
+    card("kobo", "nope", { state: "rejected", pr: 52, repo: "meganechan/maw-js", rejectReason: "x" });
+    const flipped = reconcileMergedCards(52, "meganechan/maw-js", "pr-watch");
+    expect(flipped).toEqual([]); // nothing open → no-op
+    expect(readTask("kobo", "already")?.state).toBe("done");
+    expect(readTask("kobo", "nope")?.state).toBe("rejected"); // not resurrected
+  });
+
+  it("scopes by repo — a cross-repo PR# collision does not flip the wrong card (kobo-99)", async () => {
+    const { reconcileMergedCards } = await import("./pr-watch.ts?recon-xrepo");
+    const { readTask } = await import("../tasks/store.ts?recon-xrepo");
+    card("kobo", "here", { state: "approve", pr: 5, repo: "kob-bank/helm", assignee: "p", reviewReason: "r" });
+    card("kobo", "elsewhere", { state: "approve", pr: 5, repo: "kob-bank/report", assignee: "p", reviewReason: "r" });
+    reconcileMergedCards(5, "kob-bank/helm", "pr-watch");
+    expect(readTask("kobo", "here")?.state).toBe("done");
+    expect(readTask("kobo", "elsewhere")?.state).toBe("approve"); // untouched — different repo
+  });
+});

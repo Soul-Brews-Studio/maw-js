@@ -136,6 +136,31 @@ export function findCardByPrAnywhere(pr: number, repo?: string): { company: stri
   return findCardsByPrAnywhere(pr, repo)[0] ?? null;
 }
 
+/**
+ * Merge = approval → done EVERY card this PR binds (kobo-43), idempotently. This
+ * is the single flip primitive shared by (a) the OPEN→MERGED transition and (b)
+ * the kobo-228 reconcile pass. Idempotent by construction: findTasksByPr already
+ * excludes done+rejected, so a re-run flips nothing that's already closed (no
+ * resurrection — kobo-99/101). Heals a repo-less card on the way (kobo-80). Returns
+ * the ids it actually flipped (empty = everything already closed → no churn).
+ *
+ * kobo-228: pr-watch is a single-fire snapshot transition-diff — the merge→done
+ * flip only fires on the OPEN→MERGED edge. That edge is SWALLOWED when the snapshot
+ * is reseeded across a server restart (firstRun baselines the current MERGED state
+ * without acting) or when a card is linked/routed into review/approve AFTER the edge
+ * already passed. An approve-lane card is the most exposed: it waits on a human gate,
+ * so a reseed easily lands between merge and blessing → the card strands until a
+ * manual `task done`. Calling this on EVERY poll for a MERGED pr closes that gap.
+ */
+export function reconcileMergedCards(pr: number, repo: string, by: string): string[] {
+  const flipped: string[] = [];
+  for (const hit of findCardsByPrAnywhere(pr, repo)) {
+    setTaskRepoIfMissing(hit.company, hit.taskId, repo); // kobo-80: heal repo-less card
+    if (completeTask(hit.company, hit.taskId, by)) flipped.push(hit.taskId);
+  }
+  return flipped;
+}
+
 /** One poll pass over the fleet's repos. Returns the entries recorded. */
 export async function pollPrsOnce(): Promise<WorklogEntry[]> {
   const cfg = loadConfig() as any;
@@ -179,6 +204,19 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
       const author = pr.author?.login;
       snap[key] = { state: cur, repo, number: pr.number, title: pr.title, author };
 
+      // kobo-228 reconcile pass — a MERGED pr must leave NO linked card behind, even
+      // when the merge→done EDGE was swallowed: a restart reseeds the snapshot
+      // (firstRun baselines the current MERGED state without acting), or a card was
+      // linked/routed into review/approve AFTER the edge already passed. Run it
+      // exactly when the transition handler below WON'T (firstRun or no state change)
+      // so a fresh OPEN→MERGED edge stays the transition handler's job (worklog +
+      // ping + merger-resolved `by`). Idempotent: reconcileMergedCards flips only
+      // still-open cards (done/rejected excluded) → no churn, no double-flip, no spam.
+      if (cur === "MERGED" && (firstRun || prev === cur)) {
+        try { reconcileMergedCards(pr.number, repo, author || "pr-watch"); }
+        catch { /* never let task auto-done break PR-watch */ }
+      }
+
       if (firstRun) continue; // seed baseline only — no retroactive spam
       if (prev === cur) continue;
 
@@ -215,13 +253,11 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
         pingOnMerge({ lead, author: author ?? null, pr: pr.number, repo, by });
         // Track 4 — merge = approval → auto-done EVERY card that owns this PR
         // (kobo-43: one PR can bind several cards; flip them all, not just the
-        // first, or the rest strand in review until a human hand-flips).
-        try {
-          for (const hit of cardHits) {
-            setTaskRepoIfMissing(hit.company, hit.taskId, repo); // kobo-80: heal repo-less card so future polls find it
-            completeTask(hit.company, hit.taskId, by || author || "pr-watch");
-          }
-        } catch { /* never let task auto-done break PR-watch */ }
+        // first, or the rest strand in review until a human hand-flips). Shares the
+        // idempotent flip primitive with the kobo-228 reconcile pass — merger `by`
+        // resolved here (fresh edge); a re-poll's reconcile no-ops (card already done).
+        try { reconcileMergedCards(pr.number, repo, by || author || "pr-watch"); }
+        catch { /* never let task auto-done break PR-watch */ }
       } else if (cur === "CLOSED") {
         const entry: WorklogEntry = { ...base, kind: "pr-closed", summary: `closed #${pr.number} ${pr.title}` };
         record(entry);
