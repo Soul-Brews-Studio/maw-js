@@ -1,5 +1,5 @@
 import { dirname } from "path";
-import { appendFileSync, readFileSync, existsSync, mkdirSync } from "fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from "fs";
 import os from "os";
 import { mawStatePath } from "../xdg";
 
@@ -16,6 +16,22 @@ export interface AuditEntry {
   result?: string;
 }
 
+const ATOMIC_APPEND_MAX_BYTES = 4096;
+
+function appendAuditLineAtomic(filePath: string, line: string): void {
+  const bytes = Buffer.byteLength(line, "utf8");
+  if (bytes > ATOMIC_APPEND_MAX_BYTES) {
+    throw new Error(`audit record too large for atomic append: ${bytes} bytes`);
+  }
+  const fd = openSync(filePath, "a");
+  try {
+    const written = writeSync(fd, line, undefined, "utf8");
+    if (written !== bytes) throw new Error(`short audit append: ${written}/${bytes}`);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Append a structured audit log entry to maw's runtime state audit log. */
 export function logAudit(cmd: string, args: string[], result?: string): void {
   const entry: AuditEntry = {
@@ -29,7 +45,7 @@ export function logAudit(cmd: string, args: string[], result?: string): void {
   try {
     const filePath = auditFilePath();
     mkdirSync(dirname(filePath), { recursive: true });
-    appendFileSync(filePath, JSON.stringify(entry) + "\n", "utf-8");
+    appendAuditLineAtomic(filePath, JSON.stringify(entry) + "\n");
   } catch {
     // Silent fail — audit should never break the CLI
   }
