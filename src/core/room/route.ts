@@ -31,9 +31,22 @@ export function messageInRoom(text: string | undefined, room: string): boolean {
   return !!text && text.includes(roomTag(room));
 }
 
-/** The `maw hey` argv that delivers a room message to the lead (reuses hey 100%). */
-export function roomSendArgs(room: string, to: string, text: string): string[] {
-  return ["hey", to, `${roomTag(room)} ${text}`];
+/**
+ * The web author's hey identity (kobo-248). Without `--from`, the hey inherits the
+ * SERVER-host oracle (e.g. m5:eq3), so Tony's web turns get attributed to the lead and
+ * become indistinguishable in the thread. We stamp a `web:<name>` sender instead — the
+ * `web` node marks the human side, so roomActivity (which excludes bare-name "web")
+ * drops it from the teammate list. Sanitized to the sender-part charset hey accepts.
+ */
+export function roomSender(from: string | undefined): string {
+  const name = (from || "web").replace(/[^A-Za-z0-9_.-]/g, "") || "web";
+  return `web:${name}`;
+}
+
+/** The `maw hey` argv that delivers a room message to the lead (reuses hey 100%). The
+ *  web turn is stamped `--from web:<author>` so it isn't attributed to the host oracle. */
+export function roomSendArgs(room: string, to: string, text: string, from = "web"): string[] {
+  return ["hey", "--from", roomSender(from), to, `${roomTag(room)} ${text}`];
 }
 
 export type SpawnFn = (argv: string[]) => { exited: Promise<number> };
@@ -47,20 +60,21 @@ const defaultSpawn: SpawnFn = (argv) => Bun.spawn(["maw", ...argv], { stdout: "i
  * `spawn` is injectable so the argv wiring is unit-testable without a subprocess.
  */
 export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = defaultSpawn): Promise<Response> {
-  let body: { room?: unknown; to?: unknown; text?: unknown };
+  let body: { room?: unknown; to?: unknown; text?: unknown; from?: unknown };
   try {
-    body = (await request.json()) as { room?: unknown; to?: unknown; text?: unknown };
+    body = (await request.json()) as { room?: unknown; to?: unknown; text?: unknown; from?: unknown };
   } catch {
     return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
   const room = typeof body.room === "string" ? body.room.trim() : "";
   const to = typeof body.to === "string" ? body.to.trim() : "";
   const text = typeof body.text === "string" ? body.text.trim() : "";
+  const from = typeof body.from === "string" && body.from.trim() ? body.from.trim() : "web"; // the web author (kobo-248)
   if (!room || !to || !text) {
     return Response.json({ ok: false, error: "room, to and text are required" }, { status: 400 });
   }
   try {
-    const proc = spawn(roomSendArgs(room, to, text));
+    const proc = spawn(roomSendArgs(room, to, text, from));
     // Best-effort: don't block the response on delivery (hey queues + the dispatch
     // engine delivers when the lead pane is idle — kobo-240 spike). Fire and return.
     void proc.exited;

@@ -12,6 +12,7 @@
 
 import type { FeedEvent } from "../../lib/feed";
 import { appendRoomMessage, findRoomCompany } from "./store";
+import { bareName } from "./activity";
 
 let registered = false;
 
@@ -40,7 +41,10 @@ export function onRoomFeedEvent(event: FeedEvent): boolean {
   if (!company) return false;
   const res = appendRoomMessage(company, roomId, {
     id: data?.id || `${event.oracle}-${event.ts}`,
-    from: data?.from || event.oracle || "?",
+    // Normalize to the bare identity so attribution is clean + consistent: the web
+    // turn's `web:web` → "web" (excluded from participants), a teammate's `m5:eq3` →
+    // "eq3" (kobo-248). Mirrors roomActivity's own bareName join key.
+    from: bareName(data?.from || event.oracle || "?") || "?",
     text: stripRoomTag(data?.text),
     ts: event.ts || Date.now(),
   });

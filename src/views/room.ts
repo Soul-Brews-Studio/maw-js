@@ -183,10 +183,11 @@ async function closeRoom() {
 
 async function send() {
   const { room } = ctx(); const to = $('lead').value.trim(), text = $('text').value.trim();
+  const from = $('me').value.trim() || 'web'; // kobo-248: attribute the web turn to the human, not the host oracle
   if (!room || !to || !text) { setStatus('room, lead and message are required', true); return; }
   $('send').disabled = true;
   try {
-    await post('/api/room/send', { room, to, text });
+    await post('/api/room/send', { room, to, text, from });
     $('text').value = ''; setStatus('sent to ' + to + ' — waiting for reply…');
     setTimeout(load, 500);
   } catch (err) { setStatus('send failed: ' + (err && err.message ? err.message : err), true); }

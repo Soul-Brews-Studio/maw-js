@@ -20,17 +20,19 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     expect(messageInRoom(undefined, "demo")).toBe(false);
   });
 
-  test("roomSendArgs reuses hey verbatim — argv = hey <lead> [room:<id>] <text>", () => {
-    expect(roomSendArgs("demo", "eq3", "what next?")).toEqual(["hey", "eq3", "[room:demo] what next?"]);
+  test("roomSendArgs stamps the web author (--from web:<name>) so the turn isn't the host oracle (kobo-248)", () => {
+    expect(roomSendArgs("demo", "eq3", "what next?")).toEqual(["hey", "--from", "web:web", "eq3", "[room:demo] what next?"]); // default author
+    expect(roomSendArgs("demo", "eq3", "hi", "tony")).toEqual(["hey", "--from", "web:tony", "eq3", "[room:demo] hi"]); // named human
+    expect(roomSendArgs("demo", "eq3", "hi", "m5:eq3")[2]).toBe("web:m5eq3"); // sanitized to the sender-part charset (no stray ':')
   });
 
-  test("POST /api/room/send delivers via the injected hey spawn (no real subprocess)", async () => {
+  test("POST /api/room/send delivers via the injected hey spawn, tagged web:<from> (kobo-248)", async () => {
     const calls: string[][] = [];
     const spawn = (argv: string[]) => { calls.push(argv); return { exited: Promise.resolve(0) }; };
-    const res = await post({ room: "demo", to: "eq3", text: "hello lead" }, spawn);
+    const res = await post({ room: "demo", to: "eq3", text: "hello lead", from: "web" }, spawn);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
-    expect(calls).toEqual([["hey", "eq3", "[room:demo] hello lead"]]); // exactly one hey, room-tagged
+    expect(calls).toEqual([["hey", "--from", "web:web", "eq3", "[room:demo] hello lead"]]); // one hey, web-attributed
   });
 
   test("missing room/to/text → 400; bad JSON → 400 (no spawn)", async () => {

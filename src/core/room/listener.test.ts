@@ -38,4 +38,14 @@ describe("room feed listener (kobo-241 — persist turns off the SAME hey feed e
     const room = readRoom("kobo", "demo")!;
     expect(room.messages.map((m) => [m.from, m.text])).toEqual([["web", "what next?"], ["eq3", "core wire first"]]); // stripped, deduped, ordered
   });
+
+  test("normalizes from to the bare identity: web:web → web, m5:eq3 → eq3 (kobo-248 attribution)", () => {
+    openRoom("kobo", "attr", "t");
+    // web turn now carries the web:<author> sender (kobo-248), not the host oracle
+    onRoomFeedEvent(ev({ event: "MessageSend", data: { id: "w1", from: "web:web", to: "eq3", text: "[room:attr] ตอบมาหน่อย" }, ts: 1 }));
+    // lead reply carries the host-oracle display m5:eq3 → normalized to eq3
+    onRoomFeedEvent(ev({ event: "MessageSend", data: { id: "l1", from: "m5:eq3", to: "web", text: "[room:attr] on it" }, ts: 2 }));
+    const room = readRoom("kobo", "attr")!;
+    expect(room.messages.map((m) => m.from)).toEqual(["web", "eq3"]); // human vs teammate, distinguishable
+  });
 });
