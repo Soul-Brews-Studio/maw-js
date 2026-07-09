@@ -63,6 +63,9 @@ export function isProtected(path: string, method: string): boolean {
   // company-ui board write (kobo-35: POST /tasks/archive) — a mutation on the
   // same private surface as the board (Rule 6); loopback UI bypasses, LAN auths.
   if (method === "POST" && path.startsWith("/tasks/")) return true;
+  // kobo-245 — Brainstorm Room send delivers a `maw hey` as the local oracle (a
+  // control op, same surface as /send); loopback UI bypasses, LAN must auth.
+  if (method === "POST" && path.startsWith("/room/")) return true;
   // Protect plugin invocation — POST /plugins/:name is a control operation
   if (method === "POST" && path.startsWith("/plugins/")) return true;
   // Protect plugin tarball download (Task #1) — serves full artifact bytes.

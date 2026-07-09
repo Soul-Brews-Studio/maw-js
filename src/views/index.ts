@@ -5,6 +5,7 @@ import { demoView } from "./demo";
 import { infoView } from "./info";
 import { messagesView } from "./messages";
 import { companyView } from "./company";
+import { roomView } from "./room";
 
 // UI moved to Soul-Brews-Studio/maw-ui (dev server on :5173).
 // Only keep standalone HTML views that are self-contained.
@@ -15,4 +16,5 @@ export function mountViews(app: Hono) {
   app.route("/federation", federationView);
   app.route("/messages", messagesView);
   app.route("/company", companyView);
+  app.route("/room", roomView); // kobo-245 — Brainstorm Room core wire
 }

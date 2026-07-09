@@ -18,6 +18,7 @@ import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
 import { handlePolicyRequest } from "../../../core/policy/route";
+import { handleRoomSendRequest } from "../../../core/room/route";
 import { companyVersion } from "../../../views/company";
 import { feedListeners } from "../../../api/feed";
 
@@ -64,6 +65,11 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   ctx.http?.route("POST", "/api/tasks/reject", (request: Request) => handleTaskRejectRequest(request));
   ctx.http?.route("POST", "/api/tasks/assign", (request: Request) => handleTaskAssignRequest(request));
   ctx.http?.route("POST", "/api/tasks/edit", (request: Request) => handleTaskEditRequest(request));
+  // kobo-245 — Brainstorm Room core wire: the web /room input box posts here; we
+  // deliver to the lead via `maw hey` (the SAME transport oracles use, which emits a
+  // MessageSend feed event). The reply renders back on /room by filtering /api/feed on
+  // the room tag — no new transport/session/pane. Behind auth (PROTECTED "/room/…").
+  ctx.http?.route("POST", "/api/room/send", (request: Request) => handleRoomSendRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company-ui presence roster (kobo-50): authoritative company membership for the

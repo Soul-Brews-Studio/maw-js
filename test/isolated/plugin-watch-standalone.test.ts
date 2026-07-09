@@ -22,6 +22,7 @@ describe("watch command plugin standalone boundary", () => {
         /^(?:\.\.\/){3}core\/roster\//, // company-ui presence roster (kobo-50)
         /^(?:\.\.\/){3}core\/presence\//, // company-ui presence detail — per-pane model + ctx% (kobo-104)
         /^(?:\.\.\/){3}core\/policy\//, // policy inject route — on-attach context
+        /^(?:\.\.\/){3}core\/room\//, // kobo-245 Brainstorm Room send route (shells hey)
         /^(?:\.\.\/){3}api\/feed$/,
       ],
     }).map((record) => record.spec);
@@ -88,6 +89,9 @@ describe("watch command plugin standalone boundary", () => {
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/assign["']/);
     expect(serveSrc).toContain("handleTaskEditRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/edit["']/);
+    // kobo-245: Brainstorm Room core wire — web input → hey to lead (delivery + MessageSend feed event).
+    expect(serveSrc).toContain("handleRoomSendRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/room\/send["']/);
     expect(serveSrc).toContain("handleRosterRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
     // kobo-104: per-pane presence detail GET (model + context%).
@@ -118,6 +122,7 @@ describe("watch command plugin standalone boundary", () => {
     expect(manifest.hooks!.serve!.ensures).not.toContain("http:route:/api/tasks/resolve"); // kobo-237: route removed → manifest must not declare it
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/create"); // kobo-48
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/done"); // kobo-50
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/room/send"); // kobo-245 Brainstorm Room wire
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/roster"); // kobo-50
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/presence"); // kobo-104
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/state");
