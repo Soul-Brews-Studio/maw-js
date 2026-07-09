@@ -22,6 +22,22 @@ describe("room feed listener (kobo-241 — persist turns off the SAME hey feed e
     expect(stripRoomTag(undefined)).toBe("");
   });
 
+  test("parseRoomId anchors to a LEADING tag — a mid-sentence mention is NOT a room turn (kobo-250 over-capture)", () => {
+    expect(parseRoomId("  [room:demo] hi")).toBe("demo"); // leading whitespace still counts as tag-first
+    // meta-talk that merely REFERENCES the tag mid-sentence → not captured
+    expect(parseRoomId('progress: discussed "[room:e2e-239]" earlier')).toBeNull();
+    expect(parseRoomId("see [room:demo] for context")).toBeNull();
+  });
+
+  test("over-capture guard: a mid-sentence [room:id] mention is NOT persisted; a real leading-tag turn IS (kobo-250)", () => {
+    openRoom("kobo", "e2e-239", "t");
+    // the Conductor's own progress hey merely MENTIONS the tag → must not pollute the thread
+    expect(onRoomFeedEvent(ev({ event: "MessageSend", data: { id: "meta1", from: "eq3", text: 'update: room "[room:e2e-239]" is live' }, ts: 1 }))).toBe(false);
+    // a deliberate room turn (tag-first) → captured, no regress on the round-trip
+    expect(onRoomFeedEvent(ev({ event: "MessageSend", data: { id: "turn1", from: "web:web", text: "[room:e2e-239] real turn" }, ts: 2 }))).toBe(true);
+    expect(readRoom("kobo", "e2e-239")!.messages.map((m) => m.text)).toEqual(["real turn"]); // only the real turn
+  });
+
   test("appends both directions to the artifact, dedups by message id, ignores non-room + unopened", () => {
     openRoom("kobo", "demo", "t");
     // web send (MessageSend, outbound) → appended

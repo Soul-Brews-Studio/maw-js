@@ -16,9 +16,16 @@ import { bareName } from "./activity";
 
 let registered = false;
 
-/** Extract the room id from a `[room:<id>]` tag in the text (null if none). */
+/**
+ * Extract the room id from a LEADING `[room:<id>]` tag (null if none). kobo-250:
+ * anchored to the start (optional leading whitespace) so ONLY a deliberate room turn
+ * is captured. A deliberate turn is always tag-first — `roomSendArgs` builds
+ * `[room:<id>] <text>`. An UNANCHORED match over-captured: any hey whose text merely
+ * MENTIONS `[room:id]` mid-sentence (meta-talk about a room) got persisted into the
+ * thread. Prefix-anchoring drops those mentions while keeping every real turn.
+ */
 export function parseRoomId(text: string | undefined): string | null {
-  const m = /\[room:([^\]\s]+)\]/.exec(text ?? "");
+  const m = /^\s*\[room:([^\]\s]+)\]/.exec(text ?? "");
   return m ? m[1] : null;
 }
 
