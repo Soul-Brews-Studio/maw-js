@@ -42,6 +42,28 @@ describe("room artifact store (kobo-241 — off-card, file-per-room)", () => {
     expect(existsSync(roomFilePath("kobo", "ghost"))).toBe(false);
   });
 
+  test("kobo-249: windowed (from,text) dedup — send-write absorbs the lagging feed event", () => {
+    openRoom("kobo", "r5", "t");
+    // handler persists at send time (id A), then the SAME turn's delayed feed event
+    // arrives with a DIFFERENT random id but identical (from, text) INSIDE the window → deduped.
+    appendRoomMessage("kobo", "r5", { id: "send-A", from: "web:web", text: "hi", ts: 1 });
+    appendRoomMessage("kobo", "r5", { id: "feed-random", from: "web:web", text: "hi", ts: 41_000 }); // +41s, in window
+    expect(readRoom("kobo", "r5")!.messages).toHaveLength(1); // one turn, not two
+    // a DIFFERENT sender or DIFFERENT text is a distinct turn — still persists
+    appendRoomMessage("kobo", "r5", { id: "b", from: "m5:eq3", text: "hi", ts: 2 }); // diff from
+    appendRoomMessage("kobo", "r5", { id: "c", from: "web:web", text: "bye", ts: 3 }); // diff text
+    expect(readRoom("kobo", "r5")!.messages.map((m) => m.text)).toEqual(["hi", "hi", "bye"]);
+  });
+
+  test("kobo-249 (eq3 review): a genuine identical repeat AFTER the window survives — no permanent drop", () => {
+    openRoom("kobo", "r6", "t");
+    // "ok"/"ใช่" is normal room chatter — the same author re-typing it minutes later is a
+    // REAL new turn, not the lagging feed duplicate. It must NOT be silently dropped.
+    appendRoomMessage("kobo", "r6", { id: "m1", from: "web:tony", text: "ok", ts: 1_000 });
+    appendRoomMessage("kobo", "r6", { id: "m2", from: "web:tony", text: "ok", ts: 1_000 + 200_000 }); // +200s > 120s window
+    expect(readRoom("kobo", "r6")!.messages).toHaveLength(2); // both survive
+  });
+
   test("reopen of an absent room → null; findRoomCompany resolves the owning company", () => {
     expect(reopenRoom("kobo", "nope")).toBeNull();
     openRoom("kobo", "here", "t");

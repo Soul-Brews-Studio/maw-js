@@ -15,7 +15,7 @@
  * merge (4), distill-to-card (5).
  */
 
-import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms } from "./store";
+import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms, findRoomCompany, appendRoomMessage } from "./store";
 import { addTask, readTask } from "../tasks/store";
 import { roomActivity } from "./activity";
 import { readWorklog } from "../worklog/store";
@@ -54,10 +54,15 @@ export type SpawnFn = (argv: string[]) => { exited: Promise<number> };
 const defaultSpawn: SpawnFn = (argv) => Bun.spawn(["maw", ...argv], { stdout: "ignore", stderr: "ignore" });
 
 /**
- * POST /api/room/send — body { room, to, text } → deliver via `maw hey` (spawns the
- * CLI, the SAME path a human `maw hey` takes: delivery + the MessageSend feed event).
- * Returns { ok:true } once spawned; the reply arrives asynchronously via the feed.
- * `spawn` is injectable so the argv wiring is unit-testable without a subprocess.
+ * POST /api/room/send — body { room, to, text, from } → persist the outbound turn to the
+ * artifact SYNCHRONOUSLY (kobo-249: the artifact is the source of truth, so a turn lands
+ * within <2s of send regardless of whether the lead pane is busy), THEN deliver via
+ * `maw hey` (same path a human `maw hey` takes). The turn's own delivery feed event still
+ * fires later — idle-gated, lagging under load — but appendRoomMessage dedups it against
+ * this send-time write. The lead's reply still persists on its own feed event (slice-1
+ * round-trip intact). The persisted `from` is roomSender(from) — the SAME `web:<author>`
+ * identity the spawned hey stamps via `--from` (kobo-248), so the two writes agree and
+ * dedup. `spawn` is injectable for unit tests.
  */
 export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = defaultSpawn): Promise<Response> {
   let body: { room?: unknown; to?: unknown; text?: unknown; from?: unknown };
@@ -74,9 +79,19 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     return Response.json({ ok: false, error: "room, to and text are required" }, { status: 400 });
   }
   try {
+    // kobo-249 — persist the outbound turn NOW (source of truth), decoupled from the
+    // idle-gated delivery feed event. Only an OPEN room has an artifact; findRoomCompany
+    // returns null otherwise (a send to an unopened room delivers but persists nothing,
+    // same as before). Persist under the SAME web:<author> identity the hey stamps
+    // (roomSender), so the turn's own lagging feed event dedups against this write.
+    const company = findRoomCompany(room);
+    if (company) {
+      const author = roomSender(from);
+      appendRoomMessage(company, room, { id: `send-${author}-${Date.now()}`, from: author, text, ts: Date.now() });
+    }
     const proc = spawn(roomSendArgs(room, to, text, from));
-    // Best-effort: don't block the response on delivery (hey queues + the dispatch
-    // engine delivers when the lead pane is idle — kobo-240 spike). Fire and return.
+    // Best-effort delivery: don't block the response on it. Persistence already happened
+    // above, so a busy pane no longer lags the thread (kobo-240 spike / finding #3).
     void proc.exited;
     return Response.json({ ok: true, room, to });
   } catch (e) {

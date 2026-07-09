@@ -13,6 +13,12 @@ const post = (body: unknown, spawn?: (a: string[]) => { exited: Promise<number> 
   );
 
 describe("Brainstorm Room core wire (kobo-245)", () => {
+  // kobo-249: /room/send now reads the room store (persist-at-send). Point it at an empty
+  // temp home so these wire-only tests never touch real ~/.maw rooms.
+  let dir: string; const prev = process.env.MAW_DATA_DIR;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomsend-")); process.env.MAW_DATA_DIR = dir; });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; rmSync(dir, { recursive: true, force: true }); });
+
   test("roomTag / messageInRoom scope a message to one room", () => {
     expect(roomTag("demo")).toBe("[room:demo]");
     expect(messageInRoom("[room:demo] hi", "demo")).toBe(true);
@@ -44,6 +50,47 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     const bad = await handleRoomSendRequest(new Request("http://x/api/room/send", { method: "POST", headers: { "content-type": "application/json" }, body: "nope" }), spawn);
     expect(bad.status).toBe(400);
     expect(calls).toEqual([]); // nothing delivered on a bad request
+  });
+
+  // kobo-249 (finding #3, DATA-LOSS): persist rode the idle-gated DELIVERY feed event,
+  // so a send to a busy lead pane lagged the artifact +40s / lost turns. The send handler
+  // now writes the outbound turn to the artifact SYNCHRONOUSLY (source of truth).
+  const noopSpawn = () => ({ exited: Promise.resolve(0) });
+  const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+
+  test("a send persists the turn synchronously under web:<author> — no feed/delivery event needed", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const res = await post({ room: "r", to: "eq3", text: "urgent turn", from: "tony" }, noopSpawn);
+    expect(res.status).toBe(200);
+    const room = readRoom("kobo", "r")!;
+    expect(room.messages).toHaveLength(1); // present IMMEDIATELY, not after delivery drains
+    // persisted under the SAME web:<author> the hey stamps via --from (kobo-248), so the
+    // lagging feed event dedups against it.
+    expect(room.messages[0]).toMatchObject({ from: "web:tony", text: "urgent turn" });
+  });
+
+  test("the lagging delivery feed event for the SAME turn is deduped (no double-persist)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    await post({ room: "r", to: "eq3", text: "hi" }, noopSpawn); // default author → web:web
+    // the delayed feed event arrives later with a DIFFERENT random lifecycle id but the
+    // same (from, text), inside the send-dedup window — the listener path lands here.
+    appendRoomMessage("kobo", "r", { id: "random-lifecycle-id", from: "web:web", text: "hi", ts: Date.now() + 40_000 });
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(1); // still one — deduped
+  });
+
+  test("a lead reply (different text) still persists — slice-1 round-trip intact", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    await post({ room: "r", to: "eq3", text: "question" }, noopSpawn);
+    appendRoomMessage("kobo", "r", { id: "lead-1", from: "m5:eq3", text: "answer", ts: Date.now() });
+    expect(readRoom("kobo", "r")!.messages.map((m) => m.text)).toEqual(["question", "answer"]);
+  });
+
+  test("send to an UNOPENED room delivers but persists nothing (no artifact minted)", async () => {
+    const calls: string[][] = [];
+    const res = await post({ room: "ghost", to: "eq3", text: "x" }, (a) => { calls.push(a); return { exited: Promise.resolve(0) }; });
+    expect(res.status).toBe(200); // delivery still best-effort
+    expect(calls).toHaveLength(1); // hey still spawned
+    expect(readRoom("kobo", "ghost")).toBeNull(); // stray traffic never mints an artifact
   });
 });
 

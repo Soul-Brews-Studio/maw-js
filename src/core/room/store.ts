@@ -113,11 +113,23 @@ export function reopenRoom(company: string, id: string): RoomArtifact | null {
  * so we skip a msgId that's already stored. Returns the room, or null if the room
  * doesn't exist (only OPENED rooms persist a thread — an untagged/unopened room is
  * ignored, so stray traffic never mints an artifact).
+ *
+ * kobo-249: the room/send handler now persists an outbound turn SYNCHRONOUSLY at send
+ * time (the artifact is the source of truth, decoupled from the idle-gated delivery feed
+ * event). The SAME turn's feed event still arrives later (lagging under a busy pane) with
+ * a DIFFERENT random lifecycle id — so we ALSO dedup by identical (from, text) BUT only
+ * within a bounded window around the send-write (SEND_DEDUP_WINDOW_MS): that catches the
+ * send↔feed pair (measured lag +40s), while a genuine re-typed identical turn later
+ * ("ok"/"ใช่" is normal room chatter) survives as a new turn — no permanent drop (eq3
+ * review, kobo-249). id-dedup is kept for the >1-lifecycle-event case.
  */
+const SEND_DEDUP_WINDOW_MS = 120_000; // send-write ↔ its lagging delivery feed event (~2 min covers the measured drain)
+
 export function appendRoomMessage(company: string, id: string, msg: RoomMessage): RoomArtifact | null {
   const room = readRoom(company, id);
   if (!room) return null;
-  if (room.messages.some((m) => m.id === msg.id)) return room; // dedup — already captured
+  if (room.messages.some((m) => m.id === msg.id)) return room; // dedup — same lifecycle id
+  if (msg.text && room.messages.some((m) => m.from === msg.from && m.text === msg.text && Math.abs((m.ts || 0) - (msg.ts || 0)) < SEND_DEDUP_WINDOW_MS)) return room; // dedup — same turn (send-write ↔ lagging feed event), windowed so genuine later repeats survive (kobo-249)
   room.messages.push(msg);
   room.updatedTs = msg.ts || Date.now();
   writeRoom(room);
