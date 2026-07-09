@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskResolveRequest, handleTasksRequest } from "./route";
-import { addTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
+import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskAssignRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskEditRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskRejectRequest, handleTaskResolveRequest, handleTasksRequest } from "./route";
+import { addTask, assignTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -390,6 +390,79 @@ describe("handleTaskDoneRequest (POST /api/tasks/done — kobo-50 guard b web tr
     expect((await post({ company: "dn", id: "dn-999" })).status).toBe(404);
     const bad = await handleTaskDoneRequest(new Request("http://x/api/tasks/done", { method: "POST", headers: { "content-type": "application/json" }, body: "nope" }));
     expect(bad.status).toBe(400);
+  });
+
+  test("kobo-225: a PR-linked card refuses manual done → 409 prLinked (closes on merge)", async () => {
+    const t = addTask({ company: "dn", title: "pr card", by: "eq3", assignee: "patchwork" });
+    setTaskPr("dn", t.id, 321, "patchwork", "meganechan/maw-js"); // now review + pr
+    const res = await post({ company: "dn", id: t.id });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { prLinked: boolean }).prLinked).toBe(true);
+    expect(readTask("dn", t.id)!.state).not.toBe("done"); // guard held server-side
+  });
+});
+
+describe("handleTaskRejectRequest (POST /api/tasks/reject — kobo-225)", () => {
+  const post = (body: unknown) =>
+    handleTaskRejectRequest(new Request("http://x/api/tasks/reject", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+  test("reject with reason → 200, state=rejected + reason kept", async () => {
+    const t = addTask({ company: "rj", title: "nope", by: "eq3", assignee: "p" });
+    const res = await post({ company: "rj", id: t.id, reason: "wrong approach" });
+    expect(res.status).toBe(200);
+    expect(readTask("rj", t.id)!.state).toBe("rejected");
+    expect(readTask("rj", t.id)!.rejectReason).toBe("wrong approach");
+  });
+  test("missing reason → 400; unknown id → 404; already-terminal → 409", async () => {
+    const t = addTask({ company: "rj", title: "x", by: "eq3" });
+    expect((await post({ company: "rj", id: t.id })).status).toBe(400); // no reason
+    expect((await post({ company: "rj", id: "rj-999", reason: "r" })).status).toBe(404);
+    completeTask("rj", t.id, "eq3"); // now terminal
+    expect((await post({ company: "rj", id: t.id, reason: "r" })).status).toBe(409); // no resurrection
+  });
+});
+
+describe("handleTaskAssignRequest (POST /api/tasks/assign — kobo-225 friction)", () => {
+  const post = (body: unknown) =>
+    handleTaskAssignRequest(new Request("http://x/api/tasks/assign", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+  test("first-assign (no displacement) → 200, no force needed", async () => {
+    const t = addTask({ company: "as", title: "unowned", by: "eq3" }); // no assignee
+    const res = await post({ company: "as", id: t.id, to: "patchwork" });
+    expect(res.status).toBe(200);
+    expect(readTask("as", t.id)!.assignee).toBe("patchwork");
+  });
+  test("reassign that displaces an owner → 409 needsForce; force:true → 200 (correction)", async () => {
+    const t = addTask({ company: "as", title: "owned", by: "eq3", assignee: "somsri" });
+    const blocked = await post({ company: "as", id: t.id, to: "patchwork" });
+    expect(blocked.status).toBe(409);
+    const j = (await blocked.json()) as { needsForce: boolean; from: string; to: string };
+    expect(j.needsForce).toBe(true);
+    expect(j.from).toBe("somsri");
+    expect(readTask("as", t.id)!.assignee).toBe("somsri"); // NOT moved without force
+    const forced = await post({ company: "as", id: t.id, to: "patchwork", force: true });
+    expect(forced.status).toBe(200);
+    expect(readTask("as", t.id)!.assignee).toBe("patchwork");
+  });
+});
+
+describe("handleTaskEditRequest (POST /api/tasks/edit — kobo-225 reviewer, kobo-214)", () => {
+  const post = (body: unknown) =>
+    handleTaskEditRequest(new Request("http://x/api/tasks/edit", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+  test("set reviewer in place → 200, reviewer updated, id unchanged", async () => {
+    const t = addTask({ company: "ed", title: "card", by: "eq3", assignee: "p" });
+    const res = await post({ company: "ed", id: t.id, reviewer: "eq3" });
+    expect(res.status).toBe(200);
+    expect(readTask("ed", t.id)!.reviewer).toBe("eq3");
+    expect(readTask("ed", t.id)!.id).toBe(t.id); // same id — pure content edit
+  });
+  test("missing reviewer field → 400; unknown id → 404", async () => {
+    expect((await post({ company: "ed", id: "x" })).status).toBe(400);
+    expect((await post({ company: "ed", id: "ed-999", reviewer: "eq3" })).status).toBe(404);
   });
 });
 

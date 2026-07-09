@@ -80,6 +80,14 @@ describe("watch command plugin standalone boundary", () => {
     // kobo-192: approve POST — derives from pr (mark-only vs spawn execution-card).
     expect(serveSrc).toContain("handleTaskApproveRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/approve["']/);
+    // kobo-225: card-detail action buttons — reject (Rejected lane), assign (reassign
+    // friction, kobo-219), edit (reviewer, kobo-214). Each wires the CLI's store verb.
+    expect(serveSrc).toContain("handleTaskRejectRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/reject["']/);
+    expect(serveSrc).toContain("handleTaskAssignRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/assign["']/);
+    expect(serveSrc).toContain("handleTaskEditRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/edit["']/);
     expect(serveSrc).toContain("handleRosterRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/roster["']/);
     // kobo-104: per-pane presence detail GET (model + context%).

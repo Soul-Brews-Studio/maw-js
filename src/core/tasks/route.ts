@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, checklistProgress, commentTask, completeTask, dependencyBlock, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, resolveComment, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, ReassignFrictionError, rejectTask, resolveComment, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyCommentReply, notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -329,8 +329,19 @@ export async function handleTaskDoneRequest(request: Request): Promise<Response>
   if (!company || !id) {
     return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
   }
-  if (!readTask(company, id)) {
+  const existing = readTask(company, id);
+  if (!existing) {
     return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  }
+  // kobo-225: a PR-linked card closes on merge (pr-watch reconcile, kobo-228) — a
+  // manual web done would let the UI lie / double-fire. The done-split rule (Board
+  // Truth 3/12) says done comes from the PR for a PR-card. Reject at the backend so
+  // the guard holds even if the UI button is bypassed; the UI also disables it.
+  if (typeof existing.pr === "number") {
+    return Response.json(
+      { ok: false, prLinked: true, error: `card ${id} is linked to PR #${existing.pr} — it closes on merge (pr-watch), not a manual done` },
+      { status: 409 },
+    );
   }
   // Guard b (kobo-45): an epic whose children aren't all done needs an explicit
   // confirm before we collapse its scope. Derived at read from the store helpers.
@@ -408,6 +419,94 @@ export async function handleTaskApproveRequest(request: Request): Promise<Respon
     mode: "spawn",
     task: { id: exec.id, title: exec.title, state: exec.state, epic: exec.epic ?? null, assignee: exec.assignee ?? null },
   });
+}
+
+/**
+ * POST /api/tasks/reject — the card-detail Reject action (kobo-225). Moves the card
+ * to the Rejected lane ("done but NOT accepted", kobo-101) via the SAME store verb
+ * the CLI uses — `reason` MANDATORY (why it wasn't accepted, kept to learn). Reuses
+ * the store guard: a done/rejected card is terminal → 409 (no resurrection).
+ * Body: { company, id, reason } → { ok:true, task } | 400 | 404 | 409.
+ */
+export async function handleTaskRejectRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown; reason?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown; reason?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (!company || !id) return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
+  if (!reason) return Response.json({ ok: false, error: "reason is required (why the card was not accepted)" }, { status: 400 });
+  const existing = readTask(company, id);
+  if (!existing) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  const task = rejectTask(company, id, "tony", reason);
+  if (!task) {
+    // rejectTask null on a terminal card (done/rejected) — disambiguate from not-found.
+    return Response.json({ ok: false, error: `cannot reject ${id}: already ${existing.state} (terminal)` }, { status: 409 });
+  }
+  return Response.json({ ok: true, task: { id: task.id, title: task.title, state: task.state } });
+}
+
+/**
+ * POST /api/tasks/assign — the card-detail Edit-assignee action (kobo-225). Reassign
+ * is FRICTION (kobo-219): displacing an existing owner throws ReassignFrictionError,
+ * which we surface as 409 { needsForce:true } so the UI asks "reassign = correction,
+ * not handoff — confirm?" before re-posting with force:true. First-assign / idempotent
+ * need no force. Body: { company, id, to, force? } → { ok:true, task } | 400 | 404 | 409.
+ */
+export async function handleTaskAssignRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown; to?: unknown; force?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown; to?: unknown; force?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  const to = typeof body.to === "string" ? body.to.trim() : "";
+  const force = body.force === true;
+  if (!company || !id || !to) return Response.json({ ok: false, error: "company, id and to are required" }, { status: 400 });
+  if (!readTask(company, id)) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  try {
+    const task = assignTask(company, id, to, "tony", { force });
+    if (!task) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+    return Response.json({ ok: true, task: { id: task.id, title: task.title, assignee: task.assignee ?? null } });
+  } catch (e) {
+    if (e instanceof ReassignFrictionError) {
+      return Response.json(
+        { ok: false, needsForce: true, from: e.from, to: e.to, error: e.message },
+        { status: 409 },
+      );
+    }
+    throw e;
+  }
+}
+
+/**
+ * POST /api/tasks/edit — the card-detail Edit-reviewer action (kobo-225), wired to
+ * the SAME edit verb the CLI uses (kobo-214). A pure in-place content update (same
+ * id, lineage untouched); the old value is preserved in an append-only audit note.
+ * Does NOT touch hash/idempotency (card id is a counter, never hashed). Scoped to
+ * `reviewer` here (the requested button). Body: { company, id, reviewer } → { ok:true, task }.
+ */
+export async function handleTaskEditRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown; reviewer?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown; reviewer?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  if (!company || !id) return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
+  if (typeof body.reviewer !== "string") return Response.json({ ok: false, error: "reviewer is required" }, { status: 400 });
+  if (!readTask(company, id)) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  const task = editTask(company, id, "tony", { reviewer: body.reviewer.trim() });
+  if (!task) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  return Response.json({ ok: true, task: { id: task.id, title: task.title, reviewer: task.reviewer ?? null } });
 }
 
 /**

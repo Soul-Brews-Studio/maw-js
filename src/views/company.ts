@@ -357,6 +357,11 @@ function companyBody(): string {
     .done-btn { align-self:flex-start; font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid var(--bd-ok); color:var(--ok); background:var(--field-bg); cursor:pointer; }
     .done-btn:hover { border-color:var(--ok); }
     .done-btn:disabled { opacity:.55; cursor:default; }
+    /* kobo-225 — reject button (Rejected lane) + inline action row layout. */
+    .reject-btn { align-self:flex-start; font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid var(--bd-bad); color:var(--bad); background:var(--field-bg); cursor:pointer; }
+    .reject-btn:hover { border-color:var(--bad); }
+    .reject-btn:disabled { opacity:.55; cursor:default; }
+    .action-row { display:flex; gap:8px; flex-wrap:wrap; }
     /* kobo-198 — a long single pill (block-reason / parent-not-found carries free
        text) is white-space:nowrap, so with no cap its min-content forces .col wide →
        the whole board grid blows past its track and text bleeds past the column edge.
@@ -1675,10 +1680,46 @@ function buildWriteSection(task) {
   // its web trigger: an epic whose children aren't all done → server 409 needsConfirm
   // + rollup, and we ask before forcing the close (scope collapse).
   if (task.state !== 'done' && task.state !== 'rejected') {
-    const doneRow = el('div', 'write-row');
+    const doneRow = el('div', 'write-row action-row');
     const doneBtn = el('button', 'done-btn', '✓ mark done'); doneBtn.type = 'button';
+    // kobo-225: a PR-linked card closes on merge (pr-watch reconcile, kobo-228). A
+    // manual done here would let the UI lie / double-fire — disable + explain (the
+    // backend /api/tasks/done also 409s a PR-card, so the guard holds either way).
+    if (typeof task.pr === 'number') {
+      doneBtn.disabled = true;
+      doneBtn.textContent = '✓ mark done (PR #' + task.pr + ' auto-closes on merge)';
+      doneBtn.title = 'PR-linked card closes on merge via pr-watch — not a manual done';
+    }
     doneRow.appendChild(doneBtn);
+    // kobo-225: reject → Rejected lane ("done but NOT accepted", kobo-101). Allowed on
+    // any non-terminal card, PR or not; reason is mandatory (asked inline, non-blocking).
+    const rejBtn = el('button', 'reject-btn', '✗ reject'); rejBtn.type = 'button';
+    doneRow.appendChild(rejBtn);
     wrap.appendChild(doneRow);
+    rejBtn.addEventListener('click', askReject);
+    function askReject() {
+      msg.className = 'write-msg';
+      msg.replaceChildren();
+      msg.appendChild(el('span', '', 'reject ' + task.id + ' — reason: '));
+      const rin = el('input', 'reject-reason'); rin.type = 'text'; rin.placeholder = 'why not accepted';
+      const go = el('button', 'reject-btn confirm-reject', 'confirm reject'); go.type = 'button';
+      const no = el('button', '', 'cancel'); no.type = 'button'; no.style.marginLeft = '6px';
+      msg.appendChild(rin); msg.appendChild(go); msg.appendChild(no);
+      rin.focus();
+      no.addEventListener('click', function () { setMsg('ยกเลิก', false); });
+      async function submitReject() {
+        const reason = rin.value.trim();
+        if (!reason) { rin.focus(); return; } // reason mandatory (backend enforces too)
+        go.disabled = true;
+        try {
+          await postJson('/api/tasks/reject', { company: currentCompany(), id: task.id, reason: reason });
+          setMsg('rejected', true);
+          await load(); closeDetail();
+        } catch (e) { go.disabled = false; setMsg('reject failed: ' + errMsg(e), false); }
+      }
+      go.addEventListener('click', submitReject);
+      rin.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); submitReject(); } });
+    }
     async function postDone(confirm) {
       await postJson('/api/tasks/done', { company: currentCompany(), id: task.id, confirm: confirm });
       setMsg('marked done', true);
@@ -1711,6 +1752,76 @@ function buildWriteSection(task) {
       } finally { doneBtn.disabled = false; }
     }
     doneBtn.addEventListener('click', submitDone);
+  }
+
+  // kobo-225: edit assignee (reassign = friction, kobo-219) + reviewer (edit verb,
+  // kobo-214). Inline rows prefilled with the current value → the SAME store verb the
+  // CLI uses; the rule guard lives server-side. Only on non-terminal cards.
+  if (task.state !== 'done' && task.state !== 'rejected') {
+    // assignee — reassign displaces the current owner → server 409 needsForce → we
+    // ask "reassign = correction, not handoff — confirm?" then re-post with force.
+    const asRow = el('div', 'write-row');
+    asRow.appendChild(el('label', '', 'assignee · reassign = correction only (kobo-219)'));
+    const asLine = el('div', 'row');
+    const asInput = el('input'); asInput.type = 'text'; asInput.value = task.assignee || ''; asInput.placeholder = 'oracle name';
+    const asBtn = el('button', '', 'set assignee'); asBtn.type = 'button';
+    asLine.appendChild(asInput); asLine.appendChild(asBtn);
+    asRow.appendChild(asLine);
+    wrap.appendChild(asRow);
+    async function postAssign(force) {
+      await postJson('/api/tasks/assign', { company: currentCompany(), id: task.id, to: asInput.value.trim(), force: force });
+      setMsg('assignee updated', true);
+      await load(); reopenDetail(task.id);
+    }
+    function askForce(from, to) {
+      msg.className = 'write-msg';
+      msg.replaceChildren();
+      msg.appendChild(el('span', '', 'reassign ' + task.id + ': ' + from + ' → ' + to + ' — correction only, not a handoff. confirm? '));
+      const yes = el('button', 'confirm-reassign', 'confirm reassign'); yes.type = 'button';
+      const no = el('button', '', 'cancel'); no.type = 'button'; no.style.marginLeft = '6px';
+      msg.appendChild(yes); msg.appendChild(no);
+      no.addEventListener('click', function () { setMsg('ยกเลิก', false); });
+      yes.addEventListener('click', async function () {
+        yes.disabled = true;
+        try { await postAssign(true); } catch (e2) { setMsg('reassign failed: ' + errMsg(e2), false); }
+      });
+    }
+    async function submitAssign() {
+      const to = asInput.value.trim();
+      if (!currentCompany() || !to) { setMsg('enter an assignee', false); return; }
+      asBtn.disabled = true;
+      try {
+        await postAssign(false);
+      } catch (err) {
+        if (err && err.status === 409 && err.data && err.data.needsForce) askForce(err.data.from, err.data.to);
+        else setMsg('assign failed: ' + errMsg(err), false);
+      } finally { asBtn.disabled = false; }
+    }
+    asBtn.addEventListener('click', submitAssign);
+    asInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); submitAssign(); } });
+
+    // reviewer — plain in-place edit (kobo-214). No friction: reviewer is a routing
+    // pointer, not the doer/ownership axis.
+    const rvRow = el('div', 'write-row');
+    rvRow.appendChild(el('label', '', 'reviewer · who checks this card (kobo-214)'));
+    const rvLine = el('div', 'row');
+    const rvInput = el('input'); rvInput.type = 'text'; rvInput.value = task.reviewer || ''; rvInput.placeholder = 'oracle name';
+    const rvBtn = el('button', '', 'set reviewer'); rvBtn.type = 'button';
+    rvLine.appendChild(rvInput); rvLine.appendChild(rvBtn);
+    rvRow.appendChild(rvLine);
+    wrap.appendChild(rvRow);
+    async function submitReviewer() {
+      if (!currentCompany()) return;
+      rvBtn.disabled = true;
+      try {
+        await postJson('/api/tasks/edit', { company: currentCompany(), id: task.id, reviewer: rvInput.value.trim() });
+        setMsg('reviewer updated', true);
+        await load(); reopenDetail(task.id);
+      } catch (err) { setMsg('set reviewer failed: ' + errMsg(err), false); }
+      finally { rvBtn.disabled = false; }
+    }
+    rvBtn.addEventListener('click', submitReviewer);
+    rvInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); submitReviewer(); } });
   }
 
   wrap.appendChild(subRow); wrap.appendChild(cmtRow); wrap.appendChild(noteRow); wrap.appendChild(msg);

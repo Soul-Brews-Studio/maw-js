@@ -13,7 +13,7 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/worklog/route";
-import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskResolveRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskApproveRequest, handleTaskEventsRequest } from "../../../core/tasks/route";
+import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskResolveRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskApproveRequest, handleTaskRejectRequest, handleTaskAssignRequest, handleTaskEditRequest, handleTaskEventsRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
@@ -58,6 +58,13 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   // action; server derives from the pr field — has pr = mark-only comment, no pr =
   // spawn an execution-card (epic=work, in-progress). Behind auth (PROTECTED /tasks/…).
   ctx.http?.route("POST", "/api/tasks/approve", (request: Request) => handleTaskApproveRequest(request));
+  // company-ui action buttons (kobo-225): reject → Rejected lane (reason mandatory);
+  // assign → reassign friction (kobo-219, 409 needsForce → confirm → force); edit →
+  // reviewer in place (kobo-214). Each wires the SAME store verb the CLI uses — the
+  // rule guard holds server-side, not just in the button. Behind auth (PROTECTED /tasks/…).
+  ctx.http?.route("POST", "/api/tasks/reject", (request: Request) => handleTaskRejectRequest(request));
+  ctx.http?.route("POST", "/api/tasks/assign", (request: Request) => handleTaskAssignRequest(request));
+  ctx.http?.route("POST", "/api/tasks/edit", (request: Request) => handleTaskEditRequest(request));
   // company-ui coordination markdown panel (behind auth — PROTECTED "/state")
   ctx.http?.route("GET", "/api/state", (request: Request) => handleStateDocRequest(request));
   // company-ui presence roster (kobo-50): authoritative company membership for the

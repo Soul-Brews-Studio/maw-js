@@ -267,3 +267,22 @@ describe("lastActivityTs / hasUnread (kobo-208)", () => {
     expect(hasUnread({ id: "k1" }, {})).toBe(false);
   });
 });
+
+describe("card-detail action buttons (kobo-225)", () => {
+  const html = companyHtml();
+  test("wires each button to its rule-guarded endpoint", () => {
+    expect(html).toContain("/api/tasks/reject"); // reject → Rejected lane
+    expect(html).toContain("/api/tasks/assign"); // reassign (friction)
+    expect(html).toContain("/api/tasks/edit");   // edit reviewer
+    expect(html).toContain("reject-btn");
+  });
+  test("mark-done is DISABLED on a PR-linked card (closes on merge, kobo-228)", () => {
+    // the disable branch keys off task.pr + explains the PR auto-close
+    expect(html).toContain("typeof task.pr === 'number'");
+    expect(html).toContain("auto-closes on merge");
+  });
+  test("reassign asks a force-confirm on the 409 needsForce (kobo-219 friction)", () => {
+    expect(html).toContain("needsForce");
+    expect(html).toContain("confirm-reassign");
+  });
+});
