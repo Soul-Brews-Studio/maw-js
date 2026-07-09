@@ -875,7 +875,7 @@ export async function runTask(
         console.log(`  \x1b[90m${o.id}\x1b[0m +${o.migrated}${o.skipped ? ` \x1b[90m(${o.skipped} skipped)\x1b[0m` : ""}`);
       }
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|resolve|migrate-comments|review|hold|pr|done|note|edit|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
+      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|migrate-comments|review|hold|pr|done|note|edit|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
     }
 
     return { ok: true };

@@ -347,7 +347,12 @@ describe("maw company task runner (runTask)", () => {
 
   test("missing id / unknown subcommand → clean error, not a throw", async () => {
     expect((await run(["claim", "--company", "pgw"])).error).toContain("usage");
-    expect((await run(["bogus"])).ok).toBe(false);
+    const bogus = await run(["bogus"]);
+    expect(bogus.ok).toBe(false);
+    // kobo-237/238 fold: the usage string must NOT advertise the removed `resolve` verb
+    // (a guard that only checks for "usage" false-greens on a stale verb list).
+    expect(bogus.error).toContain("usage");
+    expect(bogus.error).not.toContain("resolve");
     expect((await run(["done", "pgw-999", "--company", "pgw"])).error).toContain("not found");
     expect((await run(["reject", "pgw-999", "--reason", "x", "--company", "pgw"])).error).toContain("not found");
     expect(listTasks("pgw")).toEqual([]);

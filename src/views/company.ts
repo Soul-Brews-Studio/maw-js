@@ -364,7 +364,12 @@ function companyBody(): string {
     .mentions-bar { margin-bottom:var(--s-4); border:1px solid var(--bd-warn); border-radius:var(--r-lg); background:var(--col); padding:var(--s-4) var(--s-5); }
     .mentions-bar[hidden] { display:none; }
     .mentions-bar .mentions-head { display:flex; align-items:center; gap:var(--s-3); color:var(--warn); font-weight:600; font-size:var(--t-sm); margin-bottom:var(--s-3); }
-    .mentions-bar .mentions-head .count { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .mentions-bar .mentions-head .count { color:var(--muted); font-variant-numeric:tabular-nums; }
+    .mentions-bar .mentions-head .mentions-caret { color:var(--muted); font-size:var(--t-xs); user-select:none; }
+    .mentions-bar .mentions-head .mention-readall-btn { margin-left:auto; font-size:var(--t-xs); padding:3px 10px; border-radius:8px; border:1px solid var(--bd-warn); color:var(--warn); background:var(--field-bg); cursor:pointer; }
+    .mentions-bar .mentions-head .mention-readall-btn:hover { border-color:var(--warn); }
+    .mention-read-btn { font-size:var(--t-xs); padding:3px 9px; border-radius:8px; border:1px solid var(--line); color:var(--muted); background:var(--field-bg); cursor:pointer; }
+    .mention-read-btn:hover { border-color:var(--warn); color:var(--warn); }
     .mention-row { display:flex; align-items:center; gap:var(--s-2); flex-wrap:wrap; padding:var(--s-2) 0; border-top:1px dashed var(--line); }
     .mention-row:first-of-type { border-top:0; }
     .mention-id { font-family:var(--font-mono); font-size:var(--t-xs); color:var(--accent); }
@@ -1949,42 +1954,69 @@ function questionSubcards(task) {
   return kids.filter((c) => c.assignee && mentionKey(c.assignee) === 'tony');
 }
 
-// kobo-128 → kobo-141 — the @mention decision queue at the board head: @tony/@human
-// mentions, each with a quick reply (POST /api/tasks/comment, reply-to the mention's
-// comment). kobo-237: the resolve button is removed (resolve concept gone); the
-// reader trims the queue via mark-as-read (kobo-238). actor=tony.
+// kobo-128 → kobo-141 — the @mention queue at the board head: @tony/@human mentions,
+// each with a quick reply (POST /api/tasks/comment, reply-to the mention's comment).
+// kobo-237: the resolve button is removed (resolve concept gone). kobo-238: the panel
+// is a lightweight localStorage read-tracker — collapse-default, a "read all" button,
+// per-row mark-read; UNREAD (queue minus the read-set) drives the count and the panel
+// hides entirely at 0 unread (Tony: keep the UI small, no backend read-state). actor=tony.
 function renderMentions(tasks) {
   const bar = $('mentions-bar');
-  const pend = pendingMentions(tasks).filter((m) => m.who === 'tony'); // Tony's board = his decision queue
-  if (!pend.length) { bar.hidden = true; bar.replaceChildren(); return; }
+  const pend = pendingMentions(tasks).filter((m) => m.who === 'tony'); // Tony's board = his decision queue (@tony/@human collapse to tony)
+  const read = loadMentionsRead();
+  const unread = pend.filter((m) => !read[mentionReadKey(m)]);
+  if (!unread.length) { bar.hidden = true; bar.replaceChildren(); return; } // 0 unread → hide (don't take vertical space)
   bar.replaceChildren();
+
   const head = el('div', 'mentions-head');
+  const caret = el('span', 'mentions-caret', mentionsExpanded ? '▾' : '▸');
+  head.appendChild(caret);
   head.appendChild(el('span', '', '@ mentions · รอ Tony reply'));
-  head.appendChild(el('span', 'count', String(pend.length)));
+  head.appendChild(el('span', 'count', String(unread.length)));
+  const readAll = el('button', 'mention-readall-btn', 'read all'); readAll.type = 'button';
+  readAll.addEventListener('click', (ev) => {
+    ev.stopPropagation(); // don't toggle collapse
+    const map = loadMentionsRead();
+    for (const m of pend) map[mentionReadKey(m)] = true; // current queue only (future mentions come back unread)
+    saveMentionsRead(map);
+    renderMentions(tasks); // re-render from the same snapshot → unread now 0 → panel hides
+  });
+  head.appendChild(readAll);
+  head.style.cursor = 'pointer';
+  head.addEventListener('click', () => { mentionsExpanded = !mentionsExpanded; renderMentions(tasks); }); // collapse toggle
   bar.appendChild(head);
-  for (const m of pend) {
-    const row = el('div', 'mention-row');
-    const idc = el('span', 'mention-id', m.id);
-    makeChip(idc, () => { const t = taskIndex.byId.get(m.id); if (t) openDetail(t); }); // click id → open the card
-    row.appendChild(idc);
-    row.appendChild(el('span', 'mention-who', 'by ' + (m.by || '?')));
-    const one = String(m.text || '').replace(/\\s+/g, ' ').trim();
-    const txt = el('span', 'mention-txt', one); txt.title = m.text || '';
-    row.appendChild(txt);
-    const rin = el('input'); rin.type = 'text'; rin.className = 'mention-reply-in'; rin.placeholder = 'reply…';
-    const rbtn = el('button', 'mention-reply-btn', 'reply'); rbtn.type = 'button';
-    const send = async () => {
-      const val = rin.value.trim();
-      if (!currentCompany() || !val) return;
-      rbtn.disabled = true;
-      // reply-to the mention's comment → threads the answer (kobo-237: no resolve).
-      try { await postJson('/api/tasks/comment', { company: currentCompany(), id: m.id, text: val, replyTo: m.commentId }); rin.value = ''; await load(); }
-      catch (err) { rbtn.disabled = false; statusEl.textContent = 'reply failed: ' + errMsg(err); statusEl.className = 'error'; }
-    };
-    rbtn.addEventListener('click', send);
-    rin.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
-    row.appendChild(rin); row.appendChild(rbtn);
-    bar.appendChild(row);
+
+  if (mentionsExpanded) {
+    for (const m of unread) {
+      const row = el('div', 'mention-row');
+      const idc = el('span', 'mention-id', m.id);
+      makeChip(idc, () => { const t = taskIndex.byId.get(m.id); if (t) openDetail(t); }); // click id → open the card
+      row.appendChild(idc);
+      row.appendChild(el('span', 'mention-who', 'by ' + (m.by || '?')));
+      const one = String(m.text || '').replace(/\\s+/g, ' ').trim();
+      const txt = el('span', 'mention-txt', one); txt.title = m.text || '';
+      row.appendChild(txt);
+      const rin = el('input'); rin.type = 'text'; rin.className = 'mention-reply-in'; rin.placeholder = 'reply…';
+      const rbtn = el('button', 'mention-reply-btn', 'reply'); rbtn.type = 'button';
+      const send = async () => {
+        const val = rin.value.trim();
+        if (!currentCompany() || !val) return;
+        rbtn.disabled = true;
+        // reply-to the mention's comment → threads the answer (kobo-237: no resolve).
+        try { await postJson('/api/tasks/comment', { company: currentCompany(), id: m.id, text: val, replyTo: m.commentId }); rin.value = ''; await load(); }
+        catch (err) { rbtn.disabled = false; statusEl.textContent = 'reply failed: ' + errMsg(err); statusEl.className = 'error'; }
+      };
+      rbtn.addEventListener('click', send);
+      rin.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
+      row.appendChild(rin); row.appendChild(rbtn);
+      // per-row mark-read (kobo-238): dismiss one item without replying (localStorage).
+      const done = el('button', 'mention-read-btn', '✓'); done.type = 'button'; done.title = 'mark read';
+      done.addEventListener('click', () => {
+        const map = loadMentionsRead(); map[mentionReadKey(m)] = true; saveMentionsRead(map); renderMentions(tasks);
+      });
+      row.appendChild(done);
+      bar.appendChild(row);
+    }
   }
   bar.hidden = false;
 }
@@ -2034,6 +2066,22 @@ function loadSeenState() {
 function saveSeenState(state) {
   try { localStorage.setItem('maw-company-seen', JSON.stringify(state)); } catch (e) { /* private mode — session-only */ }
 }
+// kobo-238: @mentions read-tracker — a {cardId#commentId:true} map in localStorage
+// (per-browser, NO backend). The resolve concept is gone (kobo-237); the queue is
+// trimmed by the reader marking items read. cardId already carries the company prefix
+// (kobo-1) so the flat key is unique across companies. Never throws (private mode →
+// in-memory only), mirroring the collapse/seen stores.
+function loadMentionsRead() {
+  try { return JSON.parse(localStorage.getItem('maw-company-mentions-read') || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function saveMentionsRead(state) {
+  try { localStorage.setItem('maw-company-mentions-read', JSON.stringify(state)); } catch (e) { /* private mode — session-only */ }
+}
+function mentionReadKey(m) { return m.id + '#' + m.commentId; }
+// Panel is collapse-default (kobo-238): expand only on click. Session-scoped — a fresh
+// load starts collapsed (Tony: "don't take vertical space by default").
+let mentionsExpanded = false;
 // Refreshed at the top of every renderBoard so taskCard reads the current map.
 let seenState = {};
 // Apply the collapse state to the collapsible columns: toggle the .collapsed

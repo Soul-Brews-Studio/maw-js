@@ -72,6 +72,7 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("commentTask"); // kobo-140: threaded ask/answer comment (the ask channel — thread/@mention)
     expect(src).not.toContain("resolveComment"); // kobo-237: resolve concept removed
     expect(src).not.toContain('subcmd === "resolve"'); // kobo-237: resolve subcommand gone
+    expect(src).not.toContain("|resolve|"); // kobo-238 fold: usage string must not advertise the removed verb
     expect(src).toContain("migrateQuestionNotesToComments"); // kobo-142: one-shot copy question-notes → comments (active cards, idempotent)
     expect(src).toContain("startTask"); // eq3-007: assignee picks up own work (todo → in-progress)
     expect(src).toContain("claimTask");
