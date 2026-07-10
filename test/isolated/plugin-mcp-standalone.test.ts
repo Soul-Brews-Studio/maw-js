@@ -111,7 +111,8 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // the state enum + move error advertise backlog|todo|ready on both surfaces.
     // kobo-218: approve + need-answer join the move enum (Tony's two queues, reason
     // mandatory); tools forwards --reason for both. backlog|todo|ready still advertised.
-    expect(server).toContain('z.enum(["backlog", "todo", "ready", "approve", "need-answer"])');
+    // kobo-273: wait-for-deploy joins the move enum (merged≠live park, manual target).
+    expect(server).toContain('z.enum(["backlog", "todo", "ready", "approve", "need-answer", "wait-for-deploy"])');
     expect(tools).toContain("backlog|todo|ready");
     expect(tools).toContain('input.state === "approve" || input.state === "need-answer"'); // both forward a mandatory reason
     // kobo-39: append-only note verb — needs an id + text; taskArgs targets the

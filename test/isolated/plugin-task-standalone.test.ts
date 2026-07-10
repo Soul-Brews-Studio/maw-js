@@ -58,6 +58,8 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('state !== "approve"'); // kobo-189: move accepts approve (human-gate override, parallel to ready)
     expect(src).toContain('"need-answer": "NEED-ANSWER"'); // kobo-218: NEED-ANSWER lane label (Tony's decision queue)
     expect(src).toContain('state !== "need-answer"'); // kobo-218: move accepts need-answer (Tony decision queue, reason mandatory)
+    expect(src).toContain('"wait-for-deploy": "WAIT-DEPLOY"'); // kobo-273: WAIT-DEPLOY lane label (merged≠live park)
+    expect(src).toContain('state !== "wait-for-deploy"'); // kobo-273: move accepts wait-for-deploy (manual park target, no reason)
     expect(src).toContain("needAnswerTask"); // kobo-218: owner parks a card in Tony's decision queue (reason mandatory)
     expect(src).toContain('addState !== "approve"'); // kobo-218: add accepts --state approve (CREATE a deploy-approval card into the lane)
     expect(src).toContain('addState === "approve"'); // kobo-218: born-in-approve requires --reason (Approve lane invariant)

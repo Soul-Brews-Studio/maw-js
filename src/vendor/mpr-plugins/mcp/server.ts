@@ -159,7 +159,7 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
         repo: z.string().optional().describe("add / pr: repo (owner/name — pr stamps card.repo for pr-watch)"),
         dept: z.string().optional().describe("add: department"),
         epic: z.string().optional().describe("add: epic · epic action: containment parent id (omit = clear)"),
-        state: z.enum(["backlog", "todo", "ready", "approve", "need-answer"]).optional().describe("add: start state (backlog|todo default, or approve = create a deploy-approval card, --reason REQUIRED) · move: target lane (backlog|todo|ready parking; approve/need-answer = Tony's queues, reason REQUIRED)"),
+        state: z.enum(["backlog", "todo", "ready", "approve", "need-answer", "wait-for-deploy"]).optional().describe("add: start state (backlog|todo default, or approve = create a deploy-approval card, --reason REQUIRED) · move: target lane (backlog|todo|ready parking; approve/need-answer = Tony's queues, reason REQUIRED; wait-for-deploy = merged-not-live park, kobo-273)"),
         assignee: z.string().optional().describe("add: assignee oracle"),
         parent: z.array(z.string()).optional().describe("add: parent/dep card ids · dep: the ONE parent id to link/unlink"),
         op: z.enum(["add", "rm"]).optional().describe("dep: link (add) or unlink (rm) — required for dep"),

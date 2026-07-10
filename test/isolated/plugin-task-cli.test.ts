@@ -304,6 +304,18 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("backlog");
   });
 
+  // kobo-273 — a card moved to wait-for-deploy must SHOW on the CLI board (BT7:
+  // web ↔ CLI parity). TASK_FLOW carries the lane; renderBoard must not drop it.
+  test("move → wait-for-deploy shows the card on the CLI board under WAIT-DEPLOY (kobo-273)", async () => {
+    await run(["add", "ship the lane", "--company", "pgw"]); // pgw-1, no deps → not dep-guarded
+    const r = await run(["move", "pgw-1", "wait-for-deploy", "--company", "pgw"]);
+    expect(r.ok).toBe(true); // manual park target, no reason
+    expect(readTask("pgw", "pgw-1")!.state).toBe("wait-for-deploy");
+    const board = (await run(["ls", "--company", "pgw"])).output;
+    expect(board).toContain("WAIT-DEPLOY"); // the lane renders
+    expect(board).toContain("ship the lane"); // the parked card is visible, not dropped
+  });
+
   test("add --state approve CREATES a deploy-approval card into the Approve lane; --reason required (kobo-218)", async () => {
     const noReason = await run(["add", "deploy m5", "--state", "approve", "--company", "pgw"]);
     expect(noReason.ok).toBe(false);

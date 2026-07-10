@@ -28,6 +28,7 @@ export type TaskState =
   | "review"
   | "need-answer" // kobo-218 — Tony's DECISION queue ("จะเอายังไง"), off-flow; distinct from approve (yes/no gate) and blocked (waiting on another card)
   | "approve" // kobo-189 — human gate between review (worker-checked) and done (merged)
+  | "wait-for-deploy" // kobo-273 — merged≠live park lane: a deploy-required card waits here after PR merge until the manual deploy lands, then → done
   | "done"
   | "rejected" // terminal disposition (kobo-101) — "done but not accepted", parallel to done
   | "blocked"; // off-flow (ADR 0003 B) — renamed from the dead needs-attention slot
@@ -40,6 +41,7 @@ export const TASK_STATES: TaskState[] = [
   "review",
   "need-answer",
   "approve",
+  "wait-for-deploy",
   "done",
   "rejected",
   "blocked",
@@ -47,7 +49,7 @@ export const TASK_STATES: TaskState[] = [
 
 // Linear flow columns. Both `need-answer` (kobo-218) and `blocked` are OFF-flow
 // Tony/dependency detours — surfaced as their own lanes, never a progression step.
-export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "approve", "done"];
+export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "approve", "wait-for-deploy", "done"];
 
 // Terminal dispositions — a finished card. Derived off-flow signals (a still-pending
 // dependency, needs-owner) must NOT re-surface it: a done/rejected card doesn't care
@@ -1329,6 +1331,8 @@ export function taskNextAction(task: TaskRecord): string {
       return task.assignee ? `deps ครบ — รอ ${task.assignee} เริ่ม` : "⚑ deps ครบ แต่ยังไม่มีเจ้าของ — รอ assign";
     case "backlog":
       return "ยังไม่พร้อม (backlog)";
+    case "wait-for-deploy":
+      return "merged ✓ — รอ deploy ขึ้น live (kobo-273)";
     case "done":
       return "เสร็จแล้ว ✓";
     case "rejected":

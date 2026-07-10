@@ -171,6 +171,7 @@ const STATE_LABEL: Record<TaskState, string> = {
   "review": "REVIEW",
   "need-answer": "NEED-ANSWER",
   "approve": "APPROVE",
+  "wait-for-deploy": "WAIT-DEPLOY",
   "done": "DONE",
   "rejected": "REJECTED",
   "blocked": "BLOCKED",
@@ -369,14 +370,14 @@ export async function runTask(
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const state = flags._[1] as TaskState | undefined;
-      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready|approve|need-answer> [--reason <why> (approve/need-answer)]" };
+      if (!id || !state) return { ok: false, error: "usage: maw company task move <id> <backlog|todo|ready|approve|need-answer|wait-for-deploy> [--reason <why> (approve/need-answer)]" };
       // kobo-189: `approve` (the human gate before done) joins the manual-override
       // targets — a human parks a reviewed card in Approve. kobo-218: `need-answer`
       // (Tony's DECISION queue) joins too — the owner parks a card there instead of
       // hold+@tony. in-progress/review/done still go via start/review/done; blocked
       // via block.
-      if (state !== "backlog" && state !== "todo" && state !== "ready" && state !== "approve" && state !== "need-answer") {
-        return { ok: false, error: `move target must be backlog, todo, ready, approve or need-answer (in-progress/review/done via start/review/done; blocked via block)` };
+      if (state !== "backlog" && state !== "todo" && state !== "ready" && state !== "approve" && state !== "need-answer" && state !== "wait-for-deploy") {
+        return { ok: false, error: `move target must be backlog, todo, ready, approve, need-answer or wait-for-deploy (in-progress/review/done via start/review/done; blocked via block)` };
       }
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };

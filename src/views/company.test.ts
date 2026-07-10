@@ -113,8 +113,28 @@ describe("columnCollapsed (kobo-194)", () => {
     expect(columnCollapsed("backlog", null)).toBe(true);
     expect(columnCollapsed("backlog", undefined)).toBe(true);
   });
-  test("COLLAPSIBLE_COLS = backlog + rejected only", () => {
-    expect(COLLAPSIBLE_COLS.slice().sort()).toEqual(["backlog", "rejected"]);
+  test("COLLAPSIBLE_COLS = backlog + rejected + wait-for-deploy (kobo-273)", () => {
+    expect(COLLAPSIBLE_COLS.slice().sort()).toEqual(["backlog", "rejected", "wait-for-deploy"]);
+  });
+});
+
+describe("wait-for-deploy lane (kobo-273 — merged≠live park)", () => {
+  const html = companyHtml();
+  test("wait-for-deploy is collapsible but DEFAULT-OPEN (deploy reminder must show)", () => {
+    // collapsible like backlog (has a chevron)…
+    expect(COLLAPSIBLE_COLS).toContain("wait-for-deploy");
+    // …yet columnCollapsed defaults it OPEN, unlike default-collapsed backlog/rejected.
+    expect(columnCollapsed("wait-for-deploy", {})).toBe(false);
+    expect(columnCollapsed("backlog", {})).toBe(true);
+    // explicit user choice still wins (can fold it).
+    expect(columnCollapsed("wait-for-deploy", { "wait-for-deploy": true })).toBe(true);
+  });
+  test("renders as its own column with a chevron, between approve and blocked", () => {
+    expect(html).toContain('class="col col-wait-for-deploy"');
+    expect(html).toContain('id="wait-for-deploy"');
+    expect(html).toContain('data-col="wait-for-deploy"'); // chevron
+    expect(html.indexOf('col-approve')).toBeLessThan(html.indexOf('col-wait-for-deploy'));
+    expect(html.indexOf('col-wait-for-deploy')).toBeLessThan(html.indexOf('col-blocked'));
   });
 });
 
@@ -141,7 +161,7 @@ describe("board lane visibility — Blocked in grid + hide-empty (kobo-199)", ()
     expect(html.indexOf('id="blocked"')).toBeLessThan(html.indexOf('id="done"'));
   });
   test("COLS carries blocked; hide-empty set covers the non-parking lanes but EXEMPTS blocked (always-on)", () => {
-    expect(html).toContain("'approve', 'blocked', 'done'"); // COLS ordering
+    expect(html).toContain("'approve', 'wait-for-deploy', 'blocked', 'done'"); // COLS ordering (kobo-273 lane inserted before blocked)
     // blocked is deliberately NOT in HIDE_WHEN_EMPTY → always-on (Tony's complaint).
     expect(html).toContain("const HIDE_WHEN_EMPTY = ['todo', 'ready', 'in-progress', 'review', 'need-answer', 'approve', 'done']");
     expect(html).not.toContain("'approve', 'blocked', 'done']"); // never re-added to the hide set
@@ -152,8 +172,8 @@ describe("board lane visibility — Blocked in grid + hide-empty (kobo-199)", ()
     expect(html.indexOf('col-review')).toBeLessThan(html.indexOf('col-need-answer'));
     expect(html.indexOf('col-need-answer')).toBeLessThan(html.indexOf('col-approve'));
     // COLS + HIDE_WHEN_EMPTY carry it (own lane, vanishes at 0 like approve — NOT in Blocked)
-    expect(html).toContain("'review', 'need-answer', 'approve', 'blocked', 'done'");
-    expect(html).toContain("'review', 'need-answer', 'approve', 'done']"); // HIDE_WHEN_EMPTY
+    expect(html).toContain("'review', 'need-answer', 'approve', 'wait-for-deploy', 'blocked', 'done'");
+    expect(html).toContain("'review', 'need-answer', 'approve', 'done']"); // HIDE_WHEN_EMPTY (wait-for-deploy NOT hide-empty — it's reveal-controlled parking)
   });
   test("a hide-empty lane vanishes at 0 cards; parking stays reveal-controlled", () => {
     expect(html).toContain(".col.lane-empty { display:none");
