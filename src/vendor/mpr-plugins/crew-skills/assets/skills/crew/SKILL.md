@@ -84,6 +84,9 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
   tmux swap-pane -s <front-pane-id> -t "$(tmux display-message -p '#{session_name}:#{window_index}.0')" -d 2>/dev/null  # front → main slot (ถ้ายังไม่ใช่ .0)
   tmux set-window-option main-pane-width 50%
   tmux select-layout main-vertical
+  # tag front @role — mirror worker tag (§Pane labels) → fresh crew front auto-seats after /clear (kobo-270; ก่อนหน้ามีแต่ worker ถูก tag, front ขาด → seat-resume exit เงียบ)
+  tmux set-option -p -t "$COORD" @role "🧭 coord"
+  [ "$(tmux display-message -t "$COORD" -p '#{@role}')" = "🧭 coord" ] || tmux set-option -p -t "$COORD" @role "🧭 coord"
   ```
   ⚠️ swap เปลี่ยน index แต่ **pane-id นิ่ง** → roster ไม่พัง (resolve index สดจาก pane-id §3)
 - **Pane labels (Tony approved 2026-07-04)** — ขอบ pane บอก **บท + task**. ใช้ `@role`/`@task` user options (⚠️ ห้ามใช้ `select-pane -T` — Claude Code ยิง title ทับตลอด):
