@@ -27,6 +27,7 @@ import { dirname, join } from "node:path";
  *  - crew-worker-settings.json (the asset workers spawn with --settings) → worker panes.
  */
 const SEAT_RESUME_COMMAND = "bash $HOME/.claude/hooks/seat-resume.sh";
+const SEAT_RESUME_MATCHER = "startup|resume|clear"; // kobo-268: auto-seat on every (re)start, not clear-only
 
 export interface SyncItem {
   /** path relative to the plugin assets/ dir */
@@ -101,13 +102,21 @@ export function ensureSeatResumeHook(
   settings.hooks.SessionStart ??= [];
   const entries = settings.hooks.SessionStart as any[];
 
-  const already = entries.some(e =>
-    e?.matcher === "clear"
-    && Array.isArray(e.hooks)
-    && e.hooks.some((hk: any) => hk?.command === SEAT_RESUME_COMMAND));
-  if (already) return false;
+  // kobo-268: fire on startup|resume|clear (not clear-only) so a pane auto-seats on every
+  // (re)start, not just after /clear. Find an existing seat-resume entry by COMMAND (any
+  // matcher) so a re-sync UPGRADES an old clear-only install in place instead of duplicating.
+  const existing = entries.find(e =>
+    Array.isArray(e?.hooks) && e.hooks.some((hk: any) => hk?.command === SEAT_RESUME_COMMAND));
+  if (existing) {
+    if (existing.matcher === SEAT_RESUME_MATCHER) return false; // already current
+    if (opts.dryRun) return true;
+    existing.matcher = SEAT_RESUME_MATCHER; // upgrade clear-only → startup|resume|clear
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+    return true;
+  }
 
-  entries.push({ matcher: "clear", hooks: [{ type: "command", command: SEAT_RESUME_COMMAND }] });
+  entries.push({ matcher: SEAT_RESUME_MATCHER, hooks: [{ type: "command", command: SEAT_RESUME_COMMAND }] });
   if (opts.dryRun) return true;
   mkdirSync(claudeDir, { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");

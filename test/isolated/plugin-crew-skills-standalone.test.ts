@@ -49,13 +49,36 @@ describe("crew-skills global asset contract", () => {
     expect(parsed.hooks.Stop[0].hooks[0].command).toContain("$HOME/.claude/hooks/crew-worker-stop.sh");
   });
 
-  // kobo-196 — worker panes spawn with crew-worker-settings.json (not the repo's
-  // settings), so the auto-seat SessionStart:clear hook must ride this asset too
-  // to cover them (scoped-both: repo settings → lead/comm/conductor, this → workers).
-  test("worker settings carries the SessionStart:clear seat-resume hook", () => {
+  // kobo-196/268 — worker panes spawn with crew-worker-settings.json (not the repo's
+  // settings), so the auto-seat SessionStart hook must ride this asset too to cover them
+  // (scoped-both: repo settings → lead/comm/conductor, this → workers). kobo-268: the
+  // matcher fires on startup|resume|clear (not clear-only) so a worker auto-seats on every
+  // (re)start, not just after /clear.
+  test("worker settings carries the SessionStart seat-resume hook (startup|resume|clear)", () => {
     const parsed = JSON.parse(readFileSync(join(assetsDir, "crew-worker-settings.json"), "utf8"));
-    const entry = parsed.hooks.SessionStart.find((e: any) => e.matcher === "clear");
+    const entry = parsed.hooks.SessionStart.find((e: any) => e.matcher === "startup|resume|clear");
     expect(entry.hooks[0].command).toBe("bash $HOME/.claude/hooks/seat-resume.sh");
+  });
+
+  // kobo-268 — the seat-resume hook is a synced executable asset that resolves the resume
+  // file from the crew env (CREW_STATE_DIR/CREW_ROLE, like the Stop hook) so it seats BOTH
+  // crew (ψ/active/crew/worker-1.md) and warroom (ψ/active/warroom, lead-handoff.md) layouts.
+  test("seat-resume hook is a synced executable + resolves crew env AND warroom fallback", () => {
+    const item = SYNC_ITEMS.find((i) => i.dest === "hooks/seat-resume.sh");
+    expect(item).toBeDefined();
+    expect(item?.exec).toBe(true);
+    const hook = readFileSync(join(assetsDir, "hooks/seat-resume.sh"), "utf8");
+    expect(hook).toContain("CREW_STATE_DIR"); // env-first (mirrors the Stop hook)
+    expect(hook).toContain("CREW_ROLE");
+    expect(hook).toContain("@role"); // durable tmux fallback
+    expect(hook).toContain("$DIR/$STEM.md"); // crew's role-named file (worker-1.md)
+    expect(hook).toContain("lead-handoff.md"); // eq3 fix + warroom special name
+    expect(hook).toContain("ψ/active/crew"); // seats the crew layout too (patchwork dogfood)
+    expect(hook).toContain("exit 0"); // solo-safe guards (no dir / no role → silent)
+    // kobo-268 fix: the case globs are case-sensitive, but labels are capitalized
+    // ("🎼 Conductor") — the stem MUST be lowercased or Conductor never matches conduct*.
+    expect(hook).toContain("tr '[:upper:]' '[:lower:]'");
+    expect(hook).toContain("conduct*"); // the capitalized-label role this fix rescues
   });
 
   // kobo-174/200 — the lead card-gate hook ships as an executable global asset so an
@@ -193,16 +216,16 @@ describe("crew-skills sync", () => {
     expect(formatSyncResult(result)).toContain("would install");
   });
 
-  test("wires SessionStart:clear seat-resume hook into the REPO settings, not global (scoped-both)", () => {
+  test("wires the SessionStart seat-resume hook into the REPO settings, not global (scoped-both)", () => {
     const home = freshHome();
     const repoDir = freshHome(); // stands in for the oracle repo dir
     const result = syncCrewSkills({ home, assetsDir, repoDir });
     expect(result.seatHookWired).toBe(true);
     // asset script still installs globally (~/.claude/hooks) — unchanged
     expect(existsSync(join(home, ".claude/hooks/seat-resume.sh"))).toBe(true);
-    // the wiring lands in the REPO's .claude/settings.json …
+    // the wiring lands in the REPO's .claude/settings.json … (kobo-268: startup|resume|clear)
     const settings = JSON.parse(readFileSync(join(repoDir, ".claude/settings.json"), "utf8"));
-    const entry = settings.hooks.SessionStart.find((e: any) => e.matcher === "clear");
+    const entry = settings.hooks.SessionStart.find((e: any) => e.matcher === "startup|resume|clear");
     expect(entry.hooks[0].command).toBe("bash $HOME/.claude/hooks/seat-resume.sh");
     // … and NEVER the user's global ~/.claude/settings.json (worker.3 reject)
     expect(existsSync(join(home, ".claude/settings.json"))).toBe(false);
@@ -215,8 +238,25 @@ describe("crew-skills sync", () => {
     const again = syncCrewSkills({ home, assetsDir, repoDir });
     expect(again.seatHookWired).toBe(false);
     const settings = JSON.parse(readFileSync(join(repoDir, ".claude/settings.json"), "utf8"));
-    const clears = settings.hooks.SessionStart.filter((e: any) => e.matcher === "clear");
-    expect(clears.length).toBe(1);
+    const seats = settings.hooks.SessionStart.filter((e: any) => e.matcher === "startup|resume|clear");
+    expect(seats.length).toBe(1);
+  });
+
+  // kobo-268 — a re-sync UPGRADES an old clear-only install to startup|resume|clear in place
+  // (by matching the command), never leaving a stale clear-only entry or duplicating.
+  test("seat-resume wiring upgrades an old clear-only matcher in place", () => {
+    const home = freshHome();
+    const claudeDir = join(home, ".claude");
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(join(claudeDir, "settings.json"), JSON.stringify({
+      hooks: { SessionStart: [{ matcher: "clear", hooks: [{ type: "command", command: "bash $HOME/.claude/hooks/seat-resume.sh" }] }] },
+    }));
+    expect(ensureSeatResumeHook(claudeDir)).toBe(true); // upgraded
+    const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf8"));
+    const entries = settings.hooks.SessionStart;
+    expect(entries.length).toBe(1); // upgraded in place, not duplicated
+    expect(entries[0].matcher).toBe("startup|resume|clear");
+    expect(ensureSeatResumeHook(claudeDir)).toBe(false); // now current — no-op
   });
 
   test("seat-resume wiring preserves pre-existing settings + hooks (non-destructive)", () => {
@@ -231,6 +271,6 @@ describe("crew-skills sync", () => {
     const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf8"));
     expect(settings.model).toBe("opus");
     expect(settings.hooks.SessionStart.some((e: any) => e.hooks[0].command === "keep-me.sh")).toBe(true);
-    expect(settings.hooks.SessionStart.some((e: any) => e.matcher === "clear")).toBe(true);
+    expect(settings.hooks.SessionStart.some((e: any) => e.matcher === "startup|resume|clear")).toBe(true); // kobo-268
   });
 });
