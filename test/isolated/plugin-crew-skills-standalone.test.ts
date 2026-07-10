@@ -71,10 +71,14 @@ describe("crew-skills global asset contract", () => {
     expect(hook).toContain("CREW_STATE_DIR"); // env-first (mirrors the Stop hook)
     expect(hook).toContain("CREW_ROLE");
     expect(hook).toContain("@role"); // durable tmux fallback
-    expect(hook).toContain("$DIR/$STEM.md"); // crew's role-named file (worker-1.md)
+    expect(hook).toContain("$STEM.md"); // crew's role-named file (worker-1.md)
     expect(hook).toContain("lead-handoff.md"); // eq3 fix + warroom special name
     expect(hook).toContain("ψ/active/crew"); // seats the crew layout too (patchwork dogfood)
     expect(hook).toContain("exit 0"); // solo-safe guards (no dir / no role → silent)
+    // kobo-269 fix: when no CREW_STATE_DIR, search BOTH dirs and let the dir that HOLDS the
+    // role file win — an empty leftover crew/ must not shadow a populated warroom/ (lead no-seat).
+    expect(hook).toContain('for d in $DIRS'); // dir-selection loops both dirs, not blind-pick
+    expect(hook).toContain("break 2"); // first dir with a matching file wins
     // kobo-268 fix: the case globs are case-sensitive, but labels are capitalized
     // ("🎼 Conductor") — the stem MUST be lowercased or Conductor never matches conduct*.
     expect(hook).toContain("tr '[:upper:]' '[:lower:]'");

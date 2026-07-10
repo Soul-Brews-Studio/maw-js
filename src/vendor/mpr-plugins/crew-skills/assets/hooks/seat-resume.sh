@@ -17,17 +17,20 @@ set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
-# State dir: honor CREW_STATE_DIR (crew/warroom panes export it); else default crew/, else
-# warroom/ if that's the one present. Resolve to an absolute path under the repo.
-DIR="${CREW_STATE_DIR:-}"
-if [ -z "$DIR" ]; then
-  if [ -d "$ROOT/ψ/active/crew" ]; then DIR="$ROOT/ψ/active/crew"
-  elif [ -d "$ROOT/ψ/active/warroom" ]; then DIR="$ROOT/ψ/active/warroom"
-  else exit 0   # not a crew/warroom repo → nothing to seat (solo-safe).
-  fi
+# State dirs to search. CREW_STATE_DIR (crew/warroom panes export it) is authoritative — search
+# only that. Else search BOTH ψ/active/crew and ψ/active/warroom: a repo can hold both (an empty
+# leftover crew/ beside a populated warroom/), so we must NOT blind-pick one dir up front — the
+# winner is decided below by which dir actually holds THIS role's resume file (kobo-269: an empty
+# crew/ was shadowing a populated warroom/ → lead never seated).
+DIRS=""
+if [ -n "${CREW_STATE_DIR:-}" ]; then
+  D="${CREW_STATE_DIR}"; case "$D" in /*) ;; *) D="$ROOT/$D" ;; esac
+  DIRS="$D"
+else
+  [ -d "$ROOT/ψ/active/crew" ]    && DIRS="$DIRS $ROOT/ψ/active/crew"
+  [ -d "$ROOT/ψ/active/warroom" ] && DIRS="$DIRS $ROOT/ψ/active/warroom"
 fi
-case "$DIR" in /*) ;; *) DIR="$ROOT/$DIR" ;; esac
-[ -d "$DIR" ] || exit 0
+[ -n "$DIRS" ] || exit 0   # not a crew/warroom repo → nothing to seat (solo-safe).
 
 # Role: prefer CREW_ROLE env (same signal the Stop hook uses), else the durable tmux @role.
 ROLE="${CREW_ROLE:-}"
@@ -40,20 +43,24 @@ ROLE="$(printf '%s' "$ROLE" | tr -d "\"'")"
 STEM="$(printf '%s' "$ROLE" | grep -oiE 'worker-[0-9]+|reviewer|conduct[a-z]*|worker|lead|comm|coord' | head -1 | tr '[:upper:]' '[:lower:]')"
 [ -n "$STEM" ] || exit 0   # unknown/empty role → don't guess, stay silent.
 
-# File candidates by role — first that exists wins. Covers crew's role-named files
+# Candidate filenames by role — first that exists wins. Covers crew's role-named files
 # (worker-1.md) AND warroom's special names (lead-handoff.md / worker.md).
 case "$STEM" in
-  lead)       CANDS="$DIR/lead-handoff.md $DIR/lead.md" ;;      # eq3 fix: lead → lead-handoff.md
-  worker-*)   CANDS="$DIR/$STEM.md $DIR/worker.md" ;;           # crew worker-1.md, else warroom worker.md
-  worker)     CANDS="$DIR/worker.md" ;;
-  reviewer)   CANDS="$DIR/reviewer.md $DIR/worker.md" ;;
-  conduct*)   CANDS="$DIR/conductor.md" ;;
-  comm)       CANDS="$DIR/comm.md" ;;
-  coord)      CANDS="$DIR/coord.md" ;;
+  lead)       NAMES="lead-handoff.md lead.md" ;;   # eq3 fix: lead → lead-handoff.md
+  worker-*)   NAMES="$STEM.md worker.md" ;;        # crew worker-1.md, else warroom worker.md
+  worker)     NAMES="worker.md" ;;
+  reviewer)   NAMES="reviewer.md worker.md" ;;
+  conduct*)   NAMES="conductor.md" ;;
+  comm)       NAMES="comm.md" ;;
+  coord)      NAMES="coord.md" ;;
   *)          exit 0 ;;
 esac
+# Search each dir for this role's files; the dir that HOLDS a file wins (so an empty crew/ can't
+# shadow a populated warroom/). Names are inner so a dir's preferred file beats its fallback.
 FILE=""
-for c in $CANDS; do [ -f "$c" ] && { FILE="$c"; break; }; done
+for d in $DIRS; do
+  for n in $NAMES; do [ -f "$d/$n" ] && { FILE="$d/$n"; break 2; }; done
+done
 [ -f "$FILE" ] || exit 0
 
 # Clear the away-flag so hey delivers again (mirrors /seat step 2.5, silent).
