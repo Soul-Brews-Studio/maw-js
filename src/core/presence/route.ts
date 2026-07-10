@@ -11,15 +11,21 @@
  * Source is ~/.maw/presence/<pane>.json — one file per tmux pane, written by the
  * Claude Code statusLine hook (scripts/hooks/maw-statusline.sh). Each file
  * self-describes its oracle, so the read side groups by a field with NO tmux
- * join (a dead pane's file lingers until it goes stale). KEY = pane, not cwd:
- * crew/warroom workers share one repo but each has a unique pane.
+ * join. KEY = pane, not cwd: crew/warroom workers share one repo but each has a
+ * unique pane.
  *
- * Host-wide (all panes on this host, every company) — the caller (Presence tab)
- * intersects rows with its /api/roster by oracle name, so no company filter here.
- * Read-only. Missing dir / unreadable file → skipped (never an error).
+ * alive filter (kobo-266): intersect the pane id with live tmux panes so a dead
+ * pane's lingering file is dropped, not shown as a ghost. Fail-open — tmux
+ * unavailable → keep all rows so the board never blanks. The caller (Presence
+ * tab) still intersects rows with its /api/roster by oracle, so no company
+ * filter here (company scoping = companion kobo-267).
+ *
+ * Single host — no federation. Read-only. Missing dir / unreadable file →
+ * skipped (never an error).
  */
 
 import { readdirSync, readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -36,11 +42,29 @@ function presenceDir(): string {
 }
 
 export function handlePresenceRequest(_request: Request): Response {
-  return Response.json({ rows: readPresenceRows(nowMs()) });
+  return Response.json({ rows: readPresenceRows(nowMs(), { alive: getAlivePanes() }) });
 }
 
-// Split out (no Request/Response) so tests can drive a fixed clock + dir.
-export function readPresenceRows(now: number): PresenceRow[] {
+// Live tmux pane ids (reuse of team-status.ts's alive-set shape). null = tmux
+// unavailable → caller fails OPEN (skips the alive filter) rather than blanking
+// the board. ponytail: execSync is fine here — `tmux list-panes` is sub-10ms and
+// the presence route is low-traffic; go async only if it ever shows on a flame.
+function getAlivePanes(): Set<string> | null {
+  try {
+    const out = execSync("tmux list-panes -a -F '#{pane_id}'", { encoding: "utf8" });
+    return new Set(out.split("\n").filter(Boolean));
+  } catch {
+    return null;
+  }
+}
+
+// Split out (no Request/Response) so tests can drive a fixed clock + dir + a
+// fabricated alive set. alive=null skips the alive filter (fail open).
+export function readPresenceRows(
+  now: number,
+  opts: { alive?: Set<string> | null } = {},
+): PresenceRow[] {
+  const { alive = null } = opts;
   const dir = presenceDir();
   let files: string[];
   try {
@@ -57,6 +81,8 @@ export function readPresenceRows(now: number): PresenceRow[] {
       continue; // half-written / garbage file → skip, don't fail the whole read
     }
     if (!p || typeof p.pane !== "string") continue;
+    // alive filter: drop dead panes whose file still lingers (alive=null → skip).
+    if (alive && !alive.has(p.pane)) continue;
     const ts = typeof p.ts === "number" ? p.ts : 0;
     rows.push({
       oracle: p.oracle ?? null,

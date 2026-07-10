@@ -65,6 +65,24 @@ describe("readPresenceRows", () => {
     expect(stale.stale).toBe(true); // ts older than the 5-min window
   });
 
+  test("alive filter drops panes whose id is not in the live tmux set (kobo-266)", () => {
+    // %40 + %41 alive, %99 is a dead pane whose file still lingers → dropped.
+    const rows = readPresenceRows(NOW, { alive: new Set(["%40", "%41"]) });
+    expect(rows.map((r) => r.pane).sort()).toEqual(["%40", "%41"]);
+    expect(rows.find((r) => r.pane === "%99")).toBeUndefined();
+  });
+
+  test("alive=null (tmux unavailable) fails open — every pane kept", () => {
+    // both the explicit null and the default (no opts) must skip the filter so a
+    // tmux failure never blanks the board.
+    expect(readPresenceRows(NOW, { alive: null }).length).toBe(3);
+    expect(readPresenceRows(NOW).length).toBe(3);
+  });
+
+  test("empty alive set (no live panes) drops all rows, does not fail open", () => {
+    expect(readPresenceRows(NOW, { alive: new Set() })).toEqual([]);
+  });
+
   test("ts=0 (never captured a real timestamp) counts as stale", () => {
     writePane("pctzero.json", { pane: "%7", oracle: "x", ts: 0, model: "m" });
     const row = readPresenceRows(NOW).find((r) => r.pane === "%7")!;
