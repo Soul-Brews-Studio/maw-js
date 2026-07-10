@@ -126,6 +126,18 @@ describe("crew-skills global asset contract", () => {
     expect(crew).toContain("${CREW_STATE_DIR:-ψ/active/crew}");
     expect(crew).toContain("CREW_STATE_DIR=");
   });
+
+  // kobo-267: both spawns must stamp MAW_ROOM_COMPANY (from the company name crew
+  // §0 resolves) so the statusline self-describes company → /api/presence?company=
+  // can scope. Drop the stamp and the pane silently falls out of its board's
+  // presence query, so guard it here (this is a CI-only isolated content gate).
+  test("crew + warroom spawns stamp MAW_ROOM_COMPANY for presence scoping", () => {
+    const crew = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    expect(crew).toContain("CO_NAME="); // company name resolved in §0
+    expect(crew).toContain("MAW_ROOM_COMPANY=");
+    const warroom = readFileSync(join(assetsDir, "skills/warroom/SKILL.md"), "utf8");
+    expect(warroom).toContain("MAW_ROOM_COMPANY=");
+  });
 });
 
 describe("crew-skills sync", () => {

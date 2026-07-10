@@ -27,6 +27,14 @@ ORACLE="${CLAUDE_AGENT_NAME:-}"
 [ -z "$ORACLE" ] && ORACLE="$(tmux display-message -p '#{session_name}' 2>/dev/null | sed 's/^[0-9]*-//')"
 [ -z "$ORACLE" ] && ORACLE="?"
 
+# Company self-describe (kobo-267) — the spawn (crew §0 / warroom) sets
+# MAW_ROOM_COMPANY once per pane; we stamp it verbatim so the presence read side
+# can scope by company with NO tmux/panes.env join. Read from the pane's own env
+# each tick (mv -f keeps the field) — never derive per-tick, a pane's company is
+# fixed at spawn. Empty when a pane wasn't spawned with a company → null (that
+# pane is excluded from a ?company= query, included host-wide).
+COMPANY="${MAW_ROOM_COMPANY:-}"
+
 # --- capture (guarded so it can never fault the statusline) ------------------
 PANE="${TMUX_PANE:-}"
 if command -v jq >/dev/null 2>&1 && [ -n "$PANE" ]; then
@@ -40,9 +48,10 @@ if command -v jq >/dev/null 2>&1 && [ -n "$PANE" ]; then
     # jq paths are tolerant of nesting (context_window.X // top-level X) so a schema
     # tweak on the CC side degrades to null instead of breaking capture.
     if printf '%s' "$INPUT" | jq -c \
-        --arg pane "$PANE" --arg ts "$TS" --arg oracle "$ORACLE" '{
+        --arg pane "$PANE" --arg ts "$TS" --arg oracle "$ORACLE" --arg company "$COMPANY" '{
           pane: $pane,
           oracle: $oracle,
+          company: (if $company == "" then null else $company end),
           ts: ($ts | tonumber),
           model: (.model.display_name // .model.id // null),
           model_id: (.model.id // null),

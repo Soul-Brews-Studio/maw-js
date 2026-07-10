@@ -36,6 +36,7 @@ Status dir: **`$CREW_STATE_DIR`** (default `ψ/active/crew/`, warroom ตั้�
 ```bash
 CO=$(grep -rl "\"$(tmux display-message -p '#{session_name}' | sed 's/^[0-9]*-//')\"" ~/.maw/companies/*.json 2>/dev/null | head -1)
 [ -z "$CO" ] && echo "crew ต้องอยู่ใน company; นอก company ใช้ harness sub-agent (Agent tool) แทน" && exit
+CO_NAME=$(basename "$CO" .json)   # company name (kobo-267) → stamped into MAW_ROOM_COMPANY at spawn → presence company-scope
 ```
 - **ไม่มี company** → **refuse** (แนะ harness sub-agent = ephemeral ตายกับ lead ได้)
 - **มี** → บันทึกชื่อ company ลง roster · worker Contract รู้ dept/board · cards ลง company board. crew work = company work (tracked/survive/board) ≠ harness sub-agent (personal/ephemeral)
@@ -54,15 +55,16 @@ cat > "$STATE_DIR/worker-1-contract.md" <<'EOF'
 EOF
 # 2) spawn — env 3 ตัวบังคับ + $(cat) รันใน shell ของ pane ใหม่ (single-quote outer) → Contract เป็น literal ไม่ถูก re-parse
 PANE=$(tmux split-window -h -P -F '#{pane_id}' \
-  'cd "'"$PWD"'" && CREW_ROLE=worker-1 CREW_COORD_PANE="'"$COORD"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-1-contract.md)"')
+  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker-1 CREW_COORD_PANE="'"$COORD"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-1-contract.md)"')
 ```
 - **verified live**: raw pane boot + skip-permissions ทำงาน (footer "bypass permissions on") + รัน Bash ไม่ค้าง prompt · pane โผล่ข้าง spawner
 - `-P -F '#{pane_id}'` → capture `%pane-id` → **เขียนแถว roster ทันที** (§2)
 - ไม่ใช้ `maw team spawn` / `--exec` — คุม tmux เอง → คุม flag (skip-perm) + auto-kick เอง
-- **env 3 ตัวบังคับ (AC):**
+- **env 4 ตัวบังคับ (AC):**
   - `CREW_ROLE=worker-N` — gate ให้ Stop hook fire เฉพาะ worker pane
   - `CREW_COORD_PANE=<front pane-id>` — Stop hook resolve addr **สด**จากตัวนี้ → ping **front (Conductor)** ไม่ใช่ lead
   - `CREW_STATE_DIR=<dir>` — worker เขียน `worker-N.md` + hook รายงาน state path จากตัวนี้ (warroom ตั้ง `ψ/active/warroom` → hook + worker ใช้ dir เดียวกันอัตโนมัติ)
+  - `MAW_ROOM_COMPANY=$CO_NAME` (kobo-267) — statusline stamp ลง presence file → `/api/presence?company=` scope pane ให้ board ถูก company (ไม่ตั้ง → pane หลุดจาก company-query)
 - **Stop hook = completion signal (kobo-91 TEST2 deadlock fix)** — worker เท่านั้น spawn ด้วย `--settings "$HOME/.claude/crew-worker-settings.json"` (Stop hook `crew-worker-stop.sh` — global copy ติดตั้งโดย `maw crew-skills sync`). ทุกจบ turn hook resolve Conductor addr สดจาก `CREW_COORD_PANE` → `maw hey` แจ้ง "worker-N idle" + state path (`${CREW_STATE_DIR:-ψ/active/crew}/worker-N.md`) = **completion signal deterministic ไม่พึ่งความจำ model** (ping หาย → ทุกคน idle รอกันเป็นวง = deadlock ที่เจอจริง). front/lead spawn ปกติ (ไม่มี `CREW_ROLE`) → hook exit ทันที (env-gate = local-first, ไม่แตะ pane อื่น)
 
 ### auto-kick (kobo-150 — ⭐ กัน fold-deadlock kobo-96)

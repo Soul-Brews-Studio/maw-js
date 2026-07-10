@@ -50,7 +50,7 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
 
 ## Spawn (lead ทำครั้งเดียว — จากนั้น comm+conductor+worker คุมกันเอง)
 
-1. **company-gate + fresh-start** — ตาม crew §0 + §9.4 (`rm -f ψ/active/warroom/*.md` ก่อนเสมอ — spawn ซ้ำ = ล้างก่อน)
+1. **company-gate + fresh-start** — ตาม crew §0 + §9.4 (`rm -f ψ/active/warroom/*.md` ก่อนเสมอ — spawn ซ้ำ = ล้างก่อน). crew §0 ตั้ง `$CO_NAME` (company name) → spawn ด้านล่างใช้ stamp `MAW_ROOM_COMPANY` (kobo-267 presence scope)
 2. **lead spawn comm + Conductor + worker** (raw panes, `--model` ตาม tier). comm+conductor = ไม่มี worker hook · **worker = reviewer** ใช้ crew-worker-settings (Stop hook idle → conductor):
    ```bash
    LEAD=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_id}')
@@ -59,19 +59,19 @@ Status dir: `ψ/active/warroom/` (ephemeral, gitignored) — `comm.md` · `condu
    <Comm Contract — §ล่าง>
    EOF
    COMM=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && claude --model sonnet --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/comm-contract.md)"')
+     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model sonnet --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/comm-contract.md)"')
    # Conductor — opus
    cat > ψ/active/warroom/conductor-contract.md <<'EOF'
    <Conductor Contract — §ล่าง>
    EOF
    COND=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/conductor-contract.md)"')
+     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/conductor-contract.md)"')
    # worker (reviewer) — opus + crew-worker-settings (Stop hook → conductor)
    cat > ψ/active/warroom/worker-contract.md <<'EOF'
    <Worker/Reviewer Contract — §ล่าง>
    EOF
    WK=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR=ψ/active/warroom claude --model opus --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/worker-contract.md)"')
+     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR=ψ/active/warroom claude --model opus --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/warroom/worker-contract.md)"')
    ```
 3. **kick comm + Conductor + worker** — `maw hey` (resolve index จาก pane-id) 1 บรรทัดต่อ pane: ชี้ lead pane-id + role + standby. (kick แรก = act จาก message แรก, ตาม crew)
 4. **extra executor (ถ้าต้อง parallel จริง)** — Conductor spawn worker เพิ่ม ตาม **/crew (kobo-150)** — แต่รวม **≤4 pane**. ปกติ heavy code → card ไป patchwork (pod) ไม่ใช่ spawn ใน warroom.

@@ -18,18 +18,18 @@ function writePane(name: string, obj: Record<string, unknown>) {
 beforeAll(() => {
   process.env.MAW_DATA_DIR = dir;
   mkdirSync(presDir, { recursive: true });
-  // fresh pane — full statusline payload
+  // fresh pane — full statusline payload, stamped company (kobo-267)
   writePane("pct40.json", {
-    pane: "%40", oracle: "patchwork", ts: NOW - 1000,
+    pane: "%40", oracle: "patchwork", company: "kobo", ts: NOW - 1000,
     model: "Opus 4.8", model_id: "claude-opus-4-8", remaining_percentage: 45, used_percentage: 55,
     total_input_tokens: 90000, context_window_size: 200000,
   });
-  // same oracle, second pane (crew) — remaining null, only used present
+  // same oracle, second pane (crew) — remaining null, different company
   writePane("pct41.json", {
-    pane: "%41", oracle: "patchwork", ts: NOW - 2000,
+    pane: "%41", oracle: "patchwork", company: "pgw", ts: NOW - 2000,
     model: "Sonnet 4.6", remaining_percentage: null, used_percentage: 30,
   });
-  // different oracle, stale (ts older than STALE_MS)
+  // different oracle, stale (ts older than STALE_MS), UNSTAMPED (no company field)
   writePane("pct99.json", {
     pane: "%99", oracle: "eq3", ts: NOW - STALE_MS - 1000,
     model: "Opus 4.8", remaining_percentage: 80,
@@ -63,6 +63,31 @@ describe("readPresenceRows", () => {
 
     const stale = rows.find((r) => r.pane === "%99")!;
     expect(stale.stale).toBe(true); // ts older than the 5-min window
+
+    expect(fresh.company).toBe("kobo"); // stamped company carried through
+    expect(stale.company).toBeNull(); // unstamped file → null, not undefined
+  });
+
+  test("company filter keeps only panes stamped with that company (kobo-267)", () => {
+    expect(readPresenceRows(NOW, { company: "kobo" }).map((r) => r.pane)).toEqual(["%40"]);
+    expect(readPresenceRows(NOW, { company: "pgw" }).map((r) => r.pane)).toEqual(["%41"]);
+  });
+
+  test("company filter excludes unstamped panes, never falls back to all (kobo-267)", () => {
+    // %99 has no company — a scoped query must drop it, not include it.
+    const rows = readPresenceRows(NOW, { company: "eq3-corp" });
+    expect(rows).toEqual([]); // zero matches → empty, NOT the whole set
+  });
+
+  test("no company (null/undefined) → all panes, host-wide back-compat (kobo-267)", () => {
+    expect(readPresenceRows(NOW, { company: null }).length).toBe(3);
+    expect(readPresenceRows(NOW).length).toBe(3);
+  });
+
+  test("company + alive filters compose (kobo-267)", () => {
+    // kobo pane %40 alive → kept; a kobo query with %40 dead → empty.
+    expect(readPresenceRows(NOW, { company: "kobo", alive: new Set(["%40"]) }).map((r) => r.pane)).toEqual(["%40"]);
+    expect(readPresenceRows(NOW, { company: "kobo", alive: new Set(["%41"]) })).toEqual([]);
   });
 
   test("alive filter drops panes whose id is not in the live tmux set (kobo-266)", () => {

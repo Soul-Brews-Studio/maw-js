@@ -2638,7 +2638,7 @@ async function load() {
       getJson('/api/worklog/feed' + q + '&limit=200'), // wider window feeds the Worklog + Presence tabs (kobo-49)
       getJson('/api/state' + q).catch(() => null),
       getJson('/api/roster' + q).catch(() => null), // authoritative company membership (kobo-50)
-      getJson('/api/presence').catch(() => null), // per-pane model + ctx% overlay (kobo-104) — host-wide, matched to roster by oracle
+      getJson('/api/presence' + q).catch(() => null), // per-pane model + ctx% overlay (kobo-104); ?company= scopes to this board's panes (kobo-267)
     ]);
     const tasks = Array.isArray(tasksRes.tasks) ? tasksRes.tasks : [];
     const entries = Array.isArray(feedRes.entries) ? feedRes.entries : [];
