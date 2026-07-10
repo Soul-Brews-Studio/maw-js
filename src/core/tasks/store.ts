@@ -881,9 +881,21 @@ export function commentTask(
   }
   const comment: TaskComment = { id: `c${existing.length + 1}`, ts: Date.now(), iso: nowIso(), by, text };
   if (replyTo) comment.replyTo = replyTo;
-  if (opts.tldr?.trim()) comment.tldr = opts.tldr.trim();
+  // kobo-265: EVERY comment carries a tldr. When --tldr isn't passed, auto-derive it from
+  // the text — first line = tldr, the remaining lines = detail. The remainder MUST route to
+  // `detail` because the structured render hides `text` once `tldr` is set (so multiline
+  // body would vanish otherwise). Explicit --tldr / --detail always win (no clobber).
+  let tldr = opts.tldr?.trim();
+  let detail = opts.detail?.trim();
+  if (!tldr && text.trim()) {
+    const lines = text.split("\n");
+    tldr = lines[0].trim();
+    const rest = lines.slice(1).join("\n").trim();
+    if (rest && !detail) detail = rest; // route remainder → detail (don't overwrite an explicit --detail)
+  }
+  if (tldr) comment.tldr = tldr;
   if (opts.ask?.trim()) comment.ask = opts.ask.trim();
-  if (opts.detail?.trim()) comment.detail = opts.detail.trim();
+  if (detail) comment.detail = detail;
   task.comments = [...existing, comment]; // append-only — prior comments untouched
   task.updatedTs = comment.ts;
   writeTaskRecord(task);
@@ -1063,18 +1075,19 @@ export function parseMentions(text: string): string[] {
 }
 
 /**
- * The clarity GATE for a comment addressed to Tony/human (kobo-263, S2 — supersedes the
- * kobo-262 interim nudge). A comment that @-mentions the human (@tony/@human, canonicalized
- * to "tony", detected across text + tldr + ask + detail) MUST carry a `tldr` (1-line
- * outcome/decision) AND an `ask` (what Tony must do) — the same shape as the need-answer
- * gate. Returns an error string when the requirement is unmet (the tool rejects); null when
- * the comment is fine — either it satisfies the gate, or it's agent↔agent (fields are free).
+ * The clarity GATE for a comment (kobo-263, expanded by kobo-265). EVERY comment carries a
+ * `tldr` now — but it's auto-derived from the text's first line when `--tldr` isn't passed
+ * (commentTask fallback), so the tldr requirement is met by any non-empty text and needs NO
+ * rejection here (the CLI already rejects empty text). What this gate still enforces: a
+ * comment addressed to Tony/human (@tony/@human, canonicalized to "tony", detected across
+ * text + tldr + ask + detail) MUST carry an `ask` (what Tony must do) — agent↔agent comments
+ * don't. Returns an error string when the ask is missing on a human-addressed comment; else
+ * null.
  */
 export function commentClarityError(text: string, tldr?: string, ask?: string, detail?: string): string | null {
   const addressed = parseMentions([text, tldr, ask, detail].filter(Boolean).join(" ")).includes("tony");
-  if (!addressed) return null; // agent↔agent — tldr/ask not required
-  if (!tldr?.trim() || !ask?.trim()) {
-    return "a comment to @tony/@human must lead with --tldr <1-line outcome/decision> and --ask <what Tony must do> (--detail optional). distill it first — same gate as need-answer --reason.";
+  if (addressed && !ask?.trim()) {
+    return "a comment to @tony/@human must include --ask <what Tony must do> (tldr is auto-derived from your text if you don't pass --tldr). same gate as need-answer --reason.";
   }
   return null;
 }

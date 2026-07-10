@@ -385,21 +385,22 @@ describe("maw company task runner (runTask)", () => {
     expect(bad.error).toContain("usage"); // resolve subcommand is gone → generic usage
   });
 
-  test("kobo-263: a @tony/@human comment REJECTS without --tldr+--ask; agent↔agent is free", async () => {
+  test("kobo-265: every comment gets a tldr (auto); @tony still needs --ask; agent↔agent is free", async () => {
     await run(["add", "card A", "--company", "pgw", "--assignee", "patchwork"]);
-    // @tony, no structured fields → rejected (must distill first)
-    const bare = await run(["comment", "pgw-1", "@tony", "approve", "the", "deploy?", "--from", "eq3", "--company", "pgw"]);
-    expect(bare.ok).toBe(false);
-    expect(bare.error).toContain("--tldr");
-    expect(readTask("pgw", "pgw-1")!.comments ?? []).toHaveLength(0); // nothing written on a reject
-    // @tony WITH tldr+ask → accepted + the structured echo renders
-    const full = await run(["comment", "pgw-1", "@tony", "--tldr", "deploy is green", "--ask", "approve prod?", "--from", "eq3", "--company", "pgw"]);
-    expect(full.ok).toBe(true);
-    expect(full.output).toContain("TL;DR");
-    expect(readTask("pgw", "pgw-1")!.comments!.at(-1)).toMatchObject({ tldr: "deploy is green", ask: "approve prod?" });
-    // agent↔agent → free, no fields required
-    const agent = await run(["comment", "pgw-1", "@patchwork", "rebased,", "ready", "--from", "eq3", "--company", "pgw"]);
+    // @tony without --ask → still rejected (ask stays @tony-gated); nothing written
+    const noAsk = await run(["comment", "pgw-1", "@tony", "approve", "the", "deploy?", "--from", "eq3", "--company", "pgw"]);
+    expect(noAsk.ok).toBe(false);
+    expect(noAsk.error).toContain("--ask");
+    expect(readTask("pgw", "pgw-1")!.comments ?? []).toHaveLength(0);
+    // @tony WITH --ask but NO --tldr → accepted; tldr auto-derived from the text
+    const tonyOk = await run(["comment", "pgw-1", "@tony please decide", "--ask", "approve prod?", "--from", "eq3", "--company", "pgw"]);
+    expect(tonyOk.ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.comments!.at(-1)).toMatchObject({ tldr: "@tony please decide", ask: "approve prod?" });
+    // agent↔agent, no --tldr → accepted; tldr auto-filled + the TL;DR echo shows
+    const agent = await run(["comment", "pgw-1", "rebased, ready", "--from", "eq3", "--company", "pgw"]);
     expect(agent.ok).toBe(true);
+    expect(agent.output).toContain("TL;DR");
+    expect(readTask("pgw", "pgw-1")!.comments!.at(-1)!.tldr).toBe("rebased, ready");
   });
 
   test("a @mention inside a NOTE does NOT enter the mentions queue (rule 10 — notes are log, not asks)", async () => {

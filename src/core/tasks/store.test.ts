@@ -1734,28 +1734,40 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(parseMentions("no mentions here")).toEqual([]);
   });
 
-  test("commentClarityError: a @tony/@human comment REQUIRES tldr+ask; agent↔agent is free (kobo-263)", () => {
-    // addressed to the human, missing fields → error (the tool rejects)
-    expect(commentClarityError("@tony approve?", undefined, undefined)).toContain("--tldr");
-    expect(commentClarityError("@tony", "deploy ready", undefined)).toContain("--ask"); // tldr but no ask
-    expect(commentClarityError("@human decide", "x", "  ")).not.toBeNull(); // blank ask → still error
-    // mention can live in any field (detected across text+tldr+ask+detail)
-    expect(commentClarityError("see below", undefined, "@tony approve X?")).toContain("--tldr");
-    // satisfied → null (accepted)
-    expect(commentClarityError("@tony", "deploy is green", "approve prod?")).toBeNull();
-    // agent↔agent → free (no requirement) even without fields
+  test("commentClarityError (kobo-265): only ASK is gated (@tony-only); tldr is auto-derived, agent↔agent free", () => {
+    // @tony without ask → error (tldr auto-derived from text, so it's NOT the tldr that's missing)
+    expect(commentClarityError("@tony approve the deploy?", undefined, undefined)).toContain("--ask");
+    expect(commentClarityError("@human decide", "x", "  ")).toContain("--ask"); // blank ask → still error
+    // mention in any field still triggers the ask requirement
+    expect(commentClarityError("see below", undefined, undefined, "@tony approve X?")).toContain("--ask");
+    // @tony WITH ask → ok, even without an explicit tldr (fallback fills it)
+    expect(commentClarityError("@tony approve prod?", undefined, "approve prod?")).toBeNull();
+    // agent↔agent → free: no ask needed, tldr auto-filled downstream
+    expect(commentClarityError("fix done", undefined, undefined)).toBeNull();
     expect(commentClarityError("@eq3 lgtm merging", undefined, undefined)).toBeNull();
-    expect(commentClarityError("no mention at all", undefined, undefined)).toBeNull();
   });
 
-  test("commentTask persists tldr/ask/detail; blanks are dropped (kobo-263)", () => {
+  test("commentTask auto-derives tldr from text; multiline routes remainder → detail (kobo-265)", () => {
     const t = addTask({ company: "pgw", title: "c", by: "eq3" });
-    commentTask("pgw", t.id, "eq3", "@tony", undefined, { tldr: "deploy green", ask: "approve prod?", detail: "logs: ok" });
+    // single line, no --tldr → tldr = the line, no detail
+    commentTask("pgw", t.id, "eq3", "fix done", undefined, {});
+    const a = readTask("pgw", t.id)!.comments!.at(-1)!;
+    expect(a.tldr).toBe("fix done"); expect(a.detail).toBeUndefined();
+    // multiline, no --tldr → tldr = first line, detail = the rest (nothing lost)
+    commentTask("pgw", t.id, "eq3", "line1\nline2\nline3", undefined, {});
+    const b = readTask("pgw", t.id)!.comments!.at(-1)!;
+    expect(b.tldr).toBe("line1"); expect(b.detail).toBe("line2\nline3");
+    // explicit --tldr / --detail win — fallback never clobbers them
+    commentTask("pgw", t.id, "eq3", "raw body\nmore", undefined, { tldr: "explicit", detail: "explicit detail" });
     const c = readTask("pgw", t.id)!.comments!.at(-1)!;
-    expect(c).toMatchObject({ tldr: "deploy green", ask: "approve prod?", detail: "logs: ok" });
-    commentTask("pgw", t.id, "eq3", "plain agent note", undefined, { tldr: "  ", ask: "" });
-    const c2 = readTask("pgw", t.id)!.comments!.at(-1)!;
-    expect(c2.tldr).toBeUndefined(); expect(c2.ask).toBeUndefined(); // blanks not stored
+    expect(c.tldr).toBe("explicit"); expect(c.detail).toBe("explicit detail");
+    // explicit --tldr only (no --detail) → fallback does NOT inject the body as detail
+    commentTask("pgw", t.id, "eq3", "b1\nb2", undefined, { tldr: "explicit2" });
+    const d = readTask("pgw", t.id)!.comments!.at(-1)!;
+    expect(d.tldr).toBe("explicit2"); expect(d.detail).toBeUndefined();
+    // @tony structured still stores ask
+    commentTask("pgw", t.id, "eq3", "@tony", undefined, { tldr: "deploy green", ask: "approve prod?", detail: "logs ok" });
+    expect(readTask("pgw", t.id)!.comments!.at(-1)).toMatchObject({ tldr: "deploy green", ask: "approve prod?", detail: "logs ok" });
   });
 
   test("askTask creates a subcard assigned to the answerer + parent-linked (one shot)", () => {
