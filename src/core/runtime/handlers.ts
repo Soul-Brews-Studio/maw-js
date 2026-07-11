@@ -1,4 +1,5 @@
 import { sendKeys, selectWindow, hostExec, getPaneCommand, isAgentCommand } from "../transport/ssh";
+import { execSync } from "node:child_process";
 import { tmux } from "../transport/tmux";
 import { dropImageNotifyStub } from "./image-notify-stub";
 import { buildCommand } from "../../config";
@@ -92,7 +93,12 @@ const stop: Handler = (ws, data) => {
  */
 function buildSpawnCmd(data: { target?: string; command?: string; cwd?: string }): string {
   const target = data.target || "";
-  const oracle = extractOracleName(target);
+  let oracle = extractOracleName(target);
+  if (/^\d+$/.test(oracle)) {
+    try {
+      oracle = execSync(`tmux display-message -p -t '${target}' '#{window_name}' 2>/dev/null`).toString().trim();
+    } catch { /* window may not exist yet */ }
+  }
   const baseCmd = data.command || buildCommand(oracle);
   const cwd = data.cwd || resolveTargetCwd(target);
   return cwd ? `cd ${shellQuote(cwd)} && ${baseCmd}` : baseCmd;
