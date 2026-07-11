@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
+import type { ReceiverInboxResult } from "../src/commands/shared/receiver-inbox";
 
 const srcRoot = join(import.meta.dir, "..");
 
@@ -10,6 +11,7 @@ const _rConfig = await import("../src/config");
 const _rFeed = await import("../src/commands/shared/comm-log-feed");
 const _rOracle = await import("../src/lib/oracle-manifest");
 const _rAutoWake = await import("../src/commands/shared/should-auto-wake");
+const _rAway = await import("../src/core/worklog/presence-away");
 
 const realSdk = {
   listSessions: _rSdk.listSessions,
@@ -25,8 +27,10 @@ const realConfig = { loadConfig: _rConfig.loadConfig, cfgLimit: _rConfig.cfgLimi
 const realFeed = { logMessage: _rFeed.logMessage, emitFeed: _rFeed.emitFeed };
 const realOracle = { findOracle: _rOracle.findOracle, loadManifestCached: _rOracle.loadManifestCached };
 const realAutoWake = { shouldAutoWake: _rAutoWake.shouldAutoWake };
+const realAway = { isPaneAway: _rAway.isPaneAway };
 
 let mockActive = false;
+let paneAway = false;
 let sendKeysShouldThrow = false;
 let order: string[];
 let logs: string[];
@@ -84,6 +88,11 @@ mock.module(join(srcRoot, "src/commands/shared/should-auto-wake"), () => ({
   shouldAutoWake: (...args: Parameters<typeof realAutoWake.shouldAutoWake>) => mockActive ? ({ wake: false }) : realAutoWake.shouldAutoWake(...args),
 }));
 
+mock.module(join(srcRoot, "src/core/worklog/presence-away"), () => ({
+  ..._rAway,
+  isPaneAway: (...args: Parameters<typeof realAway.isPaneAway>) => (mockActive && paneAway) ? true : realAway.isPaneAway(...args),
+}));
+
 const origExit = process.exit;
 const origLog = console.log;
 const origErr = console.error;
@@ -94,7 +103,7 @@ const origSshTty = process.env.SSH_TTY;
 
 const { cmdSend } = await import("../src/commands/shared/comm-send");
 
-async function runCmd() {
+async function runCmd(inbox?: () => ReceiverInboxResult) {
   console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
   console.error = (...args: unknown[]) => { errs.push(args.map(String).join(" ")); };
   (process as unknown as { exit: (code?: number) => never }).exit = (code?: number): never => {
@@ -106,7 +115,7 @@ async function runCmd() {
       noVerifySubmit: true,
       receiverInbox: async () => {
         order.push("receiverInbox");
-        return { ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" };
+        return inbox ? inbox() : { ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" };
       },
     });
   } catch (error) {
@@ -121,6 +130,7 @@ async function runCmd() {
 
 beforeEach(() => {
   mockActive = true;
+  paneAway = false;
   process.env.CLAUDE_AGENT_NAME = "sender";
   delete process.env.SSH_CLIENT;
   delete process.env.SSH_CONNECTION;
@@ -172,5 +182,34 @@ describe("cmdSend durable receiver inbox (#1967)", () => {
       route: "inbox",
       lastLine: "tmux delivery failed: pane vanished",
     });
+  });
+});
+
+describe("cmdSend away-gate park failure (kobo-288 silent-drop + log-lie)", () => {
+  test("away + park fails (ok:false) → truthful error, never claims 'queued to inbox'", async () => {
+    paneAway = true;
+
+    await runCmd(() => ({ ok: false, oracle: "oracle", reason: "receiver repo not found for oracle" }));
+
+    // Must NOT lie that it was queued/parked to inbox when nothing was written.
+    expect(logs.join("\n")).not.toContain("queued to inbox");
+    expect(logs.join("\n")).not.toContain("parked");
+    // Must surface a real delivery failure and exit non-zero.
+    expect(exitCode).toBe(1);
+    expect(errs.join("\n")).toContain("message NOT delivered");
+    expect(errs.join("\n")).toContain("receiver repo not found for oracle");
+    // No pane injection on the away path.
+    expect(order).not.toContain("sendKeys");
+  });
+
+  test("away + park succeeds (ok:true) → parks quietly, no error, no injection", async () => {
+    paneAway = true;
+
+    await runCmd(() => ({ ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" }));
+
+    expect(exitCode).toBeUndefined();
+    expect(errs).toEqual([]);
+    expect(logs.join("\n")).toContain("queued");
+    expect(order).not.toContain("sendKeys");
   });
 });

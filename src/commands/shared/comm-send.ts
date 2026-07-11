@@ -1160,8 +1160,14 @@ export async function cmdSend(
       const inbox = await writeReceiverInbox(target);
       const reason = `'${awayOracle}' is away (stepped out) — parked to inbox, delivered on their /seat`;
       if (logQueuedInbox(inbox, target, reason)) return; // sender-side notice + feed; NO pane injection
-      console.log(`\x1b[33mparked\x1b[0m '${awayOracle}' is away — queued to inbox; they'll get it on /seat`);
-      return;
+      // kobo-288 — park failed. The away path deliberately does NOT queueForDispatch
+      // (away ≠ busy), so a failed park means the message is persisted nowhere and
+      // queued nowhere. The old fallthrough still printed "queued to inbox" → a silent
+      // drop dressed as success. Surface a truthful delivery error instead (mirrors the
+      // --inbox path above); never claim "queued" when nothing was written.
+      const detail = inbox && !inbox.ok && inbox.reason ? `: ${inbox.reason}` : "";
+      console.error(`\x1b[31merror\x1b[0m: '${awayOracle}' is away but parking to inbox failed for ${target}${detail} — message NOT delivered`);
+      process.exit(1);
     }
 
     // Phase 2 busy guard — queue to inbox + dispatch queue if target is actively working
