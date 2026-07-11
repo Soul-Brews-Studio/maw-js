@@ -1,9 +1,8 @@
 import { sendKeys, selectWindow, hostExec, getPaneCommand, isAgentCommand } from "../transport/ssh";
-import { execSync } from "node:child_process";
 import { tmux } from "../transport/tmux";
 import { dropImageNotifyStub } from "./image-notify-stub";
 import { buildCommand } from "../../config";
-import { extractOracleName, resolveTargetCwd, shellQuote } from "../../commands/shared/target-cwd";
+import { resolveTargetOracle, resolveTargetCwd, shellQuote } from "../../commands/shared/target-cwd";
 import type { MawWS, Handler, MawEngine } from "../types";
 
 /** Run an async action with standard ok/error response */
@@ -91,14 +90,9 @@ const stop: Handler = (ws, data) => {
  *   • Resolve the canonical cwd from fleet config and prepend `cd '<cwd>' && `
  *     when known. Non-fleet targets fall back to the bare cmd (pre-fix behavior).
  */
-function buildSpawnCmd(data: { target?: string; command?: string; cwd?: string }): string {
+export function buildSpawnCmd(data: { target?: string; command?: string; cwd?: string }): string {
   const target = data.target || "";
-  let oracle = extractOracleName(target);
-  if (/^\d+$/.test(oracle)) {
-    try {
-      oracle = execSync(`tmux display-message -p -t '${target}' '#{window_name}' 2>/dev/null`).toString().trim();
-    } catch { /* window may not exist yet */ }
-  }
+  const oracle = resolveTargetOracle(target);
   const baseCmd = data.command || buildCommand(oracle);
   const cwd = data.cwd || resolveTargetCwd(target);
   return cwd ? `cd ${shellQuote(cwd)} && ${baseCmd}` : baseCmd;

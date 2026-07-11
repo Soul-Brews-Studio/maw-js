@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { join } from "path";
 import { loadFleet } from "./fleet-load";
 import { getGhqRoot } from "../../config/ghq-root";
@@ -12,6 +13,26 @@ import { getGhqRoot } from "../../config/ghq-root";
 export function extractOracleName(target: string): string {
   const session = target?.split(":")[0] || "";
   return session.replace(/^\d+-/, "");
+}
+
+function windowNameForTarget(target: string): string | null {
+  try {
+    const name = execFileSync(
+      "tmux",
+      ["display-message", "-p", "-t", target, "#{window_name}"],
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveTargetOracle(target: string): string {
+  const [session, window] = target.split(":");
+  const fallback = extractOracleName(target);
+  if (!session || !window || !/^\d+$/.test(window) || /^\d+-/.test(session)) return fallback;
+  return windowNameForTarget(target) || fallback;
 }
 
 /**
@@ -33,16 +54,26 @@ export function resolveTargetCwd(target: string): string | null {
   try { fleets = loadFleet(); } catch { return null; }
 
   const fleet = fleets.find(f => f.name === session);
-  if (!fleet?.windows?.length) return null;
-
-  const win = !winRef
-    ? fleet.windows[0]
-    : /^\d+$/.test(winRef)
-      ? fleet.windows[parseInt(winRef, 10)]
-      : fleet.windows.find(w => w.name === winRef);
+  const win = !fleet?.windows?.length
+    ? resolveTeamWindow(fleets, target, winRef)
+    : !winRef
+      ? fleet.windows[0]
+      : /^\d+$/.test(winRef)
+        ? fleet.windows[parseInt(winRef, 10)]
+        : fleet.windows.find(w => w.name === winRef);
   if (!win?.repo) return null;
 
-  return join(getGhqRoot(), win.repo);
+  return join(getGhqRoot(), "github.com", win.repo);
+}
+
+function resolveTeamWindow(fleets: ReturnType<typeof loadFleet>, target: string, winRef?: string) {
+  if (!winRef || !/^\d+$/.test(winRef)) return null;
+  const windowName = windowNameForTarget(target);
+  if (!windowName) return null;
+  const normalizedName = windowName.replace(/-oracle$/, "");
+  return fleets
+    .flatMap(fleet => fleet.windows)
+    .find(window => window.name.replace(/-oracle$/, "") === normalizedName) || null;
 }
 
 /**
