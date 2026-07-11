@@ -640,8 +640,10 @@ function companyBody(): string {
     .presence-cell .p-role { color:var(--muted); font-size:var(--t-sm); }
     .presence-cell .p-when { color:var(--muted); font-size:var(--t-sm); }
     .presence-cell .p-count { color:var(--muted); font-size:var(--t-xs); }
-    .presence-cell .p-status { color:var(--st-meta); font-size:var(--t-sm); }
-    .presence-cell .p-last { color:var(--fg); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; }
+    /* kobo-284 — clamp to 1 line + ellipsis so a long approve/review reason or full
+       bash command never spills the presence cell; hover shows the full text (title). */
+    .presence-cell .p-status { color:var(--st-meta); font-size:var(--t-sm); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .presence-cell .p-last { color:var(--fg); font-size:var(--t-sm); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     /* kobo-105 — idle-with-work: the held claims/cards behind the ⚠️ badge */
     .presence-cell .p-held { display:flex; flex-wrap:wrap; align-items:center; gap:var(--s-2); margin-top:var(--s-1); font-size:var(--t-xs); }
     .presence-cell .p-held-label { color:var(--warn); font-weight:600; }
@@ -2404,8 +2406,13 @@ function renderPresence(entries, roster, presence, held) {
     if (roleTxt) cell.appendChild(el('div', 'p-role', roleTxt));
     if (act) {
       cell.appendChild(el('div', 'p-when', (act.last.iso ? relTime(act.last.ts) + ' · ' + localTs(act.last.iso) : text(act.last.ts)) + ' · ' + act.count + ' event' + (act.count === 1 ? '' : 's')));
-      cell.appendChild(el('div', 'p-last', (act.last.kind || 'tool') + ' · ' + (act.last.summary || '')));
-      if (act.status) cell.appendChild(el('div', 'p-status', '⚑ status: ' + (act.status.summary || '') + ' (' + relTime(act.status.ts) + ')'));
+      // kobo-284 — cell clamps to 1 line + ellipsis; full text on hover via title.
+      const lastTxt = (act.last.kind || 'tool') + ' · ' + (act.last.summary || '');
+      const lastEl = el('div', 'p-last', lastTxt); lastEl.title = lastTxt; cell.appendChild(lastEl);
+      if (act.status) {
+        const statusTxt = '⚑ status: ' + (act.status.summary || '') + ' (' + relTime(act.status.ts) + ')';
+        const statusEl = el('div', 'p-status', statusTxt); statusEl.title = statusTxt; cell.appendChild(statusEl);
+      }
     } else {
       cell.appendChild(el('div', 'p-count', 'no recent activity'));
     }

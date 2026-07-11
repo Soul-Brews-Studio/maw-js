@@ -138,6 +138,20 @@ describe("wait-for-deploy lane (kobo-273 — merged≠live park)", () => {
   });
 });
 
+describe("presence cell clamp (kobo-284)", () => {
+  const html = companyHtml();
+  test(".p-last + .p-status clamp to 1 line with ellipsis (no multi-line spill)", () => {
+    expect(html).toContain(".presence-cell .p-last { color:var(--fg); font-size:var(--t-sm); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }");
+    expect(html).toContain(".presence-cell .p-status { color:var(--st-meta); font-size:var(--t-sm); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }");
+    // the old multi-line spill is gone
+    expect(html).not.toContain(".p-last { color:var(--fg); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; }");
+  });
+  test("full text is preserved on hover via the title attribute", () => {
+    expect(html).toContain("lastEl.title = lastTxt"); // p-last tooltip
+    expect(html).toContain("statusEl.title = statusTxt"); // p-status tooltip
+  });
+});
+
 describe("card-detail block reason (kobo-185 relations gap-fill)", () => {
   const html = companyHtml();
   test("renderDetailMeta shows the block REASON in full for a blocked card (guarded, XSS-safe)", () => {
