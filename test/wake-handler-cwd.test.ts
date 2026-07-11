@@ -11,7 +11,18 @@ const mockFleets = [
     name: "02-neo",
     windows: [{ name: "neo-oracle", repo: "neo-oracle" }],
   },
+  {
+    name: "04-orchestrator-2",
+    windows: [{ name: "orchestrator-2-oracle", repo: "DUMPDUMPY/orchestrator-2-oracle" }],
+  },
 ];
+
+mock.module("node:child_process", () => ({
+  execFileSync: (_command: string, args: string[]) => {
+    if (args[3] === "motherfish:6") return "orchestrator-2\n";
+    throw new Error("unknown tmux target");
+  },
+}));
 
 // Mock the WHOLE module surface — partial mocks pollute the bun test process
 // and cause "SyntaxError: Export named X not found" in any later test (or
@@ -33,7 +44,7 @@ mock.module("../src/config/ghq-root", () => ({
   getGhqRoot: () => "/tmp/ghq",
 }));
 
-const { extractOracleName, resolveTargetCwd, shellQuote } = await import("../src/commands/shared/target-cwd");
+const { extractOracleName, resolveTargetOracle, resolveTargetCwd, shellQuote } = await import("../src/commands/shared/target-cwd");
 
 describe("extractOracleName", () => {
   test("strips numeric prefix from session — 05-acme → acme", () => {
@@ -53,20 +64,25 @@ describe("extractOracleName", () => {
 });
 
 describe("resolveTargetCwd", () => {
+  test("team session window index resolves oracle and canonical cwd", () => {
+    expect(resolveTargetOracle("motherfish:6")).toBe("orchestrator-2");
+    expect(resolveTargetCwd("motherfish:6")).toBe("/tmp/ghq/github.com/DUMPDUMPY/orchestrator-2-oracle");
+  });
+
   test("session:window-index resolves via fleet config (the bug case)", () => {
     // The original handler did target.split(":").pop() which returned "0".
     // The fix needs to look up by index when the second segment is numeric.
-    expect(resolveTargetCwd("05-acme:0")).toBe("/tmp/ghq/acme-app");
-    expect(resolveTargetCwd("02-neo:0")).toBe("/tmp/ghq/neo-oracle");
+    expect(resolveTargetCwd("05-acme:0")).toBe("/tmp/ghq/github.com/acme-app");
+    expect(resolveTargetCwd("02-neo:0")).toBe("/tmp/ghq/github.com/neo-oracle");
   });
 
   test("session:window-name resolves via fleet config", () => {
-    expect(resolveTargetCwd("05-acme:acme-oracle")).toBe("/tmp/ghq/acme-app");
-    expect(resolveTargetCwd("02-neo:neo-oracle")).toBe("/tmp/ghq/neo-oracle");
+    expect(resolveTargetCwd("05-acme:acme-oracle")).toBe("/tmp/ghq/github.com/acme-app");
+    expect(resolveTargetCwd("02-neo:neo-oracle")).toBe("/tmp/ghq/github.com/neo-oracle");
   });
 
   test("bare session (no window) defaults to first window", () => {
-    expect(resolveTargetCwd("05-acme")).toBe("/tmp/ghq/acme-app");
+    expect(resolveTargetCwd("05-acme")).toBe("/tmp/ghq/github.com/acme-app");
   });
 
   test("unknown session returns null — caller falls back to bare cmd", () => {
