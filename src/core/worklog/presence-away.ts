@@ -1,10 +1,16 @@
 /**
- * Presence "away" read side (mawjs-3 / kobo-113).
+ * Presence "away" read side (mawjs-3 / kobo-113; sticky kobo-287).
  *
- * An oracle is "away" when its NEWEST worklog event is a kind:"away" (written by
- * `maw presence away`, typically from /toilet). newest-wins: any later event —
- * `maw presence back` → idle, or ordinary tool/prompt activity — clears it. This
- * mirrors the kobo-109/111 idle/error pane-state pattern; no new store.
+ * An oracle/pane is "away" when its newest `away`/`back` marker is an `away`
+ * (written by `maw presence away`, typically from /toilet). STICKY: ordinary
+ * tool/prompt activity does NOT clear it — only an explicit `maw presence back`
+ * (from /seat) does. Rationale (kobo-287): /toilet sets away at step-0 then does
+ * its OWN rrr/forward tool-writes; under the old newest-wins-any-activity rule
+ * those self-writes cleared away ~5s in, re-opening the overtype window mid-wrap
+ * and at /clear — so "parks until /seat" was FALSE. Away is an explicit operator
+ * toggle; it ends when the operator explicitly returns, not on background writes.
+ * Tradeoff: a pane that forgot to /seat stays "away" until it does (seat-resume.sh
+ * emits `back` on /seat, so the normal path self-heals). No new store.
  *
  * Used by the hey delivery gate (comm-send) to PARK a message to the receiver
  * inbox instead of injecting a pane whose operator has stepped out (and may be
@@ -53,24 +59,23 @@ export function companyOfOracleLight(oracle: string): string | null {
   return null;
 }
 
-// idle (CC Stop, kobo-109) and error (API-error turn-end, kobo-111) are TRANSPARENT to
-// presence: a pane whose operator stepped out will emit an idle right after (the turn
-// ended) — that must NOT clear the away, or the gate re-opens the moment they leave.
-// Neither reflects the operator returning, so both are skipped when deciding away.
+// Under sticky-away (kobo-287) EVERY kind except `away`/`back` is transparent, so the
+// read below already ignores idle/error. Keep excluding them at the store read anyway:
+// it trims the two highest-volume kinds (every turn-end) from the scan for free.
 const AWAY_TRANSPARENT: WorklogEntry["kind"][] = ["idle", "error"];
 
 /**
- * True iff the given PANE's newest presence-relevant event is `away` (kobo-120).
+ * True iff the given PANE's newest `away`/`back` marker is `away` (kobo-120; sticky kobo-287).
  *
  * Per-pane: one oracle can own several panes (crew/warroom = coord + workers, same
  * oracle name). `away` is a property of the pane the operator stepped out of, not the
- * whole oracle — so the newest event is scoped to `paneId` (the tmux `%N` id the worklog
- * stamps, same JOIN key on every event). A deliberate `back` OR any real activity
- * (tool/conversation/…) on that pane is newer-wins and clears it; only idle/error are
- * skipped (see AWAY_TRANSPARENT).
+ * whole oracle — so the marker is scoped to `paneId` (the tmux `%N` id the worklog
+ * stamps, same JOIN key on every event). STICKY: only a deliberate `back` (from /seat)
+ * clears it; ordinary activity (tool/conversation/…) is transparent, so the pane's own
+ * /toilet wrap-writes can't re-open the gate mid-wrap (kobo-287).
  *
  * paneId unknown (non-tmux / unresolvable) → falls back to oracle-level: the newest
- * non-transparent event across all the oracle's panes. Cheap: one bounded read.
+ * away/back marker across all the oracle's panes. Cheap: one bounded read.
  */
 export function isPaneAway(oracle: string | null | undefined, paneId: string | null | undefined): boolean {
   const name = (oracle ?? "").trim();
@@ -78,13 +83,15 @@ export function isPaneAway(oracle: string | null | undefined, paneId: string | n
   const pid = (paneId ?? "").trim();
   const company = companyOfOracleLight(name);
   const events = readWorklog(company, { oracle: name, excludeKinds: AWAY_TRANSPARENT });
-  // Newest-first: the first event belonging to this pane decides. When paneId is known,
-  // events from OTHER panes of the same oracle are skipped (an event with no paneId is
-  // pane-agnostic → it still decides, preserving the oracle-level fallback).
+  // Newest-first: the first away/back marker belonging to this pane decides; all other
+  // activity is skipped (sticky). When paneId is known, markers from OTHER panes of the
+  // same oracle are skipped (a marker with no paneId is pane-agnostic → it still decides,
+  // preserving the oracle-level fallback).
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
     if (pid && e.paneId && e.paneId !== pid) continue;
-    return e.kind === "away";
+    if (e.kind === "away") return true;
+    if (e.kind === "back") return false;
   }
   return false;
 }

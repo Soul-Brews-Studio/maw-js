@@ -27,11 +27,20 @@ describe("isPaneAway (presence gate read side)", () => {
     expect(isPaneAway("zzaway", undefined)).toBe(true);
   });
 
-  it("newest-wins — real activity (conversation) after away clears it", async () => {
+  it("STICKY — activity (conversation) after away does NOT clear it (kobo-287)", async () => {
     away("zzaway", 1);
-    activity("zzaway", 2, "conversation"); // operator came back and typed
+    activity("zzaway", 2, "conversation"); // background write, e.g. /toilet's own rrr
     await flushWorklog();
-    expect(isPaneAway("zzaway", undefined)).toBe(false);
+    expect(isPaneAway("zzaway", undefined)).toBe(true); // was false pre-kobo-287
+  });
+
+  it("STICKY repro — tool-write mid-wrap after away still parks (kobo-287 run3)", async () => {
+    // /toilet: away at step-0, then its own rrr/forward tool-writes; a peer heys after.
+    away("zzaway", 1);
+    activity("zzaway", 2, "tool"); // wrap tool-write ~5s in
+    activity("zzaway", 3, "tool");
+    await flushWorklog();
+    expect(isPaneAway("zzaway", undefined)).toBe(true); // hey PARKS, no inject
   });
 
   it("STICKY — idle (CC Stop) after away does NOT clear it (kobo-120)", async () => {
