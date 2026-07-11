@@ -66,6 +66,20 @@ const HOOKS: HookSpec[] = [
     b64: "IyEvYmluL2Jhc2gKIyBVc2VyUHJvbXB0U3VibWl0OiB3aGVuIHRoZSBwcm9tcHQgaXMgL3RvaWxldCwgc2V0IHByZXNlbmNlIGF3YXkgSU1NRURJQVRFTFkg4oCUCiMgYXQgaGFybmVzcyBzdWJtaXQtdGltZSwgYmVmb3JlIHRoZSBMTE0gdHVybiBib290cyB0aGUgc2tpbGwuIENsb3NlcyB0aGUgd2luZG93CiMgd2hlcmUgaGV5IGluamVjdHMgZHVyaW5nIHJyci9mb3J3YXJkIHdyYXAuIFNraWxsIHN0ZXAgMCBzdGlsbCBzZXRzIGF3YXkgYXMgYmFja3VwLgojIHBvbnl0YWlsOiBnYXRlIG9uIHRoZSBleHBsaWNpdCAvdG9pbGV0IGNvbW1hbmQgb25seSDigJQgbmF0dXJhbC1sYW5ndWFnZSB0cmlnZ2VycwojIGZhbGwgYmFjayB0byB0aGUgc2tpbGwncyBzdGVwLTAgYXdheS4gRW1pdHMgbm90aGluZyAoc3Rkb3V0IHdvdWxkIHBvbGx1dGUgdGhlIHByb21wdCkuCnB5dGhvbjMgLWMgJwppbXBvcnQganNvbiwgc3lzCnRyeToKICAgIHAgPSBqc29uLmxvYWRzKHN5cy5zdGRpbi5yZWFkKCkpLmdldCgicHJvbXB0IiwgIiIpLnN0cmlwKCkKICAgIGlmIHAgPT0gIi90b2lsZXQiIG9yIHAuc3RhcnRzd2l0aCgiL3RvaWxldCAiKToKICAgICAgICBpbXBvcnQgc3VicHJvY2VzcwogICAgICAgIHN1YnByb2Nlc3MucnVuKFsibWF3IiwgInByZXNlbmNlIiwgImF3YXkiXSwgc3Rkb3V0PXN1YnByb2Nlc3MuREVWTlVMTCwgc3RkZXJyPXN1YnByb2Nlc3MuREVWTlVMTCwgdGltZW91dD0zKQpleGNlcHQgRXhjZXB0aW9uOgogICAgcGFzcwonCg==",
   },
   {
+    // /seat back (kobo-289) — the PAIR of toilet-away.sh. Clears presence away at
+    // harness submit-time when the prompt is /seat, deterministically. Without this
+    // fleet-wide back-hook, an oracle that ran /toilet stays sticky-away (kobo-287)
+    // whenever the /seat skill's LLM-driven step-2.5 `maw presence back` is skipped —
+    // a board-lie (5 pgw panes + a Conductor were stuck away, cleared by hand).
+    // GUARD: away-hook + back-hook are ALWAYS provisioned together — an away-only fleet
+    // is permanent stuck-away. Gated on the explicit /seat prompt; skill step 2.5 stays
+    // as backup. Inject-nothing (no stdout).
+    event: "UserPromptSubmit",
+    matcher: "",
+    file: "seat-back.sh",
+    b64: "IyEvYmluL2Jhc2gKIyBVc2VyUHJvbXB0U3VibWl0OiB3aGVuIHRoZSBwcm9tcHQgaXMgL3NlYXQsIGNsZWFyIHByZXNlbmNlIGF3YXkgSU1NRURJQVRFTFkg4oCUCiMgYXQgaGFybmVzcyBzdWJtaXQtdGltZSwgZGV0ZXJtaW5pc3RpY2FsbHkuIFRoaXMgaXMgdGhlIFBBSVIgb2YgdG9pbGV0LWF3YXkuc2gKIyAoa29iby0yODkpOiAvdG9pbGV0IHNldHMgYXdheSwgL3NlYXQgY2xlYXJzIGl0LiBXaXRob3V0IGEgZmxlZXQtd2lkZSBiYWNrLWhvb2ssCiMgYW4gb3JhY2xlIHRoYXQgcmFuIC90b2lsZXQgc3RheXMgc3RpY2t5LWF3YXkgKGtvYm8tMjg3KSBmb3JldmVyIHdoZW4gdGhlIC9zZWF0CiMgc2tpbGwncyBMTE0tZHJpdmVuIGJhY2sgc3RlcCBpcyBza2lwcGVkIOKAlCBhIGJvYXJkLWxpZS4gVGhlIHNraWxsJ3Mgc3RlcCAyLjUKIyBgbWF3IHByZXNlbmNlIGJhY2tgIHN0YXlzIGFzIGJhY2t1cDsgdGhpcyBob29rIGd1YXJhbnRlZXMgaXQgZmlyZXMuCiMgcG9ueXRhaWw6IGdhdGUgb24gdGhlIGV4cGxpY2l0IC9zZWF0IGNvbW1hbmQgb25seSDigJQgc2FtZSBkaXNjaXBsaW5lIGFzIHRvaWxldC1hd2F5LgojIEVtaXRzIG5vdGhpbmcgKHN0ZG91dCB3b3VsZCBwb2xsdXRlIHRoZSBwcm9tcHQpLgpweXRob24zIC1jICcKaW1wb3J0IGpzb24sIHN5cwp0cnk6CiAgICBwID0ganNvbi5sb2FkcyhzeXMuc3RkaW4ucmVhZCgpKS5nZXQoInByb21wdCIsICIiKS5zdHJpcCgpCiAgICBpZiBwID09ICIvc2VhdCIgb3IgcC5zdGFydHN3aXRoKCIvc2VhdCAiKToKICAgICAgICBpbXBvcnQgc3VicHJvY2VzcwogICAgICAgIHN1YnByb2Nlc3MucnVuKFsibWF3IiwgInByZXNlbmNlIiwgImJhY2siXSwgc3Rkb3V0PXN1YnByb2Nlc3MuREVWTlVMTCwgc3RkZXJyPXN1YnByb2Nlc3MuREVWTlVMTCwgdGltZW91dD0zKQpleGNlcHQgRXhjZXB0aW9uOgogICAgcGFzcwonCg==",
+  },
+  {
     // maw MCP nudge (mawjs-2) — PreToolUse(Bash) deny of `maw hey/reply/inbox/ls` via
     // bash, redirecting to the maw_* MCP tools (structured + no rtk parse; fleet
     // token-audit). Allows peek/wake/broadcast/team/quota + inbox archive (no MCP).
