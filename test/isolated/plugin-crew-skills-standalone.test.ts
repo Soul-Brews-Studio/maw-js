@@ -119,6 +119,24 @@ describe("crew-skills global asset contract", () => {
     expect(skill).not.toContain("--settings .claude/crew-worker-settings.json");
   });
 
+  // kobo-282 regress guard — the front @role tag has broken THREE times (270→271→281):
+  // it must live in §0 init (fires on every /crew, incl a STANDBY front with 0 workers)
+  // AND after the company-gate refuse (a refused /crew exits before it tags — no stale
+  // coord). Pin both invariants by position so a future eye can't silently re-break it.
+  test("front @role tag is baked at §0 init — after company-gate refuse, before §1 spawn (kobo-282)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    const tagIdx = skill.indexOf('set-option -p -t "$TMUX_PANE" @role "🧭 coord"');
+    const refuseIdx = skill.indexOf("crew ต้องอยู่ใน company"); // §0 company-gate refuse (exit)
+    const spawnIdx = skill.indexOf("## 1. Spawn"); // worker-spawn section (§1 Layout was the old home)
+    expect(tagIdx).toBeGreaterThan(-1);
+    expect(refuseIdx).toBeGreaterThan(-1);
+    expect(spawnIdx).toBeGreaterThan(-1);
+    expect(tagIdx).toBeGreaterThan(refuseIdx); // refused /crew exits before tagging → no stale coord
+    expect(tagIdx).toBeLessThan(spawnIdx); // unconditional at init, NOT deferred to worker-spawn (kobo-270 gap)
+    // single source — the old §1 Layout copy (tagged $COORD) is gone
+    expect(skill).not.toContain('set-option -p -t "$COORD" @role "🧭 coord"');
+  });
+
   // warroom's coord reads its own contract and spawns workers too — same global
   // path requirement (kobo-94): a bare/relative --settings there re-opens the
   // deadlock once local .claude/ copies are removed.
