@@ -37,6 +37,12 @@ Status dir: **`$CREW_STATE_DIR`** (default `ψ/active/crew/`, warroom ตั้�
 CO=$(grep -rl "\"$(tmux display-message -p '#{session_name}' | sed 's/^[0-9]*-//')\"" ~/.maw/companies/*.json 2>/dev/null | head -1)
 [ -z "$CO" ] && echo "crew ต้องอยู่ใน company; นอก company ใช้ harness sub-agent (Agent tool) แทน" && exit
 CO_NAME=$(basename "$CO" .json)   # company name (kobo-267) → stamped into MAW_ROOM_COMPANY at spawn → presence company-scope
+# tag THIS pane (front) @role at init — UNCONDITIONAL, before any worker spawn (kobo-281):
+# kobo-270 tagged front only inside the §1 Layout block (runs หลัง pane ครบ) → a STANDBY front
+# (0 workers, never spawns) stayed untagged → seat-resume exit เงียบ after /clear = the asymmetry
+# kobo-270 meant to close, still open. tagging here fires on every /crew, spawn or not.
+tmux set-option -p -t "$TMUX_PANE" @role "🧭 coord"
+[ "$(tmux display-message -t "$TMUX_PANE" -p '#{@role}')" = "🧭 coord" ] || tmux set-option -p -t "$TMUX_PANE" @role "🧭 coord"
 ```
 - **ไม่มี company** → **refuse** (แนะ harness sub-agent = ephemeral ตายกับ lead ได้)
 - **มี** → บันทึกชื่อ company ลง roster · worker Contract รู้ dept/board · cards ลง company board. crew work = company work (tracked/survive/board) ≠ harness sub-agent (personal/ephemeral)
@@ -84,11 +90,9 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
   tmux swap-pane -s <front-pane-id> -t "$(tmux display-message -p '#{session_name}:#{window_index}.0')" -d 2>/dev/null  # front → main slot (ถ้ายังไม่ใช่ .0)
   tmux set-window-option main-pane-width 50%
   tmux select-layout main-vertical
-  # tag front @role — mirror worker tag (§Pane labels) → fresh crew front auto-seats after /clear (kobo-270; ก่อนหน้ามีแต่ worker ถูก tag, front ขาด → seat-resume exit เงียบ)
-  tmux set-option -p -t "$COORD" @role "🧭 coord"
-  [ "$(tmux display-message -t "$COORD" -p '#{@role}')" = "🧭 coord" ] || tmux set-option -p -t "$COORD" @role "🧭 coord"
   ```
   ⚠️ swap เปลี่ยน index แต่ **pane-id นิ่ง** → roster ไม่พัง (resolve index สดจาก pane-id §3)
+  *(front @role tag ย้ายไป §0 init แล้ว — kobo-281: tag ต้อง unconditional กัน standby front ที่ไม่ spawn worker หลุด. Layout block นี้รันเฉพาะตอนมี worker.)*
 - **Pane labels (Tony approved 2026-07-04)** — ขอบ pane บอก **บท + task**. ใช้ `@role`/`@task` user options (⚠️ ห้ามใช้ `select-pane -T` — Claude Code ยิง title ทับตลอด):
   ```bash
   # ตอน spawn (ครั้งเดียวต่อ pane):
