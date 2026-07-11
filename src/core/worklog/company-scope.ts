@@ -97,11 +97,16 @@ export function companyOfOracleStrict(oracle: string, explicit?: string | null):
   throw new Error(`ambiguous: ${oracle} belongs to [${companies.join(", ")}] — specify --company`);
 }
 
-/** All oracle names that are members of a company (any dept). */
+/** All oracle names that are members of a company (any dept), including the manager. */
 export function companyOracles(company: string): string[] {
   const c = loadCompany(company);
   if (!c) return [];
   const set = new Set<string>();
+  // kobo-290: the company manager (lead) is an oracle too — include it alongside
+  // dept members so setup-hooks/hooks-status don't skip the lead pane (without this
+  // the lead gets neither toilet-away nor seat-back → board-lie both directions).
+  // Set dedups if the manager also appears in a dept. Mirrors companyRoster().
+  if (c.manager) set.add(c.manager);
   for (const d of Object.values(c.departments)) {
     for (const m of d.members) set.add(m.oracle);
   }

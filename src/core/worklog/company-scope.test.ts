@@ -16,7 +16,7 @@ import {
   saveCompany,
   type Company,
 } from "../../vendor/mpr-plugins/company/company-helpers";
-import { scopeOfOracle, companyOfOracle, companiesOfOracle, companyOfOracleStrict, companyRoster, _clearScopeCache } from "./company-scope";
+import { scopeOfOracle, companyOfOracle, companiesOfOracle, companyOfOracleStrict, companyRoster, companyOracles, _clearScopeCache } from "./company-scope";
 import { companyOfOracleLight } from "./presence-away";
 import { handleRosterRequest } from "../roster/route";
 
@@ -41,6 +41,33 @@ afterEach(() => {
   _setCompaniesDir(ORIGINAL_DIR);
   _clearScopeCache();
   try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+});
+
+describe("companyOracles includes the manager (kobo-290)", () => {
+  it("includes the manager alongside dept members when it is NOT itself a dept member", () => {
+    saveCompany(pgw()); // manager thawanban is the PM above core (nai, lek)
+    const oracles = companyOracles("pgw");
+    expect(oracles).toContain("thawanban"); // the lead pane — was excluded before kobo-290
+    expect([...oracles].sort()).toEqual(["lek", "nai", "thawanban"]);
+  });
+
+  it("dedups when the manager also appears as a dept member (provision once, not twice)", () => {
+    // A company whose manager is ALSO listed inside a dept — must surface exactly once.
+    saveCompany({
+      name: "kobo",
+      manager: "eq3",
+      departments: {
+        core: { kbTag: "dept:kobo:core", lead: "eq3", members: [{ oracle: "eq3", role: "lead" }, { oracle: "patchwork", role: "dev" }] },
+      },
+    });
+    const oracles = companyOracles("kobo");
+    expect(oracles.filter(o => o === "eq3")).toHaveLength(1); // no duplicate → wired once
+    expect([...oracles].sort()).toEqual(["eq3", "patchwork"]);
+  });
+
+  it("returns [] for an unknown company", () => {
+    expect(companyOracles("nonexistent")).toEqual([]);
+  });
 });
 
 describe("company-scope resolution", () => {

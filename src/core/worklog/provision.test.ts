@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { provisionOracleHooks, hooksStatusForOracle, pruneOracleHooks, provisionOracleStatusline } from "./hook-setup";
+import { provisionOracleHooks, hooksStatusForOracle, pruneOracleHooks, provisionOracleStatusline, setupWorklogHooks } from "./hook-setup";
+import { saveCompany, _setCompaniesDir, COMPANIES_DIR } from "../../vendor/mpr-plugins/company/company-helpers";
 
 // Per-oracle provisioning of the unified company-context hook set (worklog +
 // company-policy). Isolated via a temp ghqRoot (repo dirs) + temp MAW_HOME (so
@@ -182,5 +183,76 @@ describe("per-oracle hook provisioning", () => {
         expect(cmd.trim().endsWith("maw-statusline.sh")).toBe(true);
       });
     });
+  });
+});
+
+// kobo-290 — company-level setup-hooks must reach the MANAGER (lead) pane, not
+// just dept members. The lead was skipped because companyOracles() enumerated
+// departments[].members only → its /toilet never set away and /seat never
+// cleared it (board-lie both directions). setup-hooks now provisions the lead
+// too, with the toilet-away + seat-back PAIR.
+describe("company-level setup-hooks includes the manager (kobo-290)", () => {
+  let ghq = "";
+  let home = "";
+  const origHome = process.env.MAW_HOME;
+  const origCompanies = COMPANIES_DIR;
+  let companiesDir = "";
+
+  beforeEach(() => {
+    ghq = mkdtempSync(join(tmpdir(), "maw-mgr-ghq-"));
+    home = mkdtempSync(join(tmpdir(), "maw-mgr-home-"));
+    companiesDir = mkdtempSync(join(tmpdir(), "maw-mgr-companies-"));
+    process.env.MAW_HOME = home;
+    _setCompaniesDir(companiesDir);
+  });
+  afterEach(() => {
+    if (origHome === undefined) delete process.env.MAW_HOME;
+    else process.env.MAW_HOME = origHome;
+    _setCompaniesDir(origCompanies);
+    for (const d of [ghq, home, companiesDir]) if (d) rmSync(d, { recursive: true, force: true });
+  });
+
+  function mkRepo(oracle: string): void {
+    mkdirSync(join(ghq, `${oracle}-oracle`, ".claude"), { recursive: true });
+  }
+  function installedFor(oracle: string): string[] {
+    return hooksStatusForOracle(oracle, { ghqRoot: ghq }).installed;
+  }
+
+  it("provisions the manager with the toilet-away + seat-back PAIR (manager NOT a dept member)", () => {
+    saveCompany({
+      name: "pgw",
+      manager: "thawanban",
+      departments: {
+        core: { kbTag: "dept:pgw:core", lead: "nai", members: [{ oracle: "nai", role: "lead" }, { oracle: "lek", role: "dev" }] },
+      },
+    });
+    for (const o of ["thawanban", "nai", "lek"]) mkRepo(o);
+
+    const res = setupWorklogHooks({ company: "pgw", ghqRoot: ghq });
+    expect(res.updated).toContain("thawanban"); // the manager was reached (was skipped before kobo-290)
+
+    const mgr = installedFor("thawanban");
+    expect(mgr).toContain("toilet-away.sh"); // PAIR — away half
+    expect(mgr).toContain("seat-back.sh");   // PAIR — back half
+  });
+
+  it("dedups a manager who is also a dept member — reached once, not twice", () => {
+    saveCompany({
+      name: "kobo",
+      manager: "eq3",
+      departments: {
+        core: { kbTag: "dept:kobo:core", lead: "eq3", members: [{ oracle: "eq3", role: "lead" }, { oracle: "patchwork", role: "dev" }] },
+      },
+    });
+    for (const o of ["eq3", "patchwork"]) mkRepo(o);
+
+    const res = setupWorklogHooks({ company: "kobo", ghqRoot: ghq });
+    const reached = [...res.updated, ...res.alreadyOk, ...res.skipped];
+    expect(reached.filter(o => o === "eq3")).toHaveLength(1); // provisioned once, not duplicated
+
+    const mgr = installedFor("eq3");
+    expect(mgr).toContain("toilet-away.sh");
+    expect(mgr).toContain("seat-back.sh");
   });
 });
