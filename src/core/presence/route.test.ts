@@ -68,15 +68,30 @@ describe("readPresenceRows", () => {
     expect(stale.company).toBeNull(); // unstamped file → null, not undefined
   });
 
-  test("company filter keeps only panes stamped with that company (kobo-267)", () => {
-    expect(readPresenceRows(NOW, { company: "kobo" }).map((r) => r.pane)).toEqual(["%40"]);
-    expect(readPresenceRows(NOW, { company: "pgw" }).map((r) => r.pane)).toEqual(["%41"]);
+  test("company filter keeps panes by ORACLE roster membership, not the file's company field (kobo-283)", () => {
+    // patchwork is a kobo member → BOTH its panes show under ?company=kobo, even
+    // %41 whose stale file field says "pgw". This is the kobo-283 fix: the file
+    // company-stamp (kobo-267) never populated, so we join on the roster instead.
+    expect(readPresenceRows(NOW, { company: "kobo", members: new Set(["patchwork"]) }).map((r) => r.pane))
+      .toEqual(["%40", "%41"]);
+    // eq3 is the only oracle in this company → only its pane (%99).
+    expect(readPresenceRows(NOW, { company: "eq3-corp", members: new Set(["eq3"]) }).map((r) => r.pane))
+      .toEqual(["%99"]);
   });
 
-  test("company filter excludes unstamped panes, never falls back to all (kobo-267)", () => {
-    // %99 has no company — a scoped query must drop it, not include it.
-    const rows = readPresenceRows(NOW, { company: "eq3-corp" });
-    expect(rows).toEqual([]); // zero matches → empty, NOT the whole set
+  test("a scoped row reports the QUERIED company even when its file field is unstamped/wrong (kobo-283)", () => {
+    // %41's file says company "pgw", but under a kobo query (matched via roster)
+    // the row must report kobo — the crux of the fix (the badge scopes correctly).
+    const rows = readPresenceRows(NOW, { company: "kobo", members: new Set(["patchwork"]) });
+    expect(rows.find((r) => r.pane === "%41")!.company).toBe("kobo");
+  });
+
+  test("company filter excludes an oracle not in the roster, never falls back to all (kobo-283)", () => {
+    // eq3 (%99) is not a member here → a scoped query must drop it, not include it.
+    expect(readPresenceRows(NOW, { company: "kobo", members: new Set(["patchwork"]) }).map((r) => r.pane))
+      .not.toContain("%99");
+    // zero-member company → empty, NOT the whole set.
+    expect(readPresenceRows(NOW, { company: "ghost", members: new Set<string>() })).toEqual([]);
   });
 
   test("no company (null/undefined) → all panes, host-wide back-compat (kobo-267)", () => {
@@ -84,10 +99,12 @@ describe("readPresenceRows", () => {
     expect(readPresenceRows(NOW).length).toBe(3);
   });
 
-  test("company + alive filters compose (kobo-267)", () => {
-    // kobo pane %40 alive → kept; a kobo query with %40 dead → empty.
-    expect(readPresenceRows(NOW, { company: "kobo", alive: new Set(["%40"]) }).map((r) => r.pane)).toEqual(["%40"]);
-    expect(readPresenceRows(NOW, { company: "kobo", alive: new Set(["%41"]) })).toEqual([]);
+  test("company + alive filters compose (kobo-283)", () => {
+    // both patchwork panes are members; the alive set narrows to the live one.
+    expect(readPresenceRows(NOW, { company: "kobo", members: new Set(["patchwork"]), alive: new Set(["%40"]) }).map((r) => r.pane))
+      .toEqual(["%40"]);
+    expect(readPresenceRows(NOW, { company: "kobo", members: new Set(["patchwork"]), alive: new Set(["%99"]) }))
+      .toEqual([]); // %99 is eq3 (not a member) → membership drops it even though alive
   });
 
   test("alive filter drops panes whose id is not in the live tmux set (kobo-266)", () => {
