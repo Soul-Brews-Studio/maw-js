@@ -798,6 +798,32 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   return task;
 }
 
+/** kobo-275 — result of markDeployedTask: success carries the done card; the two
+ *  failure reasons are distinct so every surface (CLI/MCP/web) reports the same
+ *  message (not_found → 404, not_waiting → refuse without doning). */
+export type DeployedResult =
+  | { ok: true; task: TaskRecord }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "not_waiting"; state: TaskState };
+
+/**
+ * kobo-275 — manual deploy-drain: flip a `wait-for-deploy` card → done. The EXIT
+ * twin of the wait-for-deploy park (kobo-273 lane / kobo-274 entry). Deploy stays
+ * MANUAL — no auto-detect hook (Tony rejected that, kobo-233); a human runs this
+ * once the merged feature is actually live. Guarded: ONLY a card currently in
+ * wait-for-deploy can be marked deployed — any other state is refused so the verb
+ * can never done a card that never waited. Delegates to completeTask (the single
+ * done path: emits task-done, releases claims, promotes dependents) after the guard.
+ */
+export function markDeployedTask(company: string, id: string, by: string): DeployedResult {
+  const task = readTask(company, id);
+  if (!task) return { ok: false, reason: "not_found" };
+  if (task.state !== "wait-for-deploy") return { ok: false, reason: "not_waiting", state: task.state };
+  const done = completeTask(company, id, by);
+  if (!done) return { ok: false, reason: "not_found" }; // vanished between reads (race)
+  return { ok: true, task: done };
+}
+
 /**
  * kobo-274 (epic 272 slice B) — the pr-watch MERGE flip. A **deploy-required** card
  * parks in `wait-for-deploy` (merged ≠ live — the server deploy is manual) instead of

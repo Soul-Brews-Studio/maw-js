@@ -73,6 +73,7 @@ import {
   setTaskEpic,
   setTaskPr,
   moveTask,
+  markDeployedTask,
 editTask,
   startTask,
   taskNextAction,
@@ -454,6 +455,22 @@ export async function runTask(
       const t = completeTask(company, id, me);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[32m✔ done\x1b[0m ${t.id}: ${t.title}`);
+    } else if (subcmd === "deployed") {
+      // kobo-275 — manual deploy-drain: flip a wait-for-deploy card → done once the
+      // merged feature is live. Guarded in the store (markDeployedTask): a card in
+      // any other state is refused, never doned. Deploy stays manual (kobo-233).
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: "usage: maw company task deployed <id>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const res = markDeployedTask(company, id, me);
+      if (!res.ok) {
+        if (res.reason === "not_found") return { ok: false, error: `task not found: ${id}` };
+        return { ok: false, error: `${id} is not in wait-for-deploy (state: ${res.state}) — deployed drains only the wait-for-deploy lane` };
+      }
+      console.log(`\x1b[32m🚀 deployed\x1b[0m ${res.task.id} \x1b[90m(→ done)\x1b[0m: ${res.task.title}`);
     } else if (subcmd === "reject") {
       // Terminal "done but NOT accepted" (kobo-101) — like closing a PR without
       // merging. --reason is MANDATORY (why it wasn't accepted, kept to learn).

@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "review" | "hold" | "approve" | "need-answer" | "pr" | "done" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "review" | "hold" | "approve" | "need-answer" | "pr" | "done" | "deployed" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
 
 /** One child in a decompose plan (kobo-146 C7). Mirror of the store's DecomposeChild — kept local so tools.ts stays a pure argv mapper with no core import. */
 export interface DecomposePlanChild {
@@ -249,6 +249,8 @@ export function taskArgs(input: TaskInput): string[] {
     }
     case "done":
       return ["company", "task", "done", needId("done"), ...common()];
+    case "deployed": // kobo-275 — wait-for-deploy → done (manual deploy-drain)
+      return ["company", "task", "deployed", needId("deployed"), ...common()];
     case "unblock":
       return ["company", "task", "unblock", needId("unblock"), ...common()];
     case "note": {

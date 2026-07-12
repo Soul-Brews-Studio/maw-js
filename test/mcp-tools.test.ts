@@ -245,10 +245,14 @@ describe("taskArgs", () => {
     expect(taskArgs({ action: "claim", id: "kobo-3", from: "eq3" })).toEqual(["company", "task", "claim", "kobo-3", "--from", "eq3"]);
     expect(taskArgs({ action: "done", id: "kobo-3" })).toEqual(["company", "task", "done", "kobo-3"]);
     expect(taskArgs({ action: "unblock", id: "kobo-3" })).toEqual(["company", "task", "unblock", "kobo-3"]);
+    // kobo-275 — MCP deployed maps 1:1 to the CLI verb (parity by construction: MCP shells to CLI)
+    expect(taskArgs({ action: "deployed", id: "kobo-3" })).toEqual(["company", "task", "deployed", "kobo-3"]);
+    expect(taskArgs({ action: "deployed", id: "kobo-3", company: "kobo", from: "eq3" }))
+      .toEqual(["company", "task", "deployed", "kobo-3", "--company", "kobo", "--from", "eq3"]);
   });
 
   test("id-required verbs throw without an id", () => {
-    for (const action of ["start", "claim", "done", "unblock", "review", "pr", "block"] as const) {
+    for (const action of ["start", "claim", "done", "deployed", "unblock", "review", "pr", "block"] as const) {
       expect(() => taskArgs({ action })).toThrow(/requires an id/);
     }
   });

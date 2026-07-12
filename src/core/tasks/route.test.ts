@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskAssignRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskEditRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskRejectRequest, handleTasksRequest } from "./route";
-import { addTask, assignTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
+import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskAssignRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDeployedRequest, handleTaskDoneRequest, handleTaskEditRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskRejectRequest, handleTasksRequest } from "./route";
+import { addTask, assignTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, moveTask, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -389,6 +389,39 @@ describe("handleTaskDoneRequest (POST /api/tasks/done — kobo-50 guard b web tr
     expect(res.status).toBe(409);
     expect(((await res.json()) as { prLinked: boolean }).prLinked).toBe(true);
     expect(readTask("dn", t.id)!.state).not.toBe("done"); // guard held server-side
+  });
+});
+
+describe("handleTaskDeployedRequest (POST /api/tasks/deployed — kobo-275)", () => {
+  const post = (body: unknown) =>
+    handleTaskDeployedRequest(new Request("http://x/api/tasks/deployed", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+
+  test("a wait-for-deploy card → 200, state=done (parity with CLI/store)", async () => {
+    const t = addTask({ company: "dp", title: "shipped", by: "eq3", assignee: "patchwork" });
+    moveTask("dp", t.id, "wait-for-deploy", "eq3");
+    const res = await post({ company: "dp", id: t.id });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { task: { state: string } }).task.state).toBe("done");
+    expect(readTask("dp", t.id)!.state).toBe("done");
+  });
+
+  test("a card NOT in wait-for-deploy → 409 notWaiting, state untouched (guard)", async () => {
+    const t = addTask({ company: "dp", title: "still todo", by: "eq3", assignee: "patchwork" });
+    const res = await post({ company: "dp", id: t.id });
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { notWaiting: boolean; state: string };
+    expect(json.notWaiting).toBe(true);
+    expect(json.state).toBe("todo");
+    expect(readTask("dp", t.id)!.state).toBe("todo"); // never doned a non-waiting card
+  });
+
+  test("missing fields → 400, unknown id → 404, bad JSON → 400", async () => {
+    expect((await post({ company: "dp" })).status).toBe(400);
+    expect((await post({ company: "dp", id: "dp-999" })).status).toBe(404);
+    const bad = await handleTaskDeployedRequest(new Request("http://x/api/tasks/deployed", { method: "POST", headers: { "content-type": "application/json" }, body: "nope" }));
+    expect(bad.status).toBe(400);
   });
 });
 

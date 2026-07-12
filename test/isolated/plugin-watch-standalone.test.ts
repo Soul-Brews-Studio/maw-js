@@ -64,6 +64,9 @@ describe("watch command plugin standalone boundary", () => {
     // toggles with the worklog engine + the board it mutates.
     expect(serveSrc).toContain("handleTaskArchiveRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/archive["']/);
+    // kobo-275: manual deploy-drain POST → wait-for-deploy card → done (guarded backend).
+    expect(serveSrc).toContain("handleTaskDeployedRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/deployed["']/);
     // kobo-46: web comment POST → append note + poke assignee (task-events).
     expect(serveSrc).toContain("handleTaskNoteRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']POST["'],\s*["']\/api\/tasks\/note["']/);

@@ -63,6 +63,7 @@ import {
   approveTask,
   needAnswerTask,
   moveTask,
+  markDeployedTask,
   editTask,
   createsDepLoop,
   setTaskDep,
@@ -260,6 +261,34 @@ describe("task store (file-per-card under Company Home)", () => {
     const done = completeTask("pgw", "pgw-1", "tony");
     expect(done?.state).toBe("done");
     expect(readWorklog("pgw").some((e) => e.kind === "task-done" && e.task === "pgw-1")).toBe(true);
+  });
+
+  // kobo-275 — manual deploy-drain verb: wait-for-deploy → done, guarded to that lane.
+  test("markDeployedTask: wait-for-deploy → done + emits task-done", () => {
+    addTask({ company: "pgw", title: "ship", by: "eq3" });
+    moveTask("pgw", "pgw-1", "wait-for-deploy", "eq3");
+    const res = markDeployedTask("pgw", "pgw-1", "tony");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.task.state).toBe("done");
+    expect(readTask("pgw", "pgw-1")?.state).toBe("done");
+    expect(readWorklog("pgw").some((e) => e.kind === "task-done" && e.task === "pgw-1")).toBe(true);
+  });
+
+  test("markDeployedTask: card NOT in wait-for-deploy → not_waiting, NOT doned (guard)", () => {
+    addTask({ company: "pgw", title: "still todo", by: "eq3" }); // pgw-1, state=todo
+    const res = markDeployedTask("pgw", "pgw-1", "tony");
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.reason).toBe("not_waiting");
+      if (res.reason === "not_waiting") expect(res.state).toBe("todo");
+    }
+    expect(readTask("pgw", "pgw-1")?.state).toBe("todo"); // untouched — never doned a non-waiting card
+  });
+
+  test("markDeployedTask: missing card → not_found", () => {
+    const res = markDeployedTask("pgw", "pgw-999", "tony");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("not_found");
   });
 
   test("done releases the holder's open claim — maw watch doesn't go stale (handoff fix B)", () => {

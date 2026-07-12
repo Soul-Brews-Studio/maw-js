@@ -47,6 +47,21 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("done");
   });
 
+  // kobo-275 — the `deployed` verb via the real CLI dispatch (runTask), the same
+  // engine maw_task MCP shells to → CLI/MCP parity proven at the dispatch layer.
+  test("deployed drains a wait-for-deploy card → done; refuses any other lane", async () => {
+    await run(["add", "shipit", "--company", "pgw"]); // pgw-1, todo
+    // guard: not in wait-for-deploy → error, card untouched
+    const guard = await run(["deployed", "pgw-1", "--company", "pgw"]);
+    expect(guard.ok).toBe(false);
+    expect(guard.error).toMatch(/wait-for-deploy/);
+    expect(readTask("pgw", "pgw-1")!.state).toBe("todo");
+    // move into the lane, then deployed → done
+    await run(["move", "pgw-1", "wait-for-deploy", "--company", "pgw"]);
+    expect((await run(["deployed", "pgw-1", "--company", "pgw"])).ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.state).toBe("done");
+  });
+
   test("edit --reviewer amends the reviewer in place; combinable with --title; old reviewer audited (kobo-214)", async () => {
     await run(["add", "card", "--company", "pgw", "--from", "eq3", "--reviewer", "eq3"]);
     const r = await run(["edit", "pgw-1", "--reviewer", "worker", "--title", "card v2", "--company", "pgw", "--from", "tony"]);

@@ -64,9 +64,12 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"review"', '"hold"', '"approve"', '"need-answer"', '"pr"', '"done"', '"note"', '"edit"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"review"', '"hold"', '"approve"', '"need-answer"', '"pr"', '"done"', '"deployed"', '"note"', '"edit"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
+    // kobo-275: deployed maps 1:1 to the CLI verb (manual wait-for-deploy → done drain).
+    expect(tools).toContain('["company", "task", "deployed", needId("deployed")');
+    expect(server).toContain('"deployed"'); // enum + description advertise the verb
     // kobo-213: edit = reword title/body in place (same id) → `maw company task edit <id> [--title] [--body]`.
     expect(tools).toContain('["company", "task", "edit", eid]');
     expect(server).toContain('"edit"'); // enum + title advertise the verb

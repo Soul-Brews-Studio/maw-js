@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, ReassignFrictionError, rejectTask, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, markDeployedTask, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, ReassignFrictionError, rejectTask, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyCommentReply, notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -329,6 +329,41 @@ export async function handleTaskDoneRequest(request: Request): Promise<Response>
     return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
   }
   return Response.json({ ok: true, task: { id: task.id, title: task.title, state: task.state } });
+}
+
+/**
+ * POST /api/tasks/deployed — the wait-for-deploy "🚀 Mark deployed" action (kobo-275).
+ * Manual deploy-drain: flip a card parked in wait-for-deploy → done once the merged
+ * feature is actually live. Guarded in the store (markDeployedTask) so the backend
+ * refuses any card NOT in wait-for-deploy (409) even if the button is bypassed — it can
+ * never done a card that never waited. Deploy stays manual (auto-detect rejected,
+ * kobo-233). `by` is "tony" — the web board is Tony's surface (mirrors sibling routes).
+ * Body: { company, id } → { ok, task } | { ok:false, error }.
+ */
+export async function handleTaskDeployedRequest(request: Request): Promise<Response> {
+  let body: { company?: unknown; id?: unknown };
+  try {
+    body = (await request.json()) as { company?: unknown; id?: unknown };
+  } catch {
+    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
+  }
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  if (!company || !id) {
+    return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
+  }
+  const res = markDeployedTask(company, id, "tony");
+  if (!res.ok) {
+    if (res.reason === "not_found") {
+      return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+    }
+    return Response.json(
+      { ok: false, notWaiting: true, state: res.state,
+        error: `card ${id} is not in wait-for-deploy (state: ${res.state}) — mark-deployed drains only that lane` },
+      { status: 409 },
+    );
+  }
+  return Response.json({ ok: true, task: { id: res.task.id, title: res.task.title, state: res.task.state } });
 }
 
 /**

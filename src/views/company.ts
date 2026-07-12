@@ -1233,6 +1233,32 @@ function noteBubble(n, src) {
 function renderDetailApprove(task) {
   const host = $('detail-approve');
   host.replaceChildren();
+  // kobo-275 — wait-for-deploy cards get a Tony-facing "🚀 Mark deployed" button here
+  // (reuses the approve-box chrome). Posts /api/tasks/deployed → the card drains to done
+  // once the merged feature is live. Deploy stays manual (kobo-233 rejected auto-detect).
+  if (task && task.state === 'wait-for-deploy') {
+    const box = el('div', 'approve-box');
+    box.appendChild(el('div', 'approve-head', '🚀 merged — รอ deploy (ยังไม่ live)'));
+    if (task.title) box.appendChild(el('div', 'approve-title', task.title));
+    const btnRow = el('div', 'approve-actions');
+    const btn = el('button', 'approve-btn', '🚀 Mark deployed'); btn.type = 'button';
+    const msg = el('span', 'approve-msg');
+    btn.addEventListener('click', async () => {
+      const company = currentCompany();
+      if (!company) return;
+      btn.disabled = true;
+      try {
+        await postJson('/api/tasks/deployed', { company: company, id: task.id });
+        msg.textContent = 'deployed → done'; msg.className = 'approve-msg ok';
+        await load(); reopenDetail(task.id);
+      } catch (err) { msg.textContent = 'mark-deployed failed: ' + errMsg(err); msg.className = 'approve-msg err'; btn.disabled = false; }
+    });
+    btnRow.appendChild(btn); btnRow.appendChild(msg);
+    box.appendChild(btnRow);
+    host.appendChild(box);
+    host.hidden = false;
+    return;
+  }
   // kobo-218 — the same decision-box also renders for need-answer (Tony's OTHER
   // queue): a question, answered in the comment thread below, NOT via a button.
   if (!task || (task.state !== 'approve' && task.state !== 'need-answer')) { host.hidden = true; return; }
