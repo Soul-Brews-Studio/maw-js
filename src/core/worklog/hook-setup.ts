@@ -231,6 +231,38 @@ function oracleRepoDir(oracle: string, ghqRoot: string): string {
   return join(ghqRoot, repo);
 }
 
+// kobo-295 — auto-seat SessionStart wiring. This is the AUTO path (fires on session
+// (re)boot after /clear), distinct from the /seat UserPromptSubmit back-hook (seat-back.sh
+// in HOOKS[]). The script is a crew-skills asset installed at $HOME/.claude/hooks by
+// `maw crew-skills sync`; here we only wire the SessionStart ENTRY into each company
+// oracle's repo settings so it lands fleet-wide (crew-skills sync alone wired only the
+// cwd repo → eq3-only, the kobo-294 gap). MUST stay byte-identical to crew-skills'
+// SEAT_RESUME_COMMAND/MATCHER (sync.ts) — pinned by hook-setup.test — so the two wirings
+// are idempotent BY COMMAND and compose with no duplicate entry + no migration. The
+// script self-gates to @role (crew/warroom) repos → silent for plain panes = solo-safe.
+export const SEAT_RESUME_COMMAND = "bash $HOME/.claude/hooks/seat-resume.sh";
+export const SEAT_RESUME_MATCHER = "startup|resume|clear";
+
+/** Add/upgrade the SessionStart seat-resume entry on a settings OBJECT (kobo-295),
+ *  idempotent by COMMAND so it composes with a crew-skills-wired entry. Mutates
+ *  `settings` in place; returns true when it changed something. The caller owns the
+ *  single read+write of the settings file (provisionOracleHooks). */
+function ensureSeatResumeEntry(settings: any): boolean {
+  settings.hooks ??= {};
+  settings.hooks.SessionStart ??= [];
+  const entries = settings.hooks.SessionStart as any[];
+  const existing = entries.find(
+    (e) => Array.isArray(e?.hooks) && e.hooks.some((hk: any) => hk?.command === SEAT_RESUME_COMMAND),
+  );
+  if (existing) {
+    if (existing.matcher === SEAT_RESUME_MATCHER) return false; // already current
+    existing.matcher = SEAT_RESUME_MATCHER; // upgrade an old clear-only install in place
+    return true;
+  }
+  entries.push({ matcher: SEAT_RESUME_MATCHER, hooks: [{ type: "command", command: SEAT_RESUME_COMMAND }] });
+  return true;
+}
+
 export type ProvisionOutcome = "updated" | "alreadyOk" | "skipped";
 
 /**
@@ -268,6 +300,10 @@ export function provisionOracleHooks(
     entries.push({ matcher: h.matcher, hooks: [{ type: "command", command: hookPath(h.file) }] });
     changed = true;
   }
+
+  // kobo-295 — auto-seat SessionStart wiring, fleet-wide via this single choke point
+  // (every provisioning path — attach/assign/repair — flows through provisionOracleHooks).
+  if (ensureSeatResumeEntry(settings)) changed = true;
 
   if (!changed) return "alreadyOk";
   if (opts.dryRun) return "updated";

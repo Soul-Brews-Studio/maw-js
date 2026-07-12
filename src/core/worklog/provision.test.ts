@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { provisionOracleHooks, hooksStatusForOracle, pruneOracleHooks, provisionOracleStatusline, setupWorklogHooks } from "./hook-setup";
+import { provisionOracleHooks, hooksStatusForOracle, pruneOracleHooks, provisionOracleStatusline, setupWorklogHooks, SEAT_RESUME_COMMAND, SEAT_RESUME_MATCHER } from "./hook-setup";
 import { saveCompany, _setCompaniesDir, COMPANIES_DIR } from "../../vendor/mpr-plugins/company/company-helpers";
 
 // Per-oracle provisioning of the unified company-context hook set (worklog +
@@ -55,6 +55,54 @@ describe("per-oracle hook provisioning", () => {
     expect(provisionOracleHooks("alice", { ghqRoot: ghq })).toBe("alreadyOk");
   });
 
+  // kobo-295 — auto-seat: provisionOracleHooks wires the SessionStart seat-resume hook
+  // fleet-wide (the AUTO path, distinct from the /seat UserPromptSubmit back-hook).
+  function seatEntries(settings: any): any[] {
+    return (settings?.hooks?.SessionStart ?? []).filter(
+      (e: any) => Array.isArray(e?.hooks) && e.hooks.some((h: any) => h.command === SEAT_RESUME_COMMAND),
+    );
+  }
+
+  it("wires the SessionStart seat-resume hook (auto-seat) with the crew-skills command + matcher", () => {
+    mkRepo("dave");
+    provisionOracleHooks("dave", { ghqRoot: ghq });
+    const entries = seatEntries(readSettings("dave"));
+    expect(entries).toHaveLength(1);
+    expect(entries[0].matcher).toBe(SEAT_RESUME_MATCHER);
+    expect(entries[0].hooks[0].command).toBe(SEAT_RESUME_COMMAND);
+    // idempotent — second run adds no duplicate, reports alreadyOk
+    expect(provisionOracleHooks("dave", { ghqRoot: ghq })).toBe("alreadyOk");
+    expect(seatEntries(readSettings("dave"))).toHaveLength(1);
+  });
+
+  it("composes with a pre-existing crew-skills seat entry (same command) — no duplicate", () => {
+    const dir = mkRepo("erin2");
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify({ hooks: { SessionStart: [
+        { matcher: SEAT_RESUME_MATCHER, hooks: [{ type: "command", command: SEAT_RESUME_COMMAND }] },
+      ] } }, null, 2),
+    );
+    // seat already current → provisionOracleHooks still installs the OTHER hooks (updated),
+    // but leaves exactly ONE seat entry (idempotent by command — no eq3-style dup/migration).
+    provisionOracleHooks("erin2", { ghqRoot: ghq });
+    expect(seatEntries(readSettings("erin2"))).toHaveLength(1);
+  });
+
+  it("upgrades an old clear-only seat entry in place (kobo-268 matcher), no duplicate", () => {
+    const dir = mkRepo("frank");
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify({ hooks: { SessionStart: [
+        { matcher: "clear", hooks: [{ type: "command", command: SEAT_RESUME_COMMAND }] },
+      ] } }, null, 2),
+    );
+    provisionOracleHooks("frank", { ghqRoot: ghq });
+    const entries = seatEntries(readSettings("frank"));
+    expect(entries).toHaveLength(1);
+    expect(entries[0].matcher).toBe(SEAT_RESUME_MATCHER); // clear → startup|resume|clear
+  });
+
   it("dryRun reports updated but writes nothing", () => {
     mkRepo("bob");
     expect(provisionOracleHooks("bob", { ghqRoot: ghq, dryRun: true })).toBe("updated");
@@ -85,6 +133,21 @@ describe("per-oracle hook provisioning", () => {
 
   it("prune skipped when repo dir absent", () => {
     expect(pruneOracleHooks("ghost", { ghqRoot: ghq })).toBe("skipped");
+  });
+
+  // kobo-295 — DRIFT PIN: core's seat-resume command/matcher MUST stay byte-identical to
+  // crew-skills sync's, or the two wirings emit DIFFERENT SessionStart entries → duplicate
+  // auto-seat (double presence-back + double re-orient). Idempotency is by command string,
+  // so any divergence silently breaks the no-dup guarantee. Pin against crew-skills' source.
+  it("seat-resume command/matcher stay identical to crew-skills sync (no-dup contract)", () => {
+    const syncSrc = readFileSync(
+      join(import.meta.dir, "../../vendor/mpr-plugins/crew-skills/sync.ts"),
+      "utf8",
+    );
+    expect(SEAT_RESUME_COMMAND).toBe("bash $HOME/.claude/hooks/seat-resume.sh");
+    expect(SEAT_RESUME_MATCHER).toBe("startup|resume|clear");
+    expect(syncSrc).toContain(`SEAT_RESUME_COMMAND = "${SEAT_RESUME_COMMAND}"`);
+    expect(syncSrc).toContain(`SEAT_RESUME_MATCHER = "${SEAT_RESUME_MATCHER}"`);
   });
 
   // kobo-104 — statusLine presence-capture provisioning (settings.json FIELD).
