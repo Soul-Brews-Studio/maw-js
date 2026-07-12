@@ -264,6 +264,11 @@ async function loadThread() {
   else banner.style.display = 'none';
 
   const msgs = room.messages.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  // kobo-293: stick-to-bottom only when the user is already near the bottom, so
+  // scrolling up to read history isn't yanked back down every 2.5s poll. Capture
+  // BEFORE the rebuild while the old scroll metrics are still valid. First render
+  // (scrollTop 0, no scrollbar) reads as near-bottom → opens at newest.
+  const stick = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 60;
   thread.replaceChildren();
   if (!msgs.length) { thread.appendChild(el('div', 'thread-empty', (lead || 'lead') + ' พร้อมช่วย ground ปัญหา. พิมพ์ข้อความแรกด้านล่าง.')); loadActivity(); return; }
   for (const m of msgs) {
@@ -278,7 +283,7 @@ async function loadThread() {
     b.appendChild(el('div', 'body', m.text || ''));
     thread.appendChild(b);
   }
-  thread.scrollTop = thread.scrollHeight;
+  if (stick) thread.scrollTop = thread.scrollHeight;
   loadActivity();
 }
 
