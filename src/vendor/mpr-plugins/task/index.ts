@@ -264,7 +264,7 @@ export async function runTask(
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reason": String,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reason": String, "--deploy-required": Boolean, "--no-deploy-required": Boolean,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
@@ -303,10 +303,16 @@ export async function runTask(
       // template — PREFILL it when the creator gives no --body, so Tony gets the full
       // decision picture. A supplied body is kept as-is (warned below if it skips sections).
       const addBody = (addState === "approve" && !flags["--body"]?.trim()) ? approvalTemplate() : flags["--body"];
+      // kobo-274: override the merge-park default (has-PR). --deploy-required → always
+      // park, --no-deploy-required → always straight to done; neither → unset (default).
+      if (flags["--deploy-required"] && flags["--no-deploy-required"]) {
+        return { ok: false, error: "pass only one of --deploy-required / --no-deploy-required" };
+      }
+      const deployRequired = flags["--deploy-required"] ? true : (flags["--no-deploy-required"] ? false : undefined);
       const t = addTask({
         company, title, by: me, kind: addKind,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
-        parentIds, body: addBody, state: addState, reviewer: flags["--reviewer"],
+        parentIds, body: addBody, state: addState, reviewer: flags["--reviewer"], deployRequired,
         reviewReason: addState === "approve" ? flags["--reason"]!.trim() : undefined, // kobo-218: Approve lane invariant — carry the WHY
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
@@ -666,18 +672,22 @@ export async function runTask(
       // deps/thread/comments/PR link/state/assignee untouched; the previous wording
       // is preserved in an append-only audit note (Nothing is Deleted). Does NOT
       // touch hash/idempotency — a card id is a counter, never derived from wording.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--title": String, "--body": String, "--reviewer": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--title": String, "--body": String, "--reviewer": String, "--deploy-required": Boolean, "--no-deploy-required": Boolean }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: 'usage: maw company task edit <id> [--title "<new title>"] [--body "<new body>"] [--reviewer <who>]' };
-      if (flags["--title"] === undefined && flags["--body"] === undefined && flags["--reviewer"] === undefined) {
-        return { ok: false, error: "nothing to edit — pass --title, --body, and/or --reviewer" };
+      if (!id) return { ok: false, error: 'usage: maw company task edit <id> [--title "<new title>"] [--body "<new body>"] [--reviewer <who>] [--deploy-required | --no-deploy-required]' };
+      if (flags["--deploy-required"] && flags["--no-deploy-required"]) {
+        return { ok: false, error: "pass only one of --deploy-required / --no-deploy-required" };
+      }
+      const editDeployRequired = flags["--deploy-required"] ? true : (flags["--no-deploy-required"] ? false : undefined); // kobo-274 override
+      if (flags["--title"] === undefined && flags["--body"] === undefined && flags["--reviewer"] === undefined && editDeployRequired === undefined) {
+        return { ok: false, error: "nothing to edit — pass --title, --body, --reviewer, and/or --deploy-required/--no-deploy-required" };
       }
       const badTitle = badFlagValue("--title", flags["--title"]); if (badTitle) return { ok: false, error: badTitle };
       const badReviewer = badFlagValue("--reviewer", flags["--reviewer"]); if (badReviewer) return { ok: false, error: badReviewer };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = editTask(company, id, me, { title: flags["--title"], body: flags["--body"], reviewer: flags["--reviewer"] });
+      const t = editTask(company, id, me, { title: flags["--title"], body: flags["--body"], reviewer: flags["--reviewer"], deployRequired: editDeployRequired });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m✎ edited\x1b[0m ${t.id}: ${t.title}`);
     } else if (subcmd === "epic") {

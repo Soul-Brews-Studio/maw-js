@@ -20,7 +20,7 @@ import { mawStatePath } from "../xdg";
 import { scanWorktrees } from "../fleet/worktrees";
 import { loadConfig } from "../../config";
 import { appendWorklog } from "./store";
-import { completeTask, findTasksByPr, prOpenedReview, setTaskRepoIfMissing, listTasks, listCompanies } from "../tasks/store";
+import { completeOrParkMergedTask, findTasksByPr, prOpenedReview, setTaskRepoIfMissing, listTasks, listCompanies } from "../tasks/store";
 import { notifyReviewer } from "../tasks/notify";
 import { pingOnMerge } from "./ping";
 import { scopeOfOracle, companyOfOracleStrict } from "./company-scope";
@@ -137,8 +137,10 @@ export function findCardByPrAnywhere(pr: number, repo?: string): { company: stri
 }
 
 /**
- * Merge = approval → done EVERY card this PR binds (kobo-43), idempotently. This
- * is the single flip primitive shared by (a) the OPEN→MERGED transition and (b)
+ * Merge = approval → flip EVERY card this PR binds (kobo-43), idempotently. A
+ * deploy-required card parks in wait-for-deploy (kobo-274, merged≠live); the rest
+ * go to done. This is the single flip primitive shared by (a) the OPEN→MERGED
+ * transition and (b)
  * the kobo-228 reconcile pass. Idempotent by construction: findTasksByPr already
  * excludes done+rejected, so a re-run flips nothing that's already closed (no
  * resurrection — kobo-99/101). Heals a repo-less card on the way (kobo-80). Returns
@@ -156,7 +158,9 @@ export function reconcileMergedCards(pr: number, repo: string, by: string): stri
   const flipped: string[] = [];
   for (const hit of findCardsByPrAnywhere(pr, repo)) {
     setTaskRepoIfMissing(hit.company, hit.taskId, repo); // kobo-80: heal repo-less card
-    if (completeTask(hit.company, hit.taskId, by)) flipped.push(hit.taskId);
+    // kobo-274: a deploy-required card parks in wait-for-deploy (merged≠live) instead
+    // of done; non-deploy cards still flip straight to done.
+    if (completeOrParkMergedTask(hit.company, hit.taskId, by)) flipped.push(hit.taskId);
   }
   return flipped;
 }

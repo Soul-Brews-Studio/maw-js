@@ -73,7 +73,11 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     // kobo-214: edit also amends the reviewer in place → forwards --reviewer; the
     // empty-edit guard names all three editable fields (title, body, reviewer).
     expect(tools).toContain('if (input.reviewer !== undefined) argv.push("--reviewer", input.reviewer)');
-    expect(tools).toContain("title, body, and/or reviewer");
+    expect(tools).toContain("title, body, reviewer, and/or deployRequired");
+    // kobo-274: add/edit forward the deploy-required override to the CLI flags.
+    expect(tools).toContain('argv.push("--deploy-required")');
+    expect(tools).toContain('argv.push("--no-deploy-required")');
+    expect(server).toContain("deployRequired"); // the boolean param is advertised in the schema
     // kobo-191: approve = reviewer routes big-work review → approve (reason mandatory).
     expect(tools).toContain('["company", "task", "approve", aid, "--reason", input.reason');
     expect(server).toContain('"approve"'); // enum + title advertise the verb

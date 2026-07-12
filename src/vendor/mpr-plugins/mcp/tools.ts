@@ -57,6 +57,7 @@ export interface TaskInput {
   force?: boolean;     // assign: --force-reassign (reassign is friction, correction only — kobo-219)
   gate?: boolean;      // hold: --gate — route the brake to the approve lane (Tony's queue), not review (kobo-224)
   reviewer?: string;   // add (persistent per-card reviewer, kobo-144)
+  deployRequired?: boolean; // add/edit (kobo-274 — override the has-PR merge→wait-for-deploy default)
   reason?: string;     // review / hold / block
   kind?: string;       // block (required)
   days?: number;       // archive
@@ -184,6 +185,8 @@ export function taskArgs(input: TaskInput): string[] {
       if (input.reviewer) argv.push("--reviewer", input.reviewer);
       for (const p of input.parent ?? []) argv.push("--parent", p);
       if (input.body) argv.push("--body", input.body);
+      if (input.deployRequired === true) argv.push("--deploy-required"); // kobo-274 override
+      else if (input.deployRequired === false) argv.push("--no-deploy-required");
       return [...argv, ...common()];
     }
     case "move": {
@@ -257,13 +260,15 @@ export function taskArgs(input: TaskInput): string[] {
       // kobo-213/214 — reword a card's title/body/reviewer in place (same id,
       // lineage intact). At least one field must be given; nothing else is touched.
       const eid = needId("edit");
-      if (input.title === undefined && input.body === undefined && input.reviewer === undefined) {
-        throw new Error("task edit requires title, body, and/or reviewer");
+      if (input.title === undefined && input.body === undefined && input.reviewer === undefined && input.deployRequired === undefined) {
+        throw new Error("task edit requires title, body, reviewer, and/or deployRequired");
       }
       const argv = ["company", "task", "edit", eid];
       if (input.title !== undefined) argv.push("--title", input.title);
       if (input.body !== undefined) argv.push("--body", input.body);
       if (input.reviewer !== undefined) argv.push("--reviewer", input.reviewer);
+      if (input.deployRequired === true) argv.push("--deploy-required"); // kobo-274 override
+      else if (input.deployRequired === false) argv.push("--no-deploy-required");
       return [...argv, ...common()];
     }
     case "comment": {

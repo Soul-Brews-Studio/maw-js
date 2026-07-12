@@ -316,6 +316,25 @@ describe("maw company task runner (runTask)", () => {
     expect(board).toContain("ship the lane"); // the parked card is visible, not dropped
   });
 
+  // kobo-274 — the deploy-required override flags on add/edit set the field the merge
+  // flip reads (default = has-PR; explicit flag wins either way).
+  test("add --no-deploy-required / --deploy-required set the field; edit toggles it (kobo-274)", async () => {
+    const off = await run(["add", "docs", "--company", "pgw", "--no-deploy-required"]); // pgw-1
+    expect(off.ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.deployRequired).toBe(false);
+
+    const on = await run(["add", "deploys", "--company", "pgw", "--deploy-required"]); // pgw-2
+    expect(on.ok).toBe(true);
+    expect(readTask("pgw", "pgw-2")!.deployRequired).toBe(true);
+
+    const edited = await run(["edit", "pgw-2", "--company", "pgw", "--no-deploy-required"]);
+    expect(edited.ok).toBe(true);
+    expect(readTask("pgw", "pgw-2")!.deployRequired).toBe(false); // overridden in place
+
+    const both = await run(["add", "conflict", "--company", "pgw", "--deploy-required", "--no-deploy-required"]);
+    expect(both.ok).toBe(false); // can't pass both
+  });
+
   test("add --state approve CREATES a deploy-approval card into the Approve lane; --reason required (kobo-218)", async () => {
     const noReason = await run(["add", "deploy m5", "--state", "approve", "--company", "pgw"]);
     expect(noReason.ok).toBe(false);

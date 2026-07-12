@@ -194,7 +194,9 @@ describe("reconcileMergedCards — swallowed merge-edge recovery (kobo-228)", ()
     card("kobo", "kobo-1", { state: "approve", pr: 50, repo: "meganechan/maw-js", assignee: "patchwork", reviewReason: "deploy blessing" });
     const flipped = reconcileMergedCards(50, "meganechan/maw-js", "pr-watch");
     expect(flipped).toEqual(["kobo-1"]);
-    expect(readTask("kobo", "kobo-1")?.state).toBe("done"); // no manual task done
+    // kobo-274: a has-PR card is deploy-required by default → the merge parks it in
+    // wait-for-deploy (merged≠live), not done; slice C drains it after the deploy.
+    expect(readTask("kobo", "kobo-1")?.state).toBe("wait-for-deploy");
   });
 
   it("flips a REVIEW card too (no regress) and EVERY card the PR binds (kobo-43)", async () => {
@@ -204,8 +206,9 @@ describe("reconcileMergedCards — swallowed merge-edge recovery (kobo-228)", ()
     card("kobo", "kobo-3", { state: "approve", pr: 51, repo: "meganechan/maw-js", assignee: "p", reviewReason: "why" });
     const flipped = reconcileMergedCards(51, "meganechan/maw-js", "pr-watch").sort();
     expect(flipped).toEqual(["kobo-2", "kobo-3"]);
-    expect(readTask("kobo", "kobo-2")?.state).toBe("done");
-    expect(readTask("kobo", "kobo-3")?.state).toBe("done");
+    // kobo-274: has-PR default → park in wait-for-deploy (both cards).
+    expect(readTask("kobo", "kobo-2")?.state).toBe("wait-for-deploy");
+    expect(readTask("kobo", "kobo-3")?.state).toBe("wait-for-deploy");
   });
 
   it("is idempotent — a done/rejected card is never resurrected (kobo-99/101), no churn", async () => {
@@ -225,7 +228,29 @@ describe("reconcileMergedCards — swallowed merge-edge recovery (kobo-228)", ()
     card("kobo", "here", { state: "approve", pr: 5, repo: "kob-bank/helm", assignee: "p", reviewReason: "r" });
     card("kobo", "elsewhere", { state: "approve", pr: 5, repo: "kob-bank/report", assignee: "p", reviewReason: "r" });
     reconcileMergedCards(5, "kob-bank/helm", "pr-watch");
-    expect(readTask("kobo", "here")?.state).toBe("done");
+    expect(readTask("kobo", "here")?.state).toBe("wait-for-deploy"); // kobo-274: has-PR → park
     expect(readTask("kobo", "elsewhere")?.state).toBe("approve"); // untouched — different repo
+  });
+
+  it("a NON-deploy card (deployRequired:false) still reconciles straight to done (kobo-274 override)", async () => {
+    const { reconcileMergedCards } = await import("./pr-watch.ts?recon-nodeploy");
+    const { readTask } = await import("../tasks/store.ts?recon-nodeploy");
+    card("kobo", "docs-1", { state: "review", pr: 53, repo: "meganechan/maw-js", assignee: "p", deployRequired: false });
+    const flipped = reconcileMergedCards(53, "meganechan/maw-js", "pr-watch");
+    expect(flipped).toEqual(["docs-1"]);
+    expect(readTask("kobo", "docs-1")?.state).toBe("done"); // override → no park
+  });
+
+  it("parking is IDEMPOTENT — a second reconcile poll does NOT re-process a wait-for-deploy card (kobo-274)", async () => {
+    const { reconcileMergedCards } = await import("./pr-watch.ts?recon-idem-park");
+    const { readTask } = await import("../tasks/store.ts?recon-idem-park");
+    card("kobo", "parked-1", { state: "review", pr: 54, repo: "meganechan/maw-js", assignee: "p" });
+    const run1 = reconcileMergedCards(54, "meganechan/maw-js", "pr-watch");
+    expect(run1).toEqual(["parked-1"]); // first poll parks it
+    expect(readTask("kobo", "parked-1")?.state).toBe("wait-for-deploy");
+    const stamp1 = readTask("kobo", "parked-1")!.updatedTs;
+    const run2 = reconcileMergedCards(54, "meganechan/maw-js", "pr-watch");
+    expect(run2).toEqual([]); // second poll must NOT re-flip — no churn/event spam
+    expect(readTask("kobo", "parked-1")!.updatedTs).toBe(stamp1); // and no updatedTs bump
   });
 });

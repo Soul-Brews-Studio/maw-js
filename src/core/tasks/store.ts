@@ -143,6 +143,7 @@ export interface TaskRecord {
   assignee: string | null; // who holds the work (SSoT for ownership)
   repo?: string;
   pr?: number;
+  deployRequired?: boolean; // kobo-274 — when its PR merges, park in wait-for-deploy (merged≠live) instead of done. Unset → defaults to "has a PR" (Tony option a); set explicitly to override either way.
   block?: TaskBlock; // set when state = blocked (explicit block — ADR 0003 B)
   prevState?: TaskState; // flow state to return to on unblock
   reviewer?: string; // who should review/take over (set when state = review, optional)
@@ -354,6 +355,7 @@ export interface AddTaskInput {
   kind?: TaskKind; // "epic" for a container card (kobo-45) — omit for a normal task
   epic?: string; // containment parent card id (kobo-45) — the "+subtask" path sets this
   repo?: string;
+  deployRequired?: boolean; // kobo-274 — override the has-PR default for the merge→wait-for-deploy park
   assignee?: string | null;
   state?: TaskState; // explicit start state — dispatch passes "in-progress"; manual add omits (→ todo)
   requestId?: string; // dispatch correlation id (auto-create idempotency)
@@ -387,6 +389,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.kind && input.kind !== "task") task.kind = input.kind; // only persist "epic" — task is the default
   if (input.epic) task.epic = input.epic; // a fresh id can't be its own ancestor → no loop possible at create
   if (input.repo) task.repo = input.repo;
+  if (input.deployRequired !== undefined) task.deployRequired = input.deployRequired; // kobo-274 — persist explicit override (incl. false), else the flip defaults to has-PR
   if (input.requestId) task.requestId = input.requestId;
   if (input.parentIds?.length) task.parentIds = [...new Set(input.parentIds)]; // dedupe, drop if empty
   if (input.body?.length) task.body = input.body;
@@ -526,11 +529,15 @@ export function editTask(
   company: string,
   id: string,
   by: string,
-  changes: { title?: string; body?: string; reviewer?: string },
+  changes: { title?: string; body?: string; reviewer?: string; deployRequired?: boolean },
 ): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   const prev: string[] = [];
+  if (typeof changes.deployRequired === "boolean" && changes.deployRequired !== task.deployRequired) {
+    prev.push(`deployRequired was: ${task.deployRequired === undefined ? "(unset → default has-PR)" : task.deployRequired}`);
+    task.deployRequired = changes.deployRequired; // kobo-274 — override the merge-park default
+  }
   if (typeof changes.title === "string" && changes.title !== task.title) {
     prev.push(`title was: ${task.title}`);
     task.title = changes.title;
@@ -788,6 +795,35 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
     const parent = readTask(company, task.epic);
     if (parent) notifyParentOfSubcardDone(task, parent, by);
   }
+  return task;
+}
+
+/**
+ * kobo-274 (epic 272 slice B) — the pr-watch MERGE flip. A **deploy-required** card
+ * parks in `wait-for-deploy` (merged ≠ live — the server deploy is manual) instead of
+ * going straight to `done`; slice C drains the lane to done after the deploy. A
+ * non-deploy card falls through to completeTask (done) — behavior unchanged.
+ *
+ * deployRequired defaults to "has a linked PR" (Tony option a — a merged PR generally
+ * ships code that must be deployed), overridable per card either way (a docs/test PR →
+ * set false to go straight to done; a no-PR card → set true to park).
+ *
+ * Parking is NON-terminal, so unlike done it does NOT release claims, promote dependent
+ * children, or notify the epic parent — that only happens when the card truly reaches
+ * done (via the slice-C deploy exit). Manual `task done` still uses completeTask directly.
+ */
+export function completeOrParkMergedTask(company: string, id: string, by: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  if (task.state === "wait-for-deploy") return task; // kobo-274 — already parked: idempotent no-op (no re-write/emit), mirroring completeTask's done-guard
+  const deployRequired = task.deployRequired ?? task.pr != null;
+  if (!deployRequired) return completeTask(company, id, by); // non-deploy → done (unchanged)
+  task.state = "wait-for-deploy";
+  delete task.block; // clear any explicit block, mirroring done
+  delete task.prevState;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", `parked ${task.id} → wait-for-deploy (merged, awaiting deploy): ${task.title}`);
   return task;
 }
 
@@ -1257,11 +1293,13 @@ export function archiveOldDone(
  * the pr-watch heal (kobo-80) backfills it on the flip.
  */
 export function findTasksByPr(company: string, pr: number, repo?: string): TaskRecord[] {
-  // Skip BOTH terminal states: a done OR rejected card must never be resurrected
-  // by a later PR-merge poll. Rejected = "closed, not accepted" — flipping it to
-  // done on merge would be the kobo-99 resurrection bug in a new guise (kobo-101).
+  // Skip states pr-watch has ALREADY settled, so a later merge poll never re-processes
+  // them: done + rejected are terminal (kobo-99/101 resurrection guard), and
+  // wait-for-deploy is the merge-park (kobo-274) — re-returning it would re-park every
+  // reconcile poll (updatedTs bump + duplicate "parked" event = board thrash). Slice C
+  // drains it to done via a different path, not another merge flip.
   return listTasks(company).filter(
-    (t) => t.pr === pr && t.state !== "done" && t.state !== "rejected" && (!repo || !t.repo || t.repo === repo),
+    (t) => t.pr === pr && t.state !== "done" && t.state !== "rejected" && t.state !== "wait-for-deploy" && (!repo || !t.repo || t.repo === repo),
   );
 }
 

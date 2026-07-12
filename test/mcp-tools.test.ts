@@ -222,7 +222,12 @@ describe("taskArgs", () => {
     expect(taskArgs({ action: "edit", id: "kobo-5", reviewer: "worker" }))
       .toEqual(["company", "task", "edit", "kobo-5", "--reviewer", "worker"]);
     expect(() => taskArgs({ action: "edit", title: "t" })).toThrow(/id/);
-    expect(() => taskArgs({ action: "edit", id: "kobo-5" })).toThrow(/title, body, and\/or reviewer/);
+    expect(() => taskArgs({ action: "edit", id: "kobo-5" })).toThrow(/title, body, reviewer, and\/or deployRequired/);
+    // kobo-274: deployRequired counts as a valid edit field + forwards the override flag.
+    expect(taskArgs({ action: "edit", id: "kobo-5", deployRequired: false }))
+      .toEqual(["company", "task", "edit", "kobo-5", "--no-deploy-required"]);
+    expect(taskArgs({ action: "edit", id: "kobo-5", deployRequired: true }))
+      .toEqual(["company", "task", "edit", "kobo-5", "--deploy-required"]);
   });
 
   test("ls: bare", () => {

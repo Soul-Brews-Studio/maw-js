@@ -29,6 +29,7 @@ import {
   migrateQuestionNotesToComments,
   reconcileTwoLaneCards,
   completeTask,
+  completeOrParkMergedTask,
   isStaleDecisionCard,
   lastActivityByOracle,
   STALE_DECISION_MS,
@@ -1977,5 +1978,62 @@ describe("approve state (kobo-189 — human gate between review and done)", () =
   test("approve has a next-action hint (no dead-end)", () => {
     const t = addTask({ company: "pgw", title: "x", by: "eq3", assignee: "patchwork", state: "approve" });
     expect(taskNextAction(readTask("pgw", t.id)!)).toMatch(/approve/i);
+  });
+});
+
+describe("completeOrParkMergedTask — merge flip routes deploy-required → wait-for-deploy (kobo-274)", () => {
+  test("has-PR card (no explicit field) parks in wait-for-deploy — the has-PR default", () => {
+    const t = addTask({ company: "pgw", title: "ships code", by: "eq3", assignee: "patchwork" });
+    setTaskPr("pgw", t.id, 500, "patchwork"); // linked PR → deploy-required by default
+    const r = completeOrParkMergedTask("pgw", t.id, "pr-watch")!;
+    expect(r.state).toBe("wait-for-deploy");
+  });
+
+  test("no-PR card goes straight to done — nothing to deploy", () => {
+    const t = addTask({ company: "pgw", title: "board-op", by: "eq3", assignee: "patchwork" });
+    const r = completeOrParkMergedTask("pgw", t.id, "pr-watch")!;
+    expect(r.state).toBe("done");
+  });
+
+  test("override: deployRequired=false on a has-PR card → done (docs/test PR)", () => {
+    const t = addTask({ company: "pgw", title: "docs only", by: "eq3", assignee: "patchwork", deployRequired: false });
+    setTaskPr("pgw", t.id, 501, "patchwork");
+    expect(completeOrParkMergedTask("pgw", t.id, "pr-watch")!.state).toBe("done");
+  });
+
+  test("override: deployRequired=true on a no-PR card → wait-for-deploy", () => {
+    const t = addTask({ company: "pgw", title: "no pr but deploys", by: "eq3", assignee: "patchwork", deployRequired: true });
+    expect(completeOrParkMergedTask("pgw", t.id, "pr-watch")!.state).toBe("wait-for-deploy");
+  });
+
+  test("parking is NON-terminal — a dependent child is NOT promoted (unlike done)", () => {
+    const parent = addTask({ company: "pgw", title: "parent ships", by: "eq3", assignee: "patchwork" });
+    setTaskPr("pgw", parent.id, 502, "patchwork");
+    const child = addTask({ company: "pgw", title: "child", by: "eq3", assignee: "patchwork", parentIds: [parent.id] });
+    expect(readTask("pgw", child.id)!.state).toBe("blocked"); // dep-blocked on the parent
+    completeOrParkMergedTask("pgw", parent.id, "pr-watch"); // parent parks, not done
+    expect(readTask("pgw", child.id)!.state).toBe("blocked"); // still blocked — parent isn't done yet
+  });
+
+  test("editTask flips deployRequired in place (override after the fact)", () => {
+    const t = addTask({ company: "pgw", title: "reclassify", by: "eq3", assignee: "patchwork" });
+    setTaskPr("pgw", t.id, 503, "patchwork");
+    editTask("pgw", t.id, "eq3", { deployRequired: false }); // reviewer marks it non-deploy
+    expect(completeOrParkMergedTask("pgw", t.id, "pr-watch")!.state).toBe("done");
+  });
+
+  test("already-parked card → idempotent no-op (no updatedTs bump, no re-emit)", () => {
+    const t = addTask({ company: "pgw", title: "ships", by: "eq3", assignee: "patchwork" });
+    setTaskPr("pgw", t.id, 504, "patchwork");
+    const parked = completeOrParkMergedTask("pgw", t.id, "pr-watch")!;
+    expect(parked.state).toBe("wait-for-deploy");
+    const stamp = readTask("pgw", t.id)!.updatedTs;
+    const again = completeOrParkMergedTask("pgw", t.id, "pr-watch")!; // second call — guard hits
+    expect(again.state).toBe("wait-for-deploy");
+    expect(readTask("pgw", t.id)!.updatedTs).toBe(stamp); // no bump → no churn
+  });
+
+  test("missing card → null (no throw)", () => {
+    expect(completeOrParkMergedTask("pgw", "pgw-999", "x")).toBeNull();
   });
 });

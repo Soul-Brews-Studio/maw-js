@@ -69,6 +69,9 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("noteTask"); // kobo-39: append-only note — the only non-terminal verb (mid-flight truth)
     expect(src).toContain("editTask"); // kobo-213: reword title/body in place (same id, audit-noted)
     expect(src).toContain('reviewer: flags["--reviewer"]'); // kobo-214: edit amends the reviewer in place too (extends editTask, same audit)
+    expect(src).toContain('"--deploy-required": Boolean'); // kobo-274: add/edit override the merge-park default
+    expect(src).toContain('"--no-deploy-required": Boolean');
+    expect(src).toContain("deployRequired"); // kobo-274: forwarded into addTask/editTask (has-PR default → wait-for-deploy)
     expect(src).toContain("notifyTaskComment"); // kobo-46: a note by a non-author pokes the assignee (comment = poke) on task-events
     expect(src).toContain("notifyCommentReply"); // kobo-156: a reply also pokes the parent comment's author (thread reaches the person answered)
     expect(src).toContain("commentTask"); // kobo-140: threaded ask/answer comment (the ask channel — thread/@mention)
