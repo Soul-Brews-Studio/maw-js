@@ -291,6 +291,35 @@ describe("task store (file-per-card under Company Home)", () => {
     if (!res.ok) expect(res.reason).toBe("not_found");
   });
 
+  // kobo-276 (epic-272 slice D) — env-change gate flow. An env-var change (e.g.
+  // MAW_ROOM_COMPANY) is deploy-required by nature: it must not be marked done
+  // before the value is applied + the server restarted. It rides the EXISTING
+  // lanes — need-answer (value unclear) → approve (ask to apply) → wait-for-deploy
+  // (kobo-273/274, awaiting restart) → done (kobo-275 deployed drain). No new lane,
+  // no auto-detect: this locks that the full chain is traversable and that the
+  // deploy park cannot be skipped.
+  describe("env-change gate flow (kobo-276)", () => {
+    test("traverses need-answer → approve → wait-for-deploy → done, each hop lands", () => {
+      addTask({ company: "pgw", title: "set MAW_ROOM_COMPANY=kobo", by: "eq3" }); // pgw-1
+      expect(moveTask("pgw", "pgw-1", "need-answer", "eq3")?.state).toBe("need-answer");
+      expect(moveTask("pgw", "pgw-1", "approve", "eq3")?.state).toBe("approve");
+      expect(moveTask("pgw", "pgw-1", "wait-for-deploy", "tony")?.state).toBe("wait-for-deploy");
+      const res = markDeployedTask("pgw", "pgw-1", "tony"); // deploy applied + restarted
+      expect(res.ok).toBe(true);
+      if (res.ok) expect(res.task.state).toBe("done");
+      expect(readTask("pgw", "pgw-1")?.state).toBe("done");
+    });
+
+    test("cannot skip the deploy park — draining from approve is refused (guard)", () => {
+      addTask({ company: "pgw", title: "set MAW_ROOM_COMPANY=kobo", by: "eq3" });
+      moveTask("pgw", "pgw-1", "approve", "eq3");
+      const res = markDeployedTask("pgw", "pgw-1", "tony"); // not parked yet
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.reason).toBe("not_waiting");
+      expect(readTask("pgw", "pgw-1")?.state).toBe("approve"); // stays put — no premature done
+    });
+  });
+
   test("done releases the holder's open claim — maw watch doesn't go stale (handoff fix B)", () => {
     addTask({ company: "pgw", title: "t", by: "eq3" });
     claimTask("pgw", "pgw-1", "patchwork");
