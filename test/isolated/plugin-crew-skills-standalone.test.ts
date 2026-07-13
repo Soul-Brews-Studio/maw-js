@@ -234,6 +234,24 @@ describe("crew-skills global asset contract", () => {
     expect(head).toContain("model tier (spawn)");
     expect(head).toContain("worker×3 | **sonnet**");
   });
+
+  // kobo-301 — the scratchpad is a read-only grounding role: it fetches sources into a
+  // digest but must NOT mutate. The guard is structural (--disallowedTools hard-blocks the
+  // write tools, and survives --dangerously-skip-permissions since disallow = exclude, not
+  // prompt) + contract discipline for bash. Pin the structural guard so a spawn edit can't
+  // silently drop it and hand scratchpad a write path.
+  test("scratchpad spawns read-only — --disallowedTools blocks write tools (kobo-301)", () => {
+    const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
+    const spawn = head.split("\n").find((l) => l.includes("scratchpad-contract.md") && l.includes("claude --model"));
+    expect(spawn).toBeDefined();
+    // sonnet tier (kobo-300) + autonomous (no blackhole) + structural no-write guard
+    expect(spawn).toContain("--model sonnet");
+    expect(spawn).toContain("--dangerously-skip-permissions");
+    expect(spawn).toContain('--disallowedTools "Write Edit MultiEdit NotebookEdit"');
+    // read-only role is explicit in the contract (defense-in-depth: bash discipline too)
+    expect(head).toContain("read-only grounding");
+    expect(head).toContain("no-write guard");
+  });
 });
 
 describe("crew-skills sync", () => {

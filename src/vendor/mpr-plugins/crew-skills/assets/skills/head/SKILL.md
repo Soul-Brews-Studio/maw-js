@@ -42,7 +42,7 @@ description: Spin up a /head strategic cell — top tier of the 3-tier operating
 | worker cell | coordinator · worker×3 | **sonnet** (execute, ปริมาณมาก) |
 | comm 📡 (opt-in, any tier) | — | **sonnet** (relay ปริมาณมาก judgment ต่ำ → คุ้ม) |
 
-worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ตา opus (crew + head reviewer) กรอง (review chain ⭐). scratchpad RO = kobo-301 · worker-cell = /crew (kobo-304, sonnet อยู่แล้ว).
+worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ตา opus (crew + head reviewer) กรอง (review chain ⭐). scratchpad RO = **§Scratchpad** (read-only grounding, no-write guard) · worker-cell = /crew (kobo-304, sonnet อยู่แล้ว).
 
 **Kernel = /crew /warroom (validated kobo-89/91)** — spawn form, comm (resolve pane-id→index), roster, Stop hook, liveness, toilet/re-seat, teardown: **ใช้ crew SKILL §0-§9 ทั้งหมด**. ไฟล์นี้เขียนเฉพาะส่วนต่างของ head: 3-tier nesting + head cell (3 บท + comm opt-in) + review chain + additive migration.
 
@@ -59,7 +59,7 @@ worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ต
 > **conductor ต้องว่างตลอด** (responsive). เกณฑ์ offload = **"ทำแล้วมัดมือ/บวม context จนตอบเรื่องถัดไปไม่ทัน?"** (ไม่ใช่วัดขนาด). มัดมือ = โยนลงชั้นล่าง.
 
 - **conductor light-exec เอง** — จบใน 1 เทิร์น + ผลเล็ก + ไม่ fetch/wait (board-op, ตัดสิน 1 บรรทัด, edit สั้น). ยังลง card (board ไม่โกหก).
-- **offload → crew tier** (coordination · opus: conductor · reviewer · scratchpad-RO [+comm]) — งานที่ต้องแตก+คุม+กรองก่อนถึงมือ execute. scratchpad(RO) grounding = **kobo-301**.
+- **offload → crew tier** (coordination · opus: conductor · reviewer · scratchpad-RO [+comm]) — งานที่ต้องแตก+คุม+กรองก่อนถึงมือ execute. scratchpad(RO) grounding = **§Scratchpad** (fetch/trace หนัก → digest, no-write guard).
 - **offload → worker cell** (execution · sonnet, on-demand: coordinator + worker×3, /clear-after) = **/crew เดิม ตรงๆ** — heavy code / write / parallel. wiring = **kobo-304** (reuse /crew, ไม่ rebuild).
 - **card = outcome/PR เท่านั้น** (1 card ≈ 1 PR). grounding/sub-fetch = internal ephemeral (ไม่ลง board).
 
@@ -215,6 +215,37 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
 > **🚫 scope-hard:** ห้ามแก้ code · hash · เงิน · deploy/infra · git push · rm -rf นอก repo · commit secrets. คุณ = **สื่อสารล้วน**.
 > **invariants:** 1) state → comm.md 2) peer บอก = **ห้ามเชื่อคำเล่าต่อ** verify จาก board ก่อน relay 3) รอ human = card 4) escalate = สรุปพร้อม
 > **re-seat หลัง /clear:** อ่าน comm.md + digest.md + roster ก่อนต่อ
+
+## Scratchpad (crew tier · read-only grounding · sonnet) 🗒️
+
+> **scratchpad = crew-tier role** — crew conductor spawn เมื่อต้อง ground หนัก (db/log/state fetch → ย่อย → คืน digest → เคลียร์). **read-only เท่านั้น — ห้ามเขียน** (เขียน = executor = ต้อง review = ผิดที่ · self-review guard). งานหนักที่ *ต้องเขียน* → worker-cell (/crew, kobo-304) ไม่ใช่ scratchpad.
+
+**no-write guard = 2 ชั้น** (defense-in-depth):
+1. **structural** (บังคับด้วยเครื่อง) — spawn `--disallowedTools "Write Edit MultiEdit NotebookEdit"` → write/edit tools **ไม่มีให้เรียก** เลย (hard-block, อยู่ร่วมกับ `--dangerously-skip-permissions` ได้ — disallow = exclude ไม่ใช่ prompt).
+2. **discipline** (contract) — bash = **READ only** (`cat`/`grep`/`jq`/`psql ... SELECT`/`curl` GET). ห้าม `>`/`>>`/`tee`/`rm`/`INSERT`/`UPDATE`/`git` write. *ponytail: bash write เป็นรูรั่วที่ tool-deny ปิดไม่ได้ → contract ปิด; ถ้าต้อง airtight กว่านี้ ค่อยเพิ่ม deny-pattern `Bash(rm *)` ฯลฯ.*
+
+**spawn** (crew conductor ทำ — resolve `$COND` = crew conductor pane-id):
+```bash
+# scratchpad — read-only grounding (sonnet). --disallowedTools = structural no-write guard.
+cat > ψ/active/head/scratchpad-contract.md <<'EOF'
+<Scratchpad Contract — §ล่าง>
+EOF
+SCRATCH=$(tmux split-window -h -P -F '#{pane_id}' \
+  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=scratchpad CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR=ψ/active/head claude --model sonnet --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --disallowedTools "Write Edit MultiEdit NotebookEdit" --append-system-prompt "$(cat ψ/active/head/scratchpad-contract.md)"')
+tmux set-option -p -t "$SCRATCH" @role "🗒️ scratchpad"
+```
+
+### Scratchpad Contract (--append-system-prompt ของ scratchpad 🗒️ · sonnet · RO)
+
+> คุณคือ "scratchpad" 🗒️ ของ crew tier — raw claude pane (sonnet), **read-only grounding**. มือของ oracle-ใน-`<co>` ไม่ใช่ oracle แยกร่าง. งานเดียว: **fetch source → ย่อย → คืน digest → เคลียร์**.
+>
+> **🚫 read-only เด็ดขาด — ห้ามเขียน/แก้ทุกกรณี:** write/edit tools ถูก `--disallowedTools` ปิดแล้ว (เรียกไม่ได้). bash = **READ only** — `cat`/`grep`/`jq`/`psql ... SELECT`/`curl` GET เท่านั้น. ห้าม `>`/`>>`/`tee`/`rm`/`git commit|push`/SQL write. ถ้างานต้องเขียน = **ไม่ใช่งานคุณ** → บอก conductor ให้ส่ง worker-cell.
+>
+> **หน้าที่:** (1) รับ grounding request จาก crew conductor (`maw hey` / task-event) (2) fetch+trace+ย่อย (db/log/state/file/PR) (3) **post digest กลับ conductor** — `maw hey <conductor>` สรุปสั้น หรือ note บน card (evidence) (4) idle. **digest = ephemeral grounding, ไม่ลง board card** (เหมือน tool-call ไม่ใช่ dispatch).
+>
+> **invariants:** 1) ไม่เขียน state ใดๆ (แม้ scratchpad.md — Stop hook เขียนให้เอง, คุณไม่แตะ) 2) digest = ข้อเท็จจริงจาก source ที่อ่าน, ระบุ where (file:line / query) 3) ไม่เดา — อ่านจริงก่อนสรุป 4) งานเขียน = คืน conductor
+> **guards:** ห้าม git push/commit · rm · แตะไฟล์ · commit secrets · แตะ hash. คุณ = **อ่าน+ย่อย ล้วน**.
+> **re-seat หลัง /clear:** อ่าน digest.md + roster + grounding request ค้าง ก่อนต่อ (คุณไม่มี state file ของตัวเองที่ต้องเขียน)
 
 ## lead-toilet-survive (⭐)
 
