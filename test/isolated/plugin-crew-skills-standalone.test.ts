@@ -216,6 +216,24 @@ describe("crew-skills global asset contract", () => {
     // opus top tier (299 AC — model-tier full mapping is sibling kobo-300)
     expect(head).toContain("--model opus");
   });
+
+  // kobo-300 — model tier: แพงบน-ถูกล่าง. head lead/conductor/reviewer = opus (judgment),
+  // comm = sonnet (relay, high-volume low-judgment — same as warroom). worker .3 caught A
+  // shipping comm=opus, off-spec; this pins comm sonnet so a regression can't slip back.
+  test("head comm spawns with --model sonnet, not opus (kobo-300 tier fix)", () => {
+    const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
+    // the comm spawn line uses sonnet
+    const commSpawn = head.split("\n").find((l) => l.includes("comm-contract.md") && l.includes("--model"));
+    expect(commSpawn).toBeDefined();
+    expect(commSpawn).toContain("--model sonnet");
+    expect(commSpawn).not.toContain("--model opus");
+    // no comm pane left on opus anywhere (roster row + contract heading)
+    expect(head).not.toContain("| comm       | %720    | opus");
+    expect(head).not.toContain("comm 📡 · opt-in · opus");
+    // full tier mapping table present (opus top · sonnet worker/scratchpad/comm)
+    expect(head).toContain("model tier (spawn)");
+    expect(head).toContain("worker×3 | **sonnet**");
+  });
 });
 
 describe("crew-skills sync", () => {

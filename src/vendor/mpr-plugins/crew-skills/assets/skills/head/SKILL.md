@@ -29,11 +29,20 @@ description: Spin up a /head strategic cell — top tier of the 3-tier operating
 | **lead** (.0) | opus | brief · ตัดสิน · merge-gate · คุย human | ไม่ทัก peer ตรง (delegate comm, ยกเว้น decision-gate) · ไม่ dispatch/สร้าง card เอง (→ brief conductor) |
 | **conductor 🎼** | opus | decompose (story-split→card) · route/dispatch · **light-exec เอง** (board-ops/doc/ψ) · offload heavy→crew/worker-cell | ไม่ทำ heavy code เอง · **ไม่ review งานตัวเอง** |
 | **reviewer 🔎** | opus | **review งานคนอื่น** (conductor light-exec · lower-tier PR) — correctness+scope · ตาอิสระ · ปลายทาง review chain ก่อน lead | **ไม่เขียนงานเอง** (เขียน=ตรวจงานตัวเอง=ห้าม) |
-| **comm 📡** (opt-in) | opus | peer/federation relay · รับ inbox/hey · escalate lead conclusion-ready | ไม่แตะ code/hash/เงิน/deploy · ไม่ decompose/review |
+| **comm 📡** (opt-in) | **sonnet** | peer/federation relay · รับ inbox/hey · escalate lead conclusion-ready | ไม่แตะ code/hash/เงิน/deploy · ไม่ decompose/review |
 
 **comm = opt-in** (ต่างจาก warroom ที่ spawn เสมอ): เพิ่ม comm pane **เมื่อ federation/peer traffic หนัก** (reliable ear, dnd-proof). ไม่มี traffic → 3 บทพอ, inbound มาที่ conductor/lead ผ่าน inbox+route.
 
-**model tier** — head roles ทั้งหมด spawn `--model opus` (top tier = judgment). tier mapping เต็ม (opus บน · sonnet worker/scratchpad ล่าง) = **kobo-300 refines** — ไฟล์นี้ตั้ง head=opus พอ.
+**model tier (spawn)** — `claude --model <alias>` per pane (CLI รับ alias `opus`/`sonnet`). **แพงบน-ถูกล่าง** (judgment บน · execute ล่าง):
+
+| tier | roles | model |
+|------|-------|-------|
+| head | lead · conductor · reviewer | **opus** (judgment: แผน/ตัดสิน/ตรวจ) |
+| crew | conductor · reviewer | **opus** (กรอง/ตรวจ = judgment) · scratchpad = **sonnet** |
+| worker cell | coordinator · worker×3 | **sonnet** (execute, ปริมาณมาก) |
+| comm 📡 (opt-in, any tier) | — | **sonnet** (relay ปริมาณมาก judgment ต่ำ → คุ้ม) |
+
+worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ตา opus (crew + head reviewer) กรอง (review chain ⭐). scratchpad RO = kobo-301 · worker-cell = /crew (kobo-304, sonnet อยู่แล้ว).
 
 **Kernel = /crew /warroom (validated kobo-89/91)** — spawn form, comm (resolve pane-id→index), roster, Stop hook, liveness, toilet/re-seat, teardown: **ใช้ crew SKILL §0-§9 ทั้งหมด**. ไฟล์นี้เขียนเฉพาะส่วนต่างของ head: 3-tier nesting + head cell (3 บท + comm opt-in) + review chain + additive migration.
 
@@ -67,7 +76,7 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
 ## Spawn (lead ทำครั้งเดียว — จากนั้น conductor+reviewer[+comm] คุมกันเอง)
 
 1. **company-gate + fresh-start** — ตาม crew §0 + §9.4 (`rm -f ψ/active/head/*.md` ก่อนเสมอ — spawn ซ้ำ = ล้างก่อน). crew §0 ตั้ง `$CO_NAME` (company name) → spawn ด้านล่างใช้ stamp `MAW_ROOM_COMPANY` (kobo-267 presence scope)
-2. **lead spawn conductor + reviewer [+comm ถ้า opt-in]** (raw panes, `--model opus`). conductor = ไม่มี worker hook · **reviewer** ใช้ crew-worker-settings (Stop hook idle → conductor):
+2. **lead spawn conductor + reviewer** (raw panes, `--model opus`) **[+comm ถ้า opt-in — `--model sonnet`]**. conductor = ไม่มี worker hook · **reviewer** ใช้ crew-worker-settings (Stop hook idle → conductor):
    ```bash
    LEAD=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_id}')
    # conductor — opus (contract-to-file แล้ว cat ตอน spawn — กัน backtick substitute)
@@ -82,12 +91,12 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
    EOF
    REV=$(tmux split-window -h -P -F '#{pane_id}' \
      'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=reviewer CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR=ψ/active/head claude --model opus --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/reviewer-contract.md)"')
-   # comm — OPT-IN: spawn เฉพาะเมื่อ federation/peer traffic หนัก
+   # comm — OPT-IN: spawn เฉพาะเมื่อ federation/peer traffic หนัก (sonnet — relay ปริมาณมาก judgment ต่ำ)
    cat > ψ/active/head/comm-contract.md <<'EOF'
    <Comm Contract — §ล่าง>
    EOF
    COMM=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/comm-contract.md)"')
+     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model sonnet --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/comm-contract.md)"')
    ```
 3. **kick conductor + reviewer [+comm]** — `maw hey` (resolve index จาก pane-id) 1 บรรทัดต่อ pane: ชี้ lead pane-id + role + standby. (kick แรก = act จาก message แรก, ตาม crew)
 4. **offload lower tiers** — conductor spawn crew/worker-cell เมื่อ offload (ดู §Tiers). worker-cell = /crew (kobo-304). head cell เอง ≤4 pane.
@@ -142,7 +151,7 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
 | lead       | %147    | opus   | —           | human  |
 | conductor  | %722    | opus   | conductor.md| active |
 | reviewer   | %728    | opus   | reviewer.md | review |
-| comm       | %720    | opus   | comm.md     | active/(opt-in) |
+| comm       | %720    | sonnet | comm.md     | active/(opt-in) |
 ```
 
 ## Conductor Contract (--append-system-prompt ของ conductor 🎼 · opus)
@@ -195,7 +204,7 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
 > **re-seat หลัง /clear:** อ่าน reviewer.md + roster + board (card ค้าง review) ก่อนต่อ
 > เริ่ม: หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → เขียน reviewer.md standby → รอ review request
 
-## Comm Contract (--append-system-prompt ของ comm 📡 · opt-in · opus)
+## Comm Contract (--append-system-prompt ของ comm 📡 · opt-in · sonnet)
 
 > คุณคือ "comm" 📡 ของ head cell — raw claude pane, **ช่องสื่อสาร peer/federation ของ lead** (spawn opt-in เมื่อ traffic หนัก). มือของ oracle-ใน-`<co>` ไม่ใช่ oracle แยกร่าง.
 >
