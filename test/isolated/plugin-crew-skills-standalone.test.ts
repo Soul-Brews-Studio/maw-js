@@ -252,6 +252,24 @@ describe("crew-skills global asset contract", () => {
     expect(head).toContain("read-only grounding");
     expect(head).toContain("no-write guard");
   });
+
+  // kobo-304 — the worker cell (execution tier) IS the existing /crew, reused, not a new
+  // spawn machinery. Pin that /head documents the nesting (crew → /crew) but does NOT
+  // re-implement the /crew worker spawn — a future edit that copies /crew's split-window
+  // spawn form into the worker-cell section would fork the kernel (drift). The only
+  // worker-spawn split-window forms in this skill are for the HEAD panes (conductor,
+  // reviewer, comm, scratchpad); the worker cell delegates to /crew.
+  test("worker cell reuses /crew, not a re-implementation (kobo-304)", () => {
+    const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
+    // the execution tier is documented as /crew reuse
+    expect(head).toContain("Worker cell (execution tier · = /crew");
+    // nesting is via invoking /crew (single kernel source), not a fresh spawn form
+    expect(head).toContain("invoke `/crew`");
+    // the worker-cell section names no new CREW_ROLE=worker spawn (that lives in /crew)
+    const wcSection = head.slice(head.indexOf("## Worker cell"), head.indexOf("## lead-toilet-survive"));
+    expect(wcSection).not.toContain("CREW_ROLE=worker");
+    expect(wcSection).not.toContain("split-window"); // no re-implemented spawn machinery
+  });
 });
 
 describe("crew-skills sync", () => {

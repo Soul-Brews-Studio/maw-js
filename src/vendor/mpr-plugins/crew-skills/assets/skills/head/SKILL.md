@@ -60,7 +60,7 @@ worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ต
 
 - **conductor light-exec เอง** — จบใน 1 เทิร์น + ผลเล็ก + ไม่ fetch/wait (board-op, ตัดสิน 1 บรรทัด, edit สั้น). ยังลง card (board ไม่โกหก).
 - **offload → crew tier** (coordination · opus: conductor · reviewer · scratchpad-RO [+comm]) — งานที่ต้องแตก+คุม+กรองก่อนถึงมือ execute. scratchpad(RO) grounding = **§Scratchpad** (fetch/trace หนัก → digest, no-write guard).
-- **offload → worker cell** (execution · sonnet, on-demand: coordinator + worker×3, /clear-after) = **/crew เดิม ตรงๆ** — heavy code / write / parallel. wiring = **kobo-304** (reuse /crew, ไม่ rebuild).
+- **offload → worker cell** (execution · sonnet, on-demand: coordinator + worker×3, /clear-after) = **/crew เดิม ตรงๆ** — heavy code / write / parallel. wiring = **§Worker cell** (reuse /crew, ไม่ rebuild).
 - **card = outcome/PR เท่านั้น** (1 card ≈ 1 PR). grounding/sub-fetch = internal ephemeral (ไม่ลง board).
 
 ## Lead Discipline (pane .0) — lead ห้ามทัก peer ตรง
@@ -99,7 +99,7 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
      'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model sonnet --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/comm-contract.md)"')
    ```
 3. **kick conductor + reviewer [+comm]** — `maw hey` (resolve index จาก pane-id) 1 บรรทัดต่อ pane: ชี้ lead pane-id + role + standby. (kick แรก = act จาก message แรก, ตาม crew)
-4. **offload lower tiers** — conductor spawn crew/worker-cell เมื่อ offload (ดู §Tiers). worker-cell = /crew (kobo-304). head cell เอง ≤4 pane.
+4. **offload lower tiers** — conductor spawn crew/worker-cell เมื่อ offload (ดู §Tiers · §Worker cell). worker-cell = /crew ตรงๆ. head cell เอง ≤4 pane.
 5. **layout** — **lead ใหญ่สุด (ล่างซ้าย)** · conductor + reviewer กลางเท่ากัน (ขวา) · comm (ถ้ามี) แถบบาง ~15% บนซ้ายเหนือ lead:
    ```bash
    tmux select-layout main-vertical            # lead main ซ้าย, ที่เหลือ stack ขวา (baseline)
@@ -246,6 +246,23 @@ tmux set-option -p -t "$SCRATCH" @role "🗒️ scratchpad"
 > **invariants:** 1) ไม่เขียน state ใดๆ (แม้ scratchpad.md — Stop hook เขียนให้เอง, คุณไม่แตะ) 2) digest = ข้อเท็จจริงจาก source ที่อ่าน, ระบุ where (file:line / query) 3) ไม่เดา — อ่านจริงก่อนสรุป 4) งานเขียน = คืน conductor
 > **guards:** ห้าม git push/commit · rm · แตะไฟล์ · commit secrets · แตะ hash. คุณ = **อ่าน+ย่อย ล้วน**.
 > **re-seat หลัง /clear:** อ่าน digest.md + roster + grounding request ค้าง ก่อนต่อ (คุณไม่มี state file ของตัวเองที่ต้องเขียน)
+
+## Worker cell (execution tier · = /crew ตรงๆ) ⚙️
+
+> **worker cell = `/crew` เดิม — reuse ไม่ rebuild.** ชั้นล่างสุด (execution): coordinator (front) + worker×3 (sonnet, on-demand, `/clear`-after). crew tier offload งาน *ที่ต้องเขียน/parallel* ลงมาที่นี่. เป็น **/crew ที่ validated แล้ว (kobo-89/91)** — head ไม่เขียน worker-cell ใหม่, เรียกใช้ /crew ตรงๆ.
+
+**nesting — crew conductor เรียก /crew เมื่อ offload:**
+- **เมื่อไหร่:** heavy code / write / parallel (เกณฑ์ offload §Tiers — "มัดมือ/บวม context"). grounding อ่านอย่างเดียว → scratchpad (RO) · งานเขียน → worker cell.
+- **ยังไง:** crew conductor spawn worker cell = **invoke `/crew`** (front pane + worker×N) ตาม crew SKILL §0-§9 — company-gate · spawn form · roster resolve-from-pane-id · Stop-hook idle→coordinator · toilet-per-pane · teardown. **ไม่มี spawn form ใหม่ในไฟล์นี้** — /crew เป็นเจ้าของ kernel นั้น (single source, กัน drift).
+- **front = coordinator ของ worker cell** (ไม่ใช่ crew conductor) — /crew front รับ dispatch → split → spawn worker → route → merge-gate ภายใน cell. crew conductor = ผู้ *เรียก* worker cell แล้วรับผลกลับ (ไม่ลงไปคุม worker เอง).
+- **model:** worker cell = **sonnet** (execution, kobo-300 tier) — /crew workers เป็น sonnet อยู่แล้ว, ไม่ต้อง override.
+- **lifecycle:** on-demand (เรียกเมื่อมีงาน) · `/clear`-after (worker ล้าง context เมื่อจบ, ephemeral) · cap ≤3 worker ต่อ cell (crew rule).
+
+**addressing (ข้ามชั้น):** worker cell = window ใหม่ (W3+). crew↔worker-cell คุยผ่าน `maw hey <session>:<window>.<pane>` (resolve สดจาก pane-id, ห้ามจำ index). หลายสายงาน = หลาย worker-cell window.
+
+**review chain:** worker (sonnet) → crew reviewer → head reviewer → lead. worker cell ส่ง PR/ผลขึ้น → crew reviewer กรองก่อน (คนทำ ≠ คนตรวจ). worker cell **ไม่ self-merge** (merge = lead/human).
+
+> **หลัก reuse:** worker cell ไม่ใช่ของใหม่ — คือ /crew ที่ nest ใต้ crew tier. แก้ /crew = worker cell ได้ประโยชน์ทันที (single kernel). head/crew เพิ่มแค่ *เมื่อไหร่เรียก* + *รับผลกลับยังไง* ไม่แตะ spawn machinery.
 
 ## lead-toilet-survive (⭐)
 
