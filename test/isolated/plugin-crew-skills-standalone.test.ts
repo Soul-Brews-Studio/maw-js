@@ -186,6 +186,36 @@ describe("crew-skills global asset contract", () => {
     const warroom = readFileSync(join(assetsDir, "skills/warroom/SKILL.md"), "utf8");
     expect(warroom).toContain("MAW_ROOM_COMPANY=");
   });
+
+  // kobo-299 — /head is the top tier of the 3-tier model (head→crew→worker). It ships
+  // additively alongside /crew + /warroom (cutover is kobo-303, LAST) and reuses the same
+  // spawn kernel — so the deadlock-critical invariants (global settings path, presence stamp,
+  // reviewer Stop-hook) must hold here too, and /warroom must stay shipped (not replaced).
+  test("head skill ships additively — is a synced item and /warroom is untouched (kobo-299)", () => {
+    expect(SYNC_ITEMS.find((i) => i.dest === "skills/head/SKILL.md")).toBeDefined();
+    // ADDITIVE: /warroom + /crew still ship — /head does not replace them (cutover is a later card)
+    expect(SYNC_ITEMS.find((i) => i.dest === "skills/warroom/SKILL.md")).toBeDefined();
+    expect(SYNC_ITEMS.find((i) => i.dest === "skills/crew/SKILL.md")).toBeDefined();
+  });
+
+  test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {
+    const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
+    // 3-role head cell: lead + conductor + reviewer, comm opt-in
+    expect(head).toContain("@role \"🎼 conductor\"");
+    expect(head).toContain("@role \"🔎 reviewer\"");
+    expect(head).toContain("@role \"👤 lead\"");
+    // reviewer is the Stop-hook worker (deadlock-critical global settings path, kobo-91/94)
+    expect(head).toContain('--settings "$HOME/.claude/crew-worker-settings.json"');
+    expect(head).not.toContain("--settings .claude/crew-worker-settings.json");
+    // reviewer writes to ψ/active/head/ — CREW_STATE_DIR must follow (kobo-95)
+    expect(head).toContain("CREW_STATE_DIR=ψ/active/head");
+    // presence scoping (kobo-267)
+    expect(head).toContain("MAW_ROOM_COMPANY=");
+    // review chain wired head-reviewer → lead (299 AC)
+    expect(head).toContain("worker → crew reviewer → head reviewer → lead");
+    // opus top tier (299 AC — model-tier full mapping is sibling kobo-300)
+    expect(head).toContain("--model opus");
+  });
 });
 
 describe("crew-skills sync", () => {

@@ -42,6 +42,7 @@ export interface SyncItem {
 export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/crew/SKILL.md", dest: "skills/crew/SKILL.md" },
   { src: "skills/warroom/SKILL.md", dest: "skills/warroom/SKILL.md" },
+  { src: "skills/head/SKILL.md", dest: "skills/head/SKILL.md" }, // kobo-299 — /head 3-tier strategic cell (additive; /warroom stays until cutover kobo-303)
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },
   { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via .maw/card-gate.json, kobo-200)
   { src: "hooks/seat-resume.sh", dest: "hooks/seat-resume.sh", exec: true }, // kobo-196 — auto-seat on SessionStart:clear (self-gates to warroom repos; wired into the oracle REPO's settings by ensureSeatResumeHook, never the user's global ~/.claude)
@@ -173,7 +174,7 @@ export function formatSyncResult(result: SyncResult): string {
   const verb = result.dryRun ? "would install" : "installed";
   const lines = [
     `${verb} crew skills → ${result.claudeDir}`,
-    `  /crew + /warroom skills, worker Stop hook, worker settings`,
+    `  /crew + /warroom + /head skills, worker Stop hook, worker settings`,
     `  ${verb}: ${result.installed.length} · up-to-date: ${result.skipped.length}`,
   ];
   for (const dest of result.installed) lines.push(`  + ${dest}`);
