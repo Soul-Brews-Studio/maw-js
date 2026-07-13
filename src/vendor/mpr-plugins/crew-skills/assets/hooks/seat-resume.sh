@@ -66,6 +66,13 @@ done
 # Clear the away-flag so hey delivers again (mirrors /seat step 2.5, silent).
 maw presence back >/dev/null 2>&1 || true
 
+# kobo-297 — surface the flip: `maw presence back` above is a silent background write,
+# so a human couldn't tell a /clear'd pane actually re-seated (vs stuck away). Print one
+# glanceable confirmation. Phrased as the resulting state (always true after `back`) —
+# seat-resume runs on every SessionStart(clear), not only when the pane was away, so it
+# does NOT falsely claim "was away". The persistent badge (maw-statusline.sh) shows away→online.
+echo -e "\x1b[32m● presence: online (auto-seated)\x1b[0m"
+
 echo "🪑 AUTO-SEAT (session start, role=${STEM}) — orient from your resume state below, continue your role; do NOT re-announce (flush, not clock-in). Run 'maw inbox status' for fresh inbox."
 echo
 cat "$FILE"

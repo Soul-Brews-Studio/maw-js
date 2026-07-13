@@ -35,8 +35,24 @@ ORACLE="${CLAUDE_AGENT_NAME:-}"
 # pane is excluded from a ?company= query, included host-wide).
 COMPANY="${MAW_ROOM_COMPANY:-}"
 
-# --- capture (guarded so it can never fault the statusline) ------------------
 PANE="${TMUX_PANE:-}"
+
+# --- presence badge (kobo-297): glanceable online/away, persistent every tick -----
+# A pane is "away" when its newest away/back worklog marker is `away` (maw presence
+# away/back, sticky kobo-287). Read it cheaply read-only: grep THIS pane's markers,
+# newest wins. Best-effort — no company / no file / no marker → online, and any error
+# is swallowed so the badge can never fault the statusline. Purely display: no presence
+# logic touched. seat-resume.sh flips away→online at boot; this shows the state at all times.
+BADGE=$'\x1b[32m● online\x1b[0m'
+if [ -n "$PANE" ] && [ -n "$COMPANY" ]; then
+  WL="${MAW_DATA_DIR:-$HOME/.maw}/companies/${COMPANY}/worklog.jsonl"
+  if [ -f "$WL" ]; then
+    LAST="$(grep -F "\"paneId\":\"$PANE\"" "$WL" 2>/dev/null | grep -oE '"kind":"(away|back)"' | tail -1)"
+    [ "$LAST" = '"kind":"away"' ] && BADGE=$'\x1b[33m○ away\x1b[0m'
+  fi
+fi
+
+# --- capture (guarded so it can never fault the statusline) ------------------
 if command -v jq >/dev/null 2>&1 && [ -n "$PANE" ]; then
   DIR="${MAW_DATA_DIR:-$HOME/.maw}/presence"
   if mkdir -p "$DIR" 2>/dev/null; then
@@ -74,6 +90,7 @@ DELEGATE_B64="${1:-}"
 if [ -n "$DELEGATE_B64" ]; then
   DELEGATE="$(printf '%s' "$DELEGATE_B64" | base64 -d 2>/dev/null)"
   if [ -n "$DELEGATE" ]; then
+    printf '%s ' "$BADGE" # kobo-297 — prefix the presence badge, then the user's line verbatim
     printf '%s' "$INPUT" | eval "$DELEGATE" # emit the original statusline verbatim
     exit 0
   fi
@@ -86,5 +103,5 @@ if command -v jq >/dev/null 2>&1; then
 else
   MODEL="?"; PCT="—"
 fi
-printf '%s · ctx %s · %s' "$MODEL" "$PCT" "$ORACLE"
+printf '%s · %s · ctx %s · %s' "$BADGE" "$MODEL" "$PCT" "$ORACLE" # kobo-297 — badge first
 exit 0

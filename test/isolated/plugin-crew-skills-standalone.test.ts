@@ -83,6 +83,9 @@ describe("crew-skills global asset contract", () => {
     // ("🎼 Conductor") — the stem MUST be lowercased or Conductor never matches conduct*.
     expect(hook).toContain("tr '[:upper:]' '[:lower:]'");
     expect(hook).toContain("conduct*"); // the capitalized-label role this fix rescues
+    // kobo-297 — auto-seat is observable: a visible boot-line right after `maw presence back`
+    // confirms the pane re-seated online (the flip was otherwise a silent background write).
+    expect(hook).toContain("presence: online (auto-seated)");
   });
 
   // kobo-174/200 — the lead card-gate hook ships as an executable global asset so an
