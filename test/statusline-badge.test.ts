@@ -64,3 +64,48 @@ describe("maw-statusline.sh presence badge (kobo-297)", () => {
     expect(out).not.toContain("○ away");
   });
 });
+
+// kobo-308 — a lead/originating pane isn't spawned with MAW_ROOM_COMPANY, so before the
+// registry fallback the badge guard skipped and showed "online" while the pane was away.
+// The badge now resolves the company from the registry (mirror companyOfOracleLight) when
+// the env is empty, so it reads the SAME worklog the away marker was written to.
+describe("maw-statusline.sh badge registry-fallback when MAW_ROOM_COMPANY is empty (kobo-308)", () => {
+  // Run the badge with NO MAW_ROOM_COMPANY in the env (a lead/originating pane).
+  function badgeNoCompany(lines: string[], registry?: unknown): string {
+    if (lines.length) {
+      writeFileSync(join(dataDir, "companies", COMPANY, "worklog.jsonl"), lines.join("\n") + "\n");
+    }
+    if (registry !== undefined) {
+      writeFileSync(join(dataDir, "companies", `${COMPANY}.json`), JSON.stringify(registry));
+    }
+    const env = { ...process.env, MAW_DATA_DIR: dataDir, TMUX_PANE: PANE, CLAUDE_AGENT_NAME: "patchwork" };
+    delete (env as Record<string, string | undefined>).MAW_ROOM_COMPANY; // the lead-pane condition
+    const res = spawnSync("bash", [SCRIPT], { input: STDIN, env, encoding: "utf-8" });
+    return res.stdout;
+  }
+
+  test("empty env + registry manager-match + away marker → ○ away (was blind before)", () => {
+    const out = badgeNoCompany([marker(PANE, "away")], { name: COMPANY, manager: "patchwork", departments: {} });
+    expect(out).toContain("○ away");
+    expect(out).not.toContain("● online");
+  });
+
+  test("empty env + registry dept-member-match + away marker → ○ away", () => {
+    const registry = { name: COMPANY, manager: "someone-else", departments: { core: { members: [{ oracle: "patchwork" }] } } };
+    const out = badgeNoCompany([marker(PANE, "away")], registry);
+    expect(out).toContain("○ away");
+    expect(out).not.toContain("● online");
+  });
+
+  test("empty env + NO registry match → ● online (fallback finds nothing, never faults)", () => {
+    const out = badgeNoCompany([marker(PANE, "away")], { name: COMPANY, manager: "not-me", departments: {} });
+    expect(out).toContain("● online");
+    expect(out).not.toContain("○ away");
+  });
+
+  test("empty env + registry match + back marker → ● online (sticky flip still honored)", () => {
+    const out = badgeNoCompany([marker(PANE, "away"), marker(PANE, "back")], { name: COMPANY, manager: "patchwork", departments: {} });
+    expect(out).toContain("● online");
+    expect(out).not.toContain("○ away");
+  });
+});
