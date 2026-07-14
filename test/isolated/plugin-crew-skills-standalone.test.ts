@@ -140,11 +140,11 @@ describe("crew-skills global asset contract", () => {
     expect(skill).not.toContain('set-option -p -t "$COORD" @role "🧭 coord"');
   });
 
-  // warroom's coord reads its own contract and spawns workers too — same global
-  // path requirement (kobo-94): a bare/relative --settings there re-opens the
+  // kobo-303 — /warroom hard-removed; /head is the coord skill that spawns workers now.
+  // Same global path requirement (kobo-94): a bare/relative --settings re-opens the
   // deadlock once local .claude/ copies are removed.
-  test("warroom skill has no cwd-relative crew-worker-settings reference", () => {
-    const skill = readFileSync(join(assetsDir, "skills/warroom/SKILL.md"), "utf8");
+  test("head skill has no cwd-relative crew-worker-settings reference", () => {
+    const skill = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
     expect(skill).toContain('--settings "$HOME/.claude/crew-worker-settings.json"');
     expect(skill).not.toContain("--settings .claude/crew-worker-settings.json");
     // no bare relative "crew-worker-settings.json" (only the $HOME-absolute form)
@@ -154,12 +154,11 @@ describe("crew-skills global asset contract", () => {
     }
   });
 
-  // kobo-95: warroom workers write to ψ/active/warroom/ — the hook state hint
-  // must follow via CREW_STATE_DIR, or a coord that trusts the hint reads the
-  // wrong path. Both halves must ship together or the parametrize is a no-op.
-  test("warroom spawn sets CREW_STATE_DIR and hook honors it", () => {
-    const warroom = readFileSync(join(assetsDir, "skills/warroom/SKILL.md"), "utf8");
-    expect(warroom).toContain("CREW_STATE_DIR=ψ/active/warroom");
+  // kobo-95/303 — /head reviewer+scratchpad write to ψ/active/head/ — the hook state hint
+  // must follow via CREW_STATE_DIR, or a coord that trusts the hint reads the wrong path.
+  test("head spawn sets CREW_STATE_DIR and hook honors it", () => {
+    const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
+    expect(head).toContain("CREW_STATE_DIR=ψ/active/head");
 
     const hook = readFileSync(join(assetsDir, "hooks/crew-worker-stop.sh"), "utf8");
     expect(hook).toContain("${CREW_STATE_DIR:-ψ/active/crew}/$CREW_ROLE.md");
@@ -179,23 +178,24 @@ describe("crew-skills global asset contract", () => {
   // §0 resolves) so the statusline self-describes company → /api/presence?company=
   // can scope. Drop the stamp and the pane silently falls out of its board's
   // presence query, so guard it here (this is a CI-only isolated content gate).
-  test("crew + warroom spawns stamp MAW_ROOM_COMPANY for presence scoping", () => {
+  test("crew + head spawns stamp MAW_ROOM_COMPANY for presence scoping", () => {
     const crew = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
     expect(crew).toContain("CO_NAME="); // company name resolved in §0
     expect(crew).toContain("MAW_ROOM_COMPANY=");
-    const warroom = readFileSync(join(assetsDir, "skills/warroom/SKILL.md"), "utf8");
-    expect(warroom).toContain("MAW_ROOM_COMPANY=");
+    const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
+    expect(head).toContain("MAW_ROOM_COMPANY=");
   });
 
-  // kobo-299 — /head is the top tier of the 3-tier model (head→crew→worker). It ships
-  // additively alongside /crew + /warroom (cutover is kobo-303, LAST) and reuses the same
-  // spawn kernel — so the deadlock-critical invariants (global settings path, presence stamp,
-  // reviewer Stop-hook) must hold here too, and /warroom must stay shipped (not replaced).
-  test("head skill ships additively — is a synced item and /warroom is untouched (kobo-299)", () => {
+  // kobo-303 CUTOVER — /head (3-tier) replaced /warroom, which is now hard-removed.
+  // /head + /crew ship; /warroom is neither a sync item nor an asset file. The seat-resume
+  // hook KEEPS its warroom-dir support (asserted above) so any still-running warroom pane
+  // survives the skill removal — the skill file is gone, the runtime survival path is not.
+  test("head + crew ship; /warroom is fully removed (kobo-303 cutover)", () => {
     expect(SYNC_ITEMS.find((i) => i.dest === "skills/head/SKILL.md")).toBeDefined();
-    // ADDITIVE: /warroom + /crew still ship — /head does not replace them (cutover is a later card)
-    expect(SYNC_ITEMS.find((i) => i.dest === "skills/warroom/SKILL.md")).toBeDefined();
     expect(SYNC_ITEMS.find((i) => i.dest === "skills/crew/SKILL.md")).toBeDefined();
+    // /warroom hard-removed: no sync item, no asset file
+    expect(SYNC_ITEMS.find((i) => i.dest === "skills/warroom/SKILL.md")).toBeUndefined();
+    expect(existsSync(join(assetsDir, "skills/warroom/SKILL.md"))).toBe(false);
   });
 
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {

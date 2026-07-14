@@ -1,12 +1,17 @@
 /**
- * crew-skills sync — install the canonical /crew + /warroom skills and the
+ * crew-skills sync — install the canonical /crew + /head skills and the
  * worker Stop hook into a home `.claude` tree.
  *
  * One canonical copy lives in this plugin's assets/. Installing globally into
  * ~/.claude/skills + ~/.claude/hooks means every oracle picks up /crew +
- * /warroom (and the worker Stop hook) from the maw upgrade — no per-oracle
+ * /head (and the worker Stop hook) from the maw upgrade — no per-oracle
  * copy to drift. The worker settings + hook use $HOME-absolute paths so the
  * spawn contract works from any oracle's cwd.
+ *
+ * kobo-303 — /warroom was hard-removed (migrated → /head 3-tier). The
+ * seat-resume.sh hook KEEPS its warroom-dir (ψ/active/warroom) support so any
+ * still-running warroom pane survives the skill-file removal (its contract is
+ * baked via --append-system-prompt, re-seat reads state files, not the skill).
  *
  * Pure node:fs so the standalone boundary stays trivial to assert.
  */
@@ -41,8 +46,7 @@ export interface SyncItem {
 /** Canonical asset → global .claude layout. */
 export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/crew/SKILL.md", dest: "skills/crew/SKILL.md" },
-  { src: "skills/warroom/SKILL.md", dest: "skills/warroom/SKILL.md" },
-  { src: "skills/head/SKILL.md", dest: "skills/head/SKILL.md" }, // kobo-299 — /head 3-tier strategic cell (additive; /warroom stays until cutover kobo-303)
+  { src: "skills/head/SKILL.md", dest: "skills/head/SKILL.md" }, // kobo-299 — /head 3-tier strategic cell (kobo-303: replaced /warroom, hard-removed)
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },
   { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via .maw/card-gate.json, kobo-200)
   { src: "hooks/seat-resume.sh", dest: "hooks/seat-resume.sh", exec: true }, // kobo-196 — auto-seat on SessionStart:clear (self-gates to warroom repos; wired into the oracle REPO's settings by ensureSeatResumeHook, never the user's global ~/.claude)
@@ -174,7 +178,7 @@ export function formatSyncResult(result: SyncResult): string {
   const verb = result.dryRun ? "would install" : "installed";
   const lines = [
     `${verb} crew skills → ${result.claudeDir}`,
-    `  /crew + /warroom + /head skills, worker Stop hook, worker settings`,
+    `  /crew + /head skills, worker Stop hook, worker settings`,
     `  ${verb}: ${result.installed.length} · up-to-date: ${result.skipped.length}`,
   ];
   for (const dest of result.installed) lines.push(`  + ${dest}`);

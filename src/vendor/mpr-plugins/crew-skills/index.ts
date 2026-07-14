@@ -1,5 +1,5 @@
 /**
- * maw crew-skills — install/refresh the global /crew + /warroom skills and the
+ * maw crew-skills — install/refresh the global /crew + /head skills and the
  * worker Stop hook in ~/.claude.
  *
  *   maw crew-skills            → sync (install/refresh)
@@ -14,7 +14,7 @@ import { formatSyncResult, syncCrewSkills } from "./sync";
 export const command = {
   name: "crew-skills",
   description:
-    "Install/refresh the global /crew + /warroom skills and worker Stop hook in ~/.claude.",
+    "Install/refresh the global /crew + /head skills and worker Stop hook in ~/.claude.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {

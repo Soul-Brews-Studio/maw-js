@@ -1,12 +1,12 @@
 ---
 name: head
-description: Spin up a /head strategic cell — top tier of the 3-tier operating model (head → crew → worker). head = lead(opus,human) · conductor(opus,decompose→route→light-exec) · reviewer(opus,ตาอิสระ) [+comm opt-in]. ทุก teammate = raw pane อิสระ → lead toilet/clear ได้ ทีมไม่ตาย. kernel เดียวกับ /crew /warroom (validated kobo-89/91). ADDITIVE — /warroom ยังอยู่จนกว่า cutover. Use when user says "/head", "เปิด head", "3-tier", or wants a strategic cell (lead + conductor + reviewer) at the top of a head→crew→worker hierarchy.
+description: Spin up a /head strategic cell — top tier of the 3-tier operating model (head → crew → worker). head = lead(opus,human) · conductor(opus,decompose→route→light-exec) · reviewer(opus,ตาอิสระ) [+comm opt-in]. ทุก teammate = raw pane อิสระ → lead toilet/clear ได้ ทีมไม่ตาย. kernel เดียวกับ /crew (validated kobo-89/91). /head = canonical (แทน /warroom เดิม, kobo-303). Use when user says "/head", "เปิด head", "3-tier", or wants a strategic cell (lead + conductor + reviewer) at the top of a head→crew→worker hierarchy.
 ---
 
 # /head — lead(.0) | conductor 🎼 | reviewer 🔎 [+comm 📡 opt-in] (raw engine panes)
 
 > **3-tier operating model** (grill+lock Tony 2026-07-13→14, room "skill-worker-crew"). `/head` = **top tier** — strategic, opus. งานไหลลง (สั่ง) · ผลไหลขึ้น (ตรวจทีละชั้น) · model เล็กลงตามลงล่าง.
-> **ADDITIVE:** `/head` เกิดข้าง `/warroom` ที่รันอยู่ — **ห้ามแตะ/ลบ /warroom** จนกว่า cutover card (kobo-303, LAST). ทั้งคู่ coexist.
+> **canonical:** `/head` แทน `/warroom` เดิม (cutover kobo-303) — strategic cell มาตรฐานตัวเดียว. /crew (execution) + /head (strategic) = 2 skill ที่เหลือ.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -44,7 +44,7 @@ description: Spin up a /head strategic cell — top tier of the 3-tier operating
 
 worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ตา opus (crew + head reviewer) กรอง (review chain ⭐). scratchpad RO = **§Scratchpad** (read-only grounding, no-write guard) · worker-cell = /crew (kobo-304, sonnet อยู่แล้ว).
 
-**Kernel = /crew /warroom (validated kobo-89/91)** — spawn form, comm (resolve pane-id→index), roster, Stop hook, liveness, toilet/re-seat, teardown: **ใช้ crew SKILL §0-§9 ทั้งหมด**. ไฟล์นี้เขียนเฉพาะส่วนต่างของ head: 3-tier nesting + head cell (3 บท + comm opt-in) + review chain + additive migration.
+**Kernel = /crew (validated kobo-89/91)** — spawn form, comm (resolve pane-id→index), roster, Stop hook, liveness, toilet/re-seat, teardown: **ใช้ crew SKILL §0-§9 ทั้งหมด**. ไฟล์นี้เขียนเฉพาะส่วนต่างของ head: 3-tier nesting + head cell (3 บท + comm opt-in) + review chain.
 
 ## Review chain (self-review guard) ⭐
 
@@ -307,11 +307,11 @@ Tony/lead ต้องเห็นหรือตอบ → card บน board. *
 ตาม crew §9 (path head/): pane เขียน state → kill reviewer+conductor[+comm] panes → **`maw route rm task-events`** → `rm -f ψ/active/head/*.md` → card ค้าง done/archive.
 > ⚠️ **rm route ตอน teardown บังคับ** (kobo-121 stale-route debt).
 
-## Migration (warroom → head) — additive-then-cutover ⚠️
-> **/head เกิดข้าง /warroom — ห้าม break /warroom ที่รันอยู่.** additive: (1) /head ใหม่ (3-tier) ข้าง /warroom (ไฟล์นี้) (2) verify /head spawn+dogfood (kobo-302) (3) cutover: /warroom → alias หรือ deprecate-notice + remove (kobo-303, LAST, คนละ deploy). **อย่า delete-first.**
+## Migration (warroom → head) — DONE ✅
+> /warroom migrated → /head (cutover kobo-303, hard-removed). /head = canonical strategic cell. ทำแบบ additive-then-cutover: /head พิสูจน์ live+dogfood (kobo-302) ก่อน แล้วค่อยลบ /warroom (คนละ deploy) — running instance รอดเพราะ contract baked ใน `--append-system-prompt` + re-seat อ่าน state files ไม่ใช่ skill.
 
 ## Reuse
-kernel = /crew /warroom เดิม (spawn form, roster resolve-from-pane-id, Stop-hook, toilet-per-pane, teardown, inbound-route). /head เขียนเฉพาะส่วนต่าง: 3-tier nesting + head cell (3 บท + comm opt-in) + review chain + additive migration. worker cell = /crew ตรงๆ (kobo-304).
+kernel = /crew เดิม (spawn form, roster resolve-from-pane-id, Stop-hook, toilet-per-pane, teardown, inbound-route). /head เขียนเฉพาะส่วนต่าง: 3-tier nesting + head cell (3 บท + comm opt-in) + review chain. worker cell = /crew ตรงๆ.
 
 ---
 
