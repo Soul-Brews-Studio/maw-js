@@ -43,12 +43,16 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     expect(messageInRoom(undefined, "demo")).toBe(false);
   });
 
-  test("roomNudgeArgs is PLAIN/UNTAGGED — no [room:<id>] so the listener can't re-capture it (kobo-260)", () => {
+  test("roomNudgeArgs is PLAIN/UNTAGGED + queue-on-away — reaches an away lead on /seat (kobo-260/306)", () => {
     const args = roomNudgeArgs("demo", "eq3", "web");
     expect(args.slice(0, 3)).toEqual(["hey", "--from", "web:web"]); // still web-attributed (kobo-248)
-    expect(args[3]).toBe("eq3"); // to the lead
-    expect(args[4]).not.toContain("[room:"); // NO tag → the room feed listener ignores it (no self-echo)
-    expect(args[4]).toContain("demo"); // but still tells the lead which room
+    // kobo-306 — the nudge opts into queue-on-away so an away lead still learns of the turn on return
+    expect(args).toContain("--queue-on-away");
+    const to = args[args.length - 2];
+    const msg = args[args.length - 1];
+    expect(to).toBe("eq3"); // to the lead
+    expect(msg).not.toContain("[room:"); // NO tag → the room feed listener ignores it (no self-echo)
+    expect(msg).toContain("demo"); // but still tells the lead which room
   });
 
   test("POST /api/room/send nudges the lead with an UNTAGGED hey (kobo-260 — no self-echo)", async () => {
@@ -58,8 +62,10 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
     expect(calls).toHaveLength(1);
-    expect(calls[0].slice(0, 4)).toEqual(["hey", "--from", "web:web", "eq3"]); // one nudge to the lead
-    expect(calls[0][4]).not.toContain("[room:"); // untagged
+    expect(calls[0].slice(0, 3)).toEqual(["hey", "--from", "web:web"]); // one nudge to the lead
+    expect(calls[0]).toContain("--queue-on-away"); // kobo-306 — reaches an away lead on /seat
+    expect(calls[0][calls[0].length - 2]).toBe("eq3"); // to the lead
+    expect(calls[0][calls[0].length - 1]).not.toContain("[room:"); // untagged message
   });
 
   test("missing room/to/text → 400; bad JSON → 400 (no spawn)", async () => {
@@ -99,7 +105,7 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     const msgs = readRoom("kobo", "r")!.messages;
     expect(msgs).toHaveLength(1);
     expect(msgs[0].from).toBe("web");
-    expect(calls[0][4]).not.toContain("[room:"); // proves the nudge carries no tag to re-capture
+    expect(calls[0][calls[0].length - 1]).not.toContain("[room:"); // proves the nudge carries no tag to re-capture
   });
 
   test("Rule-6: the web side can't send AS a company oracle (no impersonating a teammate)", async () => {

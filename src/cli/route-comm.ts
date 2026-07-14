@@ -86,6 +86,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     let approve = false;
     let trust = false;
     let noVerifySubmit = false;
+    let queueOnAway = false; // kobo-306 — room nudge: queue for /seat-return delivery if away
     let from: string | undefined;
     let channel: string | undefined;
     let target: string | undefined;
@@ -98,6 +99,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       if (arg === "--approve") { approve = true; continue; }
       if (arg === "--trust") { trust = true; continue; }
       if (arg === "--no-verify-submit") { noVerifySubmit = true; continue; }
+      if (arg === "--queue-on-away") { queueOnAway = true; continue; } // kobo-306
       // kobo-36 — logical channel; delivery consults the target's channel→pane map.
       if (arg === "--channel") {
         if (!rest[i + 1] || rest[i + 1].startsWith("--")) {
@@ -219,7 +221,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       }
     }
 
-    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(from ? { from } : {}), ...(channel ? { channel } : {}) });
+    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(queueOnAway ? { queueOnAway } : {}), ...(from ? { from } : {}), ...(channel ? { channel } : {}) });
     return true;
   }
 

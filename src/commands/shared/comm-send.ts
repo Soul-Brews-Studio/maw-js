@@ -628,6 +628,16 @@ export interface CmdSendOptions {
    * instead of the default main pane. Unset → default pane behavior.
    */
   channel?: string;
+  /**
+   * kobo-306 — when the target pane is AWAY, queue the message for auto-delivery
+   * on return (via the dispatch bridge) instead of parking it to a silent inbox.
+   * Scoped opt-in for the room nudge (route.ts roomNudgeArgs): a brainstorm turn
+   * must reach an away lead the moment they /seat back, not sit unseen in the
+   * inbox (kobo-305). Default (unset) preserves the deliberate away≠busy park —
+   * a plain hey to an away oracle is NOT auto-delivered (could overtype a
+   * /clear'ing pane, kobo-288). Only the room channel opts in.
+   */
+  queueOnAway?: boolean;
 }
 
 /** @internal — exported for test injection only. */
@@ -1157,6 +1167,24 @@ export async function cmdSend(
     // trailing -oracle. This is the oracle whose worklog carries the away/back events.
     const awayOracle = extractPaneOracle(query).replace(/-oracle$/i, "");
     if (isPaneAway(awayOracle, targetPaneId)) {
+      // kobo-306 — the room nudge opts in (--queue-on-away): an away lead must still
+      // learn of a new brainstorm turn, auto-delivered when they /seat back. Queue it
+      // on the dispatch bridge (like the busy path) so DispatchEngine delivers on the
+      // next busy→ready transition after return — instead of parking to a silent (and,
+      // per kobo-305, sometimes failing) inbox. Scoped: only this flag changes the away
+      // path; a plain hey to an away oracle still parks (away≠busy, kobo-288 unchanged).
+      if (opts.queueOnAway) {
+        queueForDispatch({ from: `${config.node ?? "local"}:${senderName}`, to: query, target, message: outboundMessage });
+        const inbox = await writeReceiverInbox(target);
+        const reason = `'${awayOracle}' is away — queued for auto-delivery on their /seat`;
+        if (logQueuedInbox(inbox, target, reason)) {
+          await notifyQueuedInbox(inbox, target, reason);
+          return;
+        }
+        // Queue holds it even if the inbox write failed → not a silent drop; report truthfully.
+        console.log(`\x1b[33mqueued\x1b[0m '${awayOracle}' is away — will auto-deliver when they /seat back`);
+        return;
+      }
       const inbox = await writeReceiverInbox(target);
       const reason = `'${awayOracle}' is away (stepped out) — parked to inbox, delivered on their /seat`;
       if (logQueuedInbox(inbox, target, reason)) return; // sender-side notice + feed; NO pane injection

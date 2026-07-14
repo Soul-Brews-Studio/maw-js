@@ -53,7 +53,11 @@ export function roomSender(from: string | undefined): string {
  * attributed to the host oracle.
  */
 export function roomNudgeArgs(room: string, to: string, from = "web"): string[] {
-  return ["hey", "--from", roomSender(from), to, `💬 new turn in room "${room}" — open the brainstorm room to reply`];
+  // kobo-306 — --queue-on-away: if the lead pane is away (sticky, kobo-287), queue the
+  // nudge for auto-delivery when they /seat back instead of dropping it to a silent (and
+  // sometimes failing) inbox. A brainstorm turn is informational + the human is at the web,
+  // so an away lead must still learn of it on return (kobo-305 root cause).
+  return ["hey", "--from", roomSender(from), "--queue-on-away", to, `💬 new turn in room "${room}" — open the brainstorm room to reply`];
 }
 
 export type SpawnFn = (argv: string[]) => { exited: Promise<number> };

@@ -103,7 +103,7 @@ const origSshTty = process.env.SSH_TTY;
 
 const { cmdSend } = await import("../src/commands/shared/comm-send");
 
-async function runCmd(inbox?: () => ReceiverInboxResult) {
+async function runCmd(inbox?: () => ReceiverInboxResult, extraOpts: Partial<Parameters<typeof cmdSend>[3]> = {}) {
   console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
   console.error = (...args: unknown[]) => { errs.push(args.map(String).join(" ")); };
   (process as unknown as { exit: (code?: number) => never }).exit = (code?: number): never => {
@@ -113,6 +113,7 @@ async function runCmd(inbox?: () => ReceiverInboxResult) {
   try {
     await cmdSend("oracle", "hello", false, {
       noVerifySubmit: true,
+      ...extraOpts,
       receiverInbox: async () => {
         order.push("receiverInbox");
         return inbox ? inbox() : { ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" };
@@ -209,6 +210,42 @@ describe("cmdSend away-gate park failure (kobo-288 silent-drop + log-lie)", () =
 
     expect(exitCode).toBeUndefined();
     expect(errs).toEqual([]);
+    expect(logs.join("\n")).toContain("queued");
+    expect(order).not.toContain("sendKeys");
+  });
+});
+
+// kobo-306 — a room nudge (--queue-on-away) to an away lead must NOT drop: it queues for
+// auto-delivery on /seat. Unlike a plain hey to an away oracle (park-inbox-only, above), the
+// queueOnAway path survives even an inbox park FAILURE (the dispatch queue holds it), so it
+// is never the silent drop kobo-305 diagnosed.
+describe("cmdSend queue-on-away (kobo-306 room nudge to away lead)", () => {
+  test("away + queueOnAway + park ok → queued for /seat return, no error, no injection", async () => {
+    paneAway = true;
+
+    await runCmd(
+      () => ({ ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" }),
+      { queueOnAway: true },
+    );
+
+    expect(exitCode).toBeUndefined();       // not a drop, not an error
+    expect(errs).toEqual([]);
+    expect(logs.join("\n")).toContain("queued");
+    expect(order).not.toContain("sendKeys"); // still no live overtype of an away pane
+  });
+
+  test("away + queueOnAway + park FAILS → still queued (not the kobo-305 silent drop / exit-1)", async () => {
+    paneAway = true;
+
+    await runCmd(
+      () => ({ ok: false, oracle: "oracle", reason: "receiver repo not found for oracle" }),
+      { queueOnAway: true },
+    );
+
+    // The dispatch queue holds the nudge, so a failed inbox park is NOT fatal here —
+    // contrast the plain away path (above) which exits 1 on the same park failure.
+    expect(exitCode).toBeUndefined();
+    expect(errs.join("\n")).not.toContain("message NOT delivered");
     expect(logs.join("\n")).toContain("queued");
     expect(order).not.toContain("sendKeys");
   });
