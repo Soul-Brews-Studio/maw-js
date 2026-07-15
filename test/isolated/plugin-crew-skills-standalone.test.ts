@@ -74,6 +74,7 @@ describe("crew-skills global asset contract", () => {
     expect(hook).toContain("$STEM.md"); // crew's role-named file (worker-1.md)
     expect(hook).toContain("lead-handoff.md"); // eq3 fix + warroom special name
     expect(hook).toContain("ψ/active/crew"); // seats the crew layout too (patchwork dogfood)
+    expect(hook).toContain("ψ/active/worker"); // kobo-316: worker fallback dir
     expect(hook).toContain("exit 0"); // solo-safe guards (no dir / no role → silent)
     // kobo-269 fix: when no CREW_STATE_DIR, search BOTH dirs and let the dir that HOLDS the
     // role file win — an empty leftover crew/ must not shadow a populated warroom/ (lead no-seat).
@@ -187,15 +188,41 @@ describe("crew-skills global asset contract", () => {
   });
 
   // kobo-303 CUTOVER — /head (3-tier) replaced /warroom, which is now hard-removed.
-  // /head + /crew ship; /warroom is neither a sync item nor an asset file. The seat-resume
+  // /head + /crew + /worker ship; /warroom is neither a sync item nor an asset file. The seat-resume
   // hook KEEPS its warroom-dir support (asserted above) so any still-running warroom pane
   // survives the skill removal — the skill file is gone, the runtime survival path is not.
-  test("head + crew ship; /warroom is fully removed (kobo-303 cutover)", () => {
+  test("head + crew + worker ship; /warroom is fully removed (kobo-303 cutover)", () => {
     expect(SYNC_ITEMS.find((i) => i.dest === "skills/head/SKILL.md")).toBeDefined();
     expect(SYNC_ITEMS.find((i) => i.dest === "skills/crew/SKILL.md")).toBeDefined();
+    expect(SYNC_ITEMS.find((i) => i.dest === "skills/worker/SKILL.md")).toBeDefined(); // kobo-316
     // /warroom hard-removed: no sync item, no asset file
     expect(SYNC_ITEMS.find((i) => i.dest === "skills/warroom/SKILL.md")).toBeUndefined();
     expect(existsSync(join(assetsDir, "skills/warroom/SKILL.md"))).toBe(false);
+  });
+
+  // kobo-316 — /worker = self-invoked leaf execution (no spawn). Ships as a SYNC_ITEM so any
+  // oracle can invoke /worker to declare itself as a worker without being spawned by a coordinator.
+  // Key invariants: state-dir at ψ/active/worker, pings coordinator on ready, re-seats on /clear,
+  // never spawns sub-panes (leaf).
+  test("worker skill is a synced asset with correct key content (kobo-316)", () => {
+    const item = SYNC_ITEMS.find((i) => i.dest === "skills/worker/SKILL.md");
+    expect(item).toBeDefined();
+    const skill = readFileSync(join(assetsDir, "skills/worker/SKILL.md"), "utf8");
+    // self-invoked: oracle declares itself worker (not spawned from above)
+    expect(skill).toContain("self-invoked");
+    expect(skill).toContain("leaf");
+    // state dir default
+    expect(skill).toContain("ψ/active/worker");
+    // pings coordinator ready
+    expect(skill).toContain("worker ready");
+    // re-seat via seat-resume.sh
+    expect(skill).toContain("seat-resume");
+    // no spawn (leaf invariant)
+    expect(skill).toContain("NO children");
+    // card-lifecycle: worker drives state, never self-closes
+    expect(skill).toContain("move card review");
+    // no run_in_background guard (worker contract)
+    expect(skill).toContain("run_in_background");
   });
 
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {

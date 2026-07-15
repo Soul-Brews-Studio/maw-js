@@ -29,8 +29,9 @@ if [ -n "${CREW_STATE_DIR:-}" ]; then
 else
   [ -d "$ROOT/ψ/active/crew" ]    && DIRS="$DIRS $ROOT/ψ/active/crew"
   [ -d "$ROOT/ψ/active/warroom" ] && DIRS="$DIRS $ROOT/ψ/active/warroom"
+  [ -d "$ROOT/ψ/active/worker" ]  && DIRS="$DIRS $ROOT/ψ/active/worker"
 fi
-[ -n "$DIRS" ] || exit 0   # not a crew/warroom repo → nothing to seat (solo-safe).
+[ -n "$DIRS" ] || exit 0   # not a crew/warroom/worker repo → nothing to seat (solo-safe).
 
 # Role: prefer CREW_ROLE env (same signal the Stop hook uses), else the durable tmux @role.
 ROLE="${CREW_ROLE:-}"
