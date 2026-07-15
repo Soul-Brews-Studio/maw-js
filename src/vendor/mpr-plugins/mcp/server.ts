@@ -23,14 +23,26 @@ import {
   type SpawnFn,
 } from "./tools";
 import { inlineImages, defaultInlineImagesDeps } from "./inline-images";
+import {
+  roomRead,
+  roomReply,
+  roomMerge,
+  roomClose,
+  roomOpen,
+  defaultRoomClientDeps,
+  type RoomClientDeps,
+} from "./room-client";
 
 export interface BuildOptions {
   /** Injectable spawn (default Bun.spawn via runMaw). Mostly for tests. */
   spawn?: SpawnFn;
+  /** Injectable room HTTP client deps (default live fetch). */
+  roomDeps?: RoomClientDeps;
 }
 
 export function buildServer(opts: BuildOptions = {}): McpServer {
   const { spawn } = opts;
+  const rd = opts.roomDeps ?? defaultRoomClientDeps();
   const server = new McpServer({ name: "maw", version: "0.1.0" });
   // Wrap each handler so a thrown mapper error becomes a clean MCP error
   // result instead of crashing the server.
@@ -192,6 +204,102 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
       },
     },
     async (input) => guard(() => taskArgs(input)),
+  );
+
+  // ── room tools — thin HTTP wrappers (no subprocess) ──────────────────────────
+
+  server.registerTool(
+    "maw_room_read",
+    {
+      title: "Read a brainstorm room thread",
+      description:
+        "GET /api/room/thread — returns the persisted room artifact (messages[], topic, status). " +
+        "Use this to read the full conversation of a room.",
+      inputSchema: {
+        company: z.string().describe("company the room belongs to"),
+        room: z.string().describe("room id"),
+      },
+    },
+    async ({ company, room }): Promise<CallToolResult> => {
+      const r = await roomRead({ company, room }, rd);
+      return { content: [{ type: "text", text: r.text }], ...(r.ok ? {} : { isError: true }) };
+    },
+  );
+
+  server.registerTool(
+    "maw_room_reply",
+    {
+      title: "Reply into a brainstorm room",
+      description:
+        "POST /api/room/reply — write an oracle reply directly into the room artifact. " +
+        "`from` must be a verified oracle of the room (Rule-6 enforced server-side).",
+      inputSchema: {
+        company: z.string().describe("company the room belongs to"),
+        room: z.string().describe("room id"),
+        from: z.string().describe("the oracle replying (bare name, e.g. eq3)"),
+        text: z.string().describe("reply text"),
+      },
+    },
+    async ({ company, room, from, text }): Promise<CallToolResult> => {
+      const r = await roomReply({ company, room, from, text }, rd);
+      return { content: [{ type: "text", text: r.text }], ...(r.ok ? {} : { isError: true }) };
+    },
+  );
+
+  server.registerTool(
+    "maw_room_merge",
+    {
+      title: "Merge rooms into a target",
+      description:
+        "POST /api/room/merge — consolidate one or more source rooms INTO a target room. " +
+        "Sources are archived (never deleted). Calling this tool IS the confirmation (confirm:true is forwarded automatically).",
+      inputSchema: {
+        company: z.string().describe("company the rooms belong to"),
+        target: z.string().describe("target room id (absorbs sources)"),
+        sources: z.array(z.string()).min(1).describe("source room ids to merge into target"),
+      },
+    },
+    async ({ company, target, sources }): Promise<CallToolResult> => {
+      const r = await roomMerge({ company, target, sources }, rd);
+      return { content: [{ type: "text", text: r.text }], ...(r.ok ? {} : { isError: true }) };
+    },
+  );
+
+  server.registerTool(
+    "maw_room_close",
+    {
+      title: "Close a brainstorm room",
+      description:
+        "POST /api/room/close — mark a room closed (thread preserved, reopenable). " +
+        "Use when a room's topic is resolved.",
+      inputSchema: {
+        company: z.string().describe("company the room belongs to"),
+        room: z.string().describe("room id to close"),
+      },
+    },
+    async ({ company, room }): Promise<CallToolResult> => {
+      const r = await roomClose({ company, room }, rd);
+      return { content: [{ type: "text", text: r.text }], ...(r.ok ? {} : { isError: true }) };
+    },
+  );
+
+  server.registerTool(
+    "maw_room_open",
+    {
+      title: "Open (create or reopen) a brainstorm room",
+      description:
+        "POST /api/room/open — create a new room or reopen a closed one (idempotent; keeps existing thread). " +
+        "The room is always scoped to a company.",
+      inputSchema: {
+        company: z.string().describe("company to open the room under"),
+        room: z.string().describe("room id"),
+        topic: z.string().optional().describe("short topic/title for the room"),
+      },
+    },
+    async ({ company, room, topic }): Promise<CallToolResult> => {
+      const r = await roomOpen({ company, room, topic }, rd);
+      return { content: [{ type: "text", text: r.text }], ...(r.ok ? {} : { isError: true }) };
+    },
   );
 
   // Unlike the other tools, this one resolves IN-PROCESS (no `maw` subprocess):

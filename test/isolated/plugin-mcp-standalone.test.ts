@@ -46,12 +46,24 @@ function depsFrom(
 
 describe("mcp plugin standalone boundary (#2113)", () => {
   test("plugin sources import runtime deps only through maw-js/sdk", () => {
-    for (const rel of ["index.ts", "plugin.ts", "server.ts", "tools.ts", "inline-images.ts"]) {
+    for (const rel of ["index.ts", "plugin.ts", "server.ts", "tools.ts", "inline-images.ts", "room-client.ts"]) {
       const source = readFileSync(join(root, MCP_DIR, rel), "utf8");
       expect(source).not.toMatch(/maw-js\/(?:core|commands\/shared|cli|config|lib|plugin)(?:\/|")/);
     }
-    // inline-images reaches config via the SDK boundary, not a deep import.
+    // inline-images and room-client reach config via the SDK boundary, not a deep import.
     expect(readFileSync(join(root, MCP_DIR, "inline-images.ts"), "utf8")).toContain('from "maw-js/sdk"');
+    expect(readFileSync(join(root, MCP_DIR, "room-client.ts"), "utf8")).toContain('from "maw-js/sdk"');
+  });
+
+  // kobo-315: 5 room MCP tools (thin HTTP wrappers over existing room endpoints).
+  test("server registers all 5 maw_room_* tools via room-client", () => {
+    const server = readFileSync(join(root, MCP_DIR, "server.ts"), "utf8");
+    for (const name of ["maw_room_read", "maw_room_reply", "maw_room_merge", "maw_room_close", "maw_room_open"]) {
+      expect(server).toContain(`"${name}"`);
+    }
+    expect(server).toContain('from "./room-client"');
+    // non-200 → isError surfaced (never silent ok)
+    expect(server).toContain("isError: true");
   });
 
   // kobo-21/24: the maw_task tool wraps the CLI task board (spawns
