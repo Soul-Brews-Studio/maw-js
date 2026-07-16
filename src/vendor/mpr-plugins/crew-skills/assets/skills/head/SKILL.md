@@ -70,12 +70,14 @@ worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ต
 - **routine peer comm** (progress · status · coordinate) → comm (ถ้ามี) หรือ conductor. ห้าม `maw hey` peer ตรงจาก lead.
 - **ยกเว้น decision-gate** (ด่วน + human ต้องเห็น: round-trip verify · restart-green · merge relay · blocker-needs-human) → lead ทัก peer **ตรงได้**
 - **งาน (decompose/route)** → conductor · **review** → reviewer · **สื่อสาร** → comm/conductor. lead = brief+ตัดสิน+merge-gate.
-- **gather offload — 3 กลไก ห้ามสับ (kobo-319/321/323)** — lead gather ก่อนตัดสิน (อ่าน PR diff · scan card · รวม context ก่อน merge-gate). offload 3 ทางที่ **ต่างกันชัด**:
-  - **① bash/shell `run_in_background` = BANNED** (kobo-319) — detached shell เงียบ ไม่มี structured notify กลับเข้า pane → งานค้างไม่รู้. งานรอ (CI/poll) = foreground `--watch`
+- **gather offload — in-turn vs background (kobo-319/321/323, rationale fixed 324)** — lead gather ก่อนตัดสิน (อ่าน PR diff · scan card · รวม context ก่อน merge-gate):
   - **② in-turn `Agent`/Task (ไม่มี bg flag) = BLOCK pane เต็ม run** (kobo-321) — pane **unresponsive**, `maw hey`/human input **queue จน turn จบ** (Tony live: Explore 6m12s). ใช้เฉพาะ gather **สั้น/bounded** ที่ยอม block สั้นๆ
-  - **③ `Agent` tool `run_in_background:true` + `model:sonnet` = PRIMARY unblock** (kobo-323, proven 2× ตอน verify PR#260/261) — spawn แล้ว **pane ว่างทันที** + harness **auto-notify เมื่อ agent เสร็จ**. ⚠️ **ต่างจาก ① ตรงนี้:** agent-bg = structured completion notify · bash-bg = เงียบสนิท. heavy-gather / long-shell / parallel → **นี่คือทางหลัก** (lead ไม่หลุด human↔AI ระหว่าง gather)
+  - **background (ทั้ง ① และ ③) = pane ว่างทันที + harness auto-notify เมื่อเสร็จ** (task-notification). ⚠️ **ทั้งคู่ notify เท่ากัน** — kobo-323 เคลม "bash-bg เงียบ / agent-bg notify" **ผิด** (bash `run_in_background` re-invoke เมื่อ exit เหมือนกัน; eq3 หลักฐาน: `gh pr checks --watch` bg ได้ task-notification ทุกครั้ง). **ต่างจริงที่ผลลัพธ์ที่คืน:**
+    - **① bash `run_in_background`** → คืน **shell output**. เหมาะ plain long shell command (build · CI-watch · poll)
+    - **③ `Agent` `run_in_background:true` + `model:sonnet`** → คืน **distilled agent result** (gather + LLM judgment) → **PRIMARY unblock** สำหรับ heavy-gather/parallel (pane free + auto-notify, verified 2× PR#260/261; lead ไม่หลุด human↔AI ระหว่าง gather)
+  - **⚠️ kobo-319 hazard จริง = bg job ที่ HANG / never-exit** (ทั้ง ① และ ③ เสี่ยงเท่ากัน — ไม่ notify เพราะไม่ยอม exit ไม่ใช่เพราะ "เงียบ") → guard: bound งาน bg. **[policy: bash-bg ยัง BANNED จน Tony เคาะ revisit — 324 แก้แค่ rationale]**
   - **model split:** durable pane (lead/front/conductor/worker) = **opus** (think · judge · self-review) · **bg-agent = sonnet** (grunt gather ดิบ)
-  - **refine 320/321:** "route conductor/worker" ยังใช้เมื่อเป็นงาน**คนละ scope** — แต่ gather ของ lead เอง → **spawn bg-agent (③) เอง = ตรงกว่า** (unblock + context-light + responsive ครบ). bg-agent คืน **distilled** → context เบา
+  - **refine 320/321:** "route conductor/worker" ยังใช้เมื่อเป็นงาน**คนละ scope** — แต่ gather ของ lead เอง → **spawn bg-agent (③) เอง = ตรงกว่า** (unblock + context-light). bg-agent คืน **distilled** → context เบา
   - **decide + route + comm + gate = ทำใน pane ตัวเอง** (offload ไม่ได้ — นั่นคือหน้าที่ lead)
 
 Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster+state) · `reviewer.md` · `comm.md` (ถ้า opt-in) · `digest.md` (conductor รวมให้ lead)
