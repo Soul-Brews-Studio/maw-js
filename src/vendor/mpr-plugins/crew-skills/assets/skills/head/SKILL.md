@@ -50,6 +50,8 @@ worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ต
 
 `worker → crew reviewer → head reviewer → lead (merge-gate)`. **คนทำ ≠ คนตรวจ ทุกชั้น.** worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ตา opus (crew + head reviewer) กรอง.
 
+**funnel ordering (kobo-325)** — hand-off gate ถัดไป **หลัง gate ตัวเอง sign เท่านั้น**: `worker → crew reviewer(.3) → front → head reviewer(.2) → merge`. **head ไม่ merge จนครบ crew + head sign** (ไม่ race, ไม่ข้าม gate).
+
 - **head reviewer** = ปลายทาง review chain ก่อน lead — ตรวจ conductor light-exec + roll-up จาก crew reviewer. เจอปัญหา = comment finding + คืนคนทำ (ไม่แก้เอง).
 - **lead** = merge-gate สุดท้าย (human/decision). ไม่ review รายชิ้น — เชื่อ chain, ตัดสิน merge/deploy.
 - self-review = เส้นห้ามข้าม: conductor light-exec → **reviewer/lead ตรวจ** (conductor ไม่เคาะเอง). heavy code → offload lower tier → chain กรองขึ้นมา.
@@ -70,12 +72,12 @@ worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ต
 - **routine peer comm** (progress · status · coordinate) → comm (ถ้ามี) หรือ conductor. ห้าม `maw hey` peer ตรงจาก lead.
 - **ยกเว้น decision-gate** (ด่วน + human ต้องเห็น: round-trip verify · restart-green · merge relay · blocker-needs-human) → lead ทัก peer **ตรงได้**
 - **งาน (decompose/route)** → conductor · **review** → reviewer · **สื่อสาร** → comm/conductor. lead = brief+ตัดสิน+merge-gate.
-- **gather offload — in-turn vs background (kobo-319/321/323, rationale fixed 324)** — lead gather ก่อนตัดสิน (อ่าน PR diff · scan card · รวม context ก่อน merge-gate):
+- **gather offload — in-turn vs background (kobo-319/321/323/325)** — lead gather ก่อนตัดสิน (อ่าน PR diff · scan card · รวม context ก่อน merge-gate):
   - **② in-turn `Agent`/Task (ไม่มี bg flag) = BLOCK pane เต็ม run** (kobo-321) — pane **unresponsive**, `maw hey`/human input **queue จน turn จบ** (Tony live: Explore 6m12s). ใช้เฉพาะ gather **สั้น/bounded** ที่ยอม block สั้นๆ
-  - **background (ทั้ง ① และ ③) = pane ว่างทันที + harness auto-notify เมื่อเสร็จ** (task-notification). ⚠️ **ทั้งคู่ notify เท่ากัน** — kobo-323 เคลม "bash-bg เงียบ / agent-bg notify" **ผิด** (bash `run_in_background` re-invoke เมื่อ exit เหมือนกัน; eq3 หลักฐาน: `gh pr checks --watch` bg ได้ task-notification ทุกครั้ง). **ต่างจริงที่ผลลัพธ์ที่คืน:**
-    - **① bash `run_in_background`** → คืน **shell output**. เหมาะ plain long shell command (build · CI-watch · poll)
-    - **③ `Agent` `run_in_background:true` + `model:sonnet`** → คืน **distilled agent result** (gather + LLM judgment) → **PRIMARY unblock** สำหรับ heavy-gather/parallel (pane free + auto-notify, verified 2× PR#260/261; lead ไม่หลุด human↔AI ระหว่าง gather)
-  - **⚠️ kobo-319 hazard จริง = bg job ที่ HANG / never-exit** (ทั้ง ① และ ③ เสี่ยงเท่ากัน — ไม่ notify เพราะไม่ยอม exit ไม่ใช่เพราะ "เงียบ") → guard: bound งาน bg. **[policy: bash-bg ยัง BANNED จน Tony เคาะ revisit — 324 แก้แค่ rationale]**
+  - **background: ① bash-bg = BANNED · ③ bg-agent = ทางที่ถูก (kobo-325).** ⚠️ ทั้งคู่ **pane ว่าง + harness auto-notify เท่ากัน** (324: 323 เคลม bash เงียบ = ผิด — bash re-invoke เมื่อ exit; harness เห็น/kill/notify ได้ผ่าน BashOutput/KillShell/exit-notify). ต่างที่ **managed หรือไม่:**
+    - **① bash `run_in_background` ตรงๆ = BANNED** (kobo-319). **reason TRUE = no active supervision / fire-and-forget** — รันเดี่ยว ไม่มี logic react ตอน hang/error. **ไม่ใช่ "harness track ไม่ได้"** (เห็นได้) — คือ**ไม่มีสมองคอย supervise**
+    - **③ `Agent` `run_in_background:true` + `model:sonnet` = PRIMARY unblock** — async/long shell → ให้ bg-agent รัน bash **foreground ในตัวมัน** = **managed** (agent = supervisor react ได้) + pane ว่าง + คืน **distilled result** (verified 2× PR#260/261; lead ไม่หลุด human↔AI)
+  - **③ > ① = managed** (มี supervisor react ได้) — ไม่ใช่ "เห็นได้/ไม่ได้". ⚠️ **honesty:** agent bound hang ได้**ถ้าถูก instruct ให้ bound/timeout** (มี reasoning) — ไม่ใช่ magic; naive agent รัน bash hang ก็ค้าง. ต่าง = agent **มีสมอง** · bash-bg **ไม่มี logic เลย**. **[policy: bash-bg ban คงเดิม — 325 แก้ reason]**
   - **model split:** durable pane (lead/front/conductor/worker) = **opus** (think · judge · self-review) · **bg-agent = sonnet** (grunt gather ดิบ)
   - **refine 320/321:** "route conductor/worker" ยังใช้เมื่อเป็นงาน**คนละ scope** — แต่ gather ของ lead เอง → **spawn bg-agent (③) เอง = ตรงกว่า** (unblock + context-light). bg-agent คืน **distilled** → context เบา
   - **decide + route + comm + gate = ทำใน pane ตัวเอง** (offload ไม่ได้ — นั่นคือหน้าที่ lead)
