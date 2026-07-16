@@ -15,7 +15,7 @@
  * merge (4), distill-to-card (5).
  */
 
-import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms, findRoomCompany, appendRoomMessage, addRoomParticipant } from "./store";
+import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms, findRoomCompany, appendRoomMessage, addRoomParticipant, paginateRoomMessages, type RoomPageOpts } from "./store";
 import { addTask, readTask } from "../tasks/store";
 import { roomActivity, bareName } from "./activity";
 import { readWorklog } from "../worklog/store";
@@ -256,7 +256,44 @@ export function handleRoomThreadRequest(request: Request): Response {
   if (!room) return Response.json({ ok: true, rooms: listRooms(company).map((r) => ({ id: r.id, topic: r.topic, status: r.status, updatedTs: r.updatedTs })) });
   const r = readRoom(company, room);
   if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
-  return Response.json({ ok: true, room: r });
+  // kobo-322: pagination — default-cap the thread so a huge room never dumps whole.
+  const page = parseRoomPageOpts(url.searchParams);
+  if ("error" in page) return Response.json({ ok: false, error: page.error }, { status: 400 });
+  const total = r.messages.length;
+  const messages = paginateRoomMessages(r.messages, page);
+  return Response.json({
+    ok: true,
+    room: { ...r, messages },
+    totalMessages: total,
+    returnedMessages: messages.length,
+    truncated: messages.length < total,
+  });
+}
+
+/**
+ * kobo-322: parse ?last / ?since / ?all query params for room-read pagination.
+ * `since` accepts epoch-ms OR an ISO date string; malformed → explicit error (never
+ * a silent empty result). `last` must be a non-negative integer.
+ */
+function parseRoomPageOpts(params: URLSearchParams): RoomPageOpts | { error: string } {
+  const opts: RoomPageOpts = {};
+  const all = params.get("all");
+  if (all !== null && all !== "0" && all !== "false") opts.all = true;
+
+  const last = params.get("last");
+  if (last !== null && last !== "") {
+    const n = Number(last);
+    if (!Number.isInteger(n) || n < 0) return { error: `invalid last: ${last} (expected a non-negative integer)` };
+    opts.last = n;
+  }
+
+  const since = params.get("since");
+  if (since !== null && since !== "") {
+    const ms = /^\d+$/.test(since.trim()) ? Number(since) : Date.parse(since);
+    if (!Number.isFinite(ms)) return { error: `invalid since: ${since} (expected epoch ms or ISO date)` };
+    opts.since = ms;
+  }
+  return opts;
 }
 
 /**

@@ -66,6 +66,17 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("isError: true");
   });
 
+  // kobo-322: maw_room_read is default-capped + pageable (last/since/all) so a huge
+  // room never dumps whole. Pin the schema params on the tool + that room-client
+  // forwards them to the HTTP handler (the one filtering surface).
+  test("maw_room_read exposes last/since/all pagination + room-client forwards them", () => {
+    const server = readFileSync(join(root, MCP_DIR, "server.ts"), "utf8");
+    const readTool = server.slice(server.indexOf('"maw_room_read"'), server.indexOf('"maw_room_reply"'));
+    for (const p of ["last:", "since:", "all:"]) expect(readTool).toContain(p);
+    const client = readFileSync(join(root, MCP_DIR, "room-client.ts"), "utf8");
+    for (const q of ["last=", "since=", "all=1"]) expect(client).toContain(q);
+  });
+
   // kobo-21/24: the maw_task tool wraps the CLI task board (spawns
   // `maw company task <verb>` via runMaw, like the other verb tools) — it must
   // NOT reach into core task logic directly. Pin the registration + that taskArgs

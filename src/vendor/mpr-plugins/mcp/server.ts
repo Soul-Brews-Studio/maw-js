@@ -214,14 +214,18 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
       title: "Read a brainstorm room thread",
       description:
         "GET /api/room/thread — returns the persisted room artifact (messages[], topic, status). " +
-        "Use this to read the full conversation of a room.",
+        "Default-capped to the last 20 turns so a large room never blows the token cap. " +
+        "Use `last`/`since` to page, or `all` for the full thread.",
       inputSchema: {
         company: z.string().describe("company the room belongs to"),
         room: z.string().describe("room id"),
+        last: z.number().int().nonnegative().optional().describe("return only the last N turns (0 = all); default 20 when unset"),
+        since: z.union([z.number(), z.string()]).optional().describe("return only turns at/after this time (epoch ms or ISO date)"),
+        all: z.boolean().optional().describe("return the full thread (overrides the default 20-turn cap)"),
       },
     },
-    async ({ company, room }): Promise<CallToolResult> => {
-      const r = await roomRead({ company, room }, rd);
+    async ({ company, room, last, since, all }): Promise<CallToolResult> => {
+      const r = await roomRead({ company, room, last, since, all }, rd);
       return { content: [{ type: "text", text: r.text }], ...(r.ok ? {} : { isError: true }) };
     },
   );

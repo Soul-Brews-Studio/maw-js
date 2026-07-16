@@ -212,6 +212,46 @@ describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread
     expect(act("company=kobo&room=ghost").status).toBe(404); // absent room
   });
 
+  test("thread read is default-capped + paged by last/since/all (kobo-322)", async () => {
+    await openR({ company: "kobo", room: "big", topic: "t" });
+    for (let i = 1; i <= 50; i++) appendRoomMessage("kobo", "big", { id: `m${i}`, from: "a", text: `x${i}`, ts: i }); // unique text → skip the from+text send-dedup window
+    type Body = { room: { messages: Array<{ id: string; ts: number }> }; totalMessages: number; returnedMessages: number; truncated: boolean };
+
+    // no param → default cap (last 20), flagged truncated + totals intact
+    const def = await thread("company=kobo&room=big").json() as Body;
+    expect(def.room.messages).toHaveLength(20);
+    expect(def.totalMessages).toBe(50);
+    expect(def.returnedMessages).toBe(20);
+    expect(def.truncated).toBe(true);
+    expect(def.room.messages.at(-1)!.id).toBe("m50");
+
+    // last N
+    const l = await thread("company=kobo&room=big&last=10").json() as Body;
+    expect(l.room.messages).toHaveLength(10);
+    expect(l.room.messages[0].id).toBe("m41");
+
+    // since ts (epoch ms — turns are ts 1..50)
+    const s = await thread("company=kobo&room=big&since=45").json() as Body;
+    expect(s.room.messages.map((m) => m.ts)).toEqual([45, 46, 47, 48, 49, 50]);
+
+    // all → full room, not truncated
+    const a = await thread("company=kobo&room=big&all=1").json() as Body;
+    expect(a.room.messages).toHaveLength(50);
+    expect(a.truncated).toBe(false);
+
+    // since ISO string also parses
+    const iso = await thread(`company=kobo&room=big&since=${encodeURIComponent(new Date(48).toISOString())}`).json() as Body;
+    expect(iso.room.messages.map((m) => m.ts)).toEqual([48, 49, 50]);
+
+    // malformed since → 400 explicit error (never a silent empty result)
+    const bad = thread("company=kobo&room=big&since=notadate");
+    expect(bad.status).toBe(400);
+    expect((await bad.json() as { error: string }).error).toContain("invalid since");
+
+    // negative last → 400
+    expect(thread("company=kobo&room=big&last=-3").status).toBe(400);
+  });
+
   test("thread without room → the room list; guards: missing fields → 400/404", async () => {
     await openR({ company: "kobo", room: "a", topic: "ta" });
     const list = await thread("company=kobo").json() as { ok: boolean; rooms: Array<{ id: string }> };

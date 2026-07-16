@@ -81,6 +81,20 @@ describe("roomRead", () => {
     expect(calls[0].url).toContain("company=my%20company");
     expect(calls[0].url).toContain("room=a%2Fb");
   });
+
+  test("kobo-322: forwards last/since/all pagination params as query (MCP↔HTTP parity)", async () => {
+    const { deps, calls } = makeDeps();
+    await roomRead({ company: "kobo", room: "r", last: 10, since: 1700000000000, all: true }, deps);
+    expect(calls[0].url).toContain("last=10");
+    expect(calls[0].url).toContain("since=1700000000000");
+    expect(calls[0].url).toContain("all=1");
+  });
+
+  test("kobo-322: no pagination params → bare thread query (default-cap applied server-side)", async () => {
+    const { deps, calls } = makeDeps();
+    await roomRead({ company: "kobo", room: "r" }, deps);
+    expect(calls[0].url).toBe("http://127.0.0.1:9999/api/room/thread?company=kobo&room=r");
+  });
 });
 
 // ── maw_room_reply ────────────────────────────────────────────────────────────

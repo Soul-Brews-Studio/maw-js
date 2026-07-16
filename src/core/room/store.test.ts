@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms, addRoomParticipant } from "./store";
+import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms, addRoomParticipant, paginateRoomMessages, ROOM_DEFAULT_LAST, type RoomMessage } from "./store";
 import { taskFilePath } from "../tasks/store";
 
 let dir: string; const prev = process.env.MAW_DATA_DIR;
@@ -131,5 +131,46 @@ describe("mergeRooms (kobo-243 — lead-driven consolidation, Nothing Deleted)",
     openRoom("kobo", "s", "s"); mergeRooms("kobo", "t", ["s"]);
     const again = mergeRooms("kobo", "t", ["s"])!;
     expect(again.mergedFrom).toEqual(["s"]); // still just one entry, not ["s","s"]
+  });
+});
+
+describe("paginateRoomMessages (kobo-322 — default-cap room reads)", () => {
+  const msgs = (n: number): RoomMessage[] =>
+    Array.from({ length: n }, (_, i) => ({ id: `m${i}`, from: "a", text: "x", ts: i + 1 }));
+
+  test("no params → the last ROOM_DEFAULT_LAST turns (footgun guard, not full dump)", () => {
+    const out = paginateRoomMessages(msgs(50));
+    expect(out).toHaveLength(ROOM_DEFAULT_LAST);
+    expect(out[0].id).toBe(`m${50 - ROOM_DEFAULT_LAST}`); // tail slice
+    expect(out.at(-1)!.id).toBe("m49");
+  });
+
+  test("no params but fewer than the cap → all of them (no padding)", () => {
+    expect(paginateRoomMessages(msgs(3))).toHaveLength(3);
+  });
+
+  test("last N → the last N turns", () => {
+    const out = paginateRoomMessages(msgs(50), { last: 10 });
+    expect(out).toHaveLength(10);
+    expect(out[0].id).toBe("m40");
+  });
+
+  test("last N > available → all (no error, no throw)", () => {
+    expect(paginateRoomMessages(msgs(3), { last: 99 })).toHaveLength(3);
+  });
+
+  test("all → full dump; last 0 is the same escape hatch", () => {
+    expect(paginateRoomMessages(msgs(50), { all: true })).toHaveLength(50);
+    expect(paginateRoomMessages(msgs(50), { last: 0 })).toHaveLength(50);
+  });
+
+  test("since → only turns at/after ts (inclusive); alone = its own cap (no default 20)", () => {
+    const out = paginateRoomMessages(msgs(50), { since: 45 }); // ts 45..50
+    expect(out.map((m) => m.ts)).toEqual([45, 46, 47, 48, 49, 50]);
+  });
+
+  test("since + last compose: filter by time, then tail-slice", () => {
+    const out = paginateRoomMessages(msgs(50), { since: 40, last: 3 }); // ts 40..50 → last 3
+    expect(out.map((m) => m.ts)).toEqual([48, 49, 50]);
   });
 });

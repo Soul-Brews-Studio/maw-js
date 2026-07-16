@@ -72,6 +72,36 @@ export function readRoom(company: string, id: string): RoomArtifact | null {
 }
 
 /**
+ * kobo-322: pagination for room-read. A 120K-char room dumped whole blows the MCP
+ * token cap, so reads are CAPPED BY DEFAULT (last 20 turns) with explicit escape
+ * hatches — opt-in caps would leave the footgun in place (still dump by default).
+ *
+ *  - `since` (epoch ms) — keep only turns at/after that time (applied first)
+ *  - `last N` — keep the last N turns; N > available → all (no error). N === 0 = escape hatch (all)
+ *  - `all` — full dump, skip the default cap
+ *  - none of the above → DEFAULT to the last ROOM_DEFAULT_LAST turns
+ *
+ * `since` composes with `last`: filter by time, then tail-slice. `since` alone (no
+ * `last`) returns every matching turn (an explicit time-bound is itself the cap).
+ */
+export const ROOM_DEFAULT_LAST = 20;
+
+export interface RoomPageOpts {
+  last?: number; // last N turns; 0 = all (escape hatch)
+  since?: number; // epoch ms — keep turns with ts >= since
+  all?: boolean; // full dump, ignore default cap
+}
+
+export function paginateRoomMessages(messages: RoomMessage[], opts: RoomPageOpts = {}): RoomMessage[] {
+  let out = messages;
+  if (opts.since !== undefined) out = out.filter((m) => m.ts >= opts.since!);
+  if (opts.all || opts.last === 0) return out; // explicit escape hatch → no cap
+  if (opts.last !== undefined) return opts.last > 0 ? out.slice(-opts.last) : out;
+  if (opts.since !== undefined) return out; // explicit time-bound = its own cap
+  return out.slice(-ROOM_DEFAULT_LAST); // no param → default cap (footgun guard)
+}
+
+/**
  * Open a room (idempotent). A fresh id → a new open artifact with the topic + an
  * empty thread. An EXISTING room → reopened (status→open, thread preserved); the
  * topic is updated only if a non-empty one is passed. Returns the artifact.
