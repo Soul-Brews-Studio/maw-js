@@ -285,10 +285,11 @@ base cell = 4 pane ถาวร (front·conductor·worker·reviewer). **worker =
     - **hold (ใหญ่)** → reviewer ย้าย card เข้า lane Tony (need-answer/approve) — front report head-lead
     - **reject** → conductor ตีกลับ worker (request-change) — ไม่ done
     front แค่ประสาน verdict + report ขึ้น ไม่ตัดสินเอง (pure-coordinate = self-review guard). **crew ไม่ปิด done + ไม่ merge เอง** — merge = human/pr-watch เท่านั้น
-12. **heavy-gather offload → CC Task sub-agent (kobo-320)** — เมื่อ front ต้อง gather หนักก่อน coordinate/report (อ่าน PR diff ยาว · scan หลาย card · รวม context ก่อนตัดสิน route):
-    - **heavy gather → offload CC Task sub-agent** (general-purpose/Explore, §5 pattern) คืน **distilled** → keep front pane context เบา
+12. **gather offload → CC Task sub-agent (kobo-320, corrected kobo-321)** — front gather ก่อน coordinate/report (อ่าน PR diff · scan card · รวม context ก่อนตัดสิน route):
+    - ⚠️ **in-turn sub-agent BLOCK pane เต็ม duration** — sub-agent วิ่งอยู่ = front pane **unresponsive**, `maw hey`/human input **queue จน turn จบ** (Tony live: Explore 6m12s = pane block ทั้งช่วง, input ค้างคิว). **ไม่ responsive ระหว่าง gather** — kobo-319 ban `run_in_background` แล้ว → ไม่มีทางรัน sub-agent แบบไม่ block pane
+    - **benefit = context เบา ไม่ใช่ responsiveness** — offload คืนแค่ **distilled** (ไม่ raw dump) → **turn ถัดไป** context ถูกลง front ตัดสินไว. แลกด้วย pane block ช่วง gather
+    - **offload in-turn เฉพาะ gather สั้น/bounded** (1-2 PR · scan แคบ) ที่ยอม block สั้นๆ ได้. **gather ใหญ่/ยาว → route conductor/worker** (spawn cell/card) — ไม่รัน in-turn บน front (block นานเกิน = cell ตาย coordinate)
     - **decide + route + comm + gate = ทำใน pane ตัวเอง** (offload ไม่ได้ — นั่นคือหน้าที่ front)
-    - **sub-agent = IN-turn ไม่ใช่ background** (สอด kobo-319 ban `run_in_background`) → เป้า = turn สั้น + context เบา = responsive/free-fast ไม่ใช่ async multitask
 
 **Inbound routing (front = target)**: autonomous cell → inbound (maw hey / task-event / brief จาก head-lead) land ที่ **front** (pane lowest-index ที่เรียก /crew). ถ้า `ψ/active/dnd.on` มี → front park non-critical (critical เท่านั้นแทรก).
 

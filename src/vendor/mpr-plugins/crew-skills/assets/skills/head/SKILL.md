@@ -70,10 +70,11 @@ worker เล็ก (sonnet) ปลอดภัยเพราะโดน 2 ต
 - **routine peer comm** (progress · status · coordinate) → comm (ถ้ามี) หรือ conductor. ห้าม `maw hey` peer ตรงจาก lead.
 - **ยกเว้น decision-gate** (ด่วน + human ต้องเห็น: round-trip verify · restart-green · merge relay · blocker-needs-human) → lead ทัก peer **ตรงได้**
 - **งาน (decompose/route)** → conductor · **review** → reviewer · **สื่อสาร** → comm/conductor. lead = brief+ตัดสิน+merge-gate.
-- **heavy-gather offload → CC Task sub-agent (kobo-320)** — เมื่อ lead ต้อง gather หนักก่อนตัดสิน (อ่าน PR diff ยาว · scan หลาย card · รวม context ก่อน merge-gate):
-  - **heavy gather → offload CC Task sub-agent** (general-purpose/Explore) คืน **distilled** → keep lead pane context เบา
+- **gather offload → CC Task sub-agent (kobo-320, corrected kobo-321)** — lead gather ก่อนตัดสิน (อ่าน PR diff · scan card · รวม context ก่อน merge-gate):
+  - ⚠️ **in-turn sub-agent BLOCK pane เต็ม duration** — sub-agent วิ่งอยู่ = lead pane **unresponsive**, `maw hey`/human input **queue จน turn จบ** (Tony live: Explore 6m12s = pane block ทั้งช่วง, input ค้างคิว). **ไม่ responsive ระหว่าง gather** — kobo-319 ban `run_in_background` แล้ว → ไม่มีทางรัน sub-agent แบบไม่ block pane
+  - **benefit = context เบา ไม่ใช่ responsiveness** — offload คืนแค่ **distilled** (ไม่ raw dump) → **turn ถัดไป** context ถูกลง lead ตัดสินไว. แลกด้วย pane block ช่วง gather
+  - **offload in-turn เฉพาะ gather สั้น/bounded** (1-2 PR · scan แคบ) ที่ยอม block สั้นๆ ได้. **gather ใหญ่/ยาว → route conductor/worker** — ไม่รัน in-turn บน lead (block นานเกิน = lead หลุด human↔AI + merge-gate ค้าง)
   - **decide + route + comm + gate = ทำใน pane ตัวเอง** (offload ไม่ได้ — นั่นคือหน้าที่ lead)
-  - **sub-agent = IN-turn ไม่ใช่ background** (สอด kobo-319 ban `run_in_background`) → เป้า = turn สั้น + context เบา = responsive/free-fast ไม่ใช่ async multitask
 
 Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster+state) · `reviewer.md` · `comm.md` (ถ้า opt-in) · `digest.md` (conductor รวมให้ lead)
 
