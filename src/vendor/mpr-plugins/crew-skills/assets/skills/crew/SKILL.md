@@ -285,6 +285,10 @@ base cell = 4 pane ถาวร (front·conductor·worker·reviewer). **worker =
     - **hold (ใหญ่)** → reviewer ย้าย card เข้า lane Tony (need-answer/approve) — front report head-lead
     - **reject** → conductor ตีกลับ worker (request-change) — ไม่ done
     front แค่ประสาน verdict + report ขึ้น ไม่ตัดสินเอง (pure-coordinate = self-review guard). **crew ไม่ปิด done + ไม่ merge เอง** — merge = human/pr-watch เท่านั้น
+12. **heavy-gather offload → CC Task sub-agent (kobo-320)** — เมื่อ front ต้อง gather หนักก่อน coordinate/report (อ่าน PR diff ยาว · scan หลาย card · รวม context ก่อนตัดสิน route):
+    - **heavy gather → offload CC Task sub-agent** (general-purpose/Explore, §5 pattern) คืน **distilled** → keep front pane context เบา
+    - **decide + route + comm + gate = ทำใน pane ตัวเอง** (offload ไม่ได้ — นั่นคือหน้าที่ front)
+    - **sub-agent = IN-turn ไม่ใช่ background** (สอด kobo-319 ban `run_in_background`) → เป้า = turn สั้น + context เบา = responsive/free-fast ไม่ใช่ async multitask
 
 **Inbound routing (front = target)**: autonomous cell → inbound (maw hey / task-event / brief จาก head-lead) land ที่ **front** (pane lowest-index ที่เรียก /crew). ถ้า `ψ/active/dnd.on` มี → front park non-critical (critical เท่านั้นแทรก).
 
