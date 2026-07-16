@@ -188,41 +188,36 @@ describe("crew-skills global asset contract", () => {
   });
 
   // kobo-303 CUTOVER — /head (3-tier) replaced /warroom, which is now hard-removed.
-  // /head + /crew + /worker ship; /warroom is neither a sync item nor an asset file. The seat-resume
-  // hook KEEPS its warroom-dir support (asserted above) so any still-running warroom pane
-  // survives the skill removal — the skill file is gone, the runtime survival path is not.
-  test("head + crew + worker ship; /warroom is fully removed (kobo-303 cutover)", () => {
+  // kobo-317 — /worker (kobo-316) ALSO hard-removed: worker is no longer a self-defined standalone
+  // skill, only a /crew-spawned in-cell pane (crew §4 inline contract). /head + /crew ship.
+  // Both /warroom and /worker: no sync item, no asset file. The seat-resume hook KEEPS its
+  // warroom-dir AND worker-dir support (asserted above) so any still-running pane survives the
+  // skill removal — the skill file is gone, the runtime survival path is not.
+  test("head + crew ship; /warroom and /worker are fully removed (kobo-303/317 cutover)", () => {
     expect(SYNC_ITEMS.find((i) => i.dest === "skills/head/SKILL.md")).toBeDefined();
     expect(SYNC_ITEMS.find((i) => i.dest === "skills/crew/SKILL.md")).toBeDefined();
-    expect(SYNC_ITEMS.find((i) => i.dest === "skills/worker/SKILL.md")).toBeDefined(); // kobo-316
     // /warroom hard-removed: no sync item, no asset file
     expect(SYNC_ITEMS.find((i) => i.dest === "skills/warroom/SKILL.md")).toBeUndefined();
     expect(existsSync(join(assetsDir, "skills/warroom/SKILL.md"))).toBe(false);
+    // kobo-317 — /worker hard-removed: no sync item, no asset file
+    expect(SYNC_ITEMS.find((i) => i.dest === "skills/worker/SKILL.md")).toBeUndefined();
+    expect(existsSync(join(assetsDir, "skills/worker/SKILL.md"))).toBe(false);
   });
 
-  // kobo-316 — /worker = self-invoked leaf execution (no spawn). Ships as a SYNC_ITEM so any
-  // oracle can invoke /worker to declare itself as a worker without being spawned by a coordinator.
-  // Key invariants: state-dir at ψ/active/worker, pings coordinator on ready, re-seats on /clear,
-  // never spawns sub-panes (leaf).
-  test("worker skill is a synced asset with correct key content (kobo-316)", () => {
-    const item = SYNC_ITEMS.find((i) => i.dest === "skills/worker/SKILL.md");
-    expect(item).toBeDefined();
-    const skill = readFileSync(join(assetsDir, "skills/worker/SKILL.md"), "utf8");
-    // self-invoked: oracle declares itself worker (not spawned from above)
-    expect(skill).toContain("self-invoked");
-    expect(skill).toContain("leaf");
-    // state dir default
-    expect(skill).toContain("ψ/active/worker");
-    // pings coordinator ready
-    expect(skill).toContain("worker ready");
-    // re-seat via seat-resume.sh
-    expect(skill).toContain("seat-resume");
-    // no spawn (leaf invariant)
-    expect(skill).toContain("NO children");
-    // card-lifecycle: worker drives state, never self-closes
-    expect(skill).toContain("move card review");
-    // no run_in_background guard (worker contract)
-    expect(skill).toContain("run_in_background");
+  // kobo-317 — the /crew worker pane offloads heavy exec to CC Task sub-agents and returns a
+  // distilled result to the front (not a raw dump), keeping the durable tier lean. The worker
+  // contract (crew §4) carries this instruction + the light-state re-seat rule.
+  test("crew §4 worker contract instructs Task sub-agent offload → distilled to front (kobo-317)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    // heavy exec offloads to a CC Task sub-agent
+    expect(skill).toContain("Task sub-agent");
+    // returns a distilled result, not raw
+    expect(skill).toContain("distilled");
+    // report-to = front
+    expect(skill).toContain("คืน distilled result");
+    // light state = standing task + held card (toilet/seat survives without full re-init)
+    expect(skill).toContain("light state");
+    expect(skill).toContain("standing task + held card");
   });
 
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {

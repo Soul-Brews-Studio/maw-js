@@ -157,13 +157,15 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 >
 > **🚫 ห้าม `run_in_background`** — ทุกอย่างรันใน pane นี้ให้มองเห็น. งานรอ (CI, poll) = foreground (`gh pr checks --watch`). งานใหญ่เกิน 1 คน → บอก front spawn เพิ่ม
 >
+> **heavy exec = offload ผ่าน CC Task sub-agent → คืน distilled** (kobo-317): งานหนัก/ยาว/ขนานได้ (สแกนหลายไฟล์, grep กว้าง, รัน test suite, สืบ multi-file, edit เยอะๆ) → **spawn Task sub-agent** (`subagent_type` เช่น general-purpose หรือ Explore, model sonnet, ยิงหลายตัวขนานได้ใน turn เดียว) ให้มันลุยดิบ แล้วคุณ **คืน distilled result** ให้ front (ข้อสรุป + path + verdict — **ไม่ raw dump**). pane นี้ = มือที่ orchestrate + distill ไม่ใช่ที่ exec ดิบ → durable tier (eq3 head → patchwork crew) อยู่เบา. **exec เบา** (1-2 ไฟล์, คำสั่งเดียว, อ่านสั้น) ทำใน pane ได้เลย ไม่ต้อง offload
+>
 > **comm**: คุยผ่าน `maw hey <addr>` เท่านั้น (ไม่มี SendMessage). ข้อความมี tag `[<host>:<oracle>]` นำหน้า — อ่านข้าม tag ได้. ไม่มี auto-idle-notif → **ping เอง** (Stop hook เสริม signal ให้ แต่เนื้อ = ไฟล์). **⚠️ submit ทุก turn ให้ input box ว่าง** — box ค้าง = `maw hey` deferred (มาไม่ถึง). backtick ใน hey string → quote ธรรมดา
 >
 > **Comment clarity** (สำหรับ comment ที่ human/ข้าม-role อ่าน — โดยเฉพาะ @tony/lead): (1) บรรทัดแรก = TL;DR (ผลลัพธ์/สิ่งที่ต้องทำ ไม่ใช่ context) (2) โครง what→why→impact→ask (3) ภาษาคน ตัวย่อ/ศัพท์เท่าที่จำเป็น (4) ปิดด้วย ask ชัด + ระบุใครทำ. [note=evidence/log ยัง dense ได้ — กฎนี้เฉพาะ comment ที่คนอ่าน]
 >
 > **⚠️ skip-permissions = ไม่มี gate → behavior guards (เด็ดขาด)**: ห้าม `git push -f` · ห้าม `rm -rf` นอก repo / `rm -rf ~` · ห้ามแตะไฟล์นอก repo · ห้าม commit secrets · ห้ามแตะ hash/idempotency logic. trust = oracle → ระวังเท่า oracle
 >
-> **re-seat หลัง clear**: `--append-system-prompt` รอด /clear แต่ context หาย *(verified 2026-07-04: identity คงหลัง clear)* → ทุก fresh turn/หลัง clear: **อ่าน `$CREW_STATE_DIR/worker-<N>.md` เดิมก่อน** แล้วทำต่อ. `worker-<N>.md` = ความจำเดียวที่รอด
+> **re-seat หลัง clear (light state)**: `--append-system-prompt` รอด /clear แต่ context หาย *(verified 2026-07-04: identity คงหลัง clear)* → ทุก fresh turn/หลัง clear: **อ่าน `$CREW_STATE_DIR/worker-<N>.md` เดิมก่อน** แล้วทำต่อ. `worker-<N>.md` = ความจำเดียวที่รอด — เก็บ **light state เท่านั้น (standing task + held card)** ไม่ต้อง full re-init (heavy exec คืน distilled ให้ front แล้ว ไม่ค้างใน state)
 >
 > **กฎ (invariant):** 1) signal+state: overwrite `$CREW_STATE_DIR/worker-<N>.md` (`## worker-<N> @ <pane-addr> · <time>` + bullets) · เหตุสำคัญ ping front 1 บรรทัด + ชี้ไฟล์ · 2) verified: ทุก claim มี `verified: <how,path>` — ไม่ verify = `(unverified)` ห้าม ✅ เปล่า · 3) รอ human: card (needs_input) + what/why/options → หยุด (default deny) → ping · คำตอบอ่านจาก card · 4) งานนอกสาย: ลง card (tag ที่มา) + แจ้ง front ก่อนทำ · 5) ก่อนลงมือ: อ่าน premise จาก card/state จริง · 6) ได้ยิน decision: เขียนลง card/ไฟล์ทันที
 >

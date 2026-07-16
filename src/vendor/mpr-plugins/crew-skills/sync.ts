@@ -47,7 +47,7 @@ export interface SyncItem {
 export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/crew/SKILL.md", dest: "skills/crew/SKILL.md" },
   { src: "skills/head/SKILL.md", dest: "skills/head/SKILL.md" }, // kobo-299 — /head 3-tier strategic cell (kobo-303: replaced /warroom, hard-removed)
-  { src: "skills/worker/SKILL.md", dest: "skills/worker/SKILL.md" }, // kobo-316 — /worker self-invoked leaf execution (no spawn)
+  // kobo-317 — /worker skill removed: worker is no longer a self-defined standalone role, only a /crew-spawned in-cell pane (crew §4 inline contract). sync is install-only (no prune) → any already-synced ~/.claude/skills/worker/SKILL.md stays as a harmless stale no-op until the human deletes it.
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },
   { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via .maw/card-gate.json, kobo-200)
   { src: "hooks/seat-resume.sh", dest: "hooks/seat-resume.sh", exec: true }, // kobo-196 — auto-seat on SessionStart:clear (self-gates to warroom repos; wired into the oracle REPO's settings by ensureSeatResumeHook, never the user's global ~/.claude)
@@ -179,7 +179,7 @@ export function formatSyncResult(result: SyncResult): string {
   const verb = result.dryRun ? "would install" : "installed";
   const lines = [
     `${verb} crew skills → ${result.claudeDir}`,
-    `  /crew + /head + /worker skills, worker Stop hook, worker settings`,
+    `  /crew + /head skills, worker Stop hook, worker settings`,
     `  ${verb}: ${result.installed.length} · up-to-date: ${result.skipped.length}`,
   ];
   for (const dest of result.installed) lines.push(`  + ${dest}`);
