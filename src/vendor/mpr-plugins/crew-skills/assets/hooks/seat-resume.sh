@@ -7,7 +7,7 @@
 # the CREW_ROLE / CREW_STATE_DIR env the pane was spawned with (so crew → ψ/active/crew,
 # warroom → ψ/active/warroom, automatically). tmux @role is a durable fallback when the env is
 # absent (e.g. a manual re-launch — @role sticks to the pane). The resume file is the exact
-# role file ($DIR/<role>.md, e.g. crew's worker-1.md) with the warroom special names
+# role file ($DIR/<role>.md, e.g. crew's worker.md) with the warroom special names
 # (lead-handoff.md / worker.md) as fallbacks.
 #
 # Solo-safe: no crew/warroom state dir OR no resolvable role → exit silent (a plain pane is
@@ -45,10 +45,10 @@ STEM="$(printf '%s' "$ROLE" | grep -oiE 'worker-[0-9]+|reviewer|conduct[a-z]*|wo
 [ -n "$STEM" ] || exit 0   # unknown/empty role → don't guess, stay silent.
 
 # Candidate filenames by role — first that exists wins. Covers crew's role-named files
-# (worker-1.md) AND warroom's special names (lead-handoff.md / worker.md).
+# (worker.md) AND warroom's special names (lead-handoff.md / worker.md).
 case "$STEM" in
   lead)       NAMES="lead-handoff.md lead.md" ;;   # eq3 fix: lead → lead-handoff.md
-  worker-*)   NAMES="$STEM.md worker.md" ;;        # crew worker-1.md, else warroom worker.md
+  worker-*)   NAMES="$STEM.md worker.md" ;;        # historical worker-N pane (kobo-319: crew now bare worker.md)
   worker)     NAMES="worker.md" ;;
   reviewer)   NAMES="reviewer.md worker.md" ;;
   conduct*)   NAMES="conductor.md" ;;

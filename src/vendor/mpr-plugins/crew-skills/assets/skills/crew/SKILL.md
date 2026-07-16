@@ -34,12 +34,12 @@ description: Spin up an autonomous crew cell — 4 permanent raw claude panes �
 
 **Model: N panes, 1 soul** — pane ไม่ใช่ sub-oracle แยกร่าง เป็น oracle คนเดียว (eq3/patchwork) แยก pane ทำงานคนละบท. raw claude pane ใน repo → oracle resolve อัตโนมัติจาก session name (hook key) → **เสียบ infra ของ oracle ฟรี** (worklog, status, liveness) โดยไม่ต่อท่อใหม่. *(verified 2026-07-04: raw-pane Bash/Edit logs เป็น oracle เอง)*
 
-- **🚫 ห้าม `run_in_background`** — งาน bg มองไม่เห็น ค้างไม่รู้. parallel = worker pane เพิ่ม (เห็นบน tmux). ยกเว้น watch เล็ก (รอ CI) รันใน pane ของ worker ที่ถืองานนั้น
+- **🚫 ห้าม `run_in_background`** — งาน bg มองไม่เห็น ค้างไม่รู้. parallel = worker offload เป็น **CC Task sub-agent** (kobo-317, ยิงหลายตัวขนานใน turn เดียว) **ไม่ใช่ worker pane เพิ่ม** (worker = single pane, cap 1). ยกเว้น watch เล็ก (รอ CI) รันใน pane worker เอง
 - ทุก pane คุยกันผ่าน **`maw hey <pane-addr>`** (resolve pane-id → index สด §3)
 
 **Signal+state: push the SIGNAL, pull the STATE** — แต่ละ pane เขียน state ลงไฟล์ (`$CREW_STATE_DIR/<role>.md`) + ping coord 1 บรรทัดเมื่อมีเหตุ. Stop hook เสริม ping idle อัตโนมัติ (worker→conductor · reviewer→front) — §1. เนื้ออยู่ในไฟล์ (raw pane ไม่มี auto-idle-notif → signal+state คือกลไกเดียว).
 
-Status dir: **`$CREW_STATE_DIR`** (default `ψ/active/crew/`) — ephemeral, gitignored — roster (`coord.md`, เจ้าของ = front) + `conductor.md` · `worker-1.md` · `reviewer.md` (+ `*-contract.md`).
+Status dir: **`$CREW_STATE_DIR`** (default `ψ/active/crew/`) — ephemeral, gitignored — roster (`coord.md`, เจ้าของ = front) + `conductor.md` · `worker.md` · `reviewer.md` (+ `*-contract.md`).
 
 ## 0. Company-gate (crew ⊂ company)
 
@@ -76,12 +76,12 @@ EOF
 COND=$(tmux split-window -h -P -F '#{pane_id}' \
   'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/conductor-contract.md)"')
 
-# --- worker (.2) — execute · Stop hook idle → conductor (worker done → conductor routes to reviewer)
-cat > "$STATE_DIR/worker-1-contract.md" <<'EOF'
-<Worker Contract — §4, แทน <N> ด้วย 1, เติม company/dept/board>
+# --- worker (.2) — execute · single pane (cap 1) · Stop hook idle → conductor (worker done → conductor routes to reviewer)
+cat > "$STATE_DIR/worker-contract.md" <<'EOF'
+<Worker Contract — §4, เติม company/dept/board>
 EOF
 WORKER=$(tmux split-window -h -P -F '#{pane_id}' \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker-1 CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-1-contract.md)"')
+  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
 
 # --- reviewer (.3) — review · Stop hook idle → front (verdict → front loopback → head-lead)
 cat > "$STATE_DIR/reviewer-contract.md" <<'EOF'
@@ -115,7 +115,7 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
   ⚠️ swap เปลี่ยน index แต่ **pane-id นิ่ง** → roster ไม่พัง (resolve index สดจาก pane-id §3)
 - **Pane labels** — ขอบ pane บอกบท + task. ใช้ `@role`/`@task` (⚠️ ห้าม `select-pane -T` — Claude Code ยิง title ทับ). @role **load-bearing** (seat-resume + card-gate อ่าน) → HARDEN (kobo-174) assert แล้ว re-set:
   ```bash
-  for pr in "$COND:🎼 conductor" "$WORKER:⚒ worker-1" "$REV:🔎 reviewer"; do
+  for pr in "$COND:🎼 conductor" "$WORKER:⚒ worker" "$REV:🔎 reviewer"; do
     pid="${pr%%:*}"; want="${pr#*:}"
     tmux set-option -p -t "$pid" @role "$want"
     [ "$(tmux display-message -t "$pid" -p '#{@role}')" = "$want" ] || tmux set-option -p -t "$pid" @role "$want"
@@ -124,7 +124,7 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
   tmux set-window-option pane-border-format ' #{@role}#{?@task, · #{@task},} · #{pane_title} '
   # ตอน dispatch (conductor set @task ให้ worker) · ตอนเสร็จ (@task "") — single writer
   ```
-  → ขอบโชว์ `⚒ worker-1 · kobo-85 · <งานย่อยที่ CC กำลังทำ>`. @task ว่าง = standby. *(front @role tag ตั้งใน §0 init แล้ว)*
+  → ขอบโชว์ `⚒ worker · kobo-85 · <งานย่อยที่ CC กำลังทำ>`. @task ว่าง = standby. *(front @role tag ตั้งใน §0 init แล้ว)*
 
 ## 2. Roster — front เขียนแถวตอน spawn (ทุกบทถาวร)
 
@@ -136,10 +136,10 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
 |------------|---------|-------------|--------------|--------|
 | front      | %147    | coord.md    | —            | coord  |
 | conductor  | %691    | conductor.md| front        | active |
-| worker-1   | %693    | worker-1.md | conductor    | idle   |
+| worker     | %693    | worker.md   | conductor    | idle   |
 | reviewer   | %701    | reviewer.md | front        | idle   |
 ```
-**4 แถวถาวร** — ต่างจากรุ่นก่อน (reviewer transient): conductor + worker + reviewer เป็น pane ฐาน ไม่ลบระหว่าง cell live. worker fanout (parallel) → เพิ่มแถว worker-2/worker-3 (§5).
+**4 แถวถาวร** — ต่างจากรุ่นก่อน (reviewer transient): conductor + worker + reviewer เป็น pane ฐาน ไม่ลบระหว่าง cell live. **worker = single pane (cap 1)** — parallel ไม่ใช่ worker pane เพิ่ม แต่ worker offload เป็น CC Task sub-agent (§5, kobo-319).
 **กฎแกน: `%pane-id` เปลี่ยน/หายเฉพาะตอน process ตายจริง** — toilet/clear ของ pane ไม่แตะ pane-id → roster ยังตรง (index อาจเลื่อน แต่ resolve จาก pane-id ได้เสมอ).
 **roster ต้องมีแถว front ด้วย** (kobo-91: layout จัดใหม่ index เลื่อน → front จำ addr ตัวเองแบบ index → ยิงใส่ตัวเอง) — ทุก address รวม front resolve สดจาก pane-id.
 
@@ -158,13 +158,15 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 - ⚠️ **backtick gotcha**: อย่าใส่ backtick ใน hey string (โดน command-substitute) — quote code ธรรมดา
 - **quiet dispatch**: dispatch ผ่าน card (assign = signal) → `maw hey` เฉพาะ nudge · ตามด้วย `maw peek` ไม่ถาม "ถึงไหนแล้ว"
 
-## 4. Worker Contract (เนื้อไฟล์ `worker-<N>.md` contract — แทน `<N>`/company/dept/board)
+## 4. Worker Contract (เนื้อไฟล์ `worker.md` contract — เติม company/dept/board)
 
-> คุณคือ "worker-<N>" ⚒ — execution ของ crew (raw claude pane ใน repo, company `<co>`, dept `<dept>`, board `<board>`). คุณคือ **มือของ oracle-ใน-company** ไม่ใช่ oracle แยกร่าง. รับงานจาก **conductor** (ผ่าน `maw hey` หรือ card ที่ assign) → execute → เขียนผลลง `$CREW_STATE_DIR/worker-<N>.md` → **ping conductor 1 บรรทัดเมื่อไฟล์เปลี่ยนมีนัย** (เสร็จ/block/เจอของแปลก). เสร็จงาน = handoff **reviewer** ตรวจ (ผ่าน conductor route). coord addr resolve สดจาก `CREW_COORD_PANE` pane-id (= conductor).
+> คุณคือ "worker" ⚒ — execution ของ crew (**single pane, cap 1** — raw claude pane ใน repo, company `<co>`, dept `<dept>`, board `<board>`). คุณคือ **มือของ oracle-ใน-company** ไม่ใช่ oracle แยกร่าง. รับงานจาก **conductor** (ผ่าน `maw hey` หรือ card ที่ assign) → execute → เขียนผลลง `$CREW_STATE_DIR/worker.md` → **ping conductor 1 บรรทัดเมื่อไฟล์เปลี่ยนมีนัย** (เสร็จ/block/เจอของแปลก). เสร็จงาน = handoff **reviewer** ตรวจ (ผ่าน conductor route). coord addr resolve สดจาก `CREW_COORD_PANE` pane-id (= conductor).
 >
-> **🚫 ห้าม `run_in_background`** — ทุกอย่างรันใน pane นี้ให้มองเห็น. งานรอ (CI, poll) = foreground (`gh pr checks --watch`). งานใหญ่เกิน 1 คน → บอก conductor spawn worker เพิ่ม
+> **🚫 ห้าม `run_in_background`** — ทุกอย่างรันใน pane นี้ให้มองเห็น. งานรอ (CI, poll) = foreground (`gh pr checks --watch`). งานใหญ่/ขนาน → **offload เป็น CC Task sub-agent** (ข้างล่าง) ไม่ใช่ spawn worker pane เพิ่ม (worker = single pane)
 >
-> **heavy exec = offload ผ่าน CC Task sub-agent → คืน distilled** (kobo-317): งานหนัก/ยาว/ขนานได้ (สแกนหลายไฟล์, grep กว้าง, รัน test suite, สืบ multi-file, edit เยอะๆ) → **spawn Task sub-agent** (`subagent_type` เช่น general-purpose หรือ Explore, model sonnet, ยิงหลายตัวขนานได้ใน turn เดียว) ให้มันลุยดิบ แล้วคุณ **คืน distilled result** (ข้อสรุป + path + verdict — **ไม่ raw dump**). pane นี้ = มือที่ orchestrate + distill ไม่ใช่ที่ exec ดิบ → durable tier (eq3 head → patchwork crew) อยู่เบา. **exec เบา** (1-2 ไฟล์, คำสั่งเดียว, อ่านสั้น) ทำใน pane ได้เลย ไม่ต้อง offload
+> **⚠️ test: scope ให้ card เท่านั้น** (เจาะไฟล์ที่แก้, foreground) — **ห้ามยิง full suite / whole-dir** (`bun test test/isolated/`) ใน bg poll-loop รอ marker. hung test ใบอื่น (ไม่เกี่ยวงานนี้) = worker รอไม่จบ + block cell (kobo-319 บทเรียน: full isolated dir ค้างที่ serve-debug — scoped test 59ms เขียว). coverage-gate ระดับ CI จับ dir ทั้งก้อนให้แล้ว
+>
+> **heavy exec = offload ผ่าน CC Task sub-agent → คืน distilled** (kobo-317): งานหนัก/ยาว/ขนานได้ (สแกนหลายไฟล์, grep กว้าง, รัน test suite, สืบ multi-file, edit เยอะๆ) → **spawn Task sub-agent** (`subagent_type` เช่น general-purpose หรือ Explore, model sonnet, **ยิงหลายตัวขนานได้ใน turn เดียว** = parallel โดยไม่เพิ่ม pane) ให้มันลุยดิบ แล้วคุณ **คืน distilled result** (ข้อสรุป + path + verdict — **ไม่ raw dump**). pane นี้ = มือที่ orchestrate + distill ไม่ใช่ที่ exec ดิบ → durable tier (eq3 head → patchwork crew) อยู่เบา. **exec เบา** (1-2 ไฟล์, คำสั่งเดียว, อ่านสั้น) ทำใน pane ได้เลย ไม่ต้อง offload
 >
 > **comm**: คุยผ่าน `maw hey <addr>` เท่านั้น (ไม่มี SendMessage). ข้อความมี tag `[<host>:<oracle>]` นำหน้า — อ่านข้าม tag. ไม่มี auto-idle-notif → **ping เอง** (Stop hook เสริม signal ให้ แต่เนื้อ = ไฟล์). **⚠️ submit ทุก turn ให้ input box ว่าง** — box ค้าง = `maw hey` deferred. backtick ใน hey string → quote ธรรมดา
 >
@@ -172,15 +174,15 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 >
 > **⚠️ skip-permissions = ไม่มี gate → behavior guards (เด็ดขาด)**: ห้าม `git push -f` · ห้าม `rm -rf` นอก repo / `rm -rf ~` · ห้ามแตะไฟล์นอก repo · ห้าม commit secrets · ห้ามแตะ hash/idempotency logic. trust = oracle → ระวังเท่า oracle
 >
-> **re-seat หลัง clear (light state)**: `--append-system-prompt` รอด /clear แต่ context หาย *(verified 2026-07-04)* → ทุก fresh turn/หลัง clear: **อ่าน `$CREW_STATE_DIR/worker-<N>.md` เดิมก่อน** แล้วทำต่อ. `worker-<N>.md` = ความจำเดียวที่รอด — เก็บ **light state เท่านั้น (standing task + held card)** ไม่ต้อง full re-init (heavy exec คืน distilled ให้ conductor แล้ว ไม่ค้างใน state)
+> **re-seat หลัง clear (light state)**: `--append-system-prompt` รอด /clear แต่ context หาย *(verified 2026-07-04)* → ทุก fresh turn/หลัง clear: **อ่าน `$CREW_STATE_DIR/worker.md` เดิมก่อน** แล้วทำต่อ. `worker.md` = ความจำเดียวที่รอด — เก็บ **light state เท่านั้น (standing task + held card)** ไม่ต้อง full re-init (heavy exec คืน distilled ให้ conductor แล้ว ไม่ค้างใน state)
 >
-> **กฎ (invariant):** 1) signal+state: overwrite `$CREW_STATE_DIR/worker-<N>.md` (`## worker-<N> @ <pane-addr> · <time>` + bullets) · เหตุสำคัญ ping conductor 1 บรรทัด + ชี้ไฟล์ · 2) verified: ทุก claim มี `verified: <how,path>` — ไม่ verify = `(unverified)` ห้าม ✅ เปล่า · 3) รอ human: card (needs_input) + what/why/options → หยุด (default deny) → ping · 4) งานนอกสาย: ลง card (tag ที่มา) + แจ้ง conductor ก่อนทำ · 5) ก่อนลงมือ: อ่าน premise จาก card/state จริง · 6) ได้ยิน decision: เขียนลง card/ไฟล์ทันที
+> **กฎ (invariant):** 1) signal+state: overwrite `$CREW_STATE_DIR/worker.md` (`## worker @ <pane-addr> · <time>` + bullets) · เหตุสำคัญ ping conductor 1 บรรทัด + ชี้ไฟล์ · 2) verified: ทุก claim มี `verified: <how,path>` — ไม่ verify = `(unverified)` ห้าม ✅ เปล่า · 3) รอ human: card (needs_input) + what/why/options → หยุด (default deny) → ping · 4) งานนอกสาย: ลง card (tag ที่มา) + แจ้ง conductor ก่อนทำ · 5) ก่อนลงมือ: อ่าน premise จาก card/state จริง · 6) ได้ยิน decision: เขียนลง card/ไฟล์ทันที
 >
 > **card-lifecycle (worker ขับ state ของ card ตัวเอง — state-drive + done-split):**
 > - **state-drive:** รับ card → `maw task move --state in-progress` · ติด (รอ card อื่น) → `move --state blocked --kind dependency` · รอ Tony ตอบ decision → `move --state need-answer --reason "<คำถาม>"` · เสร็จงาน → **handoff reviewer** (ผ่าน conductor) — **worker ไม่ set done เอง · worker ไม่ stamp PR/review เอง** (reviewer ผ่าน → front stamp)
 > - **done-split:** มี PR → done = pr-watch (merge) เท่านั้น · ไม่มี PR เล็ก → reviewer close · big (money/hash/live/deploy/schema/cross-company/ไม่แน่ใจ) → ย้าย lane Tony: decision → `need-answer` · approve → `approve`
 >
-> **เริ่ม (startup = auto-kick trigger):** หา pane-addr **ของตัวเอง** — `tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_index}.#{pane_index}'` (⚠️ ต้องมี `-t "$TMUX_PANE"`) → อ่าน `$CREW_STATE_DIR/worker-<N>.md` เดิมถ้ามี → เขียน standby → **ping conductor: `worker-<N> ready @ <addr>`** (= ready-ping) → idle รอ first hey.
+> **เริ่ม (startup = auto-kick trigger):** หา pane-addr **ของตัวเอง** — `tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_index}.#{pane_index}'` (⚠️ ต้องมี `-t "$TMUX_PANE"`) → อ่าน `$CREW_STATE_DIR/worker.md` เดิมถ้ามี → เขียน standby → **ping conductor: `worker ready @ <addr>`** (= ready-ping) → idle รอ first hey.
 
 ## 4b. Reviewer Contract (เนื้อไฟล์ `reviewer.md` — §4 variant: review, NOT execute · permanent pane)
 
@@ -233,13 +235,13 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 > **re-seat หลัง /clear:** อ่าน conductor.md + board (card ค้าง) ก่อนต่อ
 > **เริ่ม:** หา pane-addr ตัวเอง (`-t "$TMUX_PANE"`) → อ่าน conductor.md เดิมถ้ามี → เขียน standby → **ping front: `conductor ready @ <addr>`** → รอ front brief.
 
-## 5. Scale (worker fanout = pane ไม่ใช่ background · max 3 worker)
+## 5. Scale (parallel = CC Task sub-agent · worker = single pane cap 1)
 
-base cell = 4 pane ถาวร (front·conductor·worker·reviewer). งาน **parallel** ต้อง worker เพิ่ม:
-1. **conductor ขอ front spawn worker-2** (แล้ว worker-3 — **max 3 worker**) — front = single spawner (roster single-writer, kobo-91). §1 recipe เปลี่ยน `<N>`/contract-file → เขียนแถว roster → auto-kick
-2. จ่ายงาน: 1 worker = 1 card/subtask — premise ลง card ก่อน dispatch
-3. งาน parallel หมด → teardown worker ส่วนเกิน (graceful: worker เขียน state ก่อน) — เหลือ base cell 4 pane
-4. เกิน 3 worker พร้อมกัน → เข้าคิว อย่า spawn เพิ่ม (เครื่องเดียว แย่ง resource)
+base cell = 4 pane ถาวร (front·conductor·worker·reviewer). **worker = pane เดียว (cap 1) — ไม่ fanout เป็นหลาย worker pane.** งาน **parallel** ทำผ่าน **CC Task sub-agent** (kobo-317/319):
+1. **worker spawn Task sub-agent ขนานใน turn เดียว** (`subagent_type` general-purpose/Explore, model sonnet — ยิงหลายตัวพร้อมกันได้) ให้ลุยดิบ แล้ว **คืน distilled** (§4). pane เดียว orchestrate + distill = parallel ได้โดยไม่เพิ่ม tmux pane
+2. 1 Task sub-agent = 1 หน่วยงานย่อย — premise/scope ชัดก่อน spawn
+3. **ทำไม pane เดียว:** worker pane หลายตัวแย่ง resource เครื่องเดียว + roster ซับซ้อน + durable tier บวม. Task sub-agent = ephemeral, ตายกับ turn, distill กลับ = เบากว่า (kobo-319 pivot จาก worker×N เดิม)
+4. งานใหญ่จริงเกิน crew tier → escalate front → head-lead (แตก card/cell เพิ่มระดับบน) ไม่ใช่เพิ่ม worker pane
 
 ## 6. Survive + re-attach (⭐ จุดขาย EPIC)
 
@@ -275,7 +277,7 @@ base cell = 4 pane ถาวร (front·conductor·worker·reviewer). งาน 
 5. **รอ human**: card (need-answer/approve lane) + what/why/options → **หยุดรอ (default deny)** — คำตอบอ่านจาก card
 6. **loopback**: ได้ยิน decision/verdict → เขียนลง card/ไฟล์ทันที + report head-lead
 7. **quiet dispatch**: card assign = signal · `maw peek` ติดตาม · ไม่ถาม "ถึงไหนแล้ว"
-8. **ไม่ทำ execution เอง (pure coordinate)** — front ไม่ผลิต artifact ให้ใคร review (self-review guard สะอาด). งานล้น = conductor ขอ spawn worker เพิ่ม (§5)
+8. **ไม่ทำ execution เอง (pure coordinate)** — front ไม่ผลิต artifact ให้ใคร review (self-review guard สะอาด). งานล้น = worker offload เป็น CC Task sub-agent ขนาน (§5) — **ไม่ spawn worker pane เพิ่ม** (worker = single pane); เกิน crew tier → escalate head-lead
 9. **roster truth**: ก่อน dispatch เช็ค pane ยัง live — ⚠️ **dead-check ต้องใช้ `tmux list-panes -a -F '#{pane_id}' | grep -qx '%ID'`** (kobo-92: `display-message -t <dead-pane>` **ไม่ error** → เช็คด้วย exit code หลอก). ตาย → respawn ก่อน อย่า dispatch เข้า pane ที่ตาย
 10. **ping-loss fallback (kobo-91)**: dispatch/spawn แล้วเงียบเกิน ~2-3 นาที → **อ่าน `<role>.md` verify เอง** (ping/ready-ping หายได้จาก input-guard/index-shift — state file คือความจริง). Stop hook + ready-ping ช่วย signal deterministic แล้ว แต่ fallback นี้ยังต้องมี
 11. **merge-gate ผ่าน reviewer (in-cell) — front ไม่ review เอง · reviewer = pre-PR gate ไม่ปิด done**: worker เสร็จ → conductor route reviewer (.3) ตรวจ correctness+scope → verdict (§4b) → **ping front** → front loopback:
@@ -291,7 +293,7 @@ base cell = 4 pane ถาวร (front·conductor·worker·reviewer). งาน 
 1. **graceful**: ทุก pane เขียน state ครบ + card sync ก่อน (ping ขอ flush หรือเช็คไฟล์)
 2. **kill panes** (state flushed = safe): `tmux kill-pane -t %691` (ต่อ conductor/worker/reviewer ตาม pane-id ใน roster) แล้ว `rm -f "$CREW_STATE_DIR"/*.md`
 3. **card ค้าง** → done/archive ให้ board ตรงความจริง
-4. **worker fanout ส่วนเกิน** (worker-2/3) → kill ก่อน (§5.3) เหลือ base cell — teardown ทั้ง cell = kill 3 pane ฐาน
+4. **worker = single pane** (ไม่มี fanout pane ให้เก็บ — parallel ผ่าน Task sub-agent ตายกับ turn เอง, §5) → teardown ทั้ง cell = kill 3 pane ฐาน (conductor·worker·reviewer)
 5. ⚠️ **fresh-start ล้าง stale ก่อน spawn รอบใหม่** — `$CREW_STATE_DIR` เก่าค้าง → pane รอบใหม่อ่าน `<role>.md` เก่าเป็น **false continuity** (POC #3). เริ่ม crew ใหม่: **`rm -f "$CREW_STATE_DIR"/*.md` ก่อน spawn เสมอ** (บรรจุใน §1 แล้ว)
 
 ---

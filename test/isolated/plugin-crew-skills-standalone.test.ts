@@ -62,7 +62,7 @@ describe("crew-skills global asset contract", () => {
 
   // kobo-268 — the seat-resume hook is a synced executable asset that resolves the resume
   // file from the crew env (CREW_STATE_DIR/CREW_ROLE, like the Stop hook) so it seats BOTH
-  // crew (ψ/active/crew/worker-1.md) and warroom (ψ/active/warroom, lead-handoff.md) layouts.
+  // crew (ψ/active/crew/worker.md) and warroom (ψ/active/warroom, lead-handoff.md) layouts.
   test("seat-resume hook is a synced executable + resolves crew env AND warroom fallback", () => {
     const item = SYNC_ITEMS.find((i) => i.dest === "hooks/seat-resume.sh");
     expect(item).toBeDefined();
@@ -71,7 +71,7 @@ describe("crew-skills global asset contract", () => {
     expect(hook).toContain("CREW_STATE_DIR"); // env-first (mirrors the Stop hook)
     expect(hook).toContain("CREW_ROLE");
     expect(hook).toContain("@role"); // durable tmux fallback
-    expect(hook).toContain("$STEM.md"); // crew's role-named file (worker-1.md)
+    expect(hook).toContain("$STEM.md"); // crew's role-named file (worker.md)
     expect(hook).toContain("lead-handoff.md"); // eq3 fix + warroom special name
     expect(hook).toContain("ψ/active/crew"); // seats the crew layout too (patchwork dogfood)
     expect(hook).toContain("ψ/active/worker"); // kobo-316: worker fallback dir
@@ -218,6 +218,31 @@ describe("crew-skills global asset contract", () => {
     // light state = standing task + held card (toilet/seat survives without full re-init)
     expect(skill).toContain("light state");
     expect(skill).toContain("standing task + held card");
+  });
+
+  // kobo-319 — worker is a SINGLE pane (cap 1, label "worker" not "worker-1"); parallelism
+  // comes from CC Task sub-agents (kobo-317), NOT extra worker panes. Pin the spawn env, the
+  // pane label, the state/contract filenames, and the deadlock-critical Stop-hook gate so a
+  // future edit can't silently re-introduce worker-N numbering (which would also break the
+  // gate: `worker-*` never matches the bare "worker" role → worker never signals idle).
+  test("crew worker = single pane 'worker' (no -N numbering) — spawn, label, files, hook gate (kobo-319)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    // spawn env stamps the bare role, not worker-1
+    expect(skill).toContain("CREW_ROLE=worker ");
+    expect(skill).not.toContain("CREW_ROLE=worker-1");
+    // contract + state files are un-numbered
+    expect(skill).toContain("worker-contract.md");
+    expect(skill).not.toContain("worker-1-contract.md");
+    expect(skill).toContain("$CREW_STATE_DIR/worker.md");
+    // pane label is bare "worker"
+    expect(skill).toContain('"$WORKER:⚒ worker"');
+    // no numbered worker anywhere in the skill (historical notes may live in code comments only)
+    expect(skill).not.toMatch(/worker-[123N]/);
+    // deadlock-critical: the Stop-hook gate MUST match a bare "worker" role, or the single
+    // worker pane never fires its idle completion signal (kobo-91 regression).
+    const stopHook = readFileSync(join(assetsDir, "hooks/crew-worker-stop.sh"), "utf8");
+    expect(stopHook).toContain("worker*|reviewer");
+    expect(stopHook).not.toContain("worker-*|reviewer");
   });
 
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {
