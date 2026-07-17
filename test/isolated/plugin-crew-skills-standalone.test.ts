@@ -243,6 +243,11 @@ describe("crew-skills global asset contract", () => {
     const stopHook = readFileSync(join(assetsDir, "hooks/crew-worker-stop.sh"), "utf8");
     expect(stopHook).toContain("worker*|reviewer");
     expect(stopHook).not.toContain("worker-*|reviewer");
+    // kobo-347: the SKILL PROSE describing the gate MUST match the hook (no dash). A future editor
+    // trusting `worker-*` prose would rewrite the hook to `worker-*` → orphan the bare base worker =
+    // cell deadlock. Pin the prose to the real glob so doc and hook can't drift.
+    expect(skill).not.toContain("worker-*|reviewer");
+    expect(skill).toContain("worker*|reviewer");
   });
 
   // kobo-344 v2 340a — the worker spawns on the SONNET tier in a SEPARATE window (W1/page2),

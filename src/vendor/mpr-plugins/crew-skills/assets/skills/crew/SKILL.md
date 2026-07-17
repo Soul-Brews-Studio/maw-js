@@ -73,7 +73,7 @@ STATE_DIR="${CREW_STATE_DIR:-ψ/active/crew}"
 mkdir -p "$STATE_DIR"
 rm -f "$STATE_DIR"/*.md    # §9.5 fresh-start — ล้าง stale ก่อน spawn (กัน false continuity)
 
-# --- conductor (.1) — decompose/route · NO Stop hook (ไม่อยู่ใน gate worker-*|reviewer, เหมือน head conductor)
+# --- conductor (.1) — decompose/route · NO Stop hook (ไม่อยู่ใน gate worker*|reviewer, เหมือน head conductor)
 cat > "$STATE_DIR/conductor-contract.md" <<'EOF'
 <Conductor Contract — §4c, เติม company/dept/board>
 EOF
@@ -102,7 +102,7 @@ REV=$(tmux split-window -h -P -F '#{pane_id}' \
 ```
 - **verified live** (kobo-89/91): raw pane boot + skip-permissions ทำงาน (footer "bypass permissions on") · pane โผล่ข้าง spawner · `-P -F '#{pane_id}'` → capture `%pane-id` → เขียนแถว roster ทันที (§2)
 - ไม่ใช้ `maw team spawn` / `--exec` — คุม tmux เอง → คุม flag (skip-perm) + auto-kick เอง
-- **Stop-hook target ต่างบท (env per-pane):** worker `CREW_COORD_PANE=$COND` (idle → conductor route ต่อ) · reviewer `CREW_COORD_PANE=$FRONT` (verdict → front → head-lead). hook gate = `worker-*|reviewer` → **conductor ไม่ fire** (spawn ไม่มี `--settings` + ไม่มี `CREW_ROLE` = ตรงกับ head conductor) → conductor ping front ด้วย contract discipline
+- **Stop-hook target ต่างบท (env per-pane):** worker `CREW_COORD_PANE=$COND` (idle → conductor route ต่อ) · reviewer `CREW_COORD_PANE=$FRONT` (verdict → front → head-lead). hook gate = `worker*|reviewer` (no dash — `worker*` matches bare "worker" AND worker-N; `worker-*` would ORPHAN the base bare-"worker" pane = deadlock) → **conductor ไม่ fire** (spawn ไม่มี `--settings` + ไม่มี `CREW_ROLE` = ตรงกับ head conductor) → conductor ping front ด้วย contract discipline
 - **env บังคับ:** `MAW_ROOM_COMPANY=$CO_NAME` (kobo-267 presence scope) · `CREW_STATE_DIR` (state-file + hook state-hint path) · `CREW_ROLE`+`CREW_COORD_PANE` (worker/reviewer เท่านั้น — gate + resolve coord สด)
 - **Stop hook = completion signal (kobo-91 deadlock fix)** — worker/reviewer spawn `--settings "$HOME/.claude/crew-worker-settings.json"` → ทุกจบ turn hook resolve coord addr สดจาก `CREW_COORD_PANE` → `maw hey` แจ้ง idle + state path = **completion signal deterministic ไม่พึ่งความจำ model**. conductor/front spawn ปกติ (ไม่มี `CREW_ROLE`) → hook exit ทันที (env-gate = local-first, ไม่แตะ pane อื่น)
 
