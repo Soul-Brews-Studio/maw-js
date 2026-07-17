@@ -46,6 +46,13 @@ export interface SyncItem {
 /** Canonical asset → global .claude layout. */
 export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/crew/SKILL.md", dest: "skills/crew/SKILL.md" },
+  // kobo-358 — contract text extracted from SKILL §4/4b/4c into standalone template
+  // assets: single source for BOTH the human-readable SKILL prose (which now just
+  // references these files) and `maw company crew spawn` (which CATs + substitutes
+  // {{COMPANY}}/{{DEPT}}/{{BOARD}} — no LLM-fill, no version-skew).
+  { src: "skills/crew/contracts/conductor.md", dest: "skills/crew/contracts/conductor.md" },
+  { src: "skills/crew/contracts/worker.md", dest: "skills/crew/contracts/worker.md" },
+  { src: "skills/crew/contracts/reviewer.md", dest: "skills/crew/contracts/reviewer.md" },
   { src: "skills/head/SKILL.md", dest: "skills/head/SKILL.md" }, // kobo-299 — /head 3-tier strategic cell (kobo-303: replaced /warroom, hard-removed)
   { src: "skills/teardown/SKILL.md", dest: "skills/teardown/SKILL.md" }, // kobo-343 — /teardown lifecycle close (spin↔teardown); safety-critical pane killer
   // kobo-317 — /worker skill removed: worker is no longer a self-defined standalone role, only a /crew-spawned in-cell pane (crew §4 inline contract). sync is install-only (no prune) → any already-synced ~/.claude/skills/worker/SKILL.md stays as a harmless stale no-op until the human deletes it.
