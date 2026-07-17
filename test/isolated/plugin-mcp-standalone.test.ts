@@ -69,12 +69,15 @@ describe("mcp plugin standalone boundary (#2113)", () => {
   // kobo-322: maw_room_read is default-capped + pageable (last/since/all) so a huge
   // room never dumps whole. Pin the schema params on the tool + that room-client
   // forwards them to the HTTP handler (the one filtering surface).
-  test("maw_room_read exposes last/since/all pagination + room-client forwards them", () => {
+  // kobo-357: `offset` pages further backward — reconciled against 322 first (322
+  // already fully wired last/since/all end-to-end incl. the MCP tool; offset was
+  // the one genuinely missing param, not a re-dispatch of what 322 already shipped).
+  test("maw_room_read exposes last/since/all/offset pagination + room-client forwards them", () => {
     const server = readFileSync(join(root, MCP_DIR, "server.ts"), "utf8");
     const readTool = server.slice(server.indexOf('"maw_room_read"'), server.indexOf('"maw_room_reply"'));
-    for (const p of ["last:", "since:", "all:"]) expect(readTool).toContain(p);
+    for (const p of ["last:", "since:", "all:", "offset:"]) expect(readTool).toContain(p);
     const client = readFileSync(join(root, MCP_DIR, "room-client.ts"), "utf8");
-    for (const q of ["last=", "since=", "all=1"]) expect(client).toContain(q);
+    for (const q of ["last=", "since=", "all=1", "offset="]) expect(client).toContain(q);
   });
 
   // kobo-21/24: the maw_task tool wraps the CLI task board (spawns

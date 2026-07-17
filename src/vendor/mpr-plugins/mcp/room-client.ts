@@ -48,15 +48,17 @@ function toText(response: RoomHttpResponse): string {
  * Returns the room artifact (messages[], topic, status, …).
  */
 export async function roomRead(
-  params: { company: string; room: string; last?: number; since?: number | string; all?: boolean },
+  params: { company: string; room: string; last?: number; since?: number | string; all?: boolean; offset?: number },
   deps: RoomClientDeps = defaultRoomClientDeps(),
 ): Promise<{ ok: boolean; text: string }> {
   const base = deps.localBaseUrl();
   // kobo-322: default-capped to the last 20 turns server-side; last/since/all page it.
+  // kobo-357: offset pages further back (skip N from the tail before taking `last`).
   let url = `${base}/api/room/thread?company=${encodeURIComponent(params.company)}&room=${encodeURIComponent(params.room)}`;
   if (params.last !== undefined) url += `&last=${encodeURIComponent(String(params.last))}`;
   if (params.since !== undefined) url += `&since=${encodeURIComponent(String(params.since))}`;
   if (params.all) url += `&all=1`;
+  if (params.offset !== undefined) url += `&offset=${encodeURIComponent(String(params.offset))}`;
   const res = await deps.fetch(url);
   return { ok: res.ok, text: toText(res) };
 }

@@ -90,15 +90,21 @@ export interface RoomPageOpts {
   last?: number; // last N turns; 0 = all (escape hatch)
   since?: number; // epoch ms — keep turns with ts >= since
   all?: boolean; // full dump, ignore default cap
+  offset?: number; // kobo-357: skip this many turns from the tail before taking `last` — pages BACKWARD through history (offset:0 = newest page, offset:last = the page before)
 }
 
 export function paginateRoomMessages(messages: RoomMessage[], opts: RoomPageOpts = {}): RoomMessage[] {
   let out = messages;
   if (opts.since !== undefined) out = out.filter((m) => m.ts >= opts.since!);
-  if (opts.all || opts.last === 0) return out; // explicit escape hatch → no cap
-  if (opts.last !== undefined) return opts.last > 0 ? out.slice(-opts.last) : out;
-  if (opts.since !== undefined) return out; // explicit time-bound = its own cap
-  return out.slice(-ROOM_DEFAULT_LAST); // no param → default cap (footgun guard)
+  if (opts.all || opts.last === 0) return out; // explicit escape hatch → no cap (offset doesn't apply to a full dump)
+  const offset = opts.offset && opts.offset > 0 ? opts.offset : 0;
+  if (opts.last !== undefined) {
+    const end = Math.max(0, out.length - offset);
+    return out.slice(Math.max(0, end - opts.last), end);
+  }
+  if (opts.since !== undefined) return offset > 0 ? out.slice(0, Math.max(0, out.length - offset)) : out; // explicit time-bound = its own cap; offset still trims the tail
+  const end = Math.max(0, out.length - offset);
+  return out.slice(Math.max(0, end - ROOM_DEFAULT_LAST), end); // no `last` → default cap, offset shifts the page back
 }
 
 /**
