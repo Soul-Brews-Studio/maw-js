@@ -47,6 +47,7 @@ export interface SyncItem {
 export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/crew/SKILL.md", dest: "skills/crew/SKILL.md" },
   { src: "skills/head/SKILL.md", dest: "skills/head/SKILL.md" }, // kobo-299 — /head 3-tier strategic cell (kobo-303: replaced /warroom, hard-removed)
+  { src: "skills/teardown/SKILL.md", dest: "skills/teardown/SKILL.md" }, // kobo-343 — /teardown lifecycle close (spin↔teardown); safety-critical pane killer
   // kobo-317 — /worker skill removed: worker is no longer a self-defined standalone role, only a /crew-spawned in-cell pane (crew §4 inline contract). sync is install-only (no prune) → any already-synced ~/.claude/skills/worker/SKILL.md stays as a harmless stale no-op until the human deletes it.
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },
   { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via .maw/card-gate.json, kobo-200)
