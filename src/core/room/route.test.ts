@@ -360,3 +360,57 @@ describe("Brainstorm Room company-scope + default lead (kobo-258)", () => {
     expect((await openR({ company: "kobo", room: "x", topic: "t" })).status).toBe(200); // real company OK
   });
 });
+
+describe("Room write-gate: closed/merged rooms reject POST /api/room/reply + /api/room/send (kobo-296)", () => {
+  let dir: string; const prev = process.env.MAW_DATA_DIR;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomgate-")); process.env.MAW_DATA_DIR = dir; seedCompanies(dir, { kobo: "eq3" }); });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; _setCompaniesDir(origCompaniesDir); rmSync(dir, { recursive: true, force: true }); });
+
+  const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const closeR = (b: unknown) => handleRoomCloseRequest(new Request("http://x/api/room/close", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const mergeR = (b: unknown) => handleRoomMergeRequest(new Request("http://x/api/room/merge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const reply = (b: unknown) => handleRoomReplyRequest(new Request("http://x/api/room/reply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const noopSpawn = () => ({ exited: Promise.resolve(0) });
+  const send = (b: unknown, spawn = noopSpawn) => handleRoomSendRequest(new Request("http://x/api/room/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }), spawn);
+
+  test("reply rejected 403 on a closed room — message NOT persisted, reason names status (kobo-296)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    await closeR({ company: "kobo", room: "r" });
+    const res = await reply({ company: "kobo", room: "r", from: "eq3", text: "late msg" });
+    expect(res.status).toBe(403);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("closed");
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(0); // not persisted
+  });
+
+  test("reply rejected 403 on a merged room — message NOT persisted (kobo-296)", async () => {
+    await openR({ company: "kobo", room: "src", topic: "s" });
+    await openR({ company: "kobo", room: "tgt", topic: "t" });
+    await mergeR({ company: "kobo", target: "tgt", sources: ["src"], confirm: true });
+    const res = await reply({ company: "kobo", room: "src", from: "eq3", text: "msg to merged" });
+    expect(res.status).toBe(403);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("merged");
+    expect(readRoom("kobo", "src")!.messages).toHaveLength(0); // not persisted
+  });
+
+  test("reply on an open room still works — regression guard (kobo-296)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const res = await reply({ company: "kobo", room: "r", from: "eq3", text: "valid reply" });
+    expect(res.status).toBe(200);
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(1);
+  });
+
+  test("send rejected 403 on a closed room — message NOT persisted, no nudge fired (kobo-296)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    await closeR({ company: "kobo", room: "r" });
+    const calls: string[][] = [];
+    const spawn = (argv: string[]) => { calls.push(argv); return { exited: Promise.resolve(0) }; };
+    const res = await send({ room: "r", to: "eq3", text: "late msg", from: "tony" }, spawn);
+    expect(res.status).toBe(403);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("closed");
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(0); // not persisted
+    expect(calls).toHaveLength(0); // no nudge fired
+  });
+});

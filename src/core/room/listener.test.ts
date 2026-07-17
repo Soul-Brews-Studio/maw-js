@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { parseRoomId, stripRoomTag, onRoomFeedEvent } from "./listener";
-import { openRoom, readRoom } from "./store";
+import { openRoom, closeRoom, readRoom } from "./store";
 import type { FeedEvent } from "../../lib/feed";
 
 let dir: string; const prev = process.env.MAW_DATA_DIR;
@@ -53,6 +53,15 @@ describe("room feed listener (kobo-241 — persist turns off the SAME hey feed e
 
     const room = readRoom("kobo", "demo")!;
     expect(room.messages.map((m) => [m.from, m.text])).toEqual([["web", "what next?"], ["eq3", "core wire first"]]); // stripped, deduped, ordered
+  });
+
+  test("closed/merged room rejects feed-event persistence — write-gate mirrors route guards (kobo-296)", () => {
+    openRoom("kobo", "r", "t");
+    closeRoom("kobo", "r");
+    // a [room:r]-tagged hey arriving via feed should NOT persist to a closed room
+    const res = onRoomFeedEvent(ev({ event: "MessageSend", data: { id: "m1", from: "web", text: "[room:r] late msg" }, ts: 1 }));
+    expect(res).toBe(false);
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(0); // not persisted
   });
 
   test("normalizes from to the bare identity: web:web → web, m5:eq3 → eq3 (kobo-248 attribution)", () => {

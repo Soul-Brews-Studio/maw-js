@@ -11,7 +11,7 @@
  */
 
 import type { FeedEvent } from "../../lib/feed";
-import { appendRoomMessage, findRoomCompany } from "./store";
+import { appendRoomMessage, findRoomCompany, readRoom } from "./store";
 import { bareName } from "./activity";
 
 let registered = false;
@@ -46,6 +46,9 @@ export function onRoomFeedEvent(event: FeedEvent): boolean {
   if (!roomId) return false;
   const company = findRoomCompany(roomId); // only OPENED rooms have an artifact
   if (!company) return false;
+  // kobo-296: mirror route.ts write-gate — closed/merged rooms refuse feed-event persistence
+  const artifact = readRoom(company, roomId);
+  if (!artifact || artifact.status !== "open") return false;
   const res = appendRoomMessage(company, roomId, {
     id: data?.id || `${event.oracle}-${event.ts}`,
     // Normalize to the bare identity so attribution is clean + consistent: the web
