@@ -739,6 +739,21 @@ export function missingSignTiers(task: TaskRecord): SignTier[] {
 }
 
 /**
+ * kobo-336: the oracle that signed BOTH tiers, if any. A crew card requires two
+ * INDEPENDENT eyes (the executor≠reviewer principle, kobo-328) — one oracle filling
+ * both the crew and head tier is a self-review bypass (found live in the kobo-329
+ * dogfood: the merge-gate let a same-signer card through). Returns the offending
+ * oracle, or null when the tiers are distinct or not both signed. A single-tier
+ * head-only card has no crew signer (crewSignedBy unset) → never a match, so this
+ * never over-blocks a genuine no-crew merge.
+ */
+export function sameSignerBothTiers(task: TaskRecord): string | null {
+  return task.crewSignedBy && task.headSignedBy && task.crewSignedBy === task.headSignedBy
+    ? task.crewSignedBy
+    : null;
+}
+
+/**
  * Record a gate sign (crew or head). Idempotent — re-signing just refreshes who+ts
  * (no error, no duplicate). A crew sign self-marks the card `crewGate` so a card a
  * crew has touched can't skip the crew tier. Returns null if the card is absent.
