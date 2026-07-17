@@ -129,4 +129,31 @@ describe("kobo-341 write-time guard via runTask", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toContain("cross-company");
   });
+
+  test("decompose child assignee cross-company → REFUSE, no child cards created (crew .2 gap)", async () => {
+    await task(["add", "epic", "--kind", "epic"]); // pgw-1 epic
+    const plan = JSON.stringify([{ title: "legit child", assignee: "somsri" }, { title: "forged child", assignee: "patchwork" }]);
+    const r = await task(["decompose", "pgw-1", "--plan", plan]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("cross-company");
+    expect(r.error).toContain("forged child"); // names the offending child
+    // refuse-all: NO child cards materialized (only the epic pgw-1 exists)
+    expect(readTask("pgw", "pgw-2")).toBeNull();
+  });
+
+  test("decompose child reviewer cross-company → REFUSE", async () => {
+    await task(["add", "epic", "--kind", "epic"]);
+    const plan = JSON.stringify([{ title: "child", assignee: "somsri", reviewer: "mawjs" }]);
+    const r = await task(["decompose", "pgw-1", "--plan", plan]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("cross-company");
+  });
+
+  test("decompose all-member children → allowed", async () => {
+    await task(["add", "epic", "--kind", "epic"]);
+    const plan = JSON.stringify([{ title: "a", assignee: "somsri" }, { title: "b", assignee: "thawanban", reviewer: "eq3" }]);
+    const r = await task(["decompose", "pgw-1", "--plan", plan]);
+    expect(r.ok).toBe(true);
+    expect(readTask("pgw", "pgw-2")).not.toBeNull(); // children materialized
+  });
 });

@@ -893,6 +893,15 @@ export async function runTask(
       }
       // Board rule 8 (soft): >10 children → should be a sub-epic. Warn, don't block.
       if (children.length > 10) console.log(`  \x1b[33m⚠ ${children.length} children — board rule: >10 ควรแตกเป็น sub-epic\x1b[0m`);
+      // kobo-341: decompose MATERIALIZES cards with owners — a cross-company child assignee/
+      // reviewer is the same kobo-334 vector as add/assign. Guard every child BEFORE
+      // decomposeEpic runs (refuse-all → zero cards created, no partial materialize).
+      for (const [i, ch] of children.entries()) {
+        const childAssigneeViol = companyScopeViolation(company, ch.assignee);
+        if (childAssigneeViol) return { ok: false, error: `decompose child #${i + 1} ("${ch.title ?? "?"}") assignee — ${childAssigneeViol}` };
+        const childReviewerViol = companyScopeViolation(company, ch.reviewer);
+        if (childReviewerViol) return { ok: false, error: `decompose child #${i + 1} ("${ch.title ?? "?"}") reviewer — ${childReviewerViol}` };
+      }
       let res;
       try {
         res = decomposeEpic(company, epicId, children, me);
