@@ -72,6 +72,10 @@ import {
   setTaskDep,
   setTaskEpic,
   setTaskPr,
+  signTask,
+  missingSignTiers,
+  requiredSignTiers,
+  type SignTier,
   moveTask,
   markDeployedTask,
 editTask,
@@ -265,7 +269,7 @@ export async function runTask(
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reason": String, "--deploy-required": Boolean, "--no-deploy-required": Boolean,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reason": String, "--deploy-required": Boolean, "--no-deploy-required": Boolean, "--crew-gate": Boolean,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
@@ -315,6 +319,7 @@ export async function runTask(
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
         parentIds, body: addBody, state: addState, reviewer: flags["--reviewer"], deployRequired,
         reviewReason: addState === "approve" ? flags["--reason"]!.trim() : undefined, // kobo-218: Approve lane invariant — carry the WHY
+        crewGate: Boolean(flags["--crew-gate"]), // kobo-327: crew-cell card → merge needs crew + head sign
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
       // kobo-222: guide (not block) — an approve-card whose body skips required sections
@@ -617,6 +622,48 @@ export async function runTask(
       // kobo-144: PR up = card in review → poke the resolved reviewer to look.
       const prRv = notifyReviewer(t, me);
       if (prRv) console.log(`  \x1b[36m→ pinged ${prRv}\x1b[0m`);
+    } else if (subcmd === "sign") {
+      // kobo-327: record a gate sign for the anti-race merge funnel. --role crew = the
+      // crew-cell pre-PR gate (.3); --role head = the final gate before merge (.2). A
+      // crew sign self-marks the card crewGate so it can't skip the crew tier. Idempotent.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--role": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const role = flags["--role"] as SignTier | undefined;
+      if (!id || !role) return { ok: false, error: "usage: maw company task sign <id> --role crew|head" };
+      if (role !== "crew" && role !== "head") return { ok: false, error: "--role must be crew or head" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = signTask(company, id, me, role);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      const still = missingSignTiers(t);
+      console.log(`\x1b[32m✍ signed\x1b[0m ${t.id} \x1b[90m(${role})\x1b[0m: ${t.title}${still.length ? ` \x1b[90m— still needs: ${still.join(", ")}\x1b[0m` : ` \x1b[90m— all signs in (mergeable)\x1b[0m`}`);
+    } else if (subcmd === "merge") {
+      // kobo-327: the ONE path that merges a gated card. REFUSES until every required
+      // sign tier (requiredSignTiers) is present, then runs `gh pr merge`. Removes merge
+      // from raw `gh pr merge` so the funnel (worker→crew→front→head→merge) is enforced
+      // in software, not discipline. required = head always; +crew iff crewGate (a
+      // non-crew card is single-tier — never hard-required to have a crew sign).
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--method": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: "usage: maw company task merge <id> [--method merge|squash|rebase]" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = readTask(company, id);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      if (!t.pr || !t.repo) return { ok: false, error: `${id} has no linked PR+repo — merge-gate only merges a card with a PR (run \`maw company task pr ${id} <n> --repo owner/name\` first)` };
+      const missing = missingSignTiers(t);
+      if (missing.length) {
+        return { ok: false, error: `merge REFUSED for ${id}: missing ${missing.join(" + ")} sign (required: ${requiredSignTiers(t).join(" + ")}). Collect the sign(s) with \`maw company task sign ${id} --role <tier>\` first — the funnel is: worker → crew(.3) → front → head(.2) → merge.` };
+      }
+      const method = (flags["--method"] as string) || "merge";
+      if (!["merge", "squash", "rebase"].includes(method)) return { ok: false, error: "--method must be merge, squash or rebase" };
+      const p = Bun.spawnSync(["gh", "pr", "merge", String(t.pr), `--${method}`, "--repo", t.repo], { stdout: "pipe", stderr: "pipe" });
+      if (p.exitCode !== 0) {
+        return { ok: false, error: `gh pr merge failed for ${id} (PR #${t.pr}): ${p.stderr.toString().trim() || p.stdout.toString().trim()}` };
+      }
+      console.log(`\x1b[32m✔ merged\x1b[0m ${t.id} \x1b[33m(PR #${t.pr})\x1b[0m ${t.repo} \x1b[90m— signs: ${requiredSignTiers(t).join(" + ")} ✓ (pr-watch will flip → done)\x1b[0m`);
     } else if (subcmd === "archive") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--days": Number }, 0);
       const me = await resolveActor(flags["--from"]);

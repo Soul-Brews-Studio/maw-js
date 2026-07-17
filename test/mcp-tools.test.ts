@@ -277,6 +277,30 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "pr", id: "kobo-3" })).toThrow(/pr number/);
   });
 
+  // kobo-327: merge-gate sign/merge verbs + add --crew-gate.
+  test("sign: id + role → sign <id> --role <tier>", () => {
+    expect(taskArgs({ action: "sign", id: "kobo-3", role: "crew" }))
+      .toEqual(["company", "task", "sign", "kobo-3", "--role", "crew"]);
+  });
+
+  test("sign: missing role throws", () => {
+    expect(() => taskArgs({ action: "sign", id: "kobo-3" })).toThrow(/role/);
+  });
+
+  test("merge: id only (default method)", () => {
+    expect(taskArgs({ action: "merge", id: "kobo-3" })).toEqual(["company", "task", "merge", "kobo-3"]);
+  });
+
+  test("merge: forwards --method", () => {
+    expect(taskArgs({ action: "merge", id: "kobo-3", method: "squash" }))
+      .toEqual(["company", "task", "merge", "kobo-3", "--method", "squash"]);
+  });
+
+  test("add: --crew-gate forwarded (kobo-327 crew-cell card)", () => {
+    expect(taskArgs({ action: "add", title: "crew work", crewGate: true }))
+      .toEqual(["company", "task", "add", "crew work", "--crew-gate"]);
+  });
+
   test("block: id + required --kind + optional --reason/--for", () => {
     expect(taskArgs({ action: "block", id: "kobo-3", kind: "dependency", reason: "waits #66", for: "tony" })).toEqual([
       "company", "task", "block", "kobo-3", "--kind", "dependency", "--reason", "waits #66", "--for", "tony",

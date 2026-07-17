@@ -26,6 +26,11 @@ export interface TaskCard {
   pr?: number;
   block?: TaskRecord["block"]; // off-flow block {kind,reason,for} (ADR 0003 B)
   reviewer?: string;
+  crewGate?: boolean; // kobo-327: merge needs a crew pre-sign too (crew-cell card)
+  crewSignedBy?: string; // kobo-327: who crew-signed (pre-PR gate)
+  crewSignedTs?: number;
+  headSignedBy?: string; // kobo-327: who head-signed (final gate)
+  headSignedTs?: number;
   by: string;
   ts: number;
   updatedTs?: number;
@@ -57,6 +62,10 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   if (t.pr) card.pr = t.pr;
   if (t.block) card.block = t.block;
   if (t.reviewer) card.reviewer = t.reviewer;
+  // kobo-327: expose merge-gate sign state so the board UI matches the CLI (Board Truth #7)
+  if (t.crewGate) card.crewGate = true;
+  if (t.crewSignedBy) { card.crewSignedBy = t.crewSignedBy; card.crewSignedTs = t.crewSignedTs; }
+  if (t.headSignedBy) { card.headSignedBy = t.headSignedBy; card.headSignedTs = t.headSignedTs; }
   if (t.updatedTs) card.updatedTs = t.updatedTs;
   const progress = checklistProgress(t.body);
   if (progress) card.checklist = progress;

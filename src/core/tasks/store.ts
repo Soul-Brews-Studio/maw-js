@@ -155,6 +155,11 @@ export interface TaskRecord {
   notes?: TaskNote[]; // append-only notes (kobo-39) — mid-flight truth, oldest first, NEVER mutated/deleted
   comments?: TaskComment[]; // threaded ask/answer comments (kobo-140) — resolve flips a flag, never deleted
   room?: string; // provenance (kobo-244) — the brainstorm-room artifact id this card was distilled from (bidirectional; the room records this card id back)
+  crewGate?: boolean; // kobo-327: this card goes through a crew cell → merge needs a crew pre-sign IN ADDITION to head. Unset → single-tier (head only), never hard-required (a non-crew card must still be mergeable). Set at crew dispatch (kobo-328) or self-marked when a crew signs.
+  crewSignedBy?: string; // kobo-327: oracle that crew-signed (pre-PR gate). who+ts mirrors the reviewer field convention.
+  crewSignedTs?: number; // epoch ms
+  headSignedBy?: string; // kobo-327: oracle that head-signed (final gate before merge)
+  headSignedTs?: number; // epoch ms
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -364,6 +369,7 @@ export interface AddTaskInput {
   reviewer?: string; // kobo-144: persistent per-card reviewer (resolve chain head)
   reviewReason?: string; // kobo-218: born-in-approve deploy-approval card carries WHY (the Approve lane invariant — every card says why it's in Tony's queue)
   room?: string; // kobo-244: brainstorm-room artifact id this card is distilled from (provenance)
+  crewGate?: boolean; // kobo-327: mark a crew-cell card at creation/dispatch → merge needs a crew pre-sign too (closes the head-merges-before-crew race)
 }
 
 /**
@@ -396,6 +402,7 @@ export function addTask(input: AddTaskInput): TaskRecord {
   if (input.reviewer) task.reviewer = input.reviewer; // kobo-144: persistent per-card reviewer
   if (input.reviewReason) task.reviewReason = input.reviewReason; // kobo-218: born-in-approve card's WHY
   if (input.room) task.room = input.room; // kobo-244: room-artifact provenance (bidirectional link)
+  if (input.crewGate) task.crewGate = true; // kobo-327: crew-cell card → merge needs crew + head sign
 
   // kobo-133/223: born blocked-or-ready. A card that opens with deps → if any
   // parent is still pending it's born BLOCKED (state=blocked, kind=dependency —
@@ -692,6 +699,51 @@ export function setTaskPr(company: string, id: string, pr: number, by: string, r
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: PR up but dep still pending → blocked, not review
   emit(task, by, "task-review", `review ${task.id} (PR #${pr}): ${task.title}`);
+  return task;
+}
+
+// ── kobo-327: merge-gate — 2-sign funnel enforced in software ──────────────────
+
+export type SignTier = "crew" | "head";
+
+/**
+ * The sign tiers a card must collect BEFORE it can be merged. Head is the final
+ * gate on every gated card (single-tier = 1). A crew-cell card (`crewGate`) also
+ * needs a crew pre-sign (crew-cell = 2). A card with no crewGate is NEVER
+ * hard-required to have a crew sign — otherwise a plain non-crew card could never
+ * merge (the kobo-327 design crux).
+ */
+export function requiredSignTiers(task: TaskRecord): SignTier[] {
+  return task.crewGate ? ["crew", "head"] : ["head"];
+}
+
+/** Which required tiers are still unsigned (empty = ready to merge). */
+export function missingSignTiers(task: TaskRecord): SignTier[] {
+  return requiredSignTiers(task).filter((tier) =>
+    tier === "crew" ? !task.crewSignedBy : !task.headSignedBy,
+  );
+}
+
+/**
+ * Record a gate sign (crew or head). Idempotent — re-signing just refreshes who+ts
+ * (no error, no duplicate). A crew sign self-marks the card `crewGate` so a card a
+ * crew has touched can't skip the crew tier. Returns null if the card is absent.
+ */
+export function signTask(company: string, id: string, by: string, role: SignTier): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  const now = Date.now();
+  if (role === "crew") {
+    task.crewSignedBy = by;
+    task.crewSignedTs = now;
+    task.crewGate = true; // a crew signing declares this a crew-tier card
+  } else {
+    task.headSignedBy = by;
+    task.headSignedTs = now;
+  }
+  task.updatedTs = now;
+  writeTaskRecord(task);
+  emit(task, by, "task-review", `sign ${task.id} (${role}): ${task.title}`);
   return task;
 }
 

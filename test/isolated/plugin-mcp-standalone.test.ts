@@ -87,9 +87,18 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(server).toContain("taskArgs");
     const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
     expect(tools).toContain("export function taskArgs");
-    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"review"', '"hold"', '"approve"', '"need-answer"', '"pr"', '"done"', '"deployed"', '"note"', '"edit"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
+    for (const verb of ['"add"', '"ls"', '"start"', '"move"', '"claim"', '"assign"', '"ask"', '"mentions"', '"comment"', '"comments"', '"review"', '"hold"', '"approve"', '"need-answer"', '"pr"', '"sign"', '"merge"', '"done"', '"deployed"', '"note"', '"edit"', '"epic"', '"dep"', '"decompose"', '"block"', '"unblock"', '"archive"']) {
       expect(tools).toContain(verb);
     }
+    // kobo-327: merge-gate — sign records a crew/head tier; merge is the gated merge path.
+    expect(tools).toContain('["company", "task", "sign", sid, "--role", input.role');
+    expect(tools).toContain('task sign requires a role'); // sign refuses without a tier
+    expect(tools).toContain('["company", "task", "merge", gid]');
+    expect(tools).toContain('argv.push("--crew-gate")'); // add forwards the crew-cell flag
+    expect(server).toContain('"sign"'); // enum + description advertise the verb
+    expect(server).toContain('"merge"');
+    expect(server).toContain('z.enum(["crew", "head"])'); // role param schema
+    expect(server).toContain('z.enum(["merge", "squash", "rebase"])'); // method param schema
     // kobo-275: deployed maps 1:1 to the CLI verb (manual wait-for-deploy → done drain).
     expect(tools).toContain('["company", "task", "deployed", needId("deployed")');
     expect(server).toContain('"deployed"'); // enum + description advertise the verb

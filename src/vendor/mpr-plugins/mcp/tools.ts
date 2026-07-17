@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "review" | "hold" | "approve" | "need-answer" | "pr" | "done" | "deployed" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "review" | "hold" | "approve" | "need-answer" | "pr" | "sign" | "merge" | "done" | "deployed" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
 
 /** One child in a decompose plan (kobo-146 C7). Mirror of the store's DecomposeChild — kept local so tools.ts stays a pure argv mapper with no core import. */
 export interface DecomposePlanChild {
@@ -57,6 +57,9 @@ export interface TaskInput {
   force?: boolean;     // assign: --force-reassign (reassign is friction, correction only — kobo-219)
   gate?: boolean;      // hold: --gate — route the brake to the approve lane (Tony's queue), not review (kobo-224)
   reviewer?: string;   // add (persistent per-card reviewer, kobo-144)
+  role?: string;       // sign (required): crew|head — which gate tier is signing (kobo-327)
+  crewGate?: boolean;  // add (kobo-327): mark a crew-cell card → merge needs crew + head sign
+  method?: string;     // merge (kobo-327): merge|squash|rebase (default merge)
   deployRequired?: boolean; // add/edit (kobo-274 — override the has-PR merge→wait-for-deploy default)
   reason?: string;     // review / hold / block
   kind?: string;       // block (required)
@@ -187,6 +190,7 @@ export function taskArgs(input: TaskInput): string[] {
       if (input.body) argv.push("--body", input.body);
       if (input.deployRequired === true) argv.push("--deploy-required"); // kobo-274 override
       else if (input.deployRequired === false) argv.push("--no-deploy-required");
+      if (input.crewGate) argv.push("--crew-gate"); // kobo-327: crew-cell card → merge needs crew+head sign
       return [...argv, ...common()];
     }
     case "move": {
@@ -338,6 +342,19 @@ export function taskArgs(input: TaskInput): string[] {
       if (input.pr === undefined) throw new Error("task pr requires a pr number");
       const argv = ["company", "task", "pr", pid, String(input.pr)];
       if (input.repo) argv.push("--repo", input.repo);
+      return [...argv, ...common()];
+    }
+    case "sign": {
+      // kobo-327: record a merge-gate sign (crew pre-PR gate / head final gate).
+      const sid = needId("sign");
+      if (!input.role) throw new Error("task sign requires a role (crew|head)");
+      return ["company", "task", "sign", sid, "--role", input.role, ...common()];
+    }
+    case "merge": {
+      // kobo-327: the gated merge — refuses until required signs present, then gh pr merge.
+      const gid = needId("merge");
+      const argv = ["company", "task", "merge", gid];
+      if (input.method) argv.push("--method", input.method);
       return [...argv, ...common()];
     }
     case "block": {

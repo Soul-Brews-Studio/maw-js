@@ -39,7 +39,7 @@ describe("task command plugin standalone boundary", () => {
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "migrate-comments"', 'subcmd === "migrate-lanes"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "approve"', 'subcmd === "need-answer"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "deployed"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "edit"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "decompose"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "migrate-comments"', 'subcmd === "migrate-lanes"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "approve"', 'subcmd === "need-answer"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "deployed"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "edit"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "decompose"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"', 'subcmd === "sign"', 'subcmd === "merge"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("setTaskDep"); // kobo-134: dep add/rm — edit parentIds post-create
@@ -98,6 +98,14 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("resolveReviewer"); // chain: reviewer field → creator → human
     expect(src).toContain("notifyReviewer"); // review-lane → poke the resolved reviewer
     expect(src).toContain('"--reviewer"'); // add accepts a persistent per-card reviewer
+    // kobo-327: merge-gate — the 2-sign anti-race funnel enforced in software.
+    expect(src).toContain("signTask"); // sign verb: record a crew/head gate sign (idempotent, who+ts)
+    expect(src).toContain("missingSignTiers"); // merge refuses until every required tier is signed
+    expect(src).toContain("requiredSignTiers"); // head always; +crew iff crewGate (non-crew card = single-tier)
+    expect(src).toContain('"--crew-gate": Boolean'); // add pre-declares a crew-cell card (closes head-before-crew race)
+    expect(src).toContain('"--role": String'); // sign --role crew|head
+    expect(src).toContain('"--method": String'); // merge --method merge|squash|rebase
+    expect(src).toContain("gh pr merge failed"); // merge shells to gh only after the gate passes
     expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
     expect(src).toContain("parsePrRepo"); // kobo-80: stamp card.repo from the PR url on pr-link
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given
