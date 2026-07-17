@@ -29,7 +29,7 @@
 
 import { parseFlags } from "maw-js/sdk";
 import { loadConfig } from "maw-js/config";
-import { companyOfOracleStrict } from "../../../core/worklog/company-scope";
+import { companyOfOracleStrict, companyScopeViolation } from "../../../core/worklog/company-scope";
 import {
   addTask,
   archiveOldDone,
@@ -323,6 +323,12 @@ export async function runTask(
         return { ok: false, error: "pass only one of --deploy-required / --no-deploy-required" };
       }
       const deployRequired = flags["--deploy-required"] ? true : (flags["--no-deploy-required"] ? false : undefined);
+      // kobo-341: cross-company dispatch guard — a card's assignee/reviewer must be reachable
+      // WITHIN this company (member or human), else the notify path pings a cross-company pane.
+      const addAssigneeViol = companyScopeViolation(company, flags["--assignee"]);
+      if (addAssigneeViol) return { ok: false, error: addAssigneeViol };
+      const addReviewerViol = companyScopeViolation(company, flags["--reviewer"]);
+      if (addReviewerViol) return { ok: false, error: addReviewerViol };
       const t = addTask({
         company, title, by: me, kind: addKind,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
@@ -452,6 +458,8 @@ export async function runTask(
       if (!id || !to) return { ok: false, error: "usage: maw company task assign <id> --to <who> [--force-reassign]" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const assignViol = companyScopeViolation(company, to); // kobo-341: no cross-company assignee
+      if (assignViol) return { ok: false, error: assignViol };
       const t = assignTask(company, id, to, me, { force: Boolean(flags["--force-reassign"]) });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m→ assigned\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
@@ -523,6 +531,8 @@ export async function runTask(
       // downgrade, so the operator re-routes to an independent reviewer.
       const existing = readTask(company, id);
       if (!existing) return { ok: false, error: `task not found: ${id}` };
+      const reviewViol = companyScopeViolation(company, flags["--to"]); // kobo-341: no cross-company reviewer
+      if (reviewViol) return { ok: false, error: reviewViol };
       if (flags["--to"] && isSelfReview(existing, flags["--to"])) {
         return { ok: false, error: `refuse: ${flags["--to"]} is the assignee/executor of ${id} — self-review banned (executor≠reviewer, kobo-328). Route --to an independent reviewer.` };
       }
@@ -806,6 +816,8 @@ export async function runTask(
       const badReviewer = badFlagValue("--reviewer", flags["--reviewer"]); if (badReviewer) return { ok: false, error: badReviewer };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const editReviewerViol = companyScopeViolation(company, flags["--reviewer"]); // kobo-341: no cross-company reviewer
+      if (editReviewerViol) return { ok: false, error: editReviewerViol };
       const t = editTask(company, id, me, { title: flags["--title"], body: flags["--body"], reviewer: flags["--reviewer"], deployRequired: editDeployRequired });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m✎ edited\x1b[0m ${t.id}: ${t.title}`);
@@ -881,6 +893,15 @@ export async function runTask(
       }
       // Board rule 8 (soft): >10 children → should be a sub-epic. Warn, don't block.
       if (children.length > 10) console.log(`  \x1b[33m⚠ ${children.length} children — board rule: >10 ควรแตกเป็น sub-epic\x1b[0m`);
+      // kobo-341: decompose MATERIALIZES cards with owners — a cross-company child assignee/
+      // reviewer is the same kobo-334 vector as add/assign. Guard every child BEFORE
+      // decomposeEpic runs (refuse-all → zero cards created, no partial materialize).
+      for (const [i, ch] of children.entries()) {
+        const childAssigneeViol = companyScopeViolation(company, ch.assignee);
+        if (childAssigneeViol) return { ok: false, error: `decompose child #${i + 1} ("${ch.title ?? "?"}") assignee — ${childAssigneeViol}` };
+        const childReviewerViol = companyScopeViolation(company, ch.reviewer);
+        if (childReviewerViol) return { ok: false, error: `decompose child #${i + 1} ("${ch.title ?? "?"}") reviewer — ${childReviewerViol}` };
+      }
       let res;
       try {
         res = decomposeEpic(company, epicId, children, me);
@@ -910,6 +931,8 @@ export async function runTask(
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const to = flags["--to"] || "tony"; // questions default to Tony's queue
+      const askViol = companyScopeViolation(company, to); // kobo-341: no cross-company ask-subcard assignee
+      if (askViol) return { ok: false, error: askViol };
       const t = askTask(company, parentId, question, to, me);
       if (!t) return { ok: false, error: `parent card not found: ${parentId}` };
       console.log(`\x1b[36m❓ ask\x1b[0m ${t.id} \x1b[90m↳ ${parentId}\x1b[0m → \x1b[32m@${t.assignee}\x1b[0m: ${t.title}`);

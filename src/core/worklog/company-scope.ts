@@ -113,6 +113,32 @@ export function companyOracles(company: string): string[] {
   return [...set];
 }
 
+// kobo-341: cross-company dispatch is always allowed to reach a human/placeholder —
+// these are NOT company oracles but are legit dispatch targets (Board Truth rule 14:
+// assignee=human; `any` = the unassigned wildcard).
+const CROSS_COMPANY_DISPATCH_OK = new Set(["human", "tony", "any"]);
+
+/**
+ * kobo-341: guard cross-company task dispatch. A card's assignee/reviewer/handoff must
+ * be someone the company can actually reach — a member of THAT company (any dept, or the
+ * company manager/lead who sits above the depts, e.g. eq3 over kobo), or a human. A
+ * target fully OUTSIDE the company (e.g. a pgw card assigned to `patchwork`) is refused:
+ * the notify path pings the target's real fleet pane cross-company (kobo-334), which is
+ * cross-company pollution + a mild info-leak. Returns an error string to refuse, or null
+ * to allow. The allowlist is the company MEMBERS (companyOracles = manager + dept members)
+ * — deliberately NOT dept-only, which would break legit lead/human assigns (rule 14).
+ */
+export function companyScopeViolation(company: string, target: string | null | undefined): string | null {
+  const t = (target ?? "").trim();
+  if (!t || CROSS_COMPANY_DISPATCH_OK.has(t.toLowerCase())) return null;
+  const members = companyOracles(company);
+  // An unregistered company (no registry entry → no members) can't be membership-scoped —
+  // allow rather than refuse every target (the guard scopes REGISTERED companies; the
+  // kobo-334 vector is a real registered company reaching a non-member).
+  if (members.length === 0 || members.includes(t)) return null;
+  return `refuse: "${t}" is not in company "${company}" — cross-company dispatch is blocked (kobo-341). Assign/review to a company member (a dept oracle or the manager) or a human.`;
+}
+
 /** One roster entry — an oracle's place in the company org (kobo-50 presence). */
 export interface RosterMember {
   oracle: string;

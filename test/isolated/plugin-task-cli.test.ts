@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runTask } from "../../src/vendor/mpr-plugins/task/index";
 import { listArchivedTasks, listTasks, readTask } from "../../src/core/tasks/store";
+import { COMPANIES_DIR, _setCompaniesDir } from "../../src/vendor/mpr-plugins/company/company-helpers";
 
 // Behavioural test for the task-board runner `runTask` — the shared engine that
 // `maw company task` (and the maw_task MCP tool) drive. cli-reorg kobo-26 removed
@@ -13,19 +14,35 @@ import { listArchivedTasks, listTasks, readTask } from "../../src/core/tasks/sto
 const dir = mkdtempSync(join(tmpdir(), "maw-taskcli-"));
 const prev = process.env.MAW_DATA_DIR;
 const prevTest = process.env.MAW_TEST_MODE;
+const prevCompaniesDir = COMPANIES_DIR; // kobo-341: restore the import-cached dir after (no batch bleed)
+
+// kobo-341: the cross-company dispatch guard reads the company registry. Register the
+// throwaway companies (pgw/acme) with the oracles these tests assign/review so those
+// targets are legit members (guard allows) — the test intent is "a card with an
+// assignee", not cross-company. COMPANIES_DIR is import-cached, so point it at the sandbox.
+const seedCompanies = () => {
+  const compDir = join(dir, "companies");
+  mkdirSync(compDir, { recursive: true });
+  const members = ["patchwork", "eq3", "worker", "somsri", "thawanban", "mawjs"].map(o => ({ oracle: o }));
+  for (const c of ["pgw", "acme"]) {
+    writeFileSync(join(compDir, `${c}.json`), JSON.stringify({ name: c, departments: { core: { members, lead: "eq3" } } }));
+  }
+};
 
 beforeAll(() => {
   process.env.MAW_DATA_DIR = dir;
   process.env.MAW_TEST_MODE = "1"; // kobo-335: suppress real notify/ping delivery to live panes (ask/assign/comment)
+  _setCompaniesDir(join(dir, "companies")); // kobo-341: guard reads THIS sandbox, not real ~/.maw
 });
 afterAll(() => {
   if (prev === undefined) delete process.env.MAW_DATA_DIR;
   else process.env.MAW_DATA_DIR = prev;
   if (prevTest === undefined) delete process.env.MAW_TEST_MODE;
   else process.env.MAW_TEST_MODE = prevTest;
+  _setCompaniesDir(prevCompaniesDir); // kobo-341: restore (module state — don't bleed the batch)
   rmSync(dir, { recursive: true, force: true });
 });
-beforeEach(() => { rmSync(join(dir, "companies"), { recursive: true, force: true }); });
+beforeEach(() => { rmSync(join(dir, "companies"), { recursive: true, force: true }); seedCompanies(); });
 
 // Collect emitted lines into `output` so the same assertions (output/ok/error) hold.
 // kobo-335: a --from claim is now authenticated against the agent self (CLAUDE_AGENT_NAME).
