@@ -3,7 +3,9 @@ name: crew
 description: Spin up an autonomous crew cell — 4 permanent raw claude panes — front(.0 coordinate + report head-lead) · conductor(.1 decompose/route) · worker(.2 execute → CC Task sub-agent offload) · reviewer(.3 review · executor≠reviewer). flow front→conductor→worker→reviewer→front→lead. front toilet/clear แล้วทีมไม่ตาย (raw panes อิสระ). kernel = /head 4-pane (validated kobo-89/91). crew ต้องอยู่ใน company. Use when user says "/crew", "เรียก crew", "ขอ front", or an oracle needs a work cell.
 ---
 
-# /crew — 4-pane cell: front(.0) | conductor 🎼(.1) | worker ⚒(.2) | reviewer 🔎(.3)
+# /crew — v2 2-window cell: W0/page1 brains (opus) — front(.0) · conductor 🎼 · reviewer 🔎 | W1/page2 — worker ⚒ (sonnet)
+
+> **v2 (kobo-344 340a):** the cell spans **2 tmux windows** in one session. **W0 "page1" = opus brains** (front · conductor · reviewer — think/route/review). **W1 "page2" = sonnet worker(s)** (heavy exec on the cheaper/faster tier). Cross-window comm via `maw hey session:W1.pane` (resolve fresh from pane-id, §3). Dynamic worker ×N = 340b · pane-identity/sign = 340c (this card = foundation: layout + spawn + `--model sonnet` worker in W1).
 
 ```
    inbound (another oracle / head-lead · maw hey / card)
@@ -15,7 +17,7 @@ description: Spin up an autonomous crew cell — 4 permanent raw claude panes �
     conductor (.1) 🎼   decompose (story-split→card) · route/dispatch · light-exec
         │  dispatch งาน
         ▼
-     worker (.2) ⚒   execute → offload heavy → CC Task sub-agent (kobo-317) · คืน distilled
+   worker (W1 ⚒ sonnet)   execute (page2, separate window) → offload heavy → CC Task sub-agent (kobo-317) · คืน distilled
         │  เสร็จ
         ▼
     reviewer (.3) 🔎   pre-PR gate in-cell (correctness+scope · executor≠reviewer)
@@ -78,14 +80,20 @@ EOF
 COND=$(tmux split-window -h -P -F '#{pane_id}' \
   'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/conductor-contract.md)"')
 
-# --- worker (.2) — execute · single pane (cap 1) · Stop hook idle → conductor (worker done → conductor routes to reviewer)
+# --- worker (W1/page2) — execute · SONNET pane in a SEPARATE window (kobo-344 v2 340a) · single
+#     pane cap 1 (dynamic ×N = 340b) · Stop hook idle → conductor (worker done → conductor routes to reviewer).
+#     `tmux new-window -P -F '#{pane_id}'` opens W1 at the next free index and returns the new
+#     window's (only) pane-id = the worker. `--model sonnet` = cheaper/faster grunt tier (VERIFIED
+#     live in /head SKILL). Brains (front/conductor/reviewer) stay opus in W0. Cross-window works:
+#     CREW_COORD_PANE=$COND (%id) → the Stop hook resolves session:W0.conductor fresh each turn
+#     (`#{window_index}` follows the pane's real window, so W1→W0 addressing is automatic).
 cat > "$STATE_DIR/worker-contract.md" <<'EOF'
 <Worker Contract — §4, เติม company/dept/board>
 EOF
-WORKER=$(tmux split-window -h -P -F '#{pane_id}' \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
+WORKER=$(tmux new-window -P -F '#{pane_id}' -n crew-workers \
+  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model sonnet --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
 
-# --- reviewer (.3) — review · Stop hook idle → front (verdict → front loopback → head-lead)
+# --- reviewer (.3) — review · OPUS brains, stays in W0 (page1) · Stop hook idle → front (verdict → front loopback → head-lead)
 cat > "$STATE_DIR/reviewer-contract.md" <<'EOF'
 <Reviewer Contract — §4b, เติม company/dept/board + card/PR ที่ตรวจ>
 EOF
@@ -108,13 +116,13 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
 
 → ไม่มีช่วง idle รอ manual. **fallback (ready-ping หาย):** front เช็ค `maw ls -v` / `maw peek` — pane boot แล้วยังไม่ได้ hey → **ยิง kick เอง** (อย่ารอ ready-ping อย่างเดียว, §8.11).
 
-- **Layout (4-pane · Tony approved 2026-07-04)**: front ซ้าย ~45% เต็มสูง, conductor+worker+reviewer stack แนวนอนขวา. รันหลัง 3 pane ครบ:
+- **Layout (v2 2-window · kobo-344)**: **W0/page1** (brains) = front ซ้าย ~45% เต็มสูง, conductor+reviewer stack แนวนอนขวา (3 opus panes). **W1/page2** (crew-workers) = worker sonnet pane เต็มหน้าต่าง. รัน layout เฉพาะ W0 หลัง conductor+reviewer ครบ (W1 pane เดียว ไม่ต้องจัด):
   ```bash
-  tmux swap-pane -s "$FRONT" -t "$(tmux display-message -p '#{session_name}:#{window_index}.0')" -d 2>/dev/null  # front → main slot (.0) ถ้ายังไม่ใช่
+  tmux swap-pane -s "$FRONT" -t "$(tmux display-message -p '#{session_name}:#{window_index}.0')" -d 2>/dev/null  # front → W0 main slot (.0) ถ้ายังไม่ใช่
   tmux set-window-option main-pane-width 45%
-  tmux select-layout main-vertical
+  tmux select-layout main-vertical   # W0 only — front left, conductor+reviewer right
   ```
-  ⚠️ swap เปลี่ยน index แต่ **pane-id นิ่ง** → roster ไม่พัง (resolve index สดจาก pane-id §3)
+  ⚠️ swap เปลี่ยน index แต่ **pane-id นิ่ง** → roster ไม่พัง (resolve index สดจาก pane-id §3). worker ใน W1 = address `session:W1.pane` (window index ต่างจาก W0 — resolve สดจาก pane-id §3, ข้าม-window อัตโนมัติ)
 - **Pane labels** — ขอบ pane บอกบท + task. ใช้ `@role`/`@task` (⚠️ ห้าม `select-pane -T` — Claude Code ยิง title ทับ). @role **load-bearing** (seat-resume + card-gate อ่าน) → HARDEN (kobo-174) assert แล้ว re-set:
   ```bash
   for pr in "$COND:🎼 conductor" "$WORKER:⚒ worker" "$REV:🔎 reviewer"; do
@@ -122,8 +130,11 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
     tmux set-option -p -t "$pid" @role "$want"
     [ "$(tmux display-message -t "$pid" -p '#{@role}')" = "$want" ] || tmux set-option -p -t "$pid" @role "$want"
   done
-  tmux set-window-option pane-border-status top
-  tmux set-window-option pane-border-format ' #{@role}#{?@task, · #{@task},} · #{pane_title} '
+  # border-status is a per-WINDOW option → set on BOTH W0 (brains) and W1 (worker window, kobo-344)
+  for w in "" "-t $WORKER"; do
+    tmux set-window-option $w pane-border-status top
+    tmux set-window-option $w pane-border-format ' #{@role}#{?@task, · #{@task},} · #{pane_title} '
+  done
   # ตอน dispatch (conductor set @task ให้ worker) · ตอนเสร็จ (@task "") — single writer
   ```
   → ขอบโชว์ `⚒ worker · kobo-85 · <งานย่อยที่ CC กำลังทำ>`. @task ว่าง = standby. *(front @role tag ตั้งใน §0 init แล้ว)*
@@ -153,7 +164,8 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
 ADDR=$(tmux display-message -t %691 -p '#{session_name}:#{window_index}.#{pane_index}')  # %pane-id → current index
 maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 ```
-- **front→conductor** (brief) · **conductor→worker** (dispatch) · **worker→reviewer** (handoff, ผ่าน conductor/front รู้เห็น) · **reviewer→front** (verdict): lookup `%pane-id` จาก roster → resolve → hey
+- **v2 cross-window (kobo-344):** the worker lives in **W1** so its `#{window_index}` differs from the W0 brains — resolving from `%pane-id` handles this AUTOMATICALLY (the format returns the pane's real `session:W.pane`, W0 or W1). `maw hey session:W1.pane` cross-window delivery is verified-supported. NEVER hard-code a window index — resolve fresh from pane-id every send (same rule as pane index, one level up).
+- **front→conductor** (brief, W0) · **conductor→worker** (dispatch, W0→W1) · **worker→reviewer** (handoff, W1→W0 ผ่าน conductor/front รู้เห็น) · **reviewer→front** (verdict, W0): lookup `%pane-id` จาก roster → resolve → hey
 - **first hey = auto-kick** (§1) — pane act จาก message แรก ไม่ต้อง inject `--prompt` แยก. ready-ping handshake การันตี box ว่างตอน kick
 - maw เติม tag `[<host>:<oracle>]` นำหน้า → Contract ต้องทน tag
 - ⚠️ **input-guard (verified)**: box ไม่ว่าง → `maw hey` **deferred** และ **ไม่ auto-clear เองสำหรับ pane ไม่มีคน** → ค้าง. `maw flush` ดันผ่านไม่ได้ → ทุก pane **submit ทุก turn ให้ box ว่าง** · sender ยิงตอน target idle
