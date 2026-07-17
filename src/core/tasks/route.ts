@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isStaleDecisionCard, lastActivityByOracle, listTasks, markDeployedTask, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, ReassignFrictionError, rejectTask, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isSelfReview, isStaleDecisionCard, lastActivityByOracle, listTasks, markDeployedTask, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, ReassignFrictionError, rejectTask, resolveReviewer, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyCommentReply, notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -61,7 +61,11 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   if (t.repo) card.repo = t.repo;
   if (t.pr) card.pr = t.pr;
   if (t.block) card.block = t.block;
-  if (t.reviewer) card.reviewer = t.reviewer;
+  // kobo-328: expose the RESOLVED reviewer (never the executor) so the board shows
+  // who's ACTUALLY up to review — UI↔CLI parity (Board Truth #7). Falls to "human"
+  // when no independent reviewer exists; omitted then, matching the old unset UX.
+  const rv = resolveReviewer(t);
+  if (rv !== "human") card.reviewer = rv;
   // kobo-327: expose merge-gate sign state so the board UI matches the CLI (Board Truth #7)
   if (t.crewGate) card.crewGate = true;
   if (t.crewSignedBy) { card.crewSignedBy = t.crewSignedBy; card.crewSignedTs = t.crewSignedTs; }
@@ -517,8 +521,15 @@ export async function handleTaskEditRequest(request: Request): Promise<Response>
   const id = typeof body.id === "string" ? body.id.trim() : "";
   if (!company || !id) return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
   if (typeof body.reviewer !== "string") return Response.json({ ok: false, error: "reviewer is required" }, { status: 400 });
-  if (!readTask(company, id)) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
-  const task = editTask(company, id, "tony", { reviewer: body.reviewer.trim() });
+  const existing = readTask(company, id);
+  if (!existing) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
+  // kobo-328: refuse setting the executor as reviewer from the board too (UI↔CLI
+  // parity — the CLI `review --to <doer>` refuses, the web button must as well).
+  const wantReviewer = body.reviewer.trim();
+  if (isSelfReview(existing, wantReviewer)) {
+    return Response.json({ ok: false, error: `${wantReviewer} is the assignee/executor of ${id} — self-review banned (executor≠reviewer, kobo-328)` }, { status: 409 });
+  }
+  const task = editTask(company, id, "tony", { reviewer: wantReviewer });
   if (!task) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
   return Response.json({ ok: true, task: { id: task.id, title: task.title, reviewer: task.reviewer ?? null } });
 }
