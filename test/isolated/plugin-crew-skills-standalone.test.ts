@@ -287,12 +287,33 @@ describe("crew-skills global asset contract", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
     // probe-once detects sonnet[1m] entitlement; hard-coded model removed (kobo-352 fail-safe)
     expect(skill).toContain('"sonnet[1m]"');                        // probe target (1M context)
-    expect(skill).toContain("not available for your account");      // exact CC fallback-detection string
+    expect(skill).toContain("not available for your account");      // early-exit on confirmed not-entitled
     expect(skill).toContain("WORKER_MODEL");                        // variable-driven spawn, not hardcoded
     // in a SEPARATE window (W1/page2), not another split in W0
     expect(skill).toContain("tmux new-window -P -F '#{pane_id}'");
     // the WORKER pane-id comes from that new-window (the spawn form binds WORKER to W1)
     expect(skill).toMatch(/WORKER=\$\(tmux new-window/);
+  });
+
+  // kobo-352 fail-safe direction: probe-fail (timeout / empty / error) MUST default to sonnet,
+  // not sonnet[1m]. The previous impl was fail-OPEN (else=sonnet[1m]); this pins the inversion.
+  test("crew probe-once: default=sonnet, upgrade only on positive (1M context) proof (kobo-352 fail-safe)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    const probeStart = skill.indexOf("probe-once (kobo-352)");
+    const cacheLine = skill.indexOf('echo "$WORKER_MODEL" > "$STATE_DIR/worker-model.txt"');
+    const probeBlock = skill.slice(probeStart, cacheLine);
+    // default must be sonnet (assigned first, before any if-check)
+    expect(probeBlock).toContain('WORKER_MODEL="sonnet"');
+    // positive trigger: "(1M context)" sighting (not a driftable error string)
+    expect(probeBlock).toContain('(1M context)');
+    // fail-safe direction: sonnet assigned BEFORE the sonnet[1m] upgrade
+    expect(probeBlock.indexOf('WORKER_MODEL="sonnet"')).toBeLessThan(
+      probeBlock.indexOf('WORKER_MODEL="sonnet[1m]"')
+    );
+    // no else-branch defaulting to sonnet[1m] (the fail-OPEN pattern that was reverted)
+    expect(probeBlock).not.toMatch(/else[\s\S]*?WORKER_MODEL="sonnet\[1m\]"/);
+    // poll loop present (CC TUI boot >3s — fixed sleep is unreliable)
+    expect(probeBlock).toMatch(/for _i in/);
   });
 
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {

@@ -91,18 +91,19 @@ cat > "$STATE_DIR/worker-contract.md" <<'EOF'
 <Worker Contract — §4, เติม company/dept/board>
 EOF
 # probe-once (kobo-352): detect sonnet[1m] (1M-context) account entitlement; cache for §5 worker-N.
+# DEFAULT = safe plain sonnet (always boots). Upgrade ONLY on POSITIVE "(1M context)" sighting.
 # sonnet[1m] is account-gated — hard-failing spawn = fleet deadlock (kobo-268 class).
-# fallback exact string (CC binary): "not available for your account"
+# Any ambiguity (timeout / empty-capture / tmux-fail / string-drift) → stays sonnet (safe).
 _TMP=$(tmux new-window -d -P -F '#{pane_id}' -n crew-probe \
   'claude --model "sonnet[1m]" --dangerously-skip-permissions')
-sleep 3
-_PROBE=$(tmux capture-pane -t "$_TMP" -p -S -20)
+WORKER_MODEL="sonnet"         # default: safe (always boots; upgrade only on positive proof below)
+for _i in 1 2 3 4 5; do      # poll up to 10s — CC TUI boot often >3s, fixed sleep is unreliable
+  sleep 2
+  _PROBE=$(tmux capture-pane -t "$_TMP" -p -S -20 2>/dev/null)
+  printf '%s' "$_PROBE" | grep -q "(1M context)" && { WORKER_MODEL="sonnet[1m]"; break; }
+  printf '%s' "$_PROBE" | grep -q "not available for your account" && break
+done
 tmux kill-window -t "$_TMP" 2>/dev/null
-if printf '%s' "$_PROBE" | grep -q "not available for your account"; then
-  WORKER_MODEL="sonnet"         # not entitled → 200k fallback
-else
-  WORKER_MODEL="sonnet[1m]"    # entitled → 1M context
-fi
 echo "$WORKER_MODEL" > "$STATE_DIR/worker-model.txt"  # persist for §5 worker-N spawns
 WORKER=$(tmux new-window -P -F '#{pane_id}' -n crew-workers \
   'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model "'"$WORKER_MODEL"'" --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
