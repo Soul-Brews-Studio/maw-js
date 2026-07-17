@@ -25,7 +25,7 @@ function nextBootLine(paneId: string): string {
   return q.shift() ?? "";
 }
 
-mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
+mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string): Promise<string> => {
     commands.push(cmd);
 
@@ -65,7 +65,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   },
 }));
 
-mock.module(join(import.meta.dir, "../../src/config"), () => ({
+mock.module("maw-js/config", () => ({
   loadConfig: () => ({ oracle: "patchwork" }),
 }));
 

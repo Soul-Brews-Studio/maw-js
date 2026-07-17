@@ -21,7 +21,7 @@
  * do NOT rewrite /teardown to adopt this helper in kobo-358 — that's a
  * separate follow-up (eq3 scope-out ruling).
  */
-import { hostExec } from "../../../sdk";
+import { hostExec } from "maw-js/sdk";
 
 // worker / worker-N / conductor / reviewer role tags — NOT "🧭 coord" (front is
 // the invoker, never crew-spawned, never a kill candidate).

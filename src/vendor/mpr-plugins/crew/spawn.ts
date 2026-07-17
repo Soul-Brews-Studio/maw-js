@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { hostExec } from "../../../sdk";
+import { hostExec } from "maw-js/sdk";
 import { loadConfig } from "maw-js/config";
 import { loadCompany } from "../company/company-helpers";
 import { scopeOfOracle } from "../../../core/worklog/company-scope";

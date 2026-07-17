@@ -396,6 +396,34 @@ describe("crew-skills global asset contract", () => {
     expect(block5).toContain('double-fail');
   });
 
+  // kobo-358: contract text extracted from SKILL §4/4b/4c into standalone
+  // contracts/{conductor,worker,reviewer}.md templates — single source that
+  // `maw company crew spawn` CATs + substitutes (no LLM-fill, no version-skew).
+  // SKILL.md keeps the prose (human docs) but now points to the asset as canonical.
+  describe("crew contract templates extracted to standalone assets (kobo-358)", () => {
+    test("contracts/{conductor,worker,reviewer}.md exist with {{COMPANY}}/{{DEPT}}/{{BOARD}} placeholders", () => {
+      for (const role of ["conductor", "worker", "reviewer"]) {
+        const tpl = readFileSync(join(assetsDir, "skills/crew/contracts", `${role}.md`), "utf8");
+        expect(tpl).toContain("{{COMPANY}}");
+        expect(tpl.length).toBeGreaterThan(200); // not a stub — real contract prose
+      }
+    });
+
+    test("SYNC_ITEMS ships all 3 contract templates alongside SKILL.md", () => {
+      for (const role of ["conductor", "worker", "reviewer"]) {
+        expect(SYNC_ITEMS.find((i) => i.dest === `skills/crew/contracts/${role}.md`)).toBeDefined();
+      }
+    });
+
+    test("SKILL.md §4/4b/4c reference the canonical asset (single-source, no duplicated maintenance)", () => {
+      const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+      expect(skill).toContain("canonical asset (kobo-358)");
+      expect(skill).toContain("contracts/conductor.md");
+      expect(skill).toContain("contracts/worker.md");
+      expect(skill).toContain("contracts/reviewer.md");
+    });
+  });
+
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {
     const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
     // 3-role head cell: lead + conductor + reviewer, comm opt-in

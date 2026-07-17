@@ -62,6 +62,19 @@ describe("company command plugin standalone boundary", () => {
     expect(indexSrc).toContain('=== "task"');
   });
 
+  // kobo-358: `maw company crew spawn <co>` — deterministic idempotent crew-cell
+  // spawn, same delegation pattern as home/worklog/task above.
+  test("company dispatches `crew` to its plugin's shared runner (kobo-358)", () => {
+    const indexSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
+      "utf8",
+    );
+    expect(indexSrc).toContain('from "../crew/index"');
+    expect(indexSrc).toContain("runCrew");
+    expect(indexSrc).toContain('=== "crew"');
+    expect(indexSrc).toContain("crew|rm-dept|delete"); // usage string mentions the new verb
+  });
+
   test("attach marks the attach gate; detach clears it (policy inject pairs with attach)", () => {
     const attachSrc = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/company/company-attach.ts"),
