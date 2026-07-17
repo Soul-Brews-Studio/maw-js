@@ -180,15 +180,16 @@ describe("kobo-327 merge-gate: runTask sign/merge verbs", () => {
 // pre-sign vs genuine single-tier), so merge REFUSES rather than falling through to a
 // silent head-only merge (race #4, hit live on kobo-328). Two explicit escapes.
 describe("kobo-331 fail-closed merge-gate", () => {
-  test("kobo-333: crewGate-unset card is confirmed solo — head-signed → proceeds past gate (no --single-tier needed)", async () => {
+  test("merge REFUSES a crewGate-unset card with no explicit tier (fail-closed, not head-only)", async () => {
     await task(["add", "c"]);
     await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
-    await task(["sign", "kobo-1", "--role", "head"]);
+    await task(["sign", "kobo-1", "--role", "head"]); // head signed — 327 would have merged head-only
     const r = await task(["merge", "kobo-1"]);
-    // crewGate unset = confirmed solo (kobo-333) → sign gate clears; any error is from gh, not the gate
-    // r.ok may be true (gh succeeded) or false (gh failed) — either way the gate must not block
-    expect(r.error ?? "").not.toContain("crewGate is not set");
-    expect(r.error ?? "").not.toContain("missing"); // sign gate cleared (no missing tiers)
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("crewGate is not set");
+    // REFUSE names BOTH escapes so the operator isn't stuck
+    expect(r.error).toContain("--role crew");
+    expect(r.error).toContain("--single-tier");
   });
 
   test("escape 2 — --single-tier passes fail-closed → only head required (no over-block, no crew)", async () => {
@@ -221,20 +222,16 @@ describe("kobo-331 fail-closed merge-gate", () => {
     expect(r.error).toContain("crew"); // missing crew sign
   });
 
-  test("kobo-333: legacy crewGate-unset card is unambiguously solo — merges head-only without --single-tier", async () => {
-    // pre-333 cards (crewGate never set) must remain mergeable — no wedge, no --single-tier needed
+  test("don't-wedge: an existing in-flight crewGate-unset card is escapable, never stuck", async () => {
+    // simulates a card created before this change (crewGate never set) — it must remain
+    // mergeable via the explicit escape, not permanently wedged by fail-closed.
     await task(["add", "legacy in-flight"]);
     await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
-    // without head sign → missing head (NOT "crewGate is not set" — no fail-closed after kobo-333)
-    const noSign = await task(["merge", "kobo-1"]);
-    expect(noSign.ok).toBe(false);
-    expect(noSign.error).not.toContain("crewGate is not set");
-    expect(noSign.error).toContain("missing head");
-    // after head sign → sign gate clears (r.ok may be true if gh succeeds, or false with gh error)
-    await task(["sign", "kobo-1", "--role", "head"]);
-    const signed = await task(["merge", "kobo-1"]);
-    expect(signed.error ?? "").not.toContain("crewGate is not set");
-    expect(signed.error ?? "").not.toContain("missing"); // sign gate cleared
+    const stuck = await task(["merge", "kobo-1"]);
+    expect(stuck.error).toContain("crewGate is not set"); // refused by default
+    const escaped = await task(["merge", "kobo-1", "--single-tier"]);
+    expect(escaped.error).not.toContain("crewGate is not set"); // escape clears fail-closed
+    expect(escaped.error).toContain("head"); // now just needs the ordinary head sign → not wedged
   });
 });
 

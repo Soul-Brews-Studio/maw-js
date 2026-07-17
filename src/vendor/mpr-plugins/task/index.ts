@@ -717,11 +717,16 @@ export async function runTask(
       // sign tier (requiredSignTiers) is present, then runs `gh pr merge`. Removes merge
       // from raw `gh pr merge` so the funnel (worker→crew→front→head→merge) is enforced
       // in software, not discipline. required = head always; +crew iff crewGate.
-      // kobo-331: FAIL-CLOSED bootstrap gap — RESOLVED by kobo-333. crewGate is now
-      // auto-stamped at crew-dispatch (claim/start from a CREW_ROLE pane), so the tier
-      // is unambiguous: crewGate=true → crew card (needs crew+head), unset → confirmed solo
-      // (head-only, no --single-tier needed). --single-tier is accepted for explicit override
-      // / backward compat but is no longer required for genuine solo cards.
+      // kobo-331: FAIL-CLOSED bootstrap gap. crewGate unset is AMBIGUOUS — a crew-cell
+      // card whose crew hasn't signed yet looks identical to a genuine single-tier card
+      // (there is NO durable signal to tell them apart before the crew sign — gather
+      // acc6bb01). 327 fell OPEN (crewGate unset → head-only), so a crew card could be
+      // merged head-only, skipping the crew tier (race #4, hit live on kobo-328). Now
+      // an unset crewGate REFUSES with two EXPLICIT escapes, never a silent head-only
+      // fall-through: crew-cell → `sign --role crew`; genuine single-tier → `--single-tier`.
+      // kobo-333: crew-dispatched cards ARE auto-stamped (crewGate=true at dispatch) so
+      // stamped crew-cards are frictionless. Unstamped = not-crew-dispatched (or pre-333
+      // card) — fail-closed still applies; use --single-tier for genuine solo.
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--method": String, "--single-tier": Boolean }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
@@ -737,10 +742,11 @@ export async function runTask(
       if (singleTier && (t.crewGate || t.crewSignedBy)) {
         return { ok: false, error: `--single-tier REFUSED for ${id}: this card is crew-gated (crewGate set / a crew has signed) — the crew tier can't be skipped. Get the head sign and \`maw company task merge ${id}\` normally.` };
       }
-      // kobo-333: crewGate auto-stamped at crew-dispatch time makes the tier unambiguous.
-      // crewGate=true → crew card (stamped at claim/start from a CREW_ROLE pane) → needs crew+head.
-      // crewGate unset → confirmed solo card (never crew-dispatched) → head-only, no --single-tier needed.
-      // --single-tier is accepted for backward compat (explicit solo declaration) but not required.
+      // kobo-331: FAIL-CLOSED — crewGate unset + no explicit single-tier declaration →
+      // refuse rather than silently merge head-only. Operator picks the tier explicitly.
+      if (!t.crewGate && !singleTier) {
+        return { ok: false, error: `merge REFUSED for ${id}: crewGate is not set — can't tell a crew-cell card (crew sign still missing) from a genuine single-tier card (no durable signal exists). Declare the tier explicitly:\n  • crew-cell → get the crew sign: \`maw company task sign ${id} --role crew\` (then head sign, then merge)\n  • genuine single-tier (no crew) → \`maw company task merge ${id} --single-tier\`` };
+      }
       const missing = missingSignTiers(t);
       if (missing.length) {
         return { ok: false, error: `merge REFUSED for ${id}: missing ${missing.join(" + ")} sign (required: ${requiredSignTiers(t).join(" + ")}). Collect the sign(s) with \`maw company task sign ${id} --role <tier>\` first — the funnel is: worker → crew(.3) → front → head(.2) → merge.` };
