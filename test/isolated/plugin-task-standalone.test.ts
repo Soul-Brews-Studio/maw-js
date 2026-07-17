@@ -97,6 +97,10 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("approveTask"); // kobo-191: reviewer routes big-work review → approve (reason mandatory, Tony's queue)
     expect(src).toContain("resolveReviewer"); // chain: reviewer field → creator → human
     expect(src).toContain("notifyReviewer"); // review-lane → poke the resolved reviewer
+    // kobo-328: reviewer-routing — REFUSE a self-review dispatch (executor≠reviewer).
+    expect(src).toContain("isSelfReview"); // dispatch guard: --to === assignee is barred
+    expect(src).toContain("self-review banned"); // loud refuse, not a silent downgrade
+    expect(src).toContain("no independent reviewer"); // visibility when the chain falls to human
     expect(src).toContain('"--reviewer"'); // add accepts a persistent per-card reviewer
     // kobo-327: merge-gate — the 2-sign anti-race funnel enforced in software.
     expect(src).toContain("signTask"); // sign verb: record a crew/head gate sign (idempotent, who+ts)

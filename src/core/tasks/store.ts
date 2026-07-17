@@ -577,9 +577,23 @@ export function editTask(
  * on "who's up to review this".
  */
 export function resolveReviewer(task: TaskRecord): string {
-  if (task.reviewer) return task.reviewer;
-  if (task.by && task.by !== task.assignee) return task.by; // creator reviews — unless they're the doer
-  return "human"; // creator is the doer (self-review banned) → the human
+  // kobo-328: executor≠reviewer is enforced HERE, the SSOT — a reviewer is NEVER
+  // the doer, even when the field explicitly names them (a dirty --to/web-edit that
+  // set reviewer=assignee must not route the review back to the person who did the
+  // work). Explicit field wins only when it's independent; else creator; else human.
+  const doer = task.assignee;
+  if (task.reviewer && task.reviewer !== doer) return task.reviewer;
+  if (task.by && task.by !== doer) return task.by; // creator reviews — unless they're the doer
+  return "human"; // no independent reviewer (doer created + does it) → the human
+}
+
+/**
+ * Is `who` barred from reviewing this card because they're its executor? kobo-328:
+ * the dispatch-time guard mirror of resolveReviewer's SSOT rule — used to REFUSE an
+ * explicit `review --to <doer>` (or web-edit) loudly instead of silently downgrading.
+ */
+export function isSelfReview(task: TaskRecord, who: string): boolean {
+  return !!who && who === task.assignee;
 }
 
 export interface ReviewInput {
@@ -793,8 +807,13 @@ export function prOpenedReview(company: string, id: string, author: string, revi
   // reviewer's self-review guard, and only as a fallback when there's no doer yet.
   const doer = task.assignee ?? author;
   // Reviewer chain (kobo-144): explicit arg wins, else the card's reviewer field,
-  // else the creator (unless the creator IS the doer — self-review banned) → human.
-  const target = reviewer ?? task.reviewer ?? (task.by && task.by !== doer ? task.by : "human");
+  // else the creator — but NONE of them may be the doer (kobo-328: executor≠reviewer,
+  // even an explicit arg. A self-review target silently downgrades to creator→human
+  // rather than routing the PR review back to its own author).
+  const explicit = reviewer ?? task.reviewer;
+  const target = (explicit && explicit !== doer)
+    ? explicit
+    : (task.by && task.by !== doer ? task.by : "human");
   if (task.state === "review" && task.reviewer === target) return task; // idempotent (assignee untouched)
   task.state = "review";
   task.reviewer = target;

@@ -68,6 +68,7 @@ import {
   readTask,
   rejectTask,
   resolveReviewer,
+  isSelfReview,
   reviewTask,
   setTaskDep,
   setTaskEpic,
@@ -509,9 +510,20 @@ export async function runTask(
       if (!id) return { ok: false, error: 'usage: maw company task review <id> [--to <oracle>] [--reason "<text>"]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      // kobo-328: REFUSE a self-review dispatch — routing a card's review to its own
+      // executor is a rubber-stamp (executor≠reviewer). Loud error, not a silent
+      // downgrade, so the operator re-routes to an independent reviewer.
+      const existing = readTask(company, id);
+      if (!existing) return { ok: false, error: `task not found: ${id}` };
+      if (flags["--to"] && isSelfReview(existing, flags["--to"])) {
+        return { ok: false, error: `refuse: ${flags["--to"]} is the assignee/executor of ${id} — self-review banned (executor≠reviewer, kobo-328). Route --to an independent reviewer.` };
+      }
       const t = reviewTask(company, id, me, { to: flags["--to"], reason: flags["--reason"] });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
+      // kobo-328: surface when no independent reviewer exists — resolveReviewer fell to
+      // "human" (Tony) because doer created + does the card. Not an error; visibility.
+      if (resolveReviewer(t) === "human") console.log(`  \x1b[33m⚠ no independent reviewer — falls to human (Tony)\x1b[0m`);
       // kobo-144: notify the RESOLVED reviewer (reviewer field → creator → human),
       // not only an explicit --to — a plain `review` still pokes whoever's up.
       const rv = notifyReviewer(t, me);
