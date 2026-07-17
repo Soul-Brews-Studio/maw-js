@@ -398,6 +398,31 @@ export async function runTask(
       const now = Date.now();
       const stale = new Set(tasks.filter((t) => isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now)).map((t) => t.id));
       console.log(renderBoard(tasks, company, mine, stale));
+    } else if (subcmd === "next-ready") {
+      // kobo-356: the pick-up queue for an idle crew worker — event-driven (called from
+      // the Stop hook, no loop/poll). `needsOwner` (store.ts) already IS the exact
+      // unblocked(deps-met)+todo+unassigned set: a card only reaches todo/ready once its
+      // parentIds deps clear (writeTaskWithDepGuard auto-snaps a pending-dep card to
+      // blocked), so todo/ready + no assignee = ready to pick up, nothing further to
+      // derive. No priority field exists on TaskRecord — sorted by `ts` ascending (FIFO,
+      // oldest-created first) as the closest analog (spec gap, flagged not invented).
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const tasks = listTasks(company).filter((t) => isOnBoard(t));
+      const ready = tasks.filter((t) => needsOwner(t)).sort((a, b) => a.ts - b.ts);
+      // inFlight = work already picked up that hasn't landed (in-progress/review) — the
+      // signal the conductor combines with its own roster-all-idle read to decide whether
+      // "queue empty" also means "nothing coming back" (teardown-suggest condition,
+      // kobo-356 addition). Board-derivable; roster-all-idle is NOT (spans other panes),
+      // so this verb reports inFlight only — the conductor's SKILL contract does the rest.
+      const inFlight = tasks.filter((t) => t.state === "in-progress" || t.state === "review").length;
+      if (ready.length) {
+        console.log(`NEXT-READY ${ready[0].id}: ${ready[0].title}`);
+      } else {
+        console.log(`NO-READY-WORK inFlight=${inFlight}`);
+      }
     } else if (subcmd === "start") {
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);

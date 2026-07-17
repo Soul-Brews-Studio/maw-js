@@ -264,6 +264,11 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 >
 > ### หน้าที่ 2 — route + light-exec + คุม worker/reviewer
 > - **route:** dispatch = card assign (signal) + `maw hey <worker-addr>` nudge. worker เสร็จ (idle) → route งานไป **reviewer** ตรวจ (worker Stop hook idle → คุณ = coord)
+> - **auto-reassign idle worker → next-ready (event-driven, board-read, kobo-356):** worker idle-ping มา (Stop hook แนบ `NEXT-READY <id>: <title>` หรือ `NO-READY-WORK inFlight=<N>` มาแล้ว — **ห้าม loop/poll เอง**, hook เป็น trigger เดียว):
+>   - **`NEXT-READY <id>`** → dispatch card นั้นให้ worker ทันที (board=memory, คุณ=dispatcher — ไม่ถืองานไว้ในหัว)
+>   - **`NO-READY-WORK inFlight=<N>`, N>0** → note "empty, N in flight" ใน conductor.md (งานยังไม่กลับมาหมด — ห้ามปล่อย idle เงียบ)
+>   - **`NO-READY-WORK inFlight=0`** → เช็ค **all-idle** เพิ่ม (roster §2 ทุกแถว worker = idle, ไม่มีใครทำงาน) — ครบทั้ง 2 เงื่อนไข (queue ว่าง + inFlight=0 + all-idle) → **SUGGEST เท่านั้น ห้าม auto**: ping front/lead "queue ว่าง + worker ทุกตัว idle + ไม่มีอะไรกลับมา → teardown crew? (`/teardown`)" — งานอาจกลับมาจาก review · Tony อาจเพิ่มงาน · kill-fast=respawn-waste → มนุษย์/lead ตัดสิน ไม่ใช่คุณ
+
 > - **@task label (kobo-353):** on dispatch → `tmux set-option -p -t "<WORKER_PANE_ID>" @task "kobo-<id> <short-title>"` (border shows live card). on idle/done → `tmux set-option -p -t "<WORKER_PANE_ID>" @task ""`. verify: `tmux list-panes -F '#{@role} #{@task}'`
 > - **light-exec เอง:** งานเบา (board-ops · doc · ψ/ · research) ทำเองได้ — **แต่ยังลง card + ให้ reviewer/front ตรวจ** (ไม่เคาะเอง). heavy code/write/parallel → worker (.2). **conductor ต้องว่างตลอด** (responsive)
 > - **card-lifecycle (state-drive + done-split, §4):** เริ่ม → `in-progress` · ติด dep → `blocked --kind dependency` · รอ Tony → `need-answer --reason` · เสร็จ → route reviewer (ไม่เคาะเอง). **done-split:** มี PR → pr-watch merge · no-PR เล็ก → reviewer/front close · big → lane Tony

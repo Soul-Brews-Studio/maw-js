@@ -42,7 +42,7 @@ describe("task command plugin standalone boundary", () => {
       join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
       "utf8",
     );
-    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "migrate-comments"', 'subcmd === "migrate-lanes"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "approve"', 'subcmd === "need-answer"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "deployed"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "edit"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "decompose"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"', 'subcmd === "sign"', 'subcmd === "merge"']) {
+    for (const sub of ['subcmd === "add"', 'subcmd === "ls"', 'subcmd === "next-ready"', 'subcmd === "start"', 'subcmd === "move"', 'subcmd === "claim"', 'subcmd === "assign"', 'subcmd === "ask"', 'subcmd === "mentions"', 'subcmd === "comment"', 'subcmd === "comments"', 'subcmd === "migrate-comments"', 'subcmd === "migrate-lanes"', 'subcmd === "review"', 'subcmd === "hold"', 'subcmd === "approve"', 'subcmd === "need-answer"', 'subcmd === "pr"', 'subcmd === "done"', 'subcmd === "deployed"', 'subcmd === "reject"', 'subcmd === "note"', 'subcmd === "edit"', 'subcmd === "epic"', 'subcmd === "dep"', 'subcmd === "decompose"', 'subcmd === "archive"', 'subcmd === "block"', 'subcmd === "unblock"', 'subcmd === "sign"', 'subcmd === "merge"']) {
       expect(src).toContain(sub);
     }
     expect(src).toContain("setTaskDep"); // kobo-134: dep add/rm — edit parentIds post-create
@@ -140,6 +140,9 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("dependencyBlock"); // eq3-009a: derived detail (WHICH parents) for the label content
     expect(src).toContain('t.state === "blocked" || needsOwner(t)'); // kobo-255: off-flow reads the REAL state (slice-A makes dep-pending state="blocked") — no derived overlay-on-other-state; terminal-gate (kobo-246) subsumed since blocked ≠ terminal
     expect(src).toContain("needsOwner"); // eq3-011 kobo-14: todo+unassigned → Blocked lane
+    // kobo-356: next-ready — crew idle-dispatch queue query, reuses needsOwner (no new derive)
+    expect(src).toContain("NEXT-READY"); // a ready unassigned card found
+    expect(src).toContain("NO-READY-WORK inFlight="); // queue empty; inFlight = still in-progress/review
     expect(src).toContain("parentStateResolver");
     expect(src).toContain('"--parent"'); // add accepts parent deps
     expect(src).toContain("checklistProgress"); // eq3-009c: body checklist N/M on the board
