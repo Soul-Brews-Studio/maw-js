@@ -319,6 +319,50 @@ describe("crew-skills global asset contract", () => {
     expect(loops).toBeGreaterThanOrEqual(2);
   });
 
+  // kobo-353: conductor sets @task on dispatch, clears on idle — baked into dispatch recipe in §4c
+  test("crew conductor: @task dispatch label recipe present (kobo-353)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    expect(skill).toContain("@task");                                          // feature present
+    expect(skill).toContain('tmux set-option -p -t');                          // tmux option verb
+    expect(skill).toContain("@task \"\"");                                     // idle/done reset to ""
+    expect(skill).toMatch(/@task "kobo-/);                                     // dispatch format kobo-<id>
+    expect(skill).toContain("tmux list-panes -F '#{@role} #{@task}'");         // AC verify command
+  });
+
+  // kobo-354: §1 double-fail belt — retry sonnet also fails → maw hey front immediately
+  test("crew §1 double-fail: _RETRY_BOOTED guard + maw hey front on both-fail (kobo-354)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    const healStart = skill.indexOf("self-heal spawn (kobo-352)");
+    const cacheEnd = skill.indexOf('echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"');
+    const healBlock = skill.slice(healStart, cacheEnd + 60);
+    // _RETRY_BOOTED tracks whether the retry pane booted
+    expect(healBlock).toContain('_RETRY_BOOTED=0');
+    expect(healBlock).toMatch(/_RETRY_BOOTED=1/);
+    // on double-fail: hey front with surface-at-spawn message
+    expect(healBlock).toContain('maw hey "$FRONT"');
+    expect(healBlock).toContain('double-fail');
+  });
+
+  // kobo-355: §5 worker-N self-heal parity — mirrors §1 (poll-verify + kill+retry + double-fail hey)
+  test("crew §5 worker-N self-heal parity: poll-verify + retry + no-orphan (kobo-355)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    const sec5Start = skill.indexOf("self-heal parity (kobo-355)");
+    const sec5End = skill.indexOf("tmux set-option -p -t \"$NEW\" @role", sec5Start);
+    const block5 = skill.slice(sec5Start, sec5End + 60);
+    // initial boot polled (not assumed to succeed)
+    expect(block5).toMatch(/_N_BOOTED=0/);
+    expect(block5).toMatch(/for _i in/);
+    // fail path: kill orphan pane
+    expect(block5).toContain('tmux kill-pane -t "$NEW"');
+    // retry with plain sonnet
+    expect(block5).toContain('claude --model sonnet');
+    // retry also polled
+    expect(block5).toMatch(/_N_RETRY_BOOTED/);
+    // double-fail surfaces to conductor
+    expect(block5).toContain('maw hey "$COND"');
+    expect(block5).toContain('double-fail');
+  });
+
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {
     const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
     // 3-role head cell: lead + conductor + reviewer, comm opt-in

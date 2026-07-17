@@ -108,11 +108,13 @@ if [ "$_BOOTED" -eq 0 ]; then
   _WORKER_MODEL="sonnet"
   WORKER=$(tmux new-window -P -F '#{pane_id}' -n crew-workers \
     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model sonnet --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
+  _RETRY_BOOTED=0
   for _i in 1 2 3 4 5; do  # poll-verify retry — double-fail = worker lost
     sleep 2
     _BOOT=$(tmux capture-pane -t "$WORKER" -p -S -20 2>/dev/null)
-    printf '%s' "$_BOOT" | grep -q "Sonnet 4\." && break
+    printf '%s' "$_BOOT" | grep -q "Sonnet 4\." && { _RETRY_BOOTED=1; break; }
   done
+  [ "$_RETRY_BOOTED" -eq 0 ] && maw hey "$FRONT" "[crew §1 double-fail] worker failed sonnet[1m]+sonnet boot — worker lost, manual recovery needed (kobo-354)"
 fi
 echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"  # §5 worker-N reuse
 
@@ -259,6 +261,7 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 >
 > ### หน้าที่ 2 — route + light-exec + คุม worker/reviewer
 > - **route:** dispatch = card assign (signal) + `maw hey <worker-addr>` nudge. worker เสร็จ (idle) → route งานไป **reviewer** ตรวจ (worker Stop hook idle → คุณ = coord)
+> - **@task label (kobo-353):** on dispatch → `tmux set-option -p -t "<WORKER_PANE_ID>" @task "kobo-<id> <short-title>"` (border shows live card). on idle/done → `tmux set-option -p -t "<WORKER_PANE_ID>" @task ""`. verify: `tmux list-panes -F '#{@role} #{@task}'`
 > - **light-exec เอง:** งานเบา (board-ops · doc · ψ/ · research) ทำเองได้ — **แต่ยังลง card + ให้ reviewer/front ตรวจ** (ไม่เคาะเอง). heavy code/write/parallel → worker (.2). **conductor ต้องว่างตลอด** (responsive)
 > - **card-lifecycle (state-drive + done-split, §4):** เริ่ม → `in-progress` · ติด dep → `blocked --kind dependency` · รอ Tony → `need-answer --reason` · เสร็จ → route reviewer (ไม่เคาะเอง). **done-split:** มี PR → pr-watch merge · no-PR เล็ก → reviewer/front close · big → lane Tony
 >
@@ -288,6 +291,26 @@ EOF
 WORKER_MODEL=$(cat "$CREW_STATE_DIR/worker-model.txt" 2>/dev/null || echo "sonnet")  # from §1 self-heal
 NEW=$(tmux split-window -t "$WIN1_PANE" -P -F '#{pane_id}' \
   'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker-'"$N"' CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$CREW_STATE_DIR"'" claude --model "'"$WORKER_MODEL"'" --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$CREW_STATE_DIR"'/worker-'"$N"'-contract.md)"')
+# self-heal parity (kobo-355): poll-verify boot; kill+retry sonnet on fail; no orphan (mirrors §1)
+_N_BOOTED=0
+for _i in 1 2 3 4 5 6 7 8 9 10; do  # poll up to 20s
+  sleep 2
+  _BOOT=$(tmux capture-pane -t "$NEW" -p -S -20 2>/dev/null)
+  printf '%s' "$_BOOT" | grep -q "Sonnet 4\." && { _N_BOOTED=1; break; }
+  printf '%s' "$_BOOT" | grep -q "not available for your account" && break
+done
+if [ "$_N_BOOTED" -eq 0 ]; then
+  tmux kill-pane -t "$NEW" 2>/dev/null  # no orphan
+  NEW=$(tmux split-window -t "$WIN1_PANE" -P -F '#{pane_id}' \
+    'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker-'"$N"' CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$CREW_STATE_DIR"'" claude --model sonnet --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$CREW_STATE_DIR"'/worker-'"$N"'-contract.md)"')
+  _N_RETRY_BOOTED=0
+  for _i in 1 2 3 4 5; do  # poll-verify retry — double-fail = worker-N lost
+    sleep 2
+    _BOOT=$(tmux capture-pane -t "$NEW" -p -S -20 2>/dev/null)
+    printf '%s' "$_BOOT" | grep -q "Sonnet 4\." && { _N_RETRY_BOOTED=1; break; }
+  done
+  [ "$_N_RETRY_BOOTED" -eq 0 ] && maw hey "$COND" "[crew §5 double-fail] worker-$N failed sonnet[1m]+sonnet boot — worker-$N lost, manual recovery needed (kobo-355)"
+fi
 tmux set-option -p -t "$NEW" @role "⚒ worker-$N"
 tmux select-layout -t "$WIN1_PANE" tiled   # re-tile W1 so N workers share the window
 # → append a roster row: worker-$N | $NEW | worker-$N.md | conductor | idle (§2) → front auto-kicks it (§1)
