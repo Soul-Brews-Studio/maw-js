@@ -284,6 +284,8 @@ export function handleRoomThreadRequest(request: Request): Response {
  * kobo-322: parse ?last / ?since / ?all query params for room-read pagination.
  * `since` accepts epoch-ms OR an ISO date string; malformed → explicit error (never
  * a silent empty result). `last` must be a non-negative integer.
+ * kobo-357: ?offset pages backward through history (skip N from the tail before
+ * taking `last`) — same non-negative-integer validation as `last`.
  */
 function parseRoomPageOpts(params: URLSearchParams): RoomPageOpts | { error: string } {
   const opts: RoomPageOpts = {};
@@ -295,6 +297,13 @@ function parseRoomPageOpts(params: URLSearchParams): RoomPageOpts | { error: str
     const n = Number(last);
     if (!Number.isInteger(n) || n < 0) return { error: `invalid last: ${last} (expected a non-negative integer)` };
     opts.last = n;
+  }
+
+  const offset = params.get("offset");
+  if (offset !== null && offset !== "") {
+    const n = Number(offset);
+    if (!Number.isInteger(n) || n < 0) return { error: `invalid offset: ${offset} (expected a non-negative integer)` };
+    opts.offset = n;
   }
 
   const since = params.get("since");

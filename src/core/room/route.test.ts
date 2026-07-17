@@ -252,6 +252,31 @@ describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread
     expect(thread("company=kobo&room=big&last=-3").status).toBe(400);
   });
 
+  // kobo-357: offset pages backward through history — skip N from the tail, then last N.
+  test("thread read is paged by offset (kobo-357)", async () => {
+    await openR({ company: "kobo", room: "paged", topic: "t" });
+    for (let i = 1; i <= 50; i++) appendRoomMessage("kobo", "paged", { id: `m${i}`, from: "a", text: `y${i}`, ts: i });
+    type Body = { room: { messages: Array<{ id: string; ts: number }> } };
+
+    // last:6 offset:6 → the 7th-12th newest (ts 39..44)
+    const paged = await thread("company=kobo&room=paged&last=6&offset=6").json() as Body;
+    expect(paged.room.messages.map((m) => m.ts)).toEqual([39, 40, 41, 42, 43, 44]);
+
+    // offset without last → applied against the default cap
+    const noLast = await thread("company=kobo&room=paged&offset=10").json() as Body;
+    expect(noLast.room.messages).toHaveLength(20);
+    expect(noLast.room.messages.at(-1)!.ts).toBe(40);
+
+    // negative offset → 400 explicit error
+    const bad = thread("company=kobo&room=paged&offset=-3");
+    expect(bad.status).toBe(400);
+    expect((await bad.json() as { error: string }).error).toContain("invalid offset");
+
+    // offset > available → empty, not an error
+    const empty = await thread("company=kobo&room=paged&last=5&offset=999").json() as Body;
+    expect(empty.room.messages).toHaveLength(0);
+  });
+
   test("thread without room → the room list; guards: missing fields → 400/404", async () => {
     await openR({ company: "kobo", room: "a", topic: "ta" });
     const list = await thread("company=kobo").json() as { ok: boolean; rooms: Array<{ id: string }> };

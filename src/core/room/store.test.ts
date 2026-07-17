@@ -173,4 +173,38 @@ describe("paginateRoomMessages (kobo-322 — default-cap room reads)", () => {
     const out = paginateRoomMessages(msgs(50), { since: 40, last: 3 }); // ts 40..50 → last 3
     expect(out.map((m) => m.ts)).toEqual([48, 49, 50]);
   });
+
+  // kobo-357: `offset` skips N turns from the tail before taking `last` — pages
+  // BACKWARD through history (offset:0 = newest page, offset:last = the page before).
+  describe("offset (kobo-357 — page backward through history)", () => {
+    test("last:6 offset:6 → the 7th-12th newest (skip the 6 newest, then take 6)", () => {
+      const out = paginateRoomMessages(msgs(50), { last: 6, offset: 6 });
+      expect(out.map((m) => m.ts)).toEqual([39, 40, 41, 42, 43, 44]); // m38..m43 (0-idx) → ts 39..44
+    });
+
+    test("offset:0 (or omitted) is identical to plain last:N (no regression)", () => {
+      const withZero = paginateRoomMessages(msgs(50), { last: 10, offset: 0 });
+      const without = paginateRoomMessages(msgs(50), { last: 10 });
+      expect(withZero).toEqual(without);
+    });
+
+    test("offset larger than available → empty (no throw, no negative-index wraparound)", () => {
+      expect(paginateRoomMessages(msgs(10), { last: 5, offset: 20 })).toHaveLength(0);
+    });
+
+    test("offset without last → offset applied against the default cap", () => {
+      const out = paginateRoomMessages(msgs(50), { offset: 10 });
+      expect(out).toHaveLength(ROOM_DEFAULT_LAST);
+      expect(out.at(-1)!.ts).toBe(40); // newest 10 skipped (ts 41..50), so the page ends at ts 40
+    });
+
+    test("offset + since compose: filter by time, skip from the tail, then take last", () => {
+      const out = paginateRoomMessages(msgs(50), { since: 30, last: 5, offset: 5 }); // ts 30..50 (21 msgs) → skip newest 5 → take 5
+      expect(out.map((m) => m.ts)).toEqual([41, 42, 43, 44, 45]);
+    });
+
+    test("offset is ignored under `all` (full dump — no partial-skip escape hatch)", () => {
+      expect(paginateRoomMessages(msgs(50), { all: true, offset: 10 })).toHaveLength(50);
+    });
+  });
 });
