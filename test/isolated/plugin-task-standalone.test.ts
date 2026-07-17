@@ -32,6 +32,9 @@ describe("task command plugin standalone boundary", () => {
       "utf8",
     );
     expect(src).toContain("companyOfOracleStrict");
+    // kobo-341: cross-company dispatch guard — assign/add/review/edit/ask refuse a target
+    // fully outside the card's company (the kobo-334 latent path).
+    expect(src).toContain("companyScopeViolation");
   });
 
   test("CLI dispatches the documented subcommands", () => {
