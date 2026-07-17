@@ -296,6 +296,11 @@ describe("taskArgs", () => {
       .toEqual(["company", "task", "merge", "kobo-3", "--method", "squash"]);
   });
 
+  test("merge: --single-tier forwarded (kobo-331 no-crew escape)", () => {
+    expect(taskArgs({ action: "merge", id: "kobo-3", singleTier: true }))
+      .toEqual(["company", "task", "merge", "kobo-3", "--single-tier"]);
+  });
+
   test("add: --crew-gate forwarded (kobo-327 crew-cell card)", () => {
     expect(taskArgs({ action: "add", title: "crew work", crewGate: true }))
       .toEqual(["company", "task", "add", "crew work", "--crew-gate"]);

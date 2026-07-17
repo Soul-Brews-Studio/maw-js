@@ -95,10 +95,12 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(tools).toContain('task sign requires a role'); // sign refuses without a tier
     expect(tools).toContain('["company", "task", "merge", gid]');
     expect(tools).toContain('argv.push("--crew-gate")'); // add forwards the crew-cell flag
+    expect(tools).toContain('argv.push("--single-tier")'); // kobo-331: merge forwards the no-crew escape
     expect(server).toContain('"sign"'); // enum + description advertise the verb
     expect(server).toContain('"merge"');
     expect(server).toContain('z.enum(["crew", "head"])'); // role param schema
     expect(server).toContain('z.enum(["merge", "squash", "rebase"])'); // method param schema
+    expect(server).toContain("singleTier: z.boolean()"); // kobo-331: --single-tier param schema
     // kobo-275: deployed maps 1:1 to the CLI verb (manual wait-for-deploy → done drain).
     expect(tools).toContain('["company", "task", "deployed", needId("deployed")');
     expect(server).toContain('"deployed"'); // enum + description advertise the verb

@@ -110,6 +110,10 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('"--role": String'); // sign --role crew|head
     expect(src).toContain('"--method": String'); // merge --method merge|squash|rebase
     expect(src).toContain("gh pr merge failed"); // merge shells to gh only after the gate passes
+    // kobo-331: FAIL-CLOSED — an unset crewGate refuses instead of merging head-only.
+    expect(src).toContain('"--single-tier": Boolean'); // explicit no-crew escape flag
+    expect(src).toContain("crewGate is not set"); // fail-closed refuse message
+    expect(src).toContain("crew-gated"); // --single-tier rejected on a crew-gated card
     expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
     expect(src).toContain("parsePrRepo"); // kobo-80: stamp card.repo from the PR url on pr-link
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given

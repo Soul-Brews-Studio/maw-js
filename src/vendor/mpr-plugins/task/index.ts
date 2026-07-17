@@ -654,17 +654,34 @@ export async function runTask(
       // kobo-327: the ONE path that merges a gated card. REFUSES until every required
       // sign tier (requiredSignTiers) is present, then runs `gh pr merge`. Removes merge
       // from raw `gh pr merge` so the funnel (worker→crew→front→head→merge) is enforced
-      // in software, not discipline. required = head always; +crew iff crewGate (a
-      // non-crew card is single-tier — never hard-required to have a crew sign).
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--method": String }, 0);
+      // in software, not discipline. required = head always; +crew iff crewGate.
+      // kobo-331: FAIL-CLOSED bootstrap gap. crewGate unset is AMBIGUOUS — a crew-cell
+      // card whose crew hasn't signed yet looks identical to a genuine single-tier card
+      // (there is NO durable signal to tell them apart before the crew sign — gather
+      // acc6bb01). 327 fell OPEN (crewGate unset → head-only), so a crew card could be
+      // merged head-only, skipping the crew tier (race #4, hit live on kobo-328). Now
+      // an unset crewGate REFUSES with two EXPLICIT escapes, never a silent head-only
+      // fall-through: crew-cell → `sign --role crew`; genuine single-tier → `--single-tier`.
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--method": String, "--single-tier": Boolean }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: "usage: maw company task merge <id> [--method merge|squash|rebase]" };
+      if (!id) return { ok: false, error: "usage: maw company task merge <id> [--method merge|squash|rebase] [--single-tier]" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = readTask(company, id);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       if (!t.pr || !t.repo) return { ok: false, error: `${id} has no linked PR+repo — merge-gate only merges a card with a PR (run \`maw company task pr ${id} <n> --repo owner/name\` first)` };
+      const singleTier = Boolean(flags["--single-tier"]);
+      // kobo-331: --single-tier must NOT downgrade a card that IS crew-gated — a crew
+      // sign (or add --crew-gate) declared the crew tier; single-tier can't skip it.
+      if (singleTier && (t.crewGate || t.crewSignedBy)) {
+        return { ok: false, error: `--single-tier REFUSED for ${id}: this card is crew-gated (crewGate set / a crew has signed) — the crew tier can't be skipped. Get the head sign and \`maw company task merge ${id}\` normally.` };
+      }
+      // kobo-331: FAIL-CLOSED — crewGate unset + no explicit single-tier declaration →
+      // refuse rather than silently merge head-only. Operator picks the tier explicitly.
+      if (!t.crewGate && !singleTier) {
+        return { ok: false, error: `merge REFUSED for ${id}: crewGate is not set — can't tell a crew-cell card (crew sign still missing) from a genuine single-tier card (no durable signal exists). Declare the tier explicitly:\n  • crew-cell → get the crew sign: \`maw company task sign ${id} --role crew\` (then head sign, then merge)\n  • genuine single-tier (no crew) → \`maw company task merge ${id} --single-tier\`` };
+      }
       const missing = missingSignTiers(t);
       if (missing.length) {
         return { ok: false, error: `merge REFUSED for ${id}: missing ${missing.join(" + ")} sign (required: ${requiredSignTiers(t).join(" + ")}). Collect the sign(s) with \`maw company task sign ${id} --role <tier>\` first — the funnel is: worker → crew(.3) → front → head(.2) → merge.` };

@@ -60,6 +60,7 @@ export interface TaskInput {
   role?: string;       // sign (required): crew|head — which gate tier is signing (kobo-327)
   crewGate?: boolean;  // add (kobo-327): mark a crew-cell card → merge needs crew + head sign
   method?: string;     // merge (kobo-327): merge|squash|rebase (default merge)
+  singleTier?: boolean; // merge (kobo-331): declare a genuine no-crew card → head-only merge (explicit escape from fail-closed)
   deployRequired?: boolean; // add/edit (kobo-274 — override the has-PR merge→wait-for-deploy default)
   reason?: string;     // review / hold / block
   kind?: string;       // block (required)
@@ -352,9 +353,12 @@ export function taskArgs(input: TaskInput): string[] {
     }
     case "merge": {
       // kobo-327: the gated merge — refuses until required signs present, then gh pr merge.
+      // kobo-331: --single-tier declares a genuine no-crew card so a crewGate-unset merge
+      // proceeds head-only instead of the fail-closed refuse (never silent).
       const gid = needId("merge");
       const argv = ["company", "task", "merge", gid];
       if (input.method) argv.push("--method", input.method);
+      if (input.singleTier) argv.push("--single-tier");
       return [...argv, ...common()];
     }
     case "block": {
