@@ -201,6 +201,55 @@ export function hasSshRelayEnv(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
+ * kobo-335: the AUTHENTICATED local agent identity — CLAUDE_AGENT_NAME (spawn-set) or
+ * the tmux session name (pane identity), whichever is present. Returns null when
+ * NEITHER exists (a bare CLI / a person, not an oracle). Distinct from resolveMyName,
+ * which falls back to config.node: here "no agent identity" must stay null so the
+ * actor-auth layer can tell a real agent from a person-at-the-CLI. This is the trust
+ * root a --from/MAW_SENDER claim is bound to.
+ */
+export function resolveAgentSelf(env: NodeJS.ProcessEnv = process.env): string | null {
+  const agent = env.CLAUDE_AGENT_NAME?.trim();
+  if (agent) return agent;
+  if (env.TMUX) {
+    try {
+      const session = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
+      if (session) return session.replace(/^\d+-/, "");
+    } catch { /* not in a live tmux pane */ }
+  }
+  return null;
+}
+
+/**
+ * kobo-335: authenticate the actor for a task WRITE. Binds the claimed identity to the
+ * local agent self (resolveAgentSelf). Rules:
+ *   • no --from/MAW_SENDER claim → the authenticated self (or "human" at a bare CLI).
+ *   • claim's oracle-part == self → ALLOW (redundant but legit).
+ *   • claim != self → REFUSE (can't act as another oracle).
+ *   • claim + NO self → REFUSE (a bare CLI can't assert an oracle actor).
+ * REFUSE throws — the task verb's top-level catch turns it into {ok:false, error}.
+ * This rejects the OBSERVED forge (`task sign --from mba:tony`). It is NOT unforgeable:
+ * a node-local shell can still set CLAUDE_AGENT_NAME or rename its tmux session to
+ * change its own self (the same node-local ceiling); an airtight actor identity needs
+ * out-of-band crypto (future). Lives in the task-actor layer only — `maw hey`'s
+ * resolveSenderIdentity (cross-node relay) is untouched.
+ */
+export function authenticateActor(from?: string, env: NodeJS.ProcessEnv = process.env): string {
+  const self = resolveAgentSelf(env);
+  const claimRaw = (from?.trim() || env.MAW_SENDER?.trim()) || null;
+  if (!claimRaw) return self ?? "human";
+  const parsed = parseSenderOverride(claimRaw);
+  if (!parsed) throw new Error(`invalid actor '${claimRaw}' (expected <node>:<oracle>)`);
+  if (!self) {
+    throw new Error(`refusing actor '${claimRaw}': no authenticated identity (no CLAUDE_AGENT_NAME, no tmux) — a task write can't assert an actor from a bare CLI (kobo-335 actor-auth).`);
+  }
+  if (parsed.senderName !== self) {
+    throw new Error(`refusing actor '${claimRaw}': authenticated identity is "${self}", can't act as "${parsed.senderName}" (kobo-335 actor-auth). Drop the override or use <node>:${self}.`);
+  }
+  return self;
+}
+
+/**
  * Resolve the visible + signed sender for `maw hey`.
  *
  * Precedence for #1889:

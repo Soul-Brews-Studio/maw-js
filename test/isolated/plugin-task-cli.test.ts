@@ -22,10 +22,28 @@ afterAll(() => {
 beforeEach(() => { rmSync(join(dir, "companies"), { recursive: true, force: true }); });
 
 // Collect emitted lines into `output` so the same assertions (output/ok/error) hold.
+// kobo-335: a --from claim is now authenticated against the agent self (CLAUDE_AGENT_NAME).
+// These tests use --from to pick the ACTING oracle, so set the agent self to match and
+// normalize a bare name → <node>:<oracle> (the claim format). Auth itself is covered by
+// actor-auth.test.ts + the runTask actor-auth integration test.
 const run = async (args: string[]): Promise<{ ok: boolean; error?: string; output: string }> => {
   const out: string[] = [];
-  const r = await runTask(args, (l) => out.push(l));
-  return { ...r, output: out.join("\n") };
+  const fi = args.indexOf("--from");
+  const prevAgent = process.env.CLAUDE_AGENT_NAME;
+  let patched = args;
+  if (fi >= 0 && typeof args[fi + 1] === "string") {
+    const raw = args[fi + 1];
+    const oracle = raw.includes(":") ? raw.split(":")[1] : raw;
+    process.env.CLAUDE_AGENT_NAME = oracle;
+    if (!raw.includes(":")) { patched = [...args]; patched[fi + 1] = `local:${oracle}`; }
+  }
+  try {
+    const r = await runTask(patched, (l) => out.push(l));
+    return { ...r, output: out.join("\n") };
+  } finally {
+    if (prevAgent === undefined) delete process.env.CLAUDE_AGENT_NAME;
+    else process.env.CLAUDE_AGENT_NAME = prevAgent;
+  }
 };
 
 describe("maw company task runner (runTask)", () => {

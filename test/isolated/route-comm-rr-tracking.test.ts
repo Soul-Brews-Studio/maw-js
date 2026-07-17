@@ -36,7 +36,9 @@ function spawnMaw(args: string[]): Promise<void> {
   // reads MAW_PORT at its own module load, so the port is correct here).
   const proc = Bun.spawn(["bun", "src/cli.ts", ...args], {
     cwd: repoRoot,
-    env: { ...process.env, MAW_DATA_DIR: dir, MAW_PORT: String(port), MAW_CLI: "1", MAW_TEST_MODE: "1" },
+    // kobo-335: the sender is lek — auth binds the --from local:lek claim to the agent
+    // self, so the subprocess must present CLAUDE_AGENT_NAME=lek (overrides any inherited).
+    env: { ...process.env, MAW_DATA_DIR: dir, MAW_PORT: String(port), MAW_CLI: "1", MAW_TEST_MODE: "1", CLAUDE_AGENT_NAME: "lek" },
     stdout: "ignore",
     stderr: "ignore",
   });

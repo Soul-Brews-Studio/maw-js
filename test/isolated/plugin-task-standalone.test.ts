@@ -135,8 +135,10 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("blockTask"); // eq3-009b: explicit block/unblock + kinds + for
     expect(src).toContain("unblockTask");
     expect(src).toContain("BLOCK_KINDS");
-    // actor resolution matches `maw hey` (resolveSenderIdentity), not config.oracle
-    expect(src).toContain("resolveSenderIdentity");
+    // kobo-335: actor resolution AUTHENTICATES the --from claim against the agent self
+    // (authenticateActor: CLAUDE_AGENT_NAME/tmux; a claim for another oracle is refused),
+    // not the old trust-any resolveSenderIdentity.
+    expect(src).toContain("authenticateActor");
     // kobo-36 (eq3-036): task-event pings are tagged with the coord channel so a
     // multi-pane warroom routes them to the target's declared coord pane, not .0.
     expect(src).toContain('"--channel", "task-events"');

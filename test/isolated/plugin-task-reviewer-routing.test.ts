@@ -19,9 +19,11 @@ import { handleTaskEditRequest } from "../../src/core/tasks/route";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-revroute-"));
 const prev = process.env.MAW_DATA_DIR;
+const prevAgent = process.env.CLAUDE_AGENT_NAME; // kobo-335: --from authenticated against agent self
 
 beforeAll(() => {
   process.env.MAW_DATA_DIR = dir;
+  process.env.CLAUDE_AGENT_NAME = "eq3"; // kobo-335: harness acts AS eq3 (matches --from local:eq3)
   mkdirSync(join(dir, "companies"), { recursive: true });
   writeFileSync(
     join(dir, "companies", "kobo.json"),
@@ -31,6 +33,8 @@ beforeAll(() => {
 afterAll(() => {
   if (prev === undefined) delete process.env.MAW_DATA_DIR;
   else process.env.MAW_DATA_DIR = prev;
+  if (prevAgent === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = prevAgent;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => { rmSync(join(dir, "companies", "kobo", "tasks"), { recursive: true, force: true }); });

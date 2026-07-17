@@ -22,7 +22,10 @@ mock.module("../../src/commands/shared/comm", () => ({
 
 const dir = mkdtempSync(join(tmpdir(), "maw-rcac-"));
 const prev = process.env.MAW_DATA_DIR;
+const prevAgent = process.env.CLAUDE_AGENT_NAME;
 process.env.MAW_DATA_DIR = dir; // set BEFORE importing (company-helpers caches COMPANIES_DIR at load)
+// kobo-335: CLAUDE_AGENT_NAME is set in beforeAll (NOT here) — authenticateActor reads it at
+// call-time, and a top-level mutation would bleed into other test files loaded in the same batch.
 
 const { routeComm } = await import("../../src/cli/route-comm");
 const { listTasks, addTask, readTask } = await import("../../src/core/tasks/store");
@@ -38,10 +41,12 @@ function seedCompany() {
   );
 }
 
-beforeAll(seedCompany);
+beforeAll(() => { process.env.CLAUDE_AGENT_NAME = "eq3"; seedCompany(); }); // kobo-335: dispatcher is eq3 (binds --from local:eq3)
 afterAll(() => {
   if (prev === undefined) delete process.env.MAW_DATA_DIR;
   else process.env.MAW_DATA_DIR = prev;
+  if (prevAgent === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = prevAgent;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => {
