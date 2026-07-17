@@ -23,9 +23,12 @@ mock.module("../../src/commands/shared/comm", () => ({
 const dir = mkdtempSync(join(tmpdir(), "maw-rcac-"));
 const prev = process.env.MAW_DATA_DIR;
 const prevAgent = process.env.CLAUDE_AGENT_NAME;
+const prevTest = process.env.MAW_TEST_MODE;
 process.env.MAW_DATA_DIR = dir; // set BEFORE importing (company-helpers caches COMPANIES_DIR at load)
-// kobo-335: CLAUDE_AGENT_NAME is set in beforeAll (NOT here) — authenticateActor reads it at
-// call-time, and a top-level mutation would bleed into other test files loaded in the same batch.
+// kobo-335: CLAUDE_AGENT_NAME + MAW_TEST_MODE are set in beforeAll (NOT here) — read at call-time,
+// and a top-level mutation would bleed into other test files loaded in the same batch. cmdSend is
+// already mocked (above); MAW_TEST_MODE additionally suppresses the notify.ts ping spawn that
+// auto-create / mention-capture would otherwise fire at a live pane.
 
 const { routeComm } = await import("../../src/cli/route-comm");
 const { listTasks, addTask, readTask } = await import("../../src/core/tasks/store");
@@ -41,12 +44,14 @@ function seedCompany() {
   );
 }
 
-beforeAll(() => { process.env.CLAUDE_AGENT_NAME = "eq3"; seedCompany(); }); // kobo-335: dispatcher is eq3 (binds --from local:eq3)
+beforeAll(() => { process.env.CLAUDE_AGENT_NAME = "eq3"; process.env.MAW_TEST_MODE = "1"; seedCompany(); }); // kobo-335: dispatcher=eq3 (binds --from) + suppress live-pane notify
 afterAll(() => {
   if (prev === undefined) delete process.env.MAW_DATA_DIR;
   else process.env.MAW_DATA_DIR = prev;
   if (prevAgent === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = prevAgent;
+  if (prevTest === undefined) delete process.env.MAW_TEST_MODE;
+  else process.env.MAW_TEST_MODE = prevTest;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => {

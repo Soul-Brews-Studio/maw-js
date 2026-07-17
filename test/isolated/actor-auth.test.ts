@@ -60,8 +60,10 @@ describe("kobo-335 actor-auth via runTask (real verb)", () => {
   const dir = mkdtempSync(join(tmpdir(), "maw-actorauth-"));
   const prevDir = process.env.MAW_DATA_DIR;
   const prevAgent = process.env.CLAUDE_AGENT_NAME;
+  const prevTest = process.env.MAW_TEST_MODE;
   beforeAll(() => {
     process.env.MAW_DATA_DIR = dir;
+    process.env.MAW_TEST_MODE = "1"; // kobo-335: suppress real notify/ping delivery to live panes
     mkdirSync(join(dir, "companies"), { recursive: true });
     writeFileSync(join(dir, "companies", "kobo.json"),
       JSON.stringify({ name: "kobo", departments: { core: { members: [{ oracle: "eq3" }], lead: "eq3" } } }));
@@ -69,6 +71,7 @@ describe("kobo-335 actor-auth via runTask (real verb)", () => {
   afterAll(() => {
     if (prevDir === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prevDir;
     if (prevAgent === undefined) delete process.env.CLAUDE_AGENT_NAME; else process.env.CLAUDE_AGENT_NAME = prevAgent;
+    if (prevTest === undefined) delete process.env.MAW_TEST_MODE; else process.env.MAW_TEST_MODE = prevTest;
     rmSync(dir, { recursive: true, force: true });
   });
   afterEach(() => rmSync(join(dir, "companies", "kobo", "tasks"), { recursive: true, force: true }));

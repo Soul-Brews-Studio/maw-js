@@ -20,10 +20,12 @@ import { handleTaskEditRequest } from "../../src/core/tasks/route";
 const dir = mkdtempSync(join(tmpdir(), "maw-revroute-"));
 const prev = process.env.MAW_DATA_DIR;
 const prevAgent = process.env.CLAUDE_AGENT_NAME; // kobo-335: --from authenticated against agent self
+const prevTest = process.env.MAW_TEST_MODE;
 
 beforeAll(() => {
   process.env.MAW_DATA_DIR = dir;
   process.env.CLAUDE_AGENT_NAME = "eq3"; // kobo-335: harness acts AS eq3 (matches --from local:eq3)
+  process.env.MAW_TEST_MODE = "1"; // kobo-335: suppress real notify/ping delivery to live panes
   mkdirSync(join(dir, "companies"), { recursive: true });
   writeFileSync(
     join(dir, "companies", "kobo.json"),
@@ -35,6 +37,8 @@ afterAll(() => {
   else process.env.MAW_DATA_DIR = prev;
   if (prevAgent === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = prevAgent;
+  if (prevTest === undefined) delete process.env.MAW_TEST_MODE;
+  else process.env.MAW_TEST_MODE = prevTest;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => { rmSync(join(dir, "companies", "kobo", "tasks"), { recursive: true, force: true }); });

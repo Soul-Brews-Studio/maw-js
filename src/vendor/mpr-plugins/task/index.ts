@@ -162,6 +162,11 @@ function badFlagValue(label: string, value: string | undefined): string | null {
  * main pane. No mapping registered → `maw hey` keeps its default-pane behavior.
  */
 function ping(target: string, message: string): void {
+  // kobo-335: honor test mode like notify.ts:23 — a task-verb ping must NOT spawn a
+  // real `maw hey` (which delivers to a live tmux pane) when a test drives a verb with
+  // a real oracle target. This was an isolation hole: notify.ts guarded its spawns but
+  // this engine-level ping did not, so tests leaked fixture events onto the live board.
+  if (process.env.MAW_TEST_MODE === "1") return;
   try {
     // ponytail: channel is hard-coded "task-events" — all task board pings are
     // coord-plane events; a per-event channel split isn't needed yet.

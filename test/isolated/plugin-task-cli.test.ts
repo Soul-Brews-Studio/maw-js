@@ -12,11 +12,17 @@ import { listArchivedTasks, listTasks, readTask } from "../../src/core/tasks/sto
 
 const dir = mkdtempSync(join(tmpdir(), "maw-taskcli-"));
 const prev = process.env.MAW_DATA_DIR;
+const prevTest = process.env.MAW_TEST_MODE;
 
-beforeAll(() => { process.env.MAW_DATA_DIR = dir; });
+beforeAll(() => {
+  process.env.MAW_DATA_DIR = dir;
+  process.env.MAW_TEST_MODE = "1"; // kobo-335: suppress real notify/ping delivery to live panes (ask/assign/comment)
+});
 afterAll(() => {
   if (prev === undefined) delete process.env.MAW_DATA_DIR;
   else process.env.MAW_DATA_DIR = prev;
+  if (prevTest === undefined) delete process.env.MAW_TEST_MODE;
+  else process.env.MAW_TEST_MODE = prevTest;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => { rmSync(join(dir, "companies"), { recursive: true, force: true }); });
