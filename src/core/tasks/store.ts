@@ -158,8 +158,10 @@ export interface TaskRecord {
   crewGate?: boolean; // kobo-327: this card goes through a crew cell → merge needs a crew pre-sign IN ADDITION to head. Unset → single-tier (head only), never hard-required (a non-crew card must still be mergeable). Set at crew dispatch (kobo-328) or self-marked when a crew signs.
   crewSignedBy?: string; // kobo-327: oracle that crew-signed (pre-PR gate). who+ts mirrors the reviewer field convention.
   crewSignedTs?: number; // epoch ms
+  crewSignedByPane?: string; // kobo-346: the tmux %pane-id that crew-signed (pane-grain identity — a v2 crew has many panes of ONE oracle; this binds the SIGNING pane). Live-resolved in the signer's shell → agent-settable → DEFENSE-IN-DEPTH, not airtight.
   headSignedBy?: string; // kobo-327: oracle that head-signed (final gate before merge)
   headSignedTs?: number; // epoch ms
+  headSignedByPane?: string; // kobo-346: the tmux %pane-id that head-signed (same pane-grain binding as crewSignedByPane)
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -754,21 +756,65 @@ export function sameSignerBothTiers(task: TaskRecord): string | null {
 }
 
 /**
+ * kobo-346 (v2 340c): the tmux %pane-id that signed BOTH tiers, if any. A v2 crew is many
+ * panes of ONE oracle (reviewer-pane, worker-pane, lead-pane all resolve to the same oracle
+ * name), so kobo-336's oracle-distinct check passes for two panes of the same oracle — the
+ * INTRA-oracle phantom-sign (kobo-339). This LAYERS ON TOP of sameSignerBothTiers (both hold):
+ * even same-oracle, the two tiers must be signed from DISTINCT panes. Returns the offending
+ * pane-id, or null when the panes are distinct OR either pane-id is absent (a non-crew / no-tmux
+ * sign has no pane binding → falls back to the kobo-336 oracle-grain check; never over-blocks).
+ * CEILING: the pane-id is live-resolved in the signing pane's own shell → agent-settable →
+ * DEFENSE-IN-DEPTH (kills the structural/accidental phantom-sign), NOT airtight — no "unforgeable".
+ */
+export function samePaneBothTiers(task: TaskRecord): string | null {
+  return task.crewSignedByPane && task.headSignedByPane && task.crewSignedByPane === task.headSignedByPane
+    ? task.crewSignedByPane
+    : null;
+}
+
+/**
+ * kobo-346 (v2 340c): the sign-time pane guard — pure so it's testable without real tmux. Given
+ * the SIGNING pane-id + its CREW_ROLE (both live-resolved by the caller in the signer's shell),
+ * returns a refusal reason, or null to allow. Two rules, only when a pane is present (a sign
+ * OUTSIDE a tmux pane → signerPane null → returns null → the kobo-335 oracle-grain path stands):
+ *   item-4 (the real kobo-339 closer): a sign is a REVIEWER act — only a reviewer-role pane may
+ *     sign. This is what stops a NON-reviewer pane (a worker, or the lead .0) from signing a tier
+ *     it isn't designated for — the pane-distinct check alone would pass that (lead-pane ≠ crew-pane).
+ *   item-3 (belt): the two tiers must come from DISTINCT panes (same-pane both tiers → refuse).
+ * CEILING: signerPane/signerRole are agent-settable (shell env / tmux query the pane runs) →
+ * DEFENSE-IN-DEPTH (kills the structural phantom-sign), NEVER airtight.
+ */
+export function signPaneViolation(task: TaskRecord, role: SignTier, signerPane: string | null | undefined, signerRole: string | null | undefined): string | null {
+  const pane = signerPane?.trim();
+  if (!pane) return null; // no pane binding (not a tmux pane) → oracle-grain fallback (kobo-335)
+  if ((signerRole ?? "").trim() !== "reviewer") {
+    return `a ${role} sign must come from the designated reviewer pane (CREW_ROLE=reviewer) — this pane is ${signerRole?.trim() ? `"${signerRole.trim()}"` : "not a reviewer"} (kobo-346/339: only the reviewer pane signs; a worker/lead pane can't).`;
+  }
+  if ((role === "head" && task.crewSignedByPane === pane) || (role === "crew" && task.headSignedByPane === pane)) {
+    return `pane ${pane} already signed the ${role === "head" ? "crew" : "head"} tier — a DISTINCT reviewer pane is required per tier (kobo-346). Sign ${role} from a different pane.`;
+  }
+  return null;
+}
+
+/**
  * Record a gate sign (crew or head). Idempotent — re-signing just refreshes who+ts
  * (no error, no duplicate). A crew sign self-marks the card `crewGate` so a card a
  * crew has touched can't skip the crew tier. Returns null if the card is absent.
  */
-export function signTask(company: string, id: string, by: string, role: SignTier): TaskRecord | null {
+export function signTask(company: string, id: string, by: string, role: SignTier, pane?: string | null): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   const now = Date.now();
+  const signerPane = pane?.trim() || undefined; // kobo-346: the signing pane (%N), when known
   if (role === "crew") {
     task.crewSignedBy = by;
     task.crewSignedTs = now;
+    task.crewSignedByPane = signerPane; // kobo-346: bind the crew tier to its signing pane
     task.crewGate = true; // a crew signing declares this a crew-tier card
   } else {
     task.headSignedBy = by;
     task.headSignedTs = now;
+    task.headSignedByPane = signerPane; // kobo-346: bind the head tier to its signing pane
   }
   task.updatedTs = now;
   writeTaskRecord(task);

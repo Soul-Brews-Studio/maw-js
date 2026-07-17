@@ -29,8 +29,10 @@ export interface TaskCard {
   crewGate?: boolean; // kobo-327: merge needs a crew pre-sign too (crew-cell card)
   crewSignedBy?: string; // kobo-327: who crew-signed (pre-PR gate)
   crewSignedTs?: number;
+  crewSignedByPane?: string; // kobo-346: the pane that crew-signed (pane-grain identity)
   headSignedBy?: string; // kobo-327: who head-signed (final gate)
   headSignedTs?: number;
+  headSignedByPane?: string; // kobo-346: the pane that head-signed
   by: string;
   ts: number;
   updatedTs?: number;
@@ -68,8 +70,8 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   if (rv !== "human") card.reviewer = rv;
   // kobo-327: expose merge-gate sign state so the board UI matches the CLI (Board Truth #7)
   if (t.crewGate) card.crewGate = true;
-  if (t.crewSignedBy) { card.crewSignedBy = t.crewSignedBy; card.crewSignedTs = t.crewSignedTs; }
-  if (t.headSignedBy) { card.headSignedBy = t.headSignedBy; card.headSignedTs = t.headSignedTs; }
+  if (t.crewSignedBy) { card.crewSignedBy = t.crewSignedBy; card.crewSignedTs = t.crewSignedTs; if (t.crewSignedByPane) card.crewSignedByPane = t.crewSignedByPane; } // kobo-346: pane parity
+  if (t.headSignedBy) { card.headSignedBy = t.headSignedBy; card.headSignedTs = t.headSignedTs; if (t.headSignedByPane) card.headSignedByPane = t.headSignedByPane; }
   if (t.updatedTs) card.updatedTs = t.updatedTs;
   const progress = checklistProgress(t.body);
   if (progress) card.checklist = progress;
