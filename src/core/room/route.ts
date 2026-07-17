@@ -96,6 +96,13 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
   if (company && companyOracles(company).has(author)) {
     return Response.json({ ok: false, error: `"${author}" is a company oracle — the web side can't send as a teammate` }, { status: 403 });
   }
+  // kobo-296: enforce room write-gate — closed/merged rooms reject all replies (not persisted, not nudged)
+  if (company) {
+    const artifact = readRoom(company, room);
+    if (artifact && artifact.status !== "open") {
+      return Response.json({ ok: false, error: `room "${room}" is ${artifact.status} — replies are not accepted` }, { status: 403 });
+    }
+  }
   try {
     // kobo-249 — persist the outbound turn NOW (source of truth), decoupled from delivery.
     // Only an OPEN room has an artifact (findRoomCompany null → deliver but persist nothing).
@@ -154,6 +161,9 @@ export async function handleRoomReplyRequest(request: Request): Promise<Response
   if (!company || !room || !from || !text) return Response.json({ ok: false, error: "company, room, from and text are required" }, { status: 400 });
   const r = readRoom(company, room);
   if (!r) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
+  if (r.status !== "open") {
+    return Response.json({ ok: false, error: `room "${room}" is ${r.status} — replies are not accepted` }, { status: 403 });
+  }
   if (from === "web" || !roomRepliers(company, r).has(from)) {
     return Response.json({ ok: false, error: `"${from}" may not reply here — reply must come from a room oracle (Rule 6: no impersonation)` }, { status: 403 });
   }
