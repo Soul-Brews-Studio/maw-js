@@ -135,11 +135,17 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("blockTask"); // eq3-009b: explicit block/unblock + kinds + for
     expect(src).toContain("unblockTask");
     expect(src).toContain("BLOCK_KINDS");
-    // actor resolution matches `maw hey` (resolveSenderIdentity), not config.oracle
-    expect(src).toContain("resolveSenderIdentity");
+    // kobo-335: actor resolution AUTHENTICATES the --from claim against the agent self
+    // (authenticateActor: CLAUDE_AGENT_NAME/tmux; a claim for another oracle is refused),
+    // not the old trust-any resolveSenderIdentity.
+    expect(src).toContain("authenticateActor");
     // kobo-36 (eq3-036): task-event pings are tagged with the coord channel so a
     // multi-pane warroom routes them to the target's declared coord pane, not .0.
     expect(src).toContain('"--channel", "task-events"');
+    // kobo-335: the engine-level ping honors MAW_TEST_MODE (like notify.ts) so a test
+    // driving a verb with a real oracle target can't spawn a real `maw hey` into a live
+    // pane — the isolation hole that leaked fixture events onto the board.
+    expect(src).toContain('process.env.MAW_TEST_MODE === "1") return');
   });
 
   // cli-reorg kobo-26: `maw task` is HARD-REMOVED (no shim). The plugin exports

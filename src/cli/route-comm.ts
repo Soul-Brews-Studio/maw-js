@@ -169,17 +169,19 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     // never blocks delivery; notify + broadcast excluded.
     if (!isNotify && message.includes("[request:")) {
       try {
-        const [{ autoCreateFromDispatch, parseRequestDispatch }, { resolveSenderIdentity }, { loadConfig }, { trackRequest }] = await Promise.all([
+        const [{ autoCreateFromDispatch, parseRequestDispatch }, { authenticateActor }, { trackRequest }] = await Promise.all([
           import("../core/tasks/auto-create"),
           import("../commands/shared/comm-send"),
-          import("../config"),
           import("../core/request-track-client"),
         ]);
+        // kobo-335: the auto-created card's `by` is a security-relevant actor — bind the
+        // --from/MAW_SENDER claim to the local self so `maw hey --from x:tony "[request:]…"`
+        // can't forge a card authored by tony. A forged/unbacked claim throws → null → skip.
         const resolveSender = (): string | null => {
           try {
-            return resolveSenderIdentity(loadConfig(), from ? { from } : {}).senderName;
+            return authenticateActor(from);
           } catch {
-            return null; // can't resolve sender (e.g. SSH relay without --from) → skip
+            return null; // forged/unbacked claim, or SSH relay without a valid --from → skip
           }
         };
         autoCreateFromDispatch(message, target, resolveSender);

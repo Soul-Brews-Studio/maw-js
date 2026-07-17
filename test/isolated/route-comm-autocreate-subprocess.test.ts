@@ -30,7 +30,10 @@ async function runHey(message: string): Promise<void> {
     ["bun", "src/cli.ts", "hey", "--from", "local:eq3", "local:ghostzzz-oracle", message],
     {
       cwd: repoRoot,
-      env: { ...process.env, MAW_DATA_DIR: dir, MAW_CLI: "1", MAW_TEST_MODE: "1" },
+      // kobo-335: the dispatcher is eq3 — authenticateActor binds the --from local:eq3
+      // claim to the agent self, so the subprocess must present CLAUDE_AGENT_NAME=eq3
+      // (a clean CI env has none → the claim would be correctly refused = non-hermetic).
+      env: { ...process.env, MAW_DATA_DIR: dir, MAW_CLI: "1", MAW_TEST_MODE: "1", CLAUDE_AGENT_NAME: "eq3" },
       stdout: "ignore",
       stderr: "ignore",
     },

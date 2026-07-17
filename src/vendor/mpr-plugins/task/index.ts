@@ -120,15 +120,17 @@ function currentRepoSlug(): string | undefined {
  * plugin's static link graph (widely-mocked module).
  */
 async function resolveActor(from?: string): Promise<string> {
+  // kobo-335: authenticate the actor — a --from/MAW_SENDER claim is bound to the local
+  // agent self (CLAUDE_AGENT_NAME or tmux); a claim for a DIFFERENT oracle is REFUSED
+  // (throws → runTask's top-level catch → {ok:false}). Rejects the forge vector; not
+  // unforgeable (node-local shell can change its own self — see authenticateActor).
+  let authenticateActor: (from?: string) => string;
   try {
-    const { resolveSenderIdentity } = await import("../../../commands/shared/comm-send");
-    const id = resolveSenderIdentity(loadConfig(), from ? { from } : {});
-    if (id.source !== "auto") return id.senderName; // explicit --from / MAW_SENDER
-    if (process.env.CLAUDE_AGENT_NAME || process.env.TMUX) return id.senderName; // real agent / pane
-    return "human"; // bare node default — a person at the CLI, not an oracle
+    ({ authenticateActor } = await import("../../../commands/shared/comm-send"));
   } catch {
-    return process.env.CLAUDE_AGENT_NAME || "human";
+    return process.env.CLAUDE_AGENT_NAME || "human"; // import failed → safe fallback
   }
+  return authenticateActor(from); // a refusal throws OUT here → caught by runTask
 }
 
 function resolveCompany(flag: string | undefined, me: string): string | null {
@@ -160,6 +162,11 @@ function badFlagValue(label: string, value: string | undefined): string | null {
  * main pane. No mapping registered → `maw hey` keeps its default-pane behavior.
  */
 function ping(target: string, message: string): void {
+  // kobo-335: honor test mode like notify.ts:23 — a task-verb ping must NOT spawn a
+  // real `maw hey` (which delivers to a live tmux pane) when a test drives a verb with
+  // a real oracle target. This was an isolation hole: notify.ts guarded its spawns but
+  // this engine-level ping did not, so tests leaked fixture events onto the live board.
+  if (process.env.MAW_TEST_MODE === "1") return;
   try {
     // ponytail: channel is hard-coded "task-events" — all task board pings are
     // coord-plane events; a per-event channel split isn't needed yet.
