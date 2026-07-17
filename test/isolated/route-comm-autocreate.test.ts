@@ -114,6 +114,17 @@ describe("routeComm hey → auto-capture card mention as note (kobo-165)", () =>
     expect(after.notes![0].text).toContain(card.id);
   });
 
+  test("kobo-338: a FORGED --from (claim ≠ agent self) does NOT author a captured note", async () => {
+    // the harness agent self is eq3 (CLAUDE_AGENT_NAME); a --from claiming patchwork ≠ self →
+    // authenticateActor refuses → resolveSender returns null → autoCaptureCardMentions writes NO
+    // note. Pre-338 this path used trust-any resolveSenderIdentity, so the forge stamped a note
+    // authored by the claimed oracle (the residual the kobo-335 PR flagged out-of-scope).
+    const card = addTask({ company: "kobo", title: "seed-forge", by: "eq3", assignee: "patchwork", state: "todo" });
+    await routeComm("hey", ["hey", "--from", "local:patchwork", "patchwork", `look at ${card.id} — forged mention`]);
+    expect(readTask("kobo", card.id)!.notes ?? []).toEqual([]); // forge refused → no forged-author note
+    expect(calls.length).toBe(1); // delivery itself is unaffected — auth only gates the note author
+  });
+
   test("anti-loop: a task-events channel ping is NOT captured", async () => {
     const card = addTask({ company: "kobo", title: "seed2", by: "eq3", assignee: "patchwork", state: "todo" });
     await routeComm("hey", [
