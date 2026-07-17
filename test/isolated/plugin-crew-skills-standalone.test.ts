@@ -167,6 +167,31 @@ describe("crew-skills global asset contract", () => {
     expect(hook).not.toContain("state: ψ/active/crew/$CREW_ROLE.md");
   });
 
+  // kobo-356: the Stop hook attaches the board-read next-ready queue to a WORKER's
+  // idle ping (event-driven — no loop/poll) so the conductor dispatches immediately
+  // instead of a separate round-trip query. Content-guard (bash isn't unit-testable here).
+  test("Stop hook queries next-ready for a worker idle-ping, scoped to worker* only (not reviewer)", () => {
+    const hook = readFileSync(join(assetsDir, "hooks/crew-worker-stop.sh"), "utf8");
+    expect(hook).toContain("maw company task next-ready --company \"$MAW_ROOM_COMPANY\"");
+    expect(hook).toContain('case "$CREW_ROLE" in\n  worker*)'); // queue query gated to worker*, not reviewer
+    expect(hook).toContain('[ -n "$QUEUE" ] && MSG="$MSG · $QUEUE"'); // attached, not a separate hey
+  });
+
+  // kobo-356: the conductor-contract prose (§4c) tells the conductor-LLM what to DO with
+  // the idle-ping's next-ready signal — the CLI verb + hook only carry the board-read,
+  // the DECISION (dispatch / suggest-teardown) lives here as behavioral contract.
+  test("conductor contract: NEXT-READY dispatches immediately; empty+all-idle SUGGESTS teardown (never auto)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    expect(skill).toContain("auto-reassign idle worker → next-ready");
+    expect(skill).toContain("event-driven, board-read"); // no loop/poll — hook is the only trigger
+    expect(skill).toContain("NEXT-READY <id>"); // has-ready-work branch → dispatch immediately
+    expect(skill).toContain("NO-READY-WORK inFlight=<N>`, N>0"); // empty but work still coming back → note only
+    expect(skill).toContain("NO-READY-WORK inFlight=0`"); // empty + nothing in flight → check all-idle next
+    expect(skill).toContain("all-idle"); // roster-all-idle — NOT board-derivable, conductor's own knowledge
+    expect(skill).toContain("SUGGEST เท่านั้น ห้าม auto"); // teardown = suggest-only, never auto-executed
+    expect(skill).toContain("`/teardown`"); // reuses the existing shipped skill, doesn't reimplement
+  });
+
   // kobo-150: crew SKILL forwards CREW_STATE_DIR (default ψ/active/crew, warroom
   // overrides to ψ/active/warroom) so the same spawn form works under the Conductor (kobo-157 rename).
   test("crew skill forwards CREW_STATE_DIR with the default state dir", () => {

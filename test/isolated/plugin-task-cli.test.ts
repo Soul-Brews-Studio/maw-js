@@ -131,6 +131,59 @@ describe("maw company task runner (runTask)", () => {
     expect(mine.output).not.toContain("unassigned");
   });
 
+  // kobo-356: the pick-up queue for an idle crew worker — event-driven board-read,
+  // no loop/poll. `next-ready` reuses `needsOwner` (already the exact
+  // unblocked+todo+unassigned set), sorted FIFO by ts (no priority field exists).
+  describe("next-ready — the crew idle-dispatch queue query (kobo-356)", () => {
+    test("a ready unassigned card → NEXT-READY <id>: <title>", async () => {
+      await run(["add", "pick me up", "--company", "pgw"]); // pgw-1, todo, unassigned
+      const r = await run(["next-ready", "--company", "pgw"]);
+      expect(r.ok).toBe(true);
+      expect(r.output).toBe("NEXT-READY pgw-1: pick me up");
+    });
+
+    test("empty queue (no todo/ready unassigned cards) → NO-READY-WORK inFlight=0", async () => {
+      const r = await run(["next-ready", "--company", "pgw"]);
+      expect(r.ok).toBe(true);
+      expect(r.output).toBe("NO-READY-WORK inFlight=0");
+    });
+
+    test("a card blocked on a pending dependency → NOT dispatched (not-ready ≠ dispatch)", async () => {
+      await run(["add", "parent", "--company", "pgw"]); // pgw-1, claimed below so it's out of the queue
+      await run(["claim", "pgw-1", "--company", "pgw"]);
+      await run(["add", "child", "--company", "pgw", "--parent", "pgw-1"]); // pgw-2, blocked on pgw-1 (parent not done)
+      const r = await run(["next-ready", "--company", "pgw"]);
+      expect(r.ok).toBe(true);
+      // pgw-2 is `blocked` (dependency, not todo/ready) → NOT dispatched. pgw-1 is
+      // claimed (in-progress) → also not ready, but DOES count as in-flight.
+      expect(r.output).toBe("NO-READY-WORK inFlight=1");
+    });
+
+    test("a card already claimed (assigned) → NOT dispatched, and counts as in-flight", async () => {
+      await run(["add", "taken", "--company", "pgw"]); // pgw-1
+      await run(["claim", "pgw-1", "--company", "pgw"]); // in-progress, assigned
+      const r = await run(["next-ready", "--company", "pgw"]);
+      expect(r.ok).toBe(true);
+      expect(r.output).toBe("NO-READY-WORK inFlight=1"); // nothing to dispatch, 1 card still in flight
+    });
+
+    test("a card in review → NOT dispatched, counts as in-flight (work coming back)", async () => {
+      await run(["add", "reviewing", "--company", "pgw", "--reviewer", "eq3"]); // pgw-1
+      await run(["claim", "pgw-1", "--company", "pgw"]);
+      await run(["review", "pgw-1", "--company", "pgw"]);
+      const r = await run(["next-ready", "--company", "pgw"]);
+      expect(r.ok).toBe(true);
+      expect(r.output).toBe("NO-READY-WORK inFlight=1");
+    });
+
+    test("oldest ready card wins (FIFO by ts — no priority field exists)", async () => {
+      await run(["add", "first", "--company", "pgw"]); // pgw-1
+      await run(["add", "second", "--company", "pgw"]); // pgw-2
+      const r = await run(["next-ready", "--company", "pgw"]);
+      expect(r.output).toBe("NEXT-READY pgw-1: first");
+    });
+  });
+
   test("archive <id> moves ONE card off the board into archive/ (kobo-35)", async () => {
     await run(["add", "keep me", "--company", "pgw"]);       // pgw-1
     await run(["add", "review me", "--company", "pgw"]);     // pgw-2
