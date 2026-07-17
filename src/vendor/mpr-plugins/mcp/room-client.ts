@@ -77,7 +77,15 @@ export async function roomReply(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  return { ok: res.ok, text: toText(res) };
+  if (!res.ok) return { ok: false, text: toText(res) }; // already compact — no full-room dump on error
+  // kobo-360: the endpoint echoes the FULL room artifact (every message) on success —
+  // fine for the web UI, but a token-waste for an MCP caller who only needs "did it land".
+  // Client-side trim ONLY (the endpoint itself is unchanged — other consumers still get
+  // the full room). Return a compact ack: the just-appended reply's id+ts (it's always
+  // the newest message — appendRoomMessage pushes to the end).
+  const body = res.body as { room?: { messages?: Array<{ id: string; ts: number }> } };
+  const last = body.room?.messages?.at(-1);
+  return { ok: true, text: JSON.stringify(last ? { ok: true, id: last.id, ts: last.ts } : { ok: true }) };
 }
 
 /**

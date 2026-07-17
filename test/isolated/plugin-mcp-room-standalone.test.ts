@@ -116,6 +116,28 @@ describe("roomReply", () => {
     expect(result.ok).toBe(false);
     expect(result.text).toContain("may not reply here");
   });
+
+  // kobo-360: the endpoint echoes the FULL room artifact on success (~240k tokens on a
+  // big room) — an MCP caller only needs to know the reply landed. Client-side trim.
+  test("kobo-360: success returns a COMPACT ack {ok,id,ts} — NOT the full room artifact", async () => {
+    const bigRoom = {
+      messages: Array.from({ length: 500 }, (_, i) => ({ id: `m${i}`, from: "a", text: `padding-${i}`, ts: i })),
+    };
+    const { deps } = makeDeps({ body: { ok: true, room: bigRoom } });
+    const result = await roomReply({ company: "kobo", room: "big", from: "eq3", text: "hi" }, deps);
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.text);
+    expect(parsed).toEqual({ ok: true, id: "m499", ts: 499 }); // the just-appended (newest) message only
+    expect(result.text.length).toBeLessThan(200); // compact — not the 500-message dump
+    expect(result.text).not.toContain("padding-0"); // none of the other messages leak through
+  });
+
+  test("kobo-360: no messages on the returned room (edge case) → {ok:true}, no crash", async () => {
+    const { deps } = makeDeps({ body: { ok: true, room: { messages: [] } } });
+    const result = await roomReply({ company: "kobo", room: "empty", from: "eq3", text: "hi" }, deps);
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(result.text)).toEqual({ ok: true });
+  });
 });
 
 // ── maw_room_merge ────────────────────────────────────────────────────────────
