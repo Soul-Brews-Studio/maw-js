@@ -405,7 +405,7 @@ export async function runTask(
       if (!id) return { ok: false, error: "usage: maw company task start <id>" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = startTask(company, id, me);
+      const t = startTask(company, id, me, { crewGate: Boolean(process.env.CREW_ROLE) }); // kobo-333: stamp crewGate when in a crew pane
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m▶ started\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
     } else if (subcmd === "move") {
@@ -463,7 +463,7 @@ export async function runTask(
       if (!id) return { ok: false, error: "usage: maw company task claim <id>" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
-      const t = claimTask(company, id, me);
+      const t = claimTask(company, id, me, { crewGate: Boolean(process.env.CREW_ROLE) }); // kobo-333: stamp crewGate when in a crew pane
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[36m⛏ claimed\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
     } else if (subcmd === "assign") {
@@ -724,6 +724,9 @@ export async function runTask(
       // merged head-only, skipping the crew tier (race #4, hit live on kobo-328). Now
       // an unset crewGate REFUSES with two EXPLICIT escapes, never a silent head-only
       // fall-through: crew-cell → `sign --role crew`; genuine single-tier → `--single-tier`.
+      // kobo-333: crew-dispatched cards ARE auto-stamped (crewGate=true at dispatch) so
+      // stamped crew-cards are frictionless. Unstamped = not-crew-dispatched (or pre-333
+      // card) — fail-closed still applies; use --single-tier for genuine solo.
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--method": String, "--single-tier": Boolean }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];

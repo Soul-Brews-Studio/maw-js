@@ -441,13 +441,14 @@ export function addTask(input: AddTaskInput): TaskRecord {
  * hand-off exit: a new person claiming a review task takes it back to
  * in-progress. Clears any review flag. Returns null if absent.
  */
-export function claimTask(company: string, id: string, oracle: string): TaskRecord | null {
+export function claimTask(company: string, id: string, oracle: string, opts?: { crewGate?: boolean }): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   task.assignee = oracle;
   task.state = "in-progress";
   delete task.reviewer;
   delete task.reviewReason;
+  if (opts?.crewGate && !task.crewGate) task.crewGate = true; // kobo-333: crew-dispatch stamp
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253: pending dep → snaps back to blocked
   emit(task, oracle, "claim", `claimed ${task.id}: ${task.title}`);
@@ -493,12 +494,13 @@ export function assignTask(company: string, id: string, to: string, by: string, 
  * a `claim` so the open-claims tracker (maw company worklog) shows it's being worked —
  * `done` releases it. Returns null if absent.
  */
-export function startTask(company: string, id: string, oracle: string): TaskRecord | null {
+export function startTask(company: string, id: string, oracle: string, opts?: { crewGate?: boolean }): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   const holder = task.assignee ?? oracle;
   task.assignee = holder;
   task.state = "in-progress";
+  if (opts?.crewGate && !task.crewGate) task.crewGate = true; // kobo-333: crew-dispatch stamp
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253: pending dep → snaps back to blocked
   emit(task, holder, "claim", `started ${task.id}: ${task.title}`);

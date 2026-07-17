@@ -167,7 +167,7 @@ describe("kobo-327 merge-gate: runTask sign/merge verbs", () => {
   });
 
   test("merge --method bogus → method error (after signs in, PR present)", async () => {
-    await task(["add", "c"]); // head-only (crewGate unset → declare --single-tier, kobo-331)
+    await task(["add", "c"]); // head-only (crewGate unset → confirmed solo after kobo-333; --single-tier kept for backward compat)
     await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
     await task(["sign", "kobo-1", "--role", "head"]);
     const r = await task(["merge", "kobo-1", "--single-tier", "--method", "octopus"]);

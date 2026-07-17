@@ -113,9 +113,10 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('"--role": String'); // sign --role crew|head
     expect(src).toContain('"--method": String'); // merge --method merge|squash|rebase
     expect(src).toContain("gh pr merge failed"); // merge shells to gh only after the gate passes
-    // kobo-331: FAIL-CLOSED — an unset crewGate refuses instead of merging head-only.
+    // kobo-331: FAIL-CLOSED — unset crewGate refuses instead of merging head-only.
     expect(src).toContain('"--single-tier": Boolean'); // explicit no-crew escape flag
     expect(src).toContain("crewGate is not set"); // fail-closed refuse message
+    expect(src).toContain("process.env.CREW_ROLE"); // kobo-333: crew-dispatch stamp (claim/start in crew pane → crewGate=true)
     expect(src).toContain("crew-gated"); // --single-tier rejected on a crew-gated card
     // kobo-336: a crew card needs two INDEPENDENT signers — one oracle can't fill both tiers.
     expect(src).toContain("sameSignerBothTiers"); // merge backstop: refuse same-signer crew+head
