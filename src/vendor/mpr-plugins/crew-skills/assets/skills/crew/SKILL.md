@@ -114,7 +114,10 @@ if [ "$_BOOTED" -eq 0 ]; then
     _BOOT=$(tmux capture-pane -t "$WORKER" -p -S -20 2>/dev/null)
     printf '%s' "$_BOOT" | grep -q "Sonnet 4\." && { _RETRY_BOOTED=1; break; }
   done
-  [ "$_RETRY_BOOTED" -eq 0 ] && maw hey "$FRONT" "[crew §1 double-fail] worker failed sonnet[1m]+sonnet boot — worker lost, manual recovery needed (kobo-354)"
+  if [ "$_RETRY_BOOTED" -eq 0 ]; then
+    _FRONT_ADDR=$(tmux display-message -t "$FRONT" -p '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)
+    maw hey "$_FRONT_ADDR" "[crew §1 double-fail] worker failed sonnet[1m]+sonnet boot — worker lost, manual recovery needed (kobo-354)"
+  fi
 fi
 echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"  # §5 worker-N reuse
 
@@ -309,7 +312,10 @@ if [ "$_N_BOOTED" -eq 0 ]; then
     _BOOT=$(tmux capture-pane -t "$NEW" -p -S -20 2>/dev/null)
     printf '%s' "$_BOOT" | grep -q "Sonnet 4\." && { _N_RETRY_BOOTED=1; break; }
   done
-  [ "$_N_RETRY_BOOTED" -eq 0 ] && maw hey "$COND" "[crew §5 double-fail] worker-$N failed sonnet[1m]+sonnet boot — worker-$N lost, manual recovery needed (kobo-355)"
+  if [ "$_N_RETRY_BOOTED" -eq 0 ]; then
+    _COND_ADDR=$(tmux display-message -t "$COND" -p '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)
+    maw hey "$_COND_ADDR" "[crew §5 double-fail] worker-$N failed sonnet[1m]+sonnet boot — worker-$N lost, manual recovery needed (kobo-355)"
+  fi
 fi
 tmux set-option -p -t "$NEW" @role "⚒ worker-$N"
 tmux select-layout -t "$WIN1_PANE" tiled   # re-tile W1 so N workers share the window
