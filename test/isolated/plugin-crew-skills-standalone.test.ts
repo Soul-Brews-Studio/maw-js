@@ -220,26 +220,26 @@ describe("crew-skills global asset contract", () => {
     expect(skill).toContain("standing task + held card");
   });
 
-  // kobo-319 — worker is a SINGLE pane (cap 1, label "worker" not "worker-1"); parallelism
-  // comes from CC Task sub-agents (kobo-317), NOT extra worker panes. Pin the spawn env, the
-  // pane label, the state/contract filenames, and the deadlock-critical Stop-hook gate so a
-  // future edit can't silently re-introduce worker-N numbering (which would also break the
-  // gate: `worker-*` never matches the bare "worker" role → worker never signals idle).
-  test("crew worker = single pane 'worker' (no -N numbering) — spawn, label, files, hook gate (kobo-319)", () => {
+  // kobo-345 (v2 340b) — workers scale ×N: a bare BASE worker (§1, always present = worker-1-of-N)
+  // PLUS dynamic numbered worker-N panes the conductor spawns/kills in W1 (§5). This lifts the
+  // old kobo-319 single-worker cap (sonnet + ephemeral-kill make real pane parallelism affordable).
+  // Pin BOTH: the base worker keeps its bare deadlock-critical form, AND the §5 recipe spawns +
+  // KILLS numbered workers. The Stop-hook glob `worker*` must cover BOTH bare + worker-N (idle signal).
+  test("crew v2: base worker bare + dynamic worker-N spawn/kill in W1 (kobo-345)", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    // spawn env stamps the bare role, not worker-1
+    // base worker keeps the bare deadlock-critical form (env role stays bare "worker" = the base)
     expect(skill).toContain("CREW_ROLE=worker ");
-    expect(skill).not.toContain("CREW_ROLE=worker-1");
-    // contract + state files are un-numbered
+    expect(skill).not.toContain("CREW_ROLE=worker-1"); // base is bare "worker", not env worker-1
     expect(skill).toContain("worker-contract.md");
-    expect(skill).not.toContain("worker-1-contract.md");
     expect(skill).toContain("$CREW_STATE_DIR/worker.md");
-    // pane label is bare "worker"
     expect(skill).toContain('"$WORKER:⚒ worker"');
-    // no numbered worker anywhere in the skill (historical notes may live in code comments only)
-    expect(skill).not.toMatch(/worker-[123N]/);
-    // deadlock-critical: the Stop-hook gate MUST match a bare "worker" role, or the single
-    // worker pane never fires its idle completion signal (kobo-91 regression).
+    // §5 dynamic scale: spawn ADDITIONAL numbered workers (split into W1) + KILL them (despawn)
+    expect(skill).toContain("CREW_ROLE=worker-");            // numbered additional workers
+    expect(skill).toContain('tmux split-window -t "$WIN1_PANE"'); // spawn into the W1 window
+    expect(skill).toContain("tmux kill-pane -t");            // the kill/despawn path (340b core)
+    expect(skill).toContain("worker-$N-contract.md");        // per-worker contract file
+    // deadlock-critical: the Stop-hook glob covers BOTH the bare base worker AND worker-N so every
+    // worker fires its idle completion signal (kobo-91). `worker-*` alone would miss the bare base.
     const stopHook = readFileSync(join(assetsDir, "hooks/crew-worker-stop.sh"), "utf8");
     expect(stopHook).toContain("worker*|reviewer");
     expect(stopHook).not.toContain("worker-*|reviewer");
