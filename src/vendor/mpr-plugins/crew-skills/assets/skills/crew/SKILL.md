@@ -5,7 +5,7 @@ description: Spin up an autonomous crew cell — 4 permanent raw claude panes �
 
 # /crew — v2 2-window cell: W0/page1 brains (opus) — front(.0) · conductor 🎼 · reviewer 🔎 | W1/page2 — worker ⚒ (sonnet)
 
-> **v2 (kobo-344 340a):** the cell spans **2 tmux windows** in one session. **W0 "page1" = opus brains** (front · conductor · reviewer — think/route/review). **W1 "page2" = sonnet worker(s)** (heavy exec on the cheaper/faster tier). Cross-window comm via `maw hey session:W1.pane` (resolve fresh from pane-id, §3). Dynamic worker ×N = 340b · pane-identity/sign = 340c (this card = foundation: layout + spawn + `--model sonnet` worker in W1).
+> **v2 (kobo-344 340a):** the cell spans **2 tmux windows** in one session. **W0 "page1" = opus brains** (front · conductor · reviewer — think/route/review). **W1 "page2" = sonnet worker(s)** (heavy exec on the cheaper/faster tier). Cross-window comm via `maw hey session:W1.pane` (resolve fresh from pane-id, §3). Dynamic worker ×N = 340b · pane-identity/sign = 340c (this card = foundation: layout + spawn + `--model "sonnet[1m]"` worker in W1, probe-detected + 200k fallback).
 
 ```
    inbound (another oracle / head-lead · maw hey / card)
@@ -83,15 +83,38 @@ COND=$(tmux split-window -h -P -F '#{pane_id}' \
 # --- worker (W1/page2) — execute · SONNET pane in a SEPARATE window (kobo-344 v2 340a) · single
 #     pane cap 1 (dynamic ×N = 340b) · Stop hook idle → conductor (worker done → conductor routes to reviewer).
 #     `tmux new-window -P -F '#{pane_id}'` opens W1 at the next free index and returns the new
-#     window's (only) pane-id = the worker. `--model sonnet` = cheaper/faster grunt tier (VERIFIED
-#     live in /head SKILL). Brains (front/conductor/reviewer) stay opus in W0. Cross-window works:
+#     window's (only) pane-id = the worker. self-heal spawn (kobo-352): try sonnet[1m] first, poll-verify,
+#     kill+retry plain sonnet on fail — no orphan. Brains stay opus in W0. Cross-window works:
 #     CREW_COORD_PANE=$COND (%id) → the Stop hook resolves session:W0.conductor fresh each turn
 #     (`#{window_index}` follows the pane's real window, so W1→W0 addressing is automatic).
 cat > "$STATE_DIR/worker-contract.md" <<'EOF'
 <Worker Contract — §4, เติม company/dept/board>
 EOF
+# self-heal spawn (kobo-352): boot sonnet[1m] directly, poll-verify, retry sonnet on fail, no orphan.
+# sonnet[1m] is account-gated — poll detects fail, retry ensures worker always boots.
+# Double-fail unverified = worker silently lost → poll-verify the retry too.
+_WORKER_MODEL="sonnet[1m]"
 WORKER=$(tmux new-window -P -F '#{pane_id}' -n crew-workers \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model sonnet --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
+  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model "sonnet[1m]" --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
+_BOOTED=0
+for _i in 1 2 3 4 5 6 7 8 9 10; do  # poll up to 20s — CC TUI boot often >3s
+  sleep 2
+  _BOOT=$(tmux capture-pane -t "$WORKER" -p -S -20 2>/dev/null)
+  printf '%s' "$_BOOT" | grep -q "(1M context)" && { _BOOTED=1; break; }
+  printf '%s' "$_BOOT" | grep -q "not available for your account" && break
+done
+if [ "$_BOOTED" -eq 0 ]; then
+  tmux kill-window -t "$WORKER" 2>/dev/null  # no orphan
+  _WORKER_MODEL="sonnet"
+  WORKER=$(tmux new-window -P -F '#{pane_id}' -n crew-workers \
+    'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model sonnet --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
+  for _i in 1 2 3 4 5; do  # poll-verify retry — double-fail = worker lost
+    sleep 2
+    _BOOT=$(tmux capture-pane -t "$WORKER" -p -S -20 2>/dev/null)
+    printf '%s' "$_BOOT" | grep -q "Sonnet 4\." && break
+  done
+fi
+echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"  # §5 worker-N reuse
 
 # --- reviewer (.3) — review · OPUS brains, stays in W0 (page1) · Stop hook idle → front (verdict → front loopback → head-lead)
 cat > "$STATE_DIR/reviewer-contract.md" <<'EOF'
@@ -254,7 +277,7 @@ maw hey "$ADDR" "<งาน 1 บรรทัด + ชี้ card>"
 
 v2 (kobo-345): the crew scales by **spawning/killing sonnet worker panes in W1** (page2). **Base worker (§1 `worker`) = worker-1-of-N** — always present. When independent parallel workstreams exceed 1, the conductor spawns **additional numbered worker-N panes** into W1 and kills them when their workstream is done. **2 axes, don't confuse:** cross-workstream = worker PANES ×N (this §); within a single workstream = CC Task sub-agents (§4, kobo-317). A parallel sub-task is a sub-agent, NOT a new pane.
 
-**Each worker-N is a peer of the base worker** — same env (`CREW_ROLE=worker-N`, `CREW_COORD_PANE=$COND`, `--model sonnet`, `--settings`). The Stop-hook glob `worker*` covers `worker-N`, so each fires its idle signal (kobo-91). Roster (§2) tracks every live worker by `%pane-id`.
+**Each worker-N is a peer of the base worker** — same env (`CREW_ROLE=worker-N`, `CREW_COORD_PANE=$COND`, `--model` from §1 worker-model.txt (sonnet[1m] or sonnet per §1 self-heal result), `--settings`). The Stop-hook glob `worker*` covers `worker-N`, so each fires its idle signal (kobo-91). Roster (§2) tracks every live worker by `%pane-id`.
 
 ```bash
 # --- spawn worker-N (conductor/front) — resolve W1 + conductor pane-id from the roster ---
@@ -262,8 +285,9 @@ N=2; COND=%691; WIN1_PANE=%693   # COND = conductor pane-id · WIN1_PANE = any l
 cat > "$CREW_STATE_DIR/worker-$N-contract.md" <<'EOF'
 <Worker Contract §4 — เติม company/dept/board + THIS workstream's scope>
 EOF
+WORKER_MODEL=$(cat "$CREW_STATE_DIR/worker-model.txt" 2>/dev/null || echo "sonnet")  # from §1 self-heal
 NEW=$(tmux split-window -t "$WIN1_PANE" -P -F '#{pane_id}' \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker-'"$N"' CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$CREW_STATE_DIR"'" claude --model sonnet --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$CREW_STATE_DIR"'/worker-'"$N"'-contract.md)"')
+  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker-'"$N"' CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$CREW_STATE_DIR"'" claude --model "'"$WORKER_MODEL"'" --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$CREW_STATE_DIR"'/worker-'"$N"'-contract.md)"')
 tmux set-option -p -t "$NEW" @role "⚒ worker-$N"
 tmux select-layout -t "$WIN1_PANE" tiled   # re-tile W1 so N workers share the window
 # → append a roster row: worker-$N | $NEW | worker-$N.md | conductor | idle (§2) → front auto-kicks it (§1)
