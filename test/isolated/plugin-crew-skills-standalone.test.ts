@@ -283,37 +283,40 @@ describe("crew-skills global asset contract", () => {
   // edit can't silently drop the model flag (worker back to opus) or the 2-window split. The
   // worker MUST keep every deadlock-critical invariant (--settings, CREW_ROLE=worker,
   // CREW_COORD_PANE, worker-contract.md) — asserted by the kobo-319 test above.
-  test("crew v2: worker spawns sonnet[1m] via probe-detect in a new-window (W1), brains stay in W0 (kobo-344/352)", () => {
+  test("crew v2: worker spawns sonnet[1m] via self-heal retry in a new-window (W1), brains stay in W0 (kobo-344/352)", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    // probe-once detects sonnet[1m] entitlement; hard-coded model removed (kobo-352 fail-safe)
-    expect(skill).toContain('"sonnet[1m]"');                        // probe target (1M context)
-    expect(skill).toContain("not available for your account");      // early-exit on confirmed not-entitled
-    expect(skill).toContain("WORKER_MODEL");                        // variable-driven spawn, not hardcoded
+    // self-heal: try sonnet[1m] first; retry sonnet on fail; variable-driven spawn (kobo-352)
+    expect(skill).toContain('"sonnet[1m]"');                        // initial spawn target (1M context)
+    expect(skill).toContain("not available for your account");      // fail-detect trigger
+    expect(skill).toContain("_WORKER_MODEL");                       // variable-driven spawn, not hardcoded
     // in a SEPARATE window (W1/page2), not another split in W0
     expect(skill).toContain("tmux new-window -P -F '#{pane_id}'");
     // the WORKER pane-id comes from that new-window (the spawn form binds WORKER to W1)
     expect(skill).toMatch(/WORKER=\$\(tmux new-window/);
   });
 
-  // kobo-352 fail-safe direction: probe-fail (timeout / empty / error) MUST default to sonnet,
-  // not sonnet[1m]. The previous impl was fail-OPEN (else=sonnet[1m]); this pins the inversion.
-  test("crew probe-once: default=sonnet, upgrade only on positive (1M context) proof (kobo-352 fail-safe)", () => {
+  // kobo-352 self-heal direction: boot sonnet[1m] → poll → fail → kill orphan → retry sonnet → poll-verify.
+  // Can't runtime-test the retry-path on Tony's entitled account; pins the code-review-verifiable path.
+  test("crew self-heal: boot-fail kills orphan, retries sonnet, poll-verifies retry (kobo-352)", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    const probeStart = skill.indexOf("probe-once (kobo-352)");
-    const cacheLine = skill.indexOf('echo "$WORKER_MODEL" > "$STATE_DIR/worker-model.txt"');
-    const probeBlock = skill.slice(probeStart, cacheLine);
-    // default must be sonnet (assigned first, before any if-check)
-    expect(probeBlock).toContain('WORKER_MODEL="sonnet"');
-    // positive trigger: "(1M context)" sighting (not a driftable error string)
-    expect(probeBlock).toContain('(1M context)');
-    // fail-safe direction: sonnet assigned BEFORE the sonnet[1m] upgrade
-    expect(probeBlock.indexOf('WORKER_MODEL="sonnet"')).toBeLessThan(
-      probeBlock.indexOf('WORKER_MODEL="sonnet[1m]"')
-    );
-    // no else-branch defaulting to sonnet[1m] (the fail-OPEN pattern that was reverted)
-    expect(probeBlock).not.toMatch(/else[\s\S]*?WORKER_MODEL="sonnet\[1m\]"/);
-    // poll loop present (CC TUI boot >3s — fixed sleep is unreliable)
-    expect(probeBlock).toMatch(/for _i in/);
+    const healStart = skill.indexOf("self-heal spawn (kobo-352)");
+    const cacheEnd = skill.indexOf('echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"');
+    const healBlock = skill.slice(healStart, cacheEnd + 60);
+    // initial spawn uses sonnet[1m] (1M path attempted first)
+    expect(healBlock).toContain('"sonnet[1m]"');
+    // poll-detect: CC TUI boot often >3s
+    expect(healBlock).toMatch(/for _i in/);
+    // (1M context) is the positive-proof trigger
+    expect(healBlock).toContain('(1M context)');
+    // retry trigger: boot-fail guard
+    expect(healBlock).toMatch(/_BOOTED.*eq 0/);
+    // no-orphan: kill the failed pane before spawning retry
+    expect(healBlock).toContain('tmux kill-window -t "$WORKER"');
+    // retry with plain sonnet
+    expect(healBlock).toContain('_WORKER_MODEL="sonnet"');
+    // retry also polled — two for-loops (initial + retry-verify)
+    const loops = (healBlock.match(/for _i in/g) || []).length;
+    expect(loops).toBeGreaterThanOrEqual(2);
   });
 
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {
