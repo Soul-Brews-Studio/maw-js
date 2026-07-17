@@ -76,6 +76,8 @@ import {
   signTask,
   missingSignTiers,
   sameSignerBothTiers,
+  samePaneBothTiers,
+  signPaneViolation,
   requiredSignTiers,
   type SignTier,
   moveTask,
@@ -174,6 +176,25 @@ function ping(target: string, message: string): void {
     Bun.spawn(["maw", "hey", "--channel", "task-events", target, message], { stdout: "ignore", stderr: "ignore" });
   } catch {
     /* worklog already recorded the event — delivery is best effort */
+  }
+}
+
+/**
+ * kobo-346 (v2 340c): the tmux %pane-id of THIS (signing) pane — live-resolved via tmux
+ * (Option B, head-blessed), NOT a stamped env. Returns null outside a tmux pane ($TMUX unset)
+ * → the caller falls back to the kobo-335 oracle-grain path. CEILING: this runs in the signer's
+ * OWN shell (reads $TMUX_PANE, queries tmux) → agent-settable → the pane binding is
+ * DEFENSE-IN-DEPTH, never claimed unforgeable.
+ */
+function resolveSignerPane(): string | null {
+  if (!process.env.TMUX) return null;
+  try {
+    const pane = process.env.TMUX_PANE;
+    const argv = ["tmux", "display-message", ...(pane ? ["-t", pane] : []), "-p", "#{pane_id}"];
+    const out = Bun.spawnSync(argv, { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
+    return /^%\d+$/.test(out) ? out : null;
+  } catch {
+    return null;
   }
 }
 
@@ -672,7 +693,22 @@ export async function runTask(
       if (before && ((role === "head" && before.crewSignedBy === me) || (role === "crew" && before.headSignedBy === me))) {
         return { ok: false, error: `sign REFUSED for ${id}: ${me} already signed the ${role === "head" ? "crew" : "head"} tier — one oracle can't fill both crew+head tiers (independent reviewers required, kobo-336). A different oracle must sign ${role}.` };
       }
-      const t = signTask(company, id, me, role);
+      // kobo-346 (v2 340c): bind the sign to the SIGNING PANE. A v2 crew is "N panes, 1 soul" —
+      // reviewer/worker/lead panes ALL resolve to one oracle, so kobo-336's oracle-distinct check
+      // can't catch an intra-oracle phantom-sign (kobo-339: a NON-reviewer pane — a worker, or the
+      // lead .0 — signs a tier instead of the designated reviewer pane .2). Two guards:
+      //   item-4 (the real 339 closer): a sign is a REVIEWER act — when this is a live tmux crew
+      //     pane, ONLY a reviewer-role pane (CREW_ROLE=reviewer) may sign. A worker / lead / any
+      //     other role is refused. This is what stops the lead-signs-head phantom (pane-distinct
+      //     alone would pass it, since lead-pane ≠ crew-pane).
+      //   item-3 (belt): the two tiers must come from DISTINCT panes (same-pane both tiers → refuse).
+      // Detection is live-resolved in the signer's own shell ($TMUX_PANE + CREW_ROLE env) → both are
+      // agent-settable → DEFENSE-IN-DEPTH (kills the structural phantom-sign), NOT airtight. A sign
+      // OUTSIDE a tmux pane (no $TMUX) falls back to the kobo-335 oracle-grain path (no pane/role rule).
+      const signerPane = resolveSignerPane(); // %pane-id if in a tmux pane, else null (→ 335 fallback)
+      const paneViol = before && signPaneViolation(before, role, signerPane, process.env.CREW_ROLE);
+      if (paneViol) return { ok: false, error: `sign REFUSED for ${id}: ${paneViol}` };
+      const t = signTask(company, id, me, role, signerPane);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       const still = missingSignTiers(t);
       console.log(`\x1b[32m✍ signed\x1b[0m ${t.id} \x1b[90m(${role})\x1b[0m: ${t.title}${still.length ? ` \x1b[90m— still needs: ${still.join(", ")}\x1b[0m` : ` \x1b[90m— all signs in (mergeable)\x1b[0m`}`);
@@ -721,6 +757,14 @@ export async function runTask(
       const dupSigner = sameSignerBothTiers(t);
       if (dupSigner) {
         return { ok: false, error: `merge REFUSED for ${id}: ${dupSigner} signed BOTH the crew and head tier — one oracle can't fill both (independent reviewers required, kobo-336). A different oracle must sign one tier.` };
+      }
+      // kobo-346: pane-distinct backstop (LAYERS ON 336, both hold) — the two tiers must also
+      // come from DISTINCT panes. Catches a same-pane double-sign that slipped the sign-time
+      // guard (v2 intra-oracle). Only fires when both pane-ids are present → never over-blocks a
+      // non-crew / no-tmux sign (defense-in-depth, not airtight — the pane-id is agent-settable).
+      const dupPane = samePaneBothTiers(t);
+      if (dupPane) {
+        return { ok: false, error: `merge REFUSED for ${id}: pane ${dupPane} signed BOTH the crew and head tier — a distinct reviewer pane is required for each tier (kobo-346/339). Re-sign one tier from a different pane.` };
       }
       const method = (flags["--method"] as string) || "merge";
       if (!["merge", "squash", "rebase"].includes(method)) return { ok: false, error: "--method must be merge, squash or rebase" };

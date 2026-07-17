@@ -121,6 +121,10 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("sameSignerBothTiers"); // merge backstop: refuse same-signer crew+head
     expect(src).toContain("already signed the"); // sign-time early refuse of the second tier
     expect(src).toContain("signed BOTH the crew and head tier"); // merge refuse message
+    // kobo-346: bind sign to the signing PANE — reviewer-role + distinct-pane, defense-in-depth.
+    expect(src).toContain("resolveSignerPane"); // live tmux pane-id at sign-time (Option B)
+    expect(src).toContain("signPaneViolation"); // item-4 reviewer-role + item-3 distinct-pane guard
+    expect(src).toContain("samePaneBothTiers"); // merge pane-distinct backstop
     expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
     expect(src).toContain("parsePrRepo"); // kobo-80: stamp card.repo from the PR url on pr-link
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given

@@ -22,11 +22,13 @@ const dir = mkdtempSync(join(tmpdir(), "maw-signmerge-"));
 const prev = process.env.MAW_DATA_DIR;
 const prevAgent = process.env.CLAUDE_AGENT_NAME; // kobo-335: --from authenticated against agent self
 const prevTest = process.env.MAW_TEST_MODE;
+const prevTmux = process.env.TMUX; // kobo-346: these 327/331/336 tests aren't pane-scoped
 
 beforeAll(() => {
   process.env.MAW_DATA_DIR = dir;
   process.env.CLAUDE_AGENT_NAME = "eq3"; // kobo-335: harness acts AS eq3 (matches --from local:eq3)
   process.env.MAW_TEST_MODE = "1"; // kobo-335: suppress real notify/ping delivery to live panes
+  delete process.env.TMUX; // kobo-346: no tmux → resolveSignerPane null → the pane guard is inert (these tests exercise oracle-grain sign/merge, not pane-identity)
   mkdirSync(join(dir, "companies"), { recursive: true });
   writeFileSync(
     join(dir, "companies", "kobo.json"),
@@ -40,6 +42,7 @@ afterAll(() => {
   else process.env.CLAUDE_AGENT_NAME = prevAgent;
   if (prevTest === undefined) delete process.env.MAW_TEST_MODE;
   else process.env.MAW_TEST_MODE = prevTest;
+  if (prevTmux === undefined) delete process.env.TMUX; else process.env.TMUX = prevTmux;
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => { rmSync(join(dir, "companies", "kobo", "tasks"), { recursive: true, force: true }); });
