@@ -8,6 +8,7 @@ import {
   readTask,
   requiredSignTiers,
   missingSignTiers,
+  sameSignerBothTiers,
   signTask,
 } from "../../src/core/tasks/store";
 
@@ -49,6 +50,13 @@ const run = async (args: string[]): Promise<{ ok: boolean; error?: string; outpu
   return { ...r, output: out.join("\n") };
 };
 const task = (args: string[]) => run([...args, "--company", "kobo", "--from", "local:eq3"]);
+// kobo-335/336: sign as a specific oracle — bind the --from claim to that agent self.
+const signAs = async (oracle: string, id: string, role: string) => {
+  const prevAgent = process.env.CLAUDE_AGENT_NAME;
+  process.env.CLAUDE_AGENT_NAME = oracle;
+  try { return await run(["sign", id, "--role", role, "--company", "kobo", "--from", `local:${oracle}`]); }
+  finally { process.env.CLAUDE_AGENT_NAME = prevAgent; }
+};
 
 describe("kobo-327 merge-gate: store sign tiers", () => {
   test("requiredSignTiers: non-crew card = head only (the design crux — never hard-require crew)", () => {
@@ -110,12 +118,12 @@ describe("kobo-327 merge-gate: runTask sign/merge verbs", () => {
     expect(readTask("kobo", "kobo-1")!.crewGate).toBeUndefined();
   });
 
-  test("sign --role crew then head, output flags mergeability", async () => {
+  test("sign --role crew then head (distinct oracles), output flags mergeability", async () => {
     await task(["add", "c", "--crew-gate"]);
-    const c = await task(["sign", "kobo-1", "--role", "crew"]);
+    const c = await signAs("eq3", "kobo-1", "crew");
     expect(c.ok).toBe(true);
     expect(c.output).toContain("still needs: head");
-    const h = await task(["sign", "kobo-1", "--role", "head"]);
+    const h = await signAs("patchwork", "kobo-1", "head"); // kobo-336: distinct signer for head
     expect(h.output).toContain("mergeable");
   });
 
@@ -221,6 +229,60 @@ describe("kobo-331 fail-closed merge-gate", () => {
     const escaped = await task(["merge", "kobo-1", "--single-tier"]);
     expect(escaped.error).not.toContain("crewGate is not set"); // escape clears fail-closed
     expect(escaped.error).toContain("head"); // now just needs the ordinary head sign → not wedged
+  });
+});
+
+// kobo-336: a crew card needs two INDEPENDENT signers — one oracle can't fill both
+// the crew and head tier (self-review bypass the kobo-329 dogfood proved the gate let
+// through). sign-time refuses early; merge is the authoritative backstop.
+describe("kobo-336 distinct-signers", () => {
+  test("sameSignerBothTiers: same oracle both tiers → the oracle; distinct/single → null", () => {
+    expect(sameSignerBothTiers({ crewSignedBy: "eq3", headSignedBy: "eq3" } as any)).toBe("eq3");
+    expect(sameSignerBothTiers({ crewSignedBy: "eq3", headSignedBy: "patchwork" } as any)).toBeNull();
+    expect(sameSignerBothTiers({ headSignedBy: "eq3" } as any)).toBeNull(); // single-tier (no crew signer)
+    expect(sameSignerBothTiers({} as any)).toBeNull();
+  });
+
+  test("sign-time REFUSE: same oracle signing the second tier is barred early", async () => {
+    await task(["add", "c", "--crew-gate"]);
+    expect((await signAs("eq3", "kobo-1", "crew")).ok).toBe(true);
+    const dup = await signAs("eq3", "kobo-1", "head"); // eq3 already signed crew
+    expect(dup.ok).toBe(false);
+    expect(dup.error).toContain("already signed the crew tier");
+    expect(readTask("kobo", "kobo-1")!.headSignedBy).toBeUndefined(); // bad state never recorded
+  });
+
+  test("merge REFUSE when both tiers signed by the same oracle (authoritative backstop)", async () => {
+    // force the same-signer state directly via the store (bypass the sign-time guard) to
+    // prove the merge gate independently catches it.
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "eq3", "crew");
+    signTask("kobo", "kobo-1", "eq3", "head");
+    const r = await task(["merge", "kobo-1"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("signed BOTH the crew and head tier");
+  });
+
+  test("distinct signers → merge passes the gate (327 unchanged, no over-block)", async () => {
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    expect((await signAs("patchwork", "kobo-1", "crew")).ok).toBe(true);
+    expect((await signAs("eq3", "kobo-1", "head")).ok).toBe(true);
+    // --method octopus lands on method-validation (AFTER the dupSigner gate, BEFORE gh) →
+    // proves distinct signers passed the gate without invoking a real `gh pr merge`.
+    const r = await task(["merge", "kobo-1", "--method", "octopus"]);
+    expect(r.error).toContain("--method"); // reached method check = past the distinct-signer gate
+    expect(r.error).not.toContain("signed BOTH");
+  });
+
+  test("single-tier (head-only, no crew) never over-blocked by the distinct-signer check", async () => {
+    await task(["add", "c"]); // non-crew
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    await signAs("eq3", "kobo-1", "head"); // only head; crewSignedBy stays unset
+    const r = await task(["merge", "kobo-1", "--single-tier", "--method", "octopus"]);
+    expect(r.error).not.toContain("signed BOTH"); // no crew signer → same-signer check is inert
+    expect(r.error).toContain("--method"); // passes the gate head-only (no gh invoked)
   });
 });
 

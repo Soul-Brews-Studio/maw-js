@@ -75,6 +75,7 @@ import {
   setTaskPr,
   signTask,
   missingSignTiers,
+  sameSignerBothTiers,
   requiredSignTiers,
   type SignTier,
   moveTask,
@@ -653,6 +654,14 @@ export async function runTask(
       if (role !== "crew" && role !== "head") return { ok: false, error: "--role must be crew or head" };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      // kobo-336: a crew card needs two INDEPENDENT signers — refuse signing the second
+      // tier as the same oracle that already signed the first (self-review bypass found
+      // live in kobo-329). Fail EARLY so the same-signer state is never even recorded;
+      // idempotent re-signs of the SAME tier are unaffected.
+      const before = readTask(company, id);
+      if (before && ((role === "head" && before.crewSignedBy === me) || (role === "crew" && before.headSignedBy === me))) {
+        return { ok: false, error: `sign REFUSED for ${id}: ${me} already signed the ${role === "head" ? "crew" : "head"} tier — one oracle can't fill both crew+head tiers (independent reviewers required, kobo-336). A different oracle must sign ${role}.` };
+      }
       const t = signTask(company, id, me, role);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       const still = missingSignTiers(t);
@@ -692,6 +701,16 @@ export async function runTask(
       const missing = missingSignTiers(t);
       if (missing.length) {
         return { ok: false, error: `merge REFUSED for ${id}: missing ${missing.join(" + ")} sign (required: ${requiredSignTiers(t).join(" + ")}). Collect the sign(s) with \`maw company task sign ${id} --role <tier>\` first — the funnel is: worker → crew(.3) → front → head(.2) → merge.` };
+      }
+      // kobo-336: both tiers signed — but by the SAME oracle → self-review bypass. A
+      // crew card demands two INDEPENDENT eyes (executor≠reviewer, kobo-328); refuse the
+      // merge (the gap the kobo-329 dogfood proved the gate let through). Authoritative
+      // backstop even if the sign-time guard is bypassed. A single-tier card has no crew
+      // signer so this never fires (no over-block). Hard-refuse — no --force: a genuine
+      // one-person card isn't crew-gated, it's single-tier (`--single-tier`).
+      const dupSigner = sameSignerBothTiers(t);
+      if (dupSigner) {
+        return { ok: false, error: `merge REFUSED for ${id}: ${dupSigner} signed BOTH the crew and head tier — one oracle can't fill both (independent reviewers required, kobo-336). A different oracle must sign one tier.` };
       }
       const method = (flags["--method"] as string) || "merge";
       if (!["merge", "squash", "rebase"].includes(method)) return { ok: false, error: "--method must be merge, squash or rebase" };

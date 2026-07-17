@@ -114,6 +114,10 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('"--single-tier": Boolean'); // explicit no-crew escape flag
     expect(src).toContain("crewGate is not set"); // fail-closed refuse message
     expect(src).toContain("crew-gated"); // --single-tier rejected on a crew-gated card
+    // kobo-336: a crew card needs two INDEPENDENT signers — one oracle can't fill both tiers.
+    expect(src).toContain("sameSignerBothTiers"); // merge backstop: refuse same-signer crew+head
+    expect(src).toContain("already signed the"); // sign-time early refuse of the second tier
+    expect(src).toContain("signed BOTH the crew and head tier"); // merge refuse message
     expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
     expect(src).toContain("parsePrRepo"); // kobo-80: stamp card.repo from the PR url on pr-link
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given
