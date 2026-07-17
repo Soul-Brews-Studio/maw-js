@@ -206,16 +206,21 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     // whose name ends in a digit (`eq3-11`, `s3-2`) isn't dropped before the fn re-checks.
     if (!isNotify && channel !== CHANNEL_TASK_EVENTS && !message.includes("[via hey") && /[a-z][a-z0-9-]*-\d/.test(message)) {
       try {
-        const [{ autoCaptureCardMentions }, { resolveSenderIdentity }, { loadConfig }] = await Promise.all([
+        const [{ autoCaptureCardMentions }, { authenticateActor }] = await Promise.all([
           import("../core/tasks/auto-create"),
           import("../commands/shared/comm-send"),
-          import("../config"),
         ]);
+        // kobo-338: the captured mention-note's author is a security-relevant actor —
+        // authenticate the --from/MAW_SENDER claim against the local self (kobo-335), the
+        // SAME guard the auto-create by-field uses. Before this, capture resolved the
+        // author via trust-any resolveSenderIdentity, so a forged `maw hey --from x:tony
+        // "look at <card>"` wrote a note authored by tony (the residual 335 flagged
+        // out-of-scope). A forged/unbacked claim throws → null → no note captured.
         autoCaptureCardMentions(message, target, () => {
           try {
-            return resolveSenderIdentity(loadConfig(), from ? { from } : {}).senderName;
+            return authenticateActor(from);
           } catch {
-            return null; // can't resolve sender → skip capture (note needs an author)
+            return null; // forged/unbacked claim, or no author → skip capture
           }
         });
       } catch {
