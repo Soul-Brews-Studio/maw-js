@@ -245,6 +245,21 @@ describe("crew-skills global asset contract", () => {
     expect(stopHook).not.toContain("worker-*|reviewer");
   });
 
+  // kobo-344 v2 340a — the worker spawns on the SONNET tier in a SEPARATE window (W1/page2),
+  // while the brains (front/conductor/reviewer) stay opus in W0. Pin the spawn form so a future
+  // edit can't silently drop the model flag (worker back to opus) or the 2-window split. The
+  // worker MUST keep every deadlock-critical invariant (--settings, CREW_ROLE=worker,
+  // CREW_COORD_PANE, worker-contract.md) — asserted by the kobo-319 test above.
+  test("crew v2: worker spawns --model sonnet in a new-window (W1), brains stay in W0 (kobo-344)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    // worker launches on the sonnet tier
+    expect(skill).toContain("--model sonnet");
+    // in a SEPARATE window (W1/page2), not another split in W0
+    expect(skill).toContain("tmux new-window -P -F '#{pane_id}'");
+    // the WORKER pane-id comes from that new-window (the spawn form binds WORKER to W1)
+    expect(skill).toMatch(/WORKER=\$\(tmux new-window/);
+  });
+
   test("head skill spawns the 3 head roles with global settings + presence stamp (kobo-299)", () => {
     const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
     // 3-role head cell: lead + conductor + reviewer, comm opt-in
