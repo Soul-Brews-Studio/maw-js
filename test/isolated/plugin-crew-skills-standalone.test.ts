@@ -204,6 +204,34 @@ describe("crew-skills global asset contract", () => {
     expect(existsSync(join(assetsDir, "skills/worker/SKILL.md"))).toBe(false);
   });
 
+  // kobo-343 — /teardown = crew lifecycle close (spin↔teardown). Safety-critical pane killer:
+  // kills ONLY crew-spawned panes (@role conductor/worker/reviewer), preserves invoker + untagged
+  // (fail-closed). Graceful-wrap before kill (shutdown_request). Ships as a synced skill asset.
+  test("teardown skill ships in SYNC_ITEMS and has safety-critical guards (kobo-343)", () => {
+    expect(SYNC_ITEMS.find((i) => i.dest === "skills/teardown/SKILL.md")).toBeDefined();
+    expect(existsSync(join(assetsDir, "skills/teardown/SKILL.md"))).toBe(true);
+    const skill = readFileSync(join(assetsDir, "skills/teardown/SKILL.md"), "utf8");
+    // invoker-guard: capture ME from TMUX_PANE before the loop (order-critical, not just presence)
+    const meIdx = skill.indexOf("ME");
+    const loopIdx = skill.indexOf("kill-pane");
+    expect(meIdx).toBeGreaterThan(-1);
+    expect(loopIdx).toBeGreaterThan(-1);
+    expect(meIdx).toBeLessThan(loopIdx); // ME captured BEFORE any kill-pane (kobo-343 safety)
+    // fail-closed: untagged/unknown origin → preserve, not kill
+    expect(skill).toContain("fail-closed");
+    // graceful-wrap: shutdown_request sent before kill
+    expect(skill).toContain("shutdown_request");
+    // crew roles targeted (all three spawned pane types from /crew §1)
+    expect(skill).toContain("conductor");
+    expect(skill).toContain("worker");
+    expect(skill).toContain("reviewer");
+    // @role is the crew-origin proof (set at /crew spawn time §1)
+    expect(skill).toContain("@role");
+    // TMUX_PANE and ME are the invoker guards
+    expect(skill).toContain("TMUX_PANE");
+    expect(skill).toContain("kill-pane");
+  });
+
   // kobo-317 — the /crew worker pane offloads heavy exec to CC Task sub-agents and returns a
   // distilled result to the front (not a raw dump), keeping the durable tier lean. The worker
   // contract (crew §4) carries this instruction + the light-state re-seat rule.
