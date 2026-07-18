@@ -1,6 +1,7 @@
 import { loadConfig } from "../../config";
 import { tmuxCmd, Tmux } from "./tmux";
 import { isAgentCommandForConfig } from "../agent-detect";
+import { delimiter as pathDelimiter } from "path";
 
 export type HostExecTransport = "local" | "ssh";
 
@@ -89,17 +90,24 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
 
   function pathWithCommonLocalBins(env: NodeJS.ProcessEnv): string {
     const current = env.PATH ?? process.env.PATH ?? "";
-    const parts = current.split(":").filter(Boolean);
-    return [
-      "/opt/homebrew/bin",
-      "/opt/homebrew/sbin",
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin",
-      "/usr/sbin",
-      "/sbin",
-      ...parts,
-    ].filter((dir, index, all) => all.indexOf(dir) === index).join(":");
+    const parts = current.split(pathDelimiter).filter(Boolean);
+    const common = process.platform === "win32"
+      ? [
+          "C:\\Windows\\System32",
+          "C:\\Windows",
+          "C:\\Program Files\\Git\\bin",
+          "C:\\Program Files\\Git\\usr\\bin",
+        ]
+      : [
+          "/opt/homebrew/bin",
+          "/opt/homebrew/sbin",
+          "/usr/local/bin",
+          "/usr/bin",
+          "/bin",
+          "/usr/sbin",
+          "/sbin",
+        ];
+    return [...common, ...parts].filter((dir, index, all) => all.indexOf(dir) === index).join(pathDelimiter);
   }
 
   /** Transport — run on oracle host. local → bash -c | remote → ssh */

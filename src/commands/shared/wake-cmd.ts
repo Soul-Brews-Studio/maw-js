@@ -1,7 +1,8 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { resolve } from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, basename, dirname } from "path";
+import { execSync } from "child_process";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { defaultEngineNameForConfig } from "../../config/engine-registry";
@@ -328,7 +329,7 @@ export class WakeSession {
 }
 
 function repoNameFromPath(repoPath: string): string {
-  return repoPath.split("/").filter(Boolean).pop() ?? repoPath;
+  return basename(repoPath) || repoPath;
 }
 
 function stripGitSuffix(name: string): string {
@@ -369,17 +370,17 @@ function mainWindowNameForWakeSession(session: WakeSession, identity: string): s
 async function resolveWorkRepository(target: string, parsedRepoPath: string | null, opts: Pick<WakeOptions, "repoPath" | "urlRepoName">): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   if (opts.repoPath) {
     const repoPath = opts.repoPath;
-    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: repoPath.replace(/\/[^/]+$/, "") };
+    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: dirname(repoPath) };
   }
   if (parsedRepoPath) {
     const repoPath = parsedRepoPath;
-    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: repoPath.replace(/\/[^/]+$/, "") };
+    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: dirname(repoPath) };
   }
 
   const repoName = repoNameFromTarget(target, opts.urlRepoName);
   const repoPath = await ghqFind(`/${repoName}`);
   if (repoPath) {
-    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: repoPath.replace(/\/[^/]+$/, "") };
+    return { repoPath, repoName: repoNameFromPath(repoPath), parentDir: dirname(repoPath) };
   }
 
   throw new UserError(`work repo not found: ${repoName} (try: ghq get <url> OR maw wake ${target} --oracle for oracle mode)`);
@@ -389,6 +390,12 @@ function ensureWakeSessionVault(session: WakeSession, repoPath: string): void {
   if (session.mode !== "work") return;
   const psiDir = join(repoPath, "ψ");
   mkdirSync(psiDir, { recursive: true });
+
+  // If the repo already commits ψ/, do not silently add it to .gitignore (#2569)
+  try {
+    execSync("git ls-files --error-unmatch ψ/", { cwd: repoPath, stdio: "ignore" });
+    return;
+  } catch { /* ψ/ is not tracked — safe to ignore */ }
 
   const gitignorePath = join(repoPath, ".gitignore");
   const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
@@ -1140,10 +1147,10 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     // just cloned it). Skip resolveOracle so a stale same-named repo in a
     // different org can't shadow the freshly-created one.
     const repoPath = opts.repoPath;
-    resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
+    resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: dirname(repoPath) };
   } else if (parsedRepoPath) {
     const repoPath = parsedRepoPath;
-    resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
+    resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: dirname(repoPath) };
   } else if (preResolvedFleetSession) {
     resolved = await resolveWakeFleetSessionRepo(preResolvedFleetSession);
   } else if (opts.incubate) {
@@ -1160,7 +1167,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     const fullPath = await ghqFind(repoSlug);
     if (!fullPath) throw new Error(`ghq could not find ${slug} after clone`);
     const repoPath = fullPath;
-    resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
+    resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: dirname(repoPath) };
     if (!opts.task && !opts.wt) opts.wt = resolved.repoName.replace(/-/g, "");
   } else {
     resolved = await resolveOracle(oracle, { allLocal: opts.allLocal, quietWorktreeScan: !!opts.dryRun });
@@ -1715,3 +1722,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   await recordWakeSnapshot(opts);
   return `${session}:${windowName}`;
 }
+
+/** @internal — exported for isolated unit tests */
+export const _test = {
+  repoNameFromPath,
+  ensureWakeSessionVault,
+};
