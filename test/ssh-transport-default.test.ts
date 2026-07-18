@@ -140,6 +140,11 @@ describe("createSshTransport", () => {
   });
 
   test("local hostExec augments PATH for pm2-launched Apple Silicon Homebrew tmux", async () => {
+    // #T069 — split on the platform PATH delimiter (':' on POSIX, ';' on Windows)
+    // so the assertion works on both. On Linux/macOS this matches the historical
+    // behavior exactly; on Windows it exercises the fix that prevents the PATH
+    // from collapsing into a single bucket.
+    const { delimiter } = await import("path");
     const h = makeHarness({
       env: { PATH: "/custom/bin" } as NodeJS.ProcessEnv,
       spawnResults: [{ stdout: "ok\n", code: 0 }],
@@ -148,7 +153,7 @@ describe("createSshTransport", () => {
     await expect(h.transport.hostExec("tmux list-sessions")).resolves.toBe("ok");
 
     const env = (h.spawnCalls[0].opts as { env?: NodeJS.ProcessEnv }).env!;
-    expect(env.PATH?.split(":").slice(0, 7)).toEqual([
+    expect(env.PATH?.split(delimiter).slice(0, 7)).toEqual([
       "/opt/homebrew/bin",
       "/opt/homebrew/sbin",
       "/usr/local/bin",
@@ -157,7 +162,7 @@ describe("createSshTransport", () => {
       "/usr/sbin",
       "/sbin",
     ]);
-    expect(env.PATH?.split(":")).toContain("/custom/bin");
+    expect(env.PATH?.split(delimiter)).toContain("/custom/bin");
   });
 
   test("config local host keeps explicit remote-looking host on the local transport", async () => {
