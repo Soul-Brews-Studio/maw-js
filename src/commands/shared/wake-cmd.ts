@@ -1,6 +1,6 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { resolve } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, execFileSync } from "fs";
 import { join } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
@@ -399,6 +399,19 @@ function ensureWakeSessionVault(session: WakeSession, repoPath: string): void {
   mkdirSync(psiDir, { recursive: true });
 
   const gitignorePath = join(repoPath, ".gitignore");
+  // #T069 — respect the repo's existing commitment to ψ/. If the repo already
+  // tracks ψ/ in git (AoengAoey-style), DO NOT silently add it to .gitignore —
+  // that would clobber the repo author's design. Only append when ψ/ is
+  // untracked (the wake host is creating local-only scratch state).
+  let tracked = false;
+  try {
+    const out = execFileSync("git", ["-C", repoPath, "ls-files", "--error-unmatch", "ψ"], { stdio: ["ignore", "pipe", "ignore"] });
+    tracked = out.length > 0;
+  } catch {
+    tracked = false;
+  }
+  if (tracked) return;
+
   const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
   const lines = existing.split(/\r?\n/);
   if (lines.some(line => line.trim() === "ψ/" || line.trim() === "ψ")) return;
