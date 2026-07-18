@@ -245,6 +245,14 @@ export function buildCommandFromConfig(
     cmd = cmd.replace(/\s*--dangerously-skip-permissions\b/g, "");
   }
 
+  // #T069 — on Windows, claude-like engines need a `winpty` wrapper or they
+  // drop into print mode and exit instead of running as an interactive TUI.
+  // The prefix is a no-op on POSIX. `MAW_NO_WINPTY=1` lets users with custom
+  // PTY setups (e.g. ConEmu, Windows Terminal) opt out.
+  if (process.platform === "win32" && isClaudeLikeEngine(engine.name, config) && !process.env.MAW_NO_WINPTY) {
+    cmd = `winpty ${cmd}`;
+  }
+
   return cmd;
 }
 
