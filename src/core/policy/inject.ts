@@ -29,7 +29,7 @@ export function buildPolicyInject(oracle: string): string {
   // A company-level manager (dept === null) gets the company header + company
   // policy only — no dept role/policy (they sit above the depts).
   const role = dept
-    ? loadCompany(company)?.departments[dept]?.members.find(m => m.oracle === oracle)?.role ?? null
+    ? loadCompany(company)?.teams[dept]?.members.find(m => m.oracle === oracle)?.role ?? null
     : "manager";
   const header = [
     dept

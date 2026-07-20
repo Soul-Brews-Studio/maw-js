@@ -23,7 +23,7 @@ const scopeCache = new Map<string, OracleScope>();
 function resolve(oracle: string): OracleScope | null {
   try {
     for (const c of listCompanies()) {
-      for (const [dept, d] of Object.entries(c.departments)) {
+      for (const [dept, d] of Object.entries(c.teams)) {
         if (d.members.some(m => m.oracle === oracle)) {
           return { company: c.name, dept, lead: d.lead ?? null };
         }
@@ -66,7 +66,7 @@ export function companiesOfOracle(oracle: string): string[] {
   const out: string[] = [];
   try {
     for (const c of listCompanies()) { // name-sorted — the canonical order
-      const member = Object.values(c.departments).some(d => d.members.some(m => m.oracle === oracle));
+      const member = Object.values(c.teams).some(d => d.members.some(m => m.oracle === oracle));
       if (member || c.manager === oracle) out.push(c.name);
     }
   } catch {
@@ -107,7 +107,7 @@ export function companyOracles(company: string): string[] {
   // the lead gets neither toilet-away nor seat-back → board-lie both directions).
   // Set dedups if the manager also appears in a dept. Mirrors companyRoster().
   if (c.manager) set.add(c.manager);
-  for (const d of Object.values(c.departments)) {
+  for (const d of Object.values(c.teams)) {
     for (const m of d.members) set.add(m.oracle);
   }
   return [...set];
@@ -163,7 +163,7 @@ export function companyRoster(company: string): RosterMember[] {
     seen.add(c.manager);
     out.push({ oracle: c.manager, dept: null, role: "manager" });
   }
-  for (const [dept, d] of Object.entries(c.departments)) {
+  for (const [dept, d] of Object.entries(c.teams)) {
     for (const m of d.members) {
       if (seen.has(m.oracle)) continue;
       seen.add(m.oracle);

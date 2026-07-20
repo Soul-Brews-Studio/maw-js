@@ -286,8 +286,8 @@ describe("company-level setup-hooks includes the manager (kobo-290)", () => {
     saveCompany({
       name: "pgw",
       manager: "thawanban",
-      departments: {
-        core: { kbTag: "dept:pgw:core", lead: "nai", members: [{ oracle: "nai", role: "lead" }, { oracle: "lek", role: "dev" }] },
+      teams: {
+        core: { lead: "nai", members: [{ oracle: "nai", role: "lead" }, { oracle: "lek", role: "dev" }] },
       },
     });
     for (const o of ["thawanban", "nai", "lek"]) mkRepo(o);
@@ -304,8 +304,8 @@ describe("company-level setup-hooks includes the manager (kobo-290)", () => {
     saveCompany({
       name: "kobo",
       manager: "eq3",
-      departments: {
-        core: { kbTag: "dept:kobo:core", lead: "eq3", members: [{ oracle: "eq3", role: "lead" }, { oracle: "patchwork", role: "dev" }] },
+      teams: {
+        core: { lead: "eq3", members: [{ oracle: "eq3", role: "lead" }, { oracle: "patchwork", role: "dev" }] },
       },
     });
     for (const o of ["eq3", "patchwork"]) mkRepo(o);

@@ -60,7 +60,7 @@ export function fuzzyResolveCompany(input: string): string | null {
 export function fuzzyResolveDept(companyName: string, input: string): string | null {
   const c = loadCompany(companyName);
   if (!c) return null;
-  return resolveName(input, Object.keys(c.departments));
+  return resolveName(input, Object.keys(c.teams));
 }
 
 export interface IdleMember {
@@ -139,7 +139,7 @@ export function nextNewMemberName(
 ): string {
   const base = `${company}-${dept}-${role}`;
   const c = loadCompany(company);
-  const taken = new Set((c?.departments[dept]?.members ?? []).map((m) => m.oracle));
+  const taken = new Set((c?.teams[dept]?.members ?? []).map((m) => m.oracle));
   if (!taken.has(base)) return base;
   let n = 2;
   while (taken.has(`${base}-${n}`)) n++;

@@ -14,7 +14,7 @@ const origCompaniesDir = COMPANIES_DIR;
 function seedCompanies(dir: string, companies: Record<string, string>): void {
   _setCompaniesDir(join(dir, "companies"));
   for (const [name, lead] of Object.entries(companies)) {
-    saveCompany({ name, departments: { core: { lead, kbTag: "kb", members: [{ oracle: lead, role: "lead" }] } } });
+    saveCompany({ name, teams: { core: { lead, members: [{ oracle: lead, role: "lead" }] } } });
   }
 }
 
@@ -375,7 +375,7 @@ describe("Brainstorm Room company-scope + default lead (kobo-258)", () => {
 
   test("pgw resolves its company-level manager as lead (thawanban)", async () => {
     // pgw seeded with a core lead, but a manager (if present) wins — seed one to prove precedence
-    saveCompany({ name: "pgw", manager: "thawanban", departments: { core: { lead: "nai", kbTag: "kb", members: [] } } });
+    saveCompany({ name: "pgw", manager: "thawanban", teams: { core: { lead: "nai", members: [] } } });
     const j = await rooms("?company=pgw").json() as { lead: string };
     expect(j.lead).toBe("thawanban"); // manager > dept lead
   });

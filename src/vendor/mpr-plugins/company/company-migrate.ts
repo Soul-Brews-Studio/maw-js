@@ -46,7 +46,7 @@ function companyOracles(company: string): string[] {
   const c = loadCompany(company);
   if (!c) return [];
   const seen = new Set<string>();
-  for (const dept of Object.values(c.departments)) {
+  for (const dept of Object.values(c.teams)) {
     for (const m of dept.members) seen.add(m.oracle);
   }
   return [...seen].sort();

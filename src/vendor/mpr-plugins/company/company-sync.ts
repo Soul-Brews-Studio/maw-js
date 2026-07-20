@@ -89,7 +89,7 @@ export function syncCompanyPolicy(company: string, from: string): PolicySyncResu
   else result.missing.push("company.md");
 
   // Per-department policy.
-  for (const dept of Object.keys(c.departments)) {
+  for (const dept of Object.keys(c.teams)) {
     const file = `${dept}.md`;
     if (copyIfPresent(sourceDir, destDir, file)) result.written.push(file);
     else result.missing.push(file);

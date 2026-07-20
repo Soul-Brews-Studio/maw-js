@@ -26,8 +26,10 @@ import { runTask } from "../task/index";
 import { runCrew } from "../crew/index";
 
 export const command = {
-  name: ["company", "dept"],
-  description: "Logical company > department > oracle layer — registry, assign, tree.",
+  // kobo-363: `team` is the canonical name; `dept` kept as an alias (same
+  // routing — matchedName drives asDept below) during the vocab migration.
+  name: ["company", "team", "dept"],
+  description: "Logical company > team > oracle layer — registry, assign, tree.",
 };
 
 const G = "\x1b[32m"; // green
@@ -60,28 +62,31 @@ function runCompany(args: string[], logs: string[]): string | undefined {
     return;
   }
 
-  if (sub === "add-dept") {
+  // kobo-363: add-team is the canonical verb — add-dept kept as an alias
+  // (same logic) during the departments→teams vocab migration.
+  if (sub === "add-dept" || sub === "add-team") {
     const flags = parseFlags(args, { "--lead": String }, 1);
     const company = flags._[0];
     const dept = flags._[1];
     if (!company || !dept) {
-      logs.push("usage: maw company add-dept <company> <dept> [--lead <oracle>]");
-      return "company and dept required";
+      logs.push(`usage: maw company ${sub} <company> <team> [--lead <oracle>]`);
+      return "company and team required";
     }
     addDepartment(company, dept, { lead: flags["--lead"] as string | undefined });
-    logs.push(`${G}✓${R} department '${dept}' added to '${company}'${flags["--lead"] ? ` (lead: ${flags["--lead"]})` : ""}`);
+    logs.push(`${G}✓${R} team '${dept}' added to '${company}'${flags["--lead"] ? ` (lead: ${flags["--lead"]})` : ""}`);
     return;
   }
 
-  if (sub === "rm-dept") {
+  // kobo-363: rm-team is the canonical verb — rm-dept kept as an alias.
+  if (sub === "rm-dept" || sub === "rm-team") {
     const company = args[1];
     const dept = args[2];
     if (!company || !dept) {
-      logs.push("usage: maw company rm-dept <company> <dept>");
-      return "company and dept required";
+      logs.push(`usage: maw company ${sub} <company> <team>`);
+      return "company and team required";
     }
     removeDepartment(company, dept);
-    logs.push(`${G}✓${R} department '${dept}' removed from '${company}'`);
+    logs.push(`${G}✓${R} team '${dept}' removed from '${company}'`);
     return;
   }
 
@@ -167,14 +172,14 @@ function runCompany(args: string[], logs: string[]): string | undefined {
   }
 
   logs.push(`unknown company subcommand: ${sub}`);
-  logs.push("usage: maw company <create|add-dept|ls|tree|attach|detach|sync|migrate|hooks|home|worklog|task|crew|rm-dept|delete>");
+  logs.push("usage: maw company <create|add-team|add-dept|ls|tree|attach|detach|sync|migrate|hooks|home|worklog|task|crew|rm-team|rm-dept|delete>");
   return `unknown subcommand: ${sub}`;
 }
 
 /** True when `oracle` is still a member of ANY company (registry-fresh). */
 function stillInAnyCompany(oracle: string): boolean {
   return listCompanies().some(c =>
-    Object.values(c.departments).some(d => d.members.some(m => m.oracle === oracle)),
+    Object.values(c.teams).some(d => d.members.some(m => m.oracle === oracle)),
   );
 }
 
@@ -286,8 +291,8 @@ function renderList(logs: string[]): void {
   }
   logs.push(`\n  ${C}Companies${R} (${companies.length})\n`);
   for (const c of companies) {
-    const depts = Object.entries(c.departments);
-    logs.push(`  ${G}●${R} ${c.name}${R}  ${D}(${depts.length} dept${depts.length === 1 ? "" : "s"})${R}`);
+    const depts = Object.entries(c.teams);
+    logs.push(`  ${G}●${R} ${c.name}${R}  ${D}(${depts.length} team${depts.length === 1 ? "" : "s"})${R}`);
     for (const [name, d] of depts) {
       const lead = d.lead ? `lead: ${d.lead}` : "no lead";
       logs.push(`      ${D}└─${R} ${name.padEnd(16)} ${D}${String(d.members.length).padStart(2)} member${d.members.length === 1 ? " " : "s"} · ${lead}${R}`);
@@ -309,12 +314,12 @@ function renderTree(only: string | undefined, logs: string[]): void {
   logs.push("");
   for (const c of companies) {
     logs.push(`  ${C}${c.name}${R}`);
-    const depts = Object.entries(c.departments);
+    const depts = Object.entries(c.teams);
     depts.forEach(([name, d], di) => {
       const last = di === depts.length - 1;
       const branch = last ? "└─" : "├─";
       const pad = last ? "   " : "│  ";
-      logs.push(`  ${D}${branch}${R} ${name} ${D}(${d.kbTag})${R}`);
+      logs.push(`  ${D}${branch}${R} ${name}`);
       d.members.forEach((m, mi) => {
         const mlast = mi === d.members.length - 1;
         const mbranch = mlast ? "└─" : "├─";
@@ -323,7 +328,7 @@ function renderTree(only: string | undefined, logs: string[]): void {
       });
       if (d.members.length === 0) logs.push(`  ${D}${pad}└─ (no members)${R}`);
     });
-    if (depts.length === 0) logs.push(`  ${D}└─ (no departments)${R}`);
+    if (depts.length === 0) logs.push(`  ${D}└─ (no teams)${R}`);
   }
   logs.push("");
 }
@@ -514,8 +519,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return { ok: false, error: "company plugin is CLI-only" };
     }
     const args = ctx.args as string[];
-    // Route by the matched surface: `maw dept ...` → dept verbs, else company.
-    const asDept = ctx.matchedName === "dept";
+    // Route by the matched surface: `maw team ...` / `maw dept ...` (kobo-363
+    // alias) → dept verbs, else company.
+    const asDept = ctx.matchedName === "team" || ctx.matchedName === "dept";
     // `attach` is an async company verb (shells out to maw attach / maw bud).
     const isAttach = !asDept && args[0]?.toLowerCase() === "attach";
     // cli-reorg: `maw company home|worklog|task <verb>` → the plugin's shared runner (async).
