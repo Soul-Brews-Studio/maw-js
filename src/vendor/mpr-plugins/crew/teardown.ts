@@ -55,6 +55,16 @@ export async function teardownCrewWindows(opts: { protectPaneId: string }): Prom
   const killed: string[] = [];
   const logs: string[] = [];
 
+  // kobo-362 safety fix: an empty/blank protectPaneId is NOT a "no pane" signal to
+  // tmux — `tmux display-message -t '' ...` silently resolves to the CALLER's own
+  // CURRENT session (exit 0, not an error), which would make the resolve-then-sweep
+  // below hit the WRONG session (the operator's own cell, or another company's) —
+  // exactly the cross-cell-kill invariant this helper exists to prevent. Refuse
+  // BEFORE any tmux call, never let an empty target imply "current session".
+  if (!opts.protectPaneId?.trim()) {
+    return { ok: false, error: "empty protectPaneId — fail-closed (an empty tmux target silently resolves to the CALLER's own session, not a specific pane's — refusing rather than guessing)", killed, logs };
+  }
+
   let session: string;
   try {
     session = (await hostExec(`tmux display-message -t ${shellArg(opts.protectPaneId)} -p '#{session_name}'`)).trim();
