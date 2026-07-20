@@ -240,13 +240,21 @@ export async function companyDown(
     const rootPrefix = member.isManager ? "👤" : "🧭";
     const rootPaneId = findRolePane(panes, rootPrefix);
 
-    const teardown = await teardownFn({ protectPaneId: rootPaneId ?? "" });
+    // kobo-362 safety fix: NEVER pass an empty/undefined protectPaneId — that used
+    // to silently resolve to the CALLER's own session inside teardownCrewWindows
+    // (tmux quirk: an empty -t target defaults to "current session", not an error),
+    // sweeping the WRONG cell. No root pane found = no crew cell identifiable in
+    // this session at all — SKIP teardown entirely rather than guess a target.
+    if (!rootPaneId) {
+      emit(`⚠ ${member.oracle}: no front/lead pane found in session ${sessionName} — skipping teardown (nothing safely identifiable to tear down)`);
+      continue;
+    }
+
+    const teardown = await teardownFn({ protectPaneId: rootPaneId });
     for (const line of teardown.logs) emit(`${member.oracle}: ${line}`);
     if (!teardown.ok) { emit(`⚠ ${member.oracle}: teardown refused (${teardown.error})`); continue; }
 
-    if (!rootPaneId) {
-      emit(`${member.oracle}: no front/lead pane found — crew-tier swept, nothing else to kill`);
-    } else if (rootPaneId === invokerPane) {
+    if (rootPaneId === invokerPane) {
       emit(`${member.oracle}: front/lead pane IS the invoker — protected, not killed`);
     } else {
       try {

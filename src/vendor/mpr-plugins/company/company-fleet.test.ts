@@ -10,7 +10,7 @@ import { join } from "path";
 import { companyUp, companyDown, runCompanyUp, runCompanyDown, type CompanyFleetDeps } from "./company-fleet";
 import { _setCompaniesDir, saveCompany, COMPANIES_DIR } from "./company-helpers";
 import type { Session } from "maw-js/sdk";
-import type { TeardownResult } from "../crew/teardown";
+import { teardownCrewWindows, type TeardownResult } from "../crew/teardown";
 
 const origCompaniesDir = COMPANIES_DIR;
 let dir: string;
@@ -68,8 +68,10 @@ function makeDeps(opts: {
       return `${s.name}:${s.windows[0]?.index ?? 0}`;
     },
     checkBusyGuardFn: async (oracle: string) => ({ busy: !!busy[oracle], status: busy[oracle] ? "busy" : "idle", oracle } as any),
-    teardownCrewWindowsFn: async (o: { protectPaneId: string }) =>
-      opts.teardownResult ?? { ok: true, killed: [], logs: [`no leftover crew panes — clean spawn (protect=${o.protectPaneId})`] },
+    teardownCrewWindowsFn: async (o: { protectPaneId: string }) => {
+      calls.push(`teardown:${o.protectPaneId}`);
+      return opts.teardownResult ?? { ok: true, killed: [], logs: [`no leftover crew panes — clean spawn (protect=${o.protectPaneId})`] };
+    },
     cmdWakeFn: async (oracle: string) => {
       calls.push(`wake:${oracle}`);
       if (opts.wakeFails?.has(oracle)) throw new Error("oracle repo not found");
@@ -228,6 +230,49 @@ describe("companyDown (kobo-362)", () => {
     const r = await companyDown("kobo", {}, (l) => lines.push(l), deps);
     expect(r.ok).toBe(true);
     expect(lines.some((l) => l.includes("nothing to tear down"))).toBe(true);
+  });
+
+  // kobo-362 SAFETY-CRITICAL: a session with NO front/lead-tagged pane (bare-wake
+  // session, or crew died leaving no root pane) must NEVER pass an empty/undefined
+  // protectPaneId to teardownCrewWindows — a tmux empty -t target silently resolves
+  // to the CALLER's own current session (not an error), which would sweep the WRONG
+  // cell. companyDown must SKIP teardown entirely in this case, never even calling
+  // the teardown fn (caught by crew .2 + eq3 .2 independent review of PR#287).
+  test("no root pane found → SKIPS teardown entirely, teardownFn is NEVER invoked (kobo-362 safety fix)", async () => {
+    saveCompany({ name: "kobo", teams: { core: { members: [{ oracle: "patchwork", role: "dev" }] } } });
+    const lines: string[] = [];
+    const { deps, calls } = makeDeps({
+      sessions: fakeSessions({ "13-patchwork": ["main"] }),
+      // session exists but has NO 🧭-tagged pane — e.g. a bare cold-started session
+      panesBySession: { "13-patchwork": [{ paneId: "%1", role: "⚒ worker" }] },
+    });
+    const r = await companyDown("kobo", {}, (l) => lines.push(l), deps);
+    expect(r.ok).toBe(true);
+    expect(lines.some((l) => l.includes("no front/lead pane found") && l.includes("skipping teardown"))).toBe(true);
+    expect(calls.some((c) => c.startsWith("teardown:"))).toBe(false); // teardownFn never called — no empty protectPaneId ever sent
+    expect(calls.some((c) => c.includes("kill-pane"))).toBe(false); // nothing killed either
+  });
+
+  // The REAL (unmocked) fail-closed guard at the helper itself — defense-in-depth
+  // independent of the caller. This is the exact regression test for the bug: prior
+  // to the fix, an empty protectPaneId sailed through to `tmux display-message -t ''`,
+  // which tmux resolves to the CALLER's current session (not an error) — the wrong
+  // session's crew panes would then be swept. Testing the REAL function directly (no
+  // deps override, no mock) — the false-green in the original PR came from every test
+  // mocking teardownCrewWindowsFn, so this guard itself was never exercised.
+  describe("teardownCrewWindows — REAL (unmocked) fail-closed guard (kobo-362 safety fix)", () => {
+    test("empty protectPaneId → REFUSES fail-closed, before any tmux resolve", async () => {
+      const r = await teardownCrewWindows({ protectPaneId: "" });
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("empty protectPaneId");
+      expect(r.killed).toEqual([]);
+    });
+
+    test("whitespace-only protectPaneId → REFUSES fail-closed (not just empty-string)", async () => {
+      const r = await teardownCrewWindows({ protectPaneId: "   " });
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("empty protectPaneId");
+    });
   });
 
   test("busy member → REFUSED by default (no --force)", async () => {

@@ -68,6 +68,20 @@ describe("crew command plugin standalone boundary", () => {
     expect(teardownSrc).toContain("crew-workers");
   });
 
+  // kobo-362 SAFETY FIX: an empty `-t` tmux target silently resolves to the
+  // CALLER's own current session (not an error) — a caller passing an empty
+  // protectPaneId would sweep the WRONG session's crew panes. Pin the guard
+  // fires BEFORE the resolve, not just as an incidental empty-string check
+  // somewhere downstream.
+  test("teardown.ts: refuses fail-closed on an empty protectPaneId, BEFORE any tmux resolve call", () => {
+    const teardownSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/crew/teardown.ts"), "utf8");
+    const guardIdx = teardownSrc.indexOf("empty protectPaneId");
+    const resolveIdx = teardownSrc.indexOf("hostExec(`tmux display-message"); // the actual call, not the explanatory comment prose
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(resolveIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(resolveIdx); // the guard is textually BEFORE the dangerous resolve call
+  });
+
   test("company/index.ts wires `crew` to runCrew (the CLI seam)", () => {
     const companyIndexSrc = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
