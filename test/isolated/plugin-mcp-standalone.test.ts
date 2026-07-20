@@ -80,6 +80,17 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     for (const q of ["last=", "since=", "all=1", "offset="]) expect(client).toContain(q);
   });
 
+  // kobo-360: maw_room_reply returned the FULL room artifact on success (~240k tokens
+  // on a big room) — a caller only needs to know the reply landed. Client-side trim:
+  // extract the just-appended (newest) message, return a compact {ok,id,ts} ack.
+  test("kobo-360: roomReply returns a compact ack, not the full room artifact", () => {
+    const client = readFileSync(join(root, MCP_DIR, "room-client.ts"), "utf8");
+    const replyFn = client.slice(client.indexOf("export async function roomReply"), client.indexOf("export async function roomMerge"));
+    expect(replyFn).toContain("messages?.at(-1)"); // newest message only, not the full room
+    expect(replyFn).toContain("id: last.id, ts: last.ts"); // compact ack shape
+    expect(replyFn).toContain("!res.ok"); // error path still short-circuits BEFORE the compact-ack extraction (toText(res) — already compact, unchanged)
+  });
+
   // kobo-21/24: the maw_task tool wraps the CLI task board (spawns
   // `maw company task <verb>` via runMaw, like the other verb tools) — it must
   // NOT reach into core task logic directly. Pin the registration + that taskArgs
