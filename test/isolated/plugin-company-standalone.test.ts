@@ -81,6 +81,40 @@ describe("company command plugin standalone boundary", () => {
     expect(indexSrc).toContain("|crew|"); // usage string mentions the new verb
   });
 
+  // kobo-362: `maw company up/down <co>` — fleet wake+teardown for a whole
+  // company, same sibling-plugin delegation pattern as crew above.
+  test("company dispatches `up`/`down` to company-fleet (kobo-362)", () => {
+    const indexSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
+      "utf8",
+    );
+    expect(indexSrc).toContain('from "./company-fleet"');
+    expect(indexSrc).toContain("runCompanyUp");
+    expect(indexSrc).toContain("runCompanyDown");
+    expect(indexSrc).toContain('=== "up"');
+    expect(indexSrc).toContain('=== "down"');
+    expect(indexSrc).toContain("|up|down|"); // usage string mentions the new verbs
+  });
+
+  // kobo-362: pin the design-blessed contract on the fleet module itself —
+  // 2-tier up (session-tier cmdWake cold-start, crew-tier repair-via-injection),
+  // manager report-only (no head-spawn verb exists — kobo-364), down reuses
+  // kobo-358's teardownCrewWindows + refuse-if-busy/--force.
+  test("company-fleet: 2-tier up + manager report-only + down reuses 358 teardown + busy-gate", () => {
+    const fleetSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/company/company-fleet.ts"),
+      "utf8",
+    );
+    expect(fleetSrc).toContain('from "../crew/teardown"'); // reuses kobo-358 AS-IS, doesn't re-port it
+    expect(fleetSrc).toContain("cmdWake"); // session-tier cold-start (empirically verified, eq3 2-tier ruling)
+    expect(fleetSrc).toContain("kobo-364"); // manager-gap points at the head-spawn follow-up, not silent
+    expect(fleetSrc).toContain("checkBusyGuard"); // down's refuse-if-busy default
+    expect(fleetSrc).toContain("opts.force"); // --force override
+    expect(fleetSrc).toContain("invokerPane"); // global-invoker protection (never kill the calling pane)
+    // no silent core-lead fallback when a company has no manager — a dept lead ≠ company head
+    expect(fleetSrc).toContain("no company head");
+  });
+
   // kobo-363: departments → teams vocab rename. add-team/rm-team are canonical;
   // add-dept/rm-dept kept as aliases (same underlying logic) during migration.
   test("company keeps add-dept/rm-dept as aliases of add-team/rm-team (kobo-363)", () => {
