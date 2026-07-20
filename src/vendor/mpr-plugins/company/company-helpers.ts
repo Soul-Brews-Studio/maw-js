@@ -26,8 +26,6 @@ export interface DeptMember {
 export interface Department {
   /** Optional lead oracle name (convenience pointer; also present in members). */
   lead?: string;
-  /** KB (muninn) concept tag for department knowledge exchange (Phase 2). */
-  kbTag: string;
   members: DeptMember[];
 }
 
@@ -36,7 +34,11 @@ export interface Company {
   /** Optional company-level manager/PM — a tier ABOVE the depts (not a dept
    * member). Scoped to the company for worklog/policy without joining a roster. */
   manager?: string;
-  departments: Record<string, Department>;
+  /** kobo-363: was `departments`. Renamed to match how the org actually talks
+   * (teams, not departments). `loadCompany` dual-reads legacy `departments`
+   * configs on the way in — every in-memory `Company` past that point only
+   * ever has `.teams`. */
+  teams: Record<string, Department>;
 }
 
 // Exported for testing — override with _setCompaniesDir.
@@ -69,12 +71,23 @@ export function companyExists(name: string): boolean {
 export function loadCompany(name: string): Company | null {
   const path = companyPath(name);
   if (!existsSync(path)) return null;
-  const raw = JSON.parse(readFileSync(path, "utf-8")) as Company;
-  // Normalize older/partial shapes — ensure members[] always present.
-  for (const dept of Object.values(raw.departments ?? {})) {
-    if (!Array.isArray(dept.members)) dept.members = [];
+  const raw = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown> & Partial<Company>;
+  // kobo-363 dual-read: `teams` preferred, `departments` = legacy fallback so
+  // pre-rename `~/.maw/companies/*.json` configs keep working with no manual
+  // migration step. Both present at once shouldn't happen mid-migrate, but if
+  // it does: prefer teams, never silently drop the ambiguity on the floor.
+  const legacyDepartments = raw.departments as Record<string, Department> | undefined;
+  if (raw.teams && legacyDepartments) {
+    console.error(
+      `[company] '${name}.json' has BOTH "teams" and legacy "departments" keys — using teams, ignoring departments (ambiguous config, clean up when convenient)`,
+    );
   }
-  return raw;
+  const teams = (raw.teams as Record<string, Department> | undefined) ?? legacyDepartments ?? {};
+  // Normalize older/partial shapes — ensure members[] always present.
+  for (const team of Object.values(teams)) {
+    if (!Array.isArray(team.members)) team.members = [];
+  }
+  return { name: raw.name as string, manager: raw.manager as string | undefined, teams };
 }
 
 export function saveCompany(company: Company): void {
@@ -103,7 +116,7 @@ export function companyLead(name: string): string | null {
   const c = loadCompany(name);
   if (!c) return null;
   if (c.manager) return c.manager;
-  const depts = c.departments ?? {};
+  const depts = c.teams ?? {};
   if (depts.core?.lead) return depts.core.lead;
   for (const d of Object.values(depts)) if (d.lead) return d.lead;
   return null;
@@ -121,7 +134,7 @@ export function companyOracles(name: string): Set<string> {
   const out = new Set<string>();
   if (!c) return out;
   if (c.manager) out.add(c.manager);
-  for (const d of Object.values(c.departments ?? {})) {
+  for (const d of Object.values(c.teams ?? {})) {
     if (d.lead) out.add(d.lead);
     for (const m of d.members ?? []) if (m.oracle) out.add(m.oracle);
   }
@@ -133,7 +146,7 @@ export function createCompany(name: string): Company {
   if (companyExists(name)) {
     throw new Error(`company '${name}' already exists`);
   }
-  const company: Company = { name, departments: {} };
+  const company: Company = { name, teams: {} };
   saveCompany(company);
   return company;
 }
@@ -152,10 +165,10 @@ export function addDepartment(company: string, dept: string, opts: { lead?: stri
   assertValidName("department", dept);
   const c = loadCompany(company);
   if (!c) throw new Error(`company '${company}' not found — run: maw company create ${company}`);
-  if (c.departments[dept]) throw new Error(`department '${dept}' already exists in '${company}'`);
-  c.departments[dept] = {
+  if (c.teams[dept]) throw new Error(`department '${dept}' already exists in '${company}'`);
+  // kobo-363: kbTag dropped (KB offline, rrr is local and doesn't depend on it).
+  c.teams[dept] = {
     lead: opts.lead,
-    kbTag: kbTagFor(company, dept),
     members: opts.lead ? [{ oracle: opts.lead, role: "lead" }] : [],
   };
   saveCompany(c);
@@ -166,14 +179,19 @@ export function addDepartment(company: string, dept: string, opts: { lead?: stri
 export function removeDepartment(company: string, dept: string): Company {
   const c = loadCompany(company);
   if (!c) throw new Error(`company '${company}' not found`);
-  const d = c.departments[dept];
+  const d = c.teams[dept];
   if (!d) throw new Error(`department '${dept}' not found in '${company}'`);
   // Clear per-oracle assignment for every member before dropping the dept.
   for (const m of d.members) clearOracleAssignment(m.oracle, { company, department: dept });
-  delete c.departments[dept];
+  delete c.teams[dept];
   saveCompany(c);
   return c;
 }
+
+// kobo-363 vocab aliases — CLI now speaks `team`, not `department`. Same
+// functions, forward-looking names for future callers.
+export const addTeam = addDepartment;
+export const removeTeam = removeDepartment;
 
 export interface NamingCollision {
   /** True when an oracle of this name is already a member of the department. */
@@ -195,7 +213,7 @@ export function checkNamingCollision(
   role: DeptRole = "dev",
 ): NamingCollision {
   const c = loadCompany(company);
-  const members = c?.departments[dept]?.members ?? [];
+  const members = c?.teams[dept]?.members ?? [];
   const collision = members.some((m) => m.oracle === oracle);
   return { collision, suggestion: `${company}-${dept}-${role}` };
 }
@@ -216,8 +234,8 @@ export function assignMember(
 ): AssignResult {
   const c = loadCompany(company);
   if (!c) throw new Error(`company '${company}' not found — run: maw company create ${company}`);
-  const d = c.departments[dept];
-  if (!d) throw new Error(`department '${dept}' not found in '${company}' — run: maw company add-dept ${company} ${dept}`);
+  const d = c.teams[dept];
+  if (!d) throw new Error(`department '${dept}' not found in '${company}' — run: maw company add-team ${company} ${dept}`);
 
   const naming = checkNamingCollision(company, dept, oracle, role);
 
@@ -237,7 +255,7 @@ export function assignMember(
 export function removeMember(company: string, dept: string, oracle: string): Company {
   const c = loadCompany(company);
   if (!c) throw new Error(`company '${company}' not found`);
-  const d = c.departments[dept];
+  const d = c.teams[dept];
   if (!d) throw new Error(`department '${dept}' not found in '${company}'`);
   const idx = d.members.findIndex((m) => m.oracle === oracle);
   if (idx === -1) throw new Error(`'${oracle}' is not a member of ${company}/${dept}`);
@@ -251,10 +269,12 @@ export function removeMember(company: string, dept: string, oracle: string): Com
 export function departmentMembers(company: string, dept: string): DeptMember[] {
   const c = loadCompany(company);
   if (!c) throw new Error(`company '${company}' not found`);
-  const d = c.departments[dept];
+  const d = c.teams[dept];
   if (!d) throw new Error(`department '${dept}' not found in '${company}'`);
   return d.members;
 }
+
+export const teamMembers = departmentMembers;
 
 // ─── Per-oracle fleet config sync ────────────────────────────────────────────
 

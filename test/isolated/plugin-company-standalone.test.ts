@@ -10,7 +10,13 @@ import {
   companyOracles,
   loadCompany,
   saveCompany,
+  companyPath,
+  createCompany,
+  addDepartment,
+  addTeam,
+  removeTeam,
 } from "../../src/vendor/mpr-plugins/company/company-helpers";
+import { writeFileSync } from "node:fs";
 
 // #2316 plugin-coverage-gate: the `company`/`dept` plugin is the org layer
 // (registry, assign, attach, dept knowledge) plus the company/dept POLICY
@@ -72,7 +78,20 @@ describe("company command plugin standalone boundary", () => {
     expect(indexSrc).toContain('from "../crew/index"');
     expect(indexSrc).toContain("runCrew");
     expect(indexSrc).toContain('=== "crew"');
-    expect(indexSrc).toContain("crew|rm-dept|delete"); // usage string mentions the new verb
+    expect(indexSrc).toContain("|crew|"); // usage string mentions the new verb
+  });
+
+  // kobo-363: departments → teams vocab rename. add-team/rm-team are canonical;
+  // add-dept/rm-dept kept as aliases (same underlying logic) during migration.
+  test("company keeps add-dept/rm-dept as aliases of add-team/rm-team (kobo-363)", () => {
+    const indexSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
+      "utf8",
+    );
+    expect(indexSrc).toContain('sub === "add-dept" || sub === "add-team"');
+    expect(indexSrc).toContain('sub === "rm-dept" || sub === "rm-team"');
+    expect(indexSrc).toContain("|add-team|add-dept|");
+    expect(indexSrc).toContain("|rm-team|rm-dept|");
   });
 
   test("attach marks the attach gate; detach clears it (policy inject pairs with attach)", () => {
@@ -126,45 +145,104 @@ describe("company command plugin standalone boundary", () => {
       saveCompany({
         name: "pgw",
         manager: "thawanban",
-        departments: {
-          core: { kbTag: "dept:pgw:core", lead: "nai", members: [{ oracle: "nai", role: "lead" }] },
+        teams: {
+          core: { lead: "nai", members: [{ oracle: "nai", role: "lead" }] },
         },
       });
       const loaded = loadCompany("pgw")!;
       expect(loaded.manager).toBe("thawanban");
       // the manager is the tier above — must NOT be smuggled into a dept roster
-      const inRoster = Object.values(loaded.departments).some(d => d.members.some(m => m.oracle === "thawanban"));
+      const inRoster = Object.values(loaded.teams).some(d => d.members.some(m => m.oracle === "thawanban"));
       expect(inRoster).toBe(false);
     });
 
     test("a company with no manager loads cleanly (field is optional)", () => {
-      saveCompany({ name: "acme", departments: {} });
+      saveCompany({ name: "acme", teams: {} });
       expect(loadCompany("acme")!.manager).toBeUndefined();
     });
 
     // kobo-258 — the company lead (default room partner / reviewer): manager wins,
     // else the `core` dept lead, else any dept lead, else null.
     test("companyLead: manager > core dept lead > any dept lead > null", () => {
-      saveCompany({ name: "pgw", manager: "thawanban", departments: { core: { kbTag: "k", lead: "nai", members: [] } } });
+      saveCompany({ name: "pgw", manager: "thawanban", teams: { core: { lead: "nai", members: [] } } });
       expect(companyLead("pgw")).toBe("thawanban"); // manager wins
-      saveCompany({ name: "kobo", departments: { core: { kbTag: "k", lead: "eq3", members: [] }, utils: { kbTag: "k", lead: "pm1", members: [] } } });
+      saveCompany({ name: "kobo", teams: { core: { lead: "eq3", members: [] }, utils: { lead: "pm1", members: [] } } });
       expect(companyLead("kobo")).toBe("eq3"); // no manager → core dept lead
-      saveCompany({ name: "solo", departments: { ops: { kbTag: "k", lead: "zed", members: [] } } });
+      saveCompany({ name: "solo", teams: { ops: { lead: "zed", members: [] } } });
       expect(companyLead("solo")).toBe("zed"); // no core → any dept lead
-      saveCompany({ name: "empty", departments: {} });
+      saveCompany({ name: "empty", teams: {} });
       expect(companyLead("empty")).toBeNull(); // no lead anywhere
       expect(companyLead("nonexistent")).toBeNull(); // unknown company
     });
 
     // kobo-260 — the Rule-6 verify set: manager + every dept lead + every dept member.
     test("companyOracles = manager ∪ dept leads ∪ dept members (Rule-6 verify set)", () => {
-      saveCompany({ name: "pgw", manager: "thawanban", departments: {
-        core: { kbTag: "k", lead: "nai", members: [{ oracle: "nai", role: "lead" }, { oracle: "dev1", role: "dev" }] },
-        driver: { kbTag: "k", lead: "sapan", members: [{ oracle: "sapan", role: "lead" }] },
+      saveCompany({ name: "pgw", manager: "thawanban", teams: {
+        core: { lead: "nai", members: [{ oracle: "nai", role: "lead" }, { oracle: "dev1", role: "dev" }] },
+        driver: { lead: "sapan", members: [{ oracle: "sapan", role: "lead" }] },
       } });
       const set = companyOracles("pgw");
       expect([...set].sort()).toEqual(["dev1", "nai", "sapan", "thawanban"]); // manager + leads + members, deduped
       expect(companyOracles("nonexistent").size).toBe(0); // unknown company → empty
+    });
+  });
+
+  // kobo-363: departments → teams rename, dual-read backward-compat, kbTag drop.
+  describe("departments → teams dual-read backward-compat (kobo-363)", () => {
+    const ORIGINAL_DIR = COMPANIES_DIR;
+    let tmp: string;
+
+    beforeEach(() => {
+      tmp = mkdtempSync(join(tmpdir(), "company-teams-standalone-"));
+      _setCompaniesDir(tmp);
+    });
+    afterEach(() => {
+      _setCompaniesDir(ORIGINAL_DIR);
+      try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+    });
+
+    test("a legacy config with the OLD `departments` key still loads correctly", () => {
+      writeFileSync(companyPath("legacy"), JSON.stringify({
+        name: "legacy",
+        departments: { core: { lead: "nai", members: [{ oracle: "nai", role: "lead" }] } },
+      }));
+      const c = loadCompany("legacy")!;
+      expect(c.teams.core.lead).toBe("nai");
+      expect(c.teams.core.members).toEqual([{ oracle: "nai", role: "lead" }]);
+    });
+
+    test("a fresh write uses the `teams` key (not `departments`)", () => {
+      createCompany("fresh");
+      addDepartment("fresh", "core");
+      const raw = JSON.parse(readFileSync(companyPath("fresh"), "utf8"));
+      expect(raw.teams).toBeDefined();
+      expect(raw.departments).toBeUndefined();
+    });
+
+    test("a config with BOTH `teams` and `departments` prefers `teams`, doesn't throw", () => {
+      writeFileSync(companyPath("ambiguous"), JSON.stringify({
+        name: "ambiguous",
+        teams: { core: { lead: "new-lead", members: [] } },
+        departments: { core: { lead: "old-lead", members: [] } },
+      }));
+      const c = loadCompany("ambiguous")!;
+      expect(c.teams.core.lead).toBe("new-lead"); // teams wins over legacy departments
+    });
+
+    test("addTeam/removeTeam are aliases of addDepartment/removeDepartment (same logic)", () => {
+      expect(addTeam).toBe(addDepartment);
+      createCompany("aliastest");
+      addTeam("aliastest", "core");
+      expect(loadCompany("aliastest")!.teams.core).toBeDefined();
+      removeTeam("aliastest", "core");
+      expect(loadCompany("aliastest")!.teams.core).toBeUndefined();
+    });
+
+    test("kbTag is not persisted on a fresh department/team", () => {
+      createCompany("nokbtag");
+      addDepartment("nokbtag", "core");
+      const raw = JSON.parse(readFileSync(companyPath("nokbtag"), "utf8"));
+      expect(raw.teams.core.kbTag).toBeUndefined();
     });
   });
 });

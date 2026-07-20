@@ -24,10 +24,10 @@ afterEach(() => {
 describe("company registry CRUD", () => {
   test("create writes a registry file and is loadable", () => {
     const c = createCompany("kob");
-    expect(c).toEqual({ name: "kob", departments: {} });
+    expect(c).toEqual({ name: "kob", teams: {} });
     expect(companyExists("kob")).toBe(true);
     expect(existsSync(companyPath("kob"))).toBe(true);
-    expect(loadCompany("kob")).toEqual({ name: "kob", departments: {} });
+    expect(loadCompany("kob")).toEqual({ name: "kob", teams: {} });
   });
 
   test("create rejects duplicate company", () => {
@@ -60,13 +60,15 @@ describe("company registry CRUD", () => {
 });
 
 describe("departments", () => {
-  test("add-dept creates a department with a kb tag", () => {
+  // kobo-363: kbTag dropped from the persisted Department shape (KB offline,
+  // rrr is local and doesn't depend on it). kbTagFor() stays as a pure
+  // generator function for callers that still need a derived KB tag string.
+  test("add-dept creates a department (no kbTag persisted)", () => {
     createCompany("kob");
     addDepartment("kob", "payment");
     const c = loadCompany("kob")!;
-    expect(c.departments.payment).toEqual({
+    expect(c.teams.payment).toEqual({
       lead: undefined,
-      kbTag: "dept:kob:payment",
       members: [],
     });
     expect(kbTagFor("kob", "payment")).toBe("dept:kob:payment");
@@ -75,7 +77,7 @@ describe("departments", () => {
   test("add-dept with --lead records the lead as a member", () => {
     createCompany("kob");
     addDepartment("kob", "payment", { lead: "payment-lead" });
-    const d = loadCompany("kob")!.departments.payment;
+    const d = loadCompany("kob")!.teams.payment;
     expect(d.lead).toBe("payment-lead");
     expect(d.members).toEqual([{ oracle: "payment-lead", role: "lead" }]);
   });
@@ -91,7 +93,7 @@ describe("departments", () => {
     createCompany("kob");
     addDepartment("kob", "payment");
     removeDepartment("kob", "payment");
-    expect(loadCompany("kob")!.departments.payment).toBeUndefined();
+    expect(loadCompany("kob")!.teams.payment).toBeUndefined();
     expect(() => removeDepartment("kob", "payment")).toThrow("not found");
   });
 });
@@ -120,7 +122,7 @@ describe("department members (assign / members / remove)", () => {
 
   test("assign with lead role updates the department lead pointer", () => {
     assignMember("kob", "payment", "boss", "lead");
-    expect(loadCompany("kob")!.departments.payment.lead).toBe("boss");
+    expect(loadCompany("kob")!.teams.payment.lead).toBe("boss");
   });
 
   test("assign rejects unknown company / department", () => {
@@ -132,7 +134,7 @@ describe("department members (assign / members / remove)", () => {
     assignMember("kob", "payment", "boss", "lead");
     removeMember("kob", "payment", "boss");
     expect(departmentMembers("kob", "payment")).toEqual([]);
-    expect(loadCompany("kob")!.departments.payment.lead).toBeUndefined();
+    expect(loadCompany("kob")!.teams.payment.lead).toBeUndefined();
   });
 
   test("remove rejects non-members", () => {
@@ -187,6 +189,8 @@ describe("validation + persistence shape", () => {
     const raw = readFileSync(companyPath("kob"), "utf-8");
     expect(raw.endsWith("\n")).toBe(true);
     const parsed = JSON.parse(raw);
-    expect(parsed.departments.payment.kbTag).toBe("dept:kob:payment");
+    // kobo-363: fresh writes use the `teams` key; kbTag no longer persisted.
+    expect(parsed.teams.payment.lead).toBe("lead-1");
+    expect(parsed.teams.payment.kbTag).toBeUndefined();
   });
 });

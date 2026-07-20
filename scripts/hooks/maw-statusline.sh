@@ -57,7 +57,9 @@ if [ -z "$BADGE_COMPANY" ] && [ "$ORACLE" != "?" ] && command -v jq >/dev/null 2
   CDIR="${MAW_DATA_DIR:-$HOME/.maw}/companies"
   for cf in "$CDIR"/*.json; do            # glob expands sorted → first-match agrees with companyOfOracleLight
     [ -f "$cf" ] || continue
-    if jq -e --arg o "$ORACLE" '(.manager == $o) or ([.departments[]?.members[]?.oracle] | index($o) != null)' "$cf" >/dev/null 2>&1; then
+    # kobo-363 dual-read: `teams` preferred, `departments` = legacy fallback (this
+    # script bypasses the TS loadCompany/presence-away normalizers on purpose).
+    if jq -e --arg o "$ORACLE" '(.manager == $o) or ([(.teams // .departments)[]?.members[]?.oracle] | index($o) != null)' "$cf" >/dev/null 2>&1; then
       BADGE_COMPANY="$(jq -r '.name // ""' "$cf" 2>/dev/null)"
       [ -z "$BADGE_COMPANY" ] && BADGE_COMPANY="$(basename "$cf" .json)"   # mirror `c.name ?? filename`
       break

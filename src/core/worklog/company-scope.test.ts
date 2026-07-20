@@ -26,8 +26,8 @@ let tmp: string;
 const pgw = (): Company => ({
   name: "pgw",
   manager: "thawanban",
-  departments: {
-    core: { kbTag: "dept:pgw:core", lead: "nai", members: [{ oracle: "nai", role: "lead" }, { oracle: "lek", role: "dev" }] },
+  teams: {
+    core: { lead: "nai", members: [{ oracle: "nai", role: "lead" }, { oracle: "lek", role: "dev" }] },
   },
 });
 
@@ -56,8 +56,8 @@ describe("companyOracles includes the manager (kobo-290)", () => {
     saveCompany({
       name: "kobo",
       manager: "eq3",
-      departments: {
-        core: { kbTag: "dept:kobo:core", lead: "eq3", members: [{ oracle: "eq3", role: "lead" }, { oracle: "patchwork", role: "dev" }] },
+      teams: {
+        core: { lead: "eq3", members: [{ oracle: "eq3", role: "lead" }, { oracle: "patchwork", role: "dev" }] },
       },
     });
     const oracles = companyOracles("kobo");
@@ -83,7 +83,7 @@ describe("company-scope resolution", () => {
     expect(companyOfOracle("thawanban")).toBe("pgw");
     expect(scopeOfOracle("thawanban")).toEqual({ company: "pgw", dept: null, lead: null });
     // …and is NOT smuggled into any dept roster.
-    const rosterHasManager = Object.values(pgw().departments).some(d => d.members.some(m => m.oracle === "thawanban"));
+    const rosterHasManager = Object.values(pgw().teams).some(d => d.members.some(m => m.oracle === "thawanban"));
     expect(rosterHasManager).toBe(false);
   });
 
@@ -97,8 +97,8 @@ describe("company-scope resolution", () => {
 // AFTER `pgw`, so name-sorted iteration deterministically first-matches `pgw`.
 const zeta = (): Company => ({
   name: "zeta",
-  departments: {
-    core: { kbTag: "dept:zeta:core", lead: "lek", members: [{ oracle: "lek", role: "lead" }] },
+  teams: {
+    core: { lead: "lek", members: [{ oracle: "lek", role: "lead" }] },
   },
 });
 

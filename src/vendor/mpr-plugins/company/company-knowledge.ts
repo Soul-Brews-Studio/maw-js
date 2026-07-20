@@ -220,7 +220,7 @@ export function mergeDeptResults(
 
 /** Resolve a department's lead oracle name, or null when none is set. */
 export function resolveLead(company: string, dept: string): string | null {
-  return loadCompany(company)?.departments[dept]?.lead ?? null;
+  return loadCompany(company)?.teams[dept]?.lead ?? null;
 }
 
 /** Members to push a `dept share` message to — every member of the dept. */
