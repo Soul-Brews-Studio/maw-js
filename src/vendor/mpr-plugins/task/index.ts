@@ -282,6 +282,24 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, 
 }
 
 /**
+ * kobo-365: `next-ready`'s pick-order — ts ascending (FIFO), THEN numeric id
+ * suffix ascending as a deterministic tie-break. Two cards created in the same
+ * millisecond (a real CI-observed flake, kobo-356) used to tie on `ts` alone,
+ * leaving order to fall back on whatever `listTasks` happened to return them
+ * in — raw `readdirSync` order (store.ts:readCardsIn), which POSIX does not
+ * guarantee matches creation order. The id suffix (`<company>-<n>`) is a
+ * monotonically increasing, always-unique counter (nextTaskId, store.ts) —
+ * exactly a creation-order key — so it fully resolves any ts tie regardless of
+ * array/filesystem order. Exported for testing (kobo-365 anti-flake proof).
+ */
+export function compareReadyOrder(a: TaskRecord, b: TaskRecord): number {
+  if (a.ts !== b.ts) return a.ts - b.ts;
+  const an = Number(a.id.match(/-(\d+)$/)?.[1] ?? 0);
+  const bn = Number(b.id.match(/-(\d+)$/)?.[1] ?? 0);
+  return an - bn;
+}
+
+/**
  * Shared task-board CLI runner — the single source of truth for the task verbs.
  * Both `maw company task` (company plugin) and the top-level `maw task` shim call
  * this, so the two surfaces can never diverge (cli-reorg ADR docs/company/0001).
@@ -411,7 +429,7 @@ export async function runTask(
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const tasks = listTasks(company).filter((t) => isOnBoard(t));
-      const ready = tasks.filter((t) => needsOwner(t)).sort((a, b) => a.ts - b.ts);
+      const ready = tasks.filter((t) => needsOwner(t)).sort(compareReadyOrder);
       // inFlight = work already picked up that hasn't landed (in-progress/review) — the
       // signal the conductor combines with its own roster-all-idle read to decide whether
       // "queue empty" also means "nothing coming back" (teardown-suggest condition,

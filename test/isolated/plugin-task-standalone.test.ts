@@ -143,6 +143,11 @@ describe("task command plugin standalone boundary", () => {
     // kobo-356: next-ready — crew idle-dispatch queue query, reuses needsOwner (no new derive)
     expect(src).toContain("NEXT-READY"); // a ready unassigned card found
     expect(src).toContain("NO-READY-WORK inFlight="); // queue empty; inFlight = still in-progress/review
+    // kobo-365: deterministic tie-break — a ts-only comparator ties same-millisecond
+    // cards (a real CI flake) and falls back on non-guaranteed readdir order; id
+    // (a monotonic per-company counter) is the secondary key.
+    expect(src).toContain("compareReadyOrder");
+    expect(src).toContain("sort(compareReadyOrder)");
     expect(src).toContain("parentStateResolver");
     expect(src).toContain('"--parent"'); // add accepts parent deps
     expect(src).toContain("checklistProgress"); // eq3-009c: body checklist N/M on the board
