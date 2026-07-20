@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { runTask } from "../../src/vendor/mpr-plugins/task/index";
-import { listArchivedTasks, listTasks, readTask } from "../../src/core/tasks/store";
+import { runTask, compareReadyOrder } from "../../src/vendor/mpr-plugins/task/index";
+import { listArchivedTasks, listTasks, readTask, type TaskRecord } from "../../src/core/tasks/store";
 import { COMPANIES_DIR, _setCompaniesDir } from "../../src/vendor/mpr-plugins/company/company-helpers";
 
 // Behavioural test for the task-board runner `runTask` — the shared engine that
@@ -181,6 +181,44 @@ describe("maw company task runner (runTask)", () => {
       await run(["add", "second", "--company", "pgw"]); // pgw-2
       const r = await run(["next-ready", "--company", "pgw"]);
       expect(r.output).toBe("NEXT-READY pgw-1: first");
+    });
+
+    // kobo-365: fix-forward for a CI flake found while building 356 — two cards
+    // created in the same millisecond tie on `ts` under fast CI, and a ts-only
+    // sort falls back to whatever order `listTasks` returned them in (raw
+    // `readdirSync` order, store.ts:readCardsIn) — POSIX-unspecified, NOT
+    // guaranteed to match creation order. A filesystem-based repro isn't
+    // reliably deterministic across OS/filesystems (verified: readdir order
+    // varies by environment, can't be forced non-deterministic FROM a test) —
+    // so this tests the comparator DIRECTLY on a manually-ordered in-memory
+    // array: the pre-fix comparator (`(a,b) => a.ts - b.ts`) returns 0 for a
+    // tie, so Array.sort (stable) is a no-op and preserves whatever order the
+    // array started in — deterministically reproducing the exact bug with zero
+    // I/O, independent of any filesystem's readdir behavior.
+    const mkTask = (id: string, ts: number, title: string): TaskRecord =>
+      ({ id, title, company: "pgw", state: "todo", by: "x", assignee: null, ts, updatedTs: ts } as TaskRecord);
+
+    test("kobo-365: same-ms ts tie → deterministic id tie-break, independent of input array order", () => {
+      const tiedTs = 1_700_000_000_000;
+      // deliberately WRONG order going in: higher id (pgw-10) BEFORE lower id (pgw-9)
+      const input = [mkTask("pgw-10", tiedTs, "created tenth"), mkTask("pgw-9", tiedTs, "created ninth")];
+      const sorted = [...input].sort(compareReadyOrder);
+      expect(sorted.map((t) => t.id)).toEqual(["pgw-9", "pgw-10"]); // id tie-break wins regardless of input order
+    });
+
+    test("kobo-365: anti-flake proof — the PRE-FIX comparator (ts-only) fails this exact case", () => {
+      const tiedTs = 1_700_000_000_000;
+      const input = [mkTask("pgw-10", tiedTs, "created tenth"), mkTask("pgw-9", tiedTs, "created ninth")];
+      const preFixComparator = (a: TaskRecord, b: TaskRecord) => a.ts - b.ts; // the exact old code
+      const sorted = [...input].sort(preFixComparator);
+      // ts-only comparator returns 0 on a tie → stable sort no-ops → wrong order survives
+      expect(sorted.map((t) => t.id)).toEqual(["pgw-10", "pgw-9"]); // proves the bug reproduces without the fix
+    });
+
+    test("kobo-365: ts still wins when NOT tied (no regression on the normal FIFO path)", () => {
+      const input = [mkTask("pgw-2", 200, "second"), mkTask("pgw-1", 100, "first")];
+      const sorted = [...input].sort(compareReadyOrder);
+      expect(sorted.map((t) => t.id)).toEqual(["pgw-1", "pgw-2"]); // ts asc still the primary key
     });
   });
 
