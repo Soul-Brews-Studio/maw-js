@@ -54,6 +54,12 @@ export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/crew/contracts/worker.md", dest: "skills/crew/contracts/worker.md" },
   { src: "skills/crew/contracts/reviewer.md", dest: "skills/crew/contracts/reviewer.md" },
   { src: "skills/head/SKILL.md", dest: "skills/head/SKILL.md" }, // kobo-299 — /head 3-tier strategic cell (kobo-303: replaced /warroom, hard-removed)
+  // kobo-364 — same treatment as 358's crew contracts: conductor/reviewer contract
+  // text extracted from head SKILL.md into standalone templates. NO lead.md — lead
+  // is the invoking pane, never spawned, never gets --append-system-prompt (matches
+  // the head SKILL's own spawn recipe, which only cats contract files for conductor/reviewer).
+  { src: "skills/head/contracts/conductor.md", dest: "skills/head/contracts/conductor.md" },
+  { src: "skills/head/contracts/reviewer.md", dest: "skills/head/contracts/reviewer.md" },
   { src: "skills/teardown/SKILL.md", dest: "skills/teardown/SKILL.md" }, // kobo-343 — /teardown lifecycle close (spin↔teardown); safety-critical pane killer
   // kobo-317 — /worker skill removed: worker is no longer a self-defined standalone role, only a /crew-spawned in-cell pane (crew §4 inline contract). sync is install-only (no prune) → any already-synced ~/.claude/skills/worker/SKILL.md stays as a harmless stale no-op until the human deletes it.
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },

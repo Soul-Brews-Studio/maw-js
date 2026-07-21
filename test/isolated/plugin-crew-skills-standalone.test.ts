@@ -496,6 +496,35 @@ describe("crew-skills global asset contract", () => {
     expect(wcSection).not.toContain("CREW_ROLE=worker");
     expect(wcSection).not.toContain("split-window"); // no re-implemented spawn machinery
   });
+
+  // kobo-364: contract text extracted from head SKILL's Conductor/Reviewer
+  // Contract sections into standalone contracts/{conductor,reviewer}.md
+  // templates — same treatment kobo-358 gave /crew's §4/4b/4c. NO lead.md:
+  // lead is the invoking pane, never spawned, never gets --append-system-prompt.
+  describe("head contract templates extracted to standalone assets (kobo-364)", () => {
+    test("contracts/{conductor,reviewer}.md exist with {{COMPANY}}/{{DEPT}}/{{BOARD}} placeholders, no lead.md", () => {
+      for (const role of ["conductor", "reviewer"]) {
+        const tpl = readFileSync(join(assetsDir, "skills/head/contracts", `${role}.md`), "utf8");
+        expect(tpl).toContain("{{COMPANY}}");
+        expect(tpl.length).toBeGreaterThan(200); // not a stub — real contract prose
+      }
+      expect(existsSync(join(assetsDir, "skills/head/contracts/lead.md"))).toBe(false);
+    });
+
+    test("SYNC_ITEMS ships both head contract templates", () => {
+      for (const role of ["conductor", "reviewer"]) {
+        expect(SYNC_ITEMS.find((i) => i.dest === `skills/head/contracts/${role}.md`)).toBeDefined();
+      }
+      expect(SYNC_ITEMS.find((i) => i.dest === "skills/head/contracts/lead.md")).toBeUndefined();
+    });
+
+    test("head SKILL.md's Conductor/Reviewer Contract sections reference the canonical asset", () => {
+      const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
+      expect(head).toContain("canonical asset (kobo-364)");
+      expect(head).toContain("contracts/conductor.md");
+      expect(head).toContain("contracts/reviewer.md");
+    });
+  });
 });
 
 describe("crew-skills sync", () => {

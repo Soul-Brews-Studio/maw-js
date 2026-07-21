@@ -81,6 +81,19 @@ describe("company command plugin standalone boundary", () => {
     expect(indexSrc).toContain("|crew|"); // usage string mentions the new verb
   });
 
+  // kobo-364: `maw company head spawn <co>` — deterministic idempotent head-cell
+  // spawn, same delegation pattern as crew above (mirrors 358's shape exactly).
+  test("company dispatches `head` to its plugin's shared runner (kobo-364)", () => {
+    const indexSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
+      "utf8",
+    );
+    expect(indexSrc).toContain('from "../head/index"');
+    expect(indexSrc).toContain("runHead");
+    expect(indexSrc).toContain('=== "head"');
+    expect(indexSrc).toContain("|head|"); // usage string mentions the new verb
+  });
+
   // kobo-362: `maw company up/down <co>` — fleet wake+teardown for a whole
   // company, same sibling-plugin delegation pattern as crew above.
   test("company dispatches `up`/`down` to company-fleet (kobo-362)", () => {
