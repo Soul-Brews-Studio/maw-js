@@ -124,6 +124,7 @@ export async function companyUp(
   company: string | undefined,
   emit: (line: string) => void,
   deps: CompanyFleetDeps = {},
+  verbose = false,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!company) return { ok: false, error: "usage: maw company up <company>" };
   const co = loadCompany(company);
@@ -134,8 +135,16 @@ export async function companyUp(
   const findWindowFn = deps.findWindowFn ?? findWindow;
   const cmdWakeFn = deps.cmdWakeFn ?? cmdWake;
 
+  // kobo-368 compact-ack sweep: `emit` only reaches the caller when --verbose
+  // reproduces the pre-368 per-member log stream byte-for-byte. Default
+  // (compact): every per-member line is swallowed into `log`, then a single
+  // tally line summarizes ready/repaired/refused counts. Empty roster → a
+  // valid 0-count tally, never an error.
+  const log = (line: string) => { if (verbose) emit(line); };
+  let ready = 0, repaired = 0, refused = 0;
+
   if (!co.manager) {
-    emit(`⚠ no company head — '${company}' has no manager set. Every member treated as crew-front (kobo-362 v1 ruling — a dept lead is not a company head, no silent fallback).`);
+    log(`⚠ no company head — '${company}' has no manager set. Every member treated as crew-front (kobo-362 v1 ruling — a dept lead is not a company head, no silent fallback).`);
   }
 
   const roster = companyRoster(co);
@@ -152,28 +161,30 @@ export async function companyUp(
       // gap (head-spawn now exists), so the manager no longer needs a special
       // report-only carve-out here (kobo-362's reason — "no head-spawn to fill
       // it" — no longer applies).
-      emit(`${member.oracle}: no session found — waking (maw wake, cold-start)`);
+      log(`${member.oracle}: no session found — waking (maw wake, cold-start)`);
       try {
         await cmdWakeFn(member.oracle, {});
       } catch (e: any) {
-        emit(`⚠ ${member.oracle}: wake failed — never set up? (${e.message}) — needs manual maw bud/wake (report-only)`);
+        log(`⚠ ${member.oracle}: wake failed — never set up? (${e.message}) — needs manual maw bud/wake (report-only)`);
+        refused++;
         continue;
       }
       sessions = await listSessionsFn(); // refresh — the cold-start just changed the fleet
       resolved = resolveMemberSession(member.oracle, sessions, findWindowFn);
       if (!resolved) {
-        emit(`⚠ ${member.oracle}: wake reported success but no session found afterward — report-only, investigate manually`);
+        log(`⚠ ${member.oracle}: wake reported success but no session found afterward — report-only, investigate manually`);
+        refused++;
         continue;
       }
-      emit(`${member.oracle}: session created`);
+      log(`${member.oracle}: session created`);
     }
 
     const sessionName = sessionNameOf(resolved);
     const panes = await listSessionPanes(sessionName, hostExecFn);
 
     if (member.isManager) {
-      const ready = hasRole(panes, "👤") && hasRole(panes, "🎼") && hasRole(panes, "🔎");
-      if (ready) { emit(`${member.oracle}: head-cell ready — skip`); continue; }
+      const isReady = hasRole(panes, "👤") && hasRole(panes, "🎼") && hasRole(panes, "🔎");
+      if (isReady) { log(`${member.oracle}: head-cell ready — skip`); ready++; continue; }
       // head-tier repair (kobo-366): mirrors crew-tier's inject-via-send-keys —
       // headSpawn (kobo-364) reads its OWN pane's TMUX_PANE as "lead", so it must
       // run FROM inside that pane, not be called in-process against a different
@@ -181,50 +192,57 @@ export async function companyUp(
       // injection target; no tag yet (fresh cold-start / never spawned) falls
       // back to the resolved window itself.
       const leadInjectTarget = findRolePane(panes, "👤") ?? resolved;
-      emit(`${member.oracle}: head-cell incomplete/asleep — repairing (maw company head spawn)`);
+      log(`${member.oracle}: head-cell incomplete/asleep — repairing (maw company head spawn)`);
       try {
         await hostExecFn(`tmux send-keys -t ${shellArg(leadInjectTarget)} C-u`);
         await hostExecFn(`tmux send-keys -t ${shellArg(leadInjectTarget)} ${shellArg(`maw company head spawn ${company}`)} Enter`);
-        emit(`${member.oracle}: repair triggered — re-run 'up' to confirm`);
+        log(`${member.oracle}: repair triggered — re-run 'up' to confirm`);
+        repaired++;
       } catch (e: any) {
-        emit(`⚠ ${member.oracle}: repair injection failed (${e.message})`);
+        log(`⚠ ${member.oracle}: repair injection failed (${e.message})`);
+        refused++;
       }
       continue;
     }
 
-    const ready = hasRole(panes, "🧭") && hasRole(panes, "🎼") && hasRole(panes, "⚒") && hasRole(panes, "🔎");
-    if (ready) { emit(`${member.oracle}: crew ready — skip`); continue; }
+    const isReady = hasRole(panes, "🧭") && hasRole(panes, "🎼") && hasRole(panes, "⚒") && hasRole(panes, "🔎");
+    if (isReady) { log(`${member.oracle}: crew ready — skip`); ready++; continue; }
 
     // crew-tier repair: an already-tagged front pane keeps its own pane-id as the
     // injection target; a session with NO crew ever spawned (fresh cold-start, or
     // just never run) has no @role tags yet — fall back to the resolved window
     // itself (tmux send-keys targets its active/first pane).
     const injectTarget = findRolePane(panes, "🧭") ?? resolved;
-    emit(`${member.oracle}: crew incomplete/asleep — repairing (maw company crew spawn)`);
+    log(`${member.oracle}: crew incomplete/asleep — repairing (maw company crew spawn)`);
     try {
       await hostExecFn(`tmux send-keys -t ${shellArg(injectTarget)} C-u`);
       await hostExecFn(`tmux send-keys -t ${shellArg(injectTarget)} ${shellArg(`maw company crew spawn ${company}`)} Enter`);
-      emit(`${member.oracle}: repair triggered — re-run 'up' to confirm`);
+      log(`${member.oracle}: repair triggered — re-run 'up' to confirm`);
+      repaired++;
     } catch (e: any) {
-      emit(`⚠ ${member.oracle}: repair injection failed (${e.message})`);
+      log(`⚠ ${member.oracle}: repair injection failed (${e.message})`);
+      refused++;
     }
   }
 
+  emit(`✓ up ${company}: ${ready} ready, ${repaired} repaired, ${refused} refused/failed (${roster.length} member${roster.length === 1 ? "" : "s"})`);
   return { ok: true };
 }
 
-/** `maw company up <company>` CLI-arg wrapper — mirrors runCrew's (args, emit) shape. */
+/** `maw company up <company> [--verbose|--full]` CLI-arg wrapper — mirrors runCrew's (args, emit) shape. */
 export async function runCompanyUp(args: string[], emit: (line: string) => void): Promise<{ ok: boolean; error?: string }> {
-  return companyUp(args[0], emit);
+  const verbose = args.includes("--verbose") || args.includes("--full");
+  const company = args.find((a) => !a.startsWith("--"));
+  return companyUp(company, emit, {}, verbose);
 }
 
 export async function companyDown(
   company: string | undefined,
-  opts: { force?: boolean },
+  opts: { force?: boolean; verbose?: boolean },
   emit: (line: string) => void,
   deps: CompanyFleetDeps = {},
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!company) return { ok: false, error: "usage: maw company down <company> [--force]" };
+  if (!company) return { ok: false, error: "usage: maw company down <company> [--force] [--verbose|--full]" };
   const co = loadCompany(company);
   if (!co) return { ok: false, error: `company not found: ${company}` };
 
@@ -234,19 +252,25 @@ export async function companyDown(
   const checkBusyGuardFn = deps.checkBusyGuardFn ?? checkBusyGuard;
   const teardownFn = deps.teardownCrewWindowsFn ?? teardownCrewWindows;
 
+  // kobo-368 compact-ack sweep: same log/tally split as companyUp — per-member
+  // lines only reach the caller under --verbose; default is one tally line.
+  const log = (line: string) => { if (opts.verbose) emit(line); };
+  let torn = 0, skipped = 0, refused = 0;
+
   const invokerPane = (process.env.TMUX_PANE || "").trim();
   const roster = companyRoster(co);
   const sessions = await listSessionsFn();
 
   for (const member of roster) {
     const resolved = resolveMemberSession(member.oracle, sessions, findWindowFn);
-    if (!resolved) { emit(`${member.oracle}: no session found — nothing to tear down`); continue; }
+    if (!resolved) { log(`${member.oracle}: no session found — nothing to tear down`); skipped++; continue; }
     const sessionName = sessionNameOf(resolved);
 
     if (!opts.force) {
       const guard = await checkBusyGuardFn(member.oracle);
       if (guard.busy) {
-        emit(`⚠ ${member.oracle}: BUSY — refusing teardown (pass --force to override)`);
+        log(`⚠ ${member.oracle}: BUSY — refusing teardown (pass --force to override)`);
+        refused++;
         continue;
       }
     }
@@ -261,32 +285,38 @@ export async function companyDown(
     // sweeping the WRONG cell. No root pane found = no crew cell identifiable in
     // this session at all — SKIP teardown entirely rather than guess a target.
     if (!rootPaneId) {
-      emit(`⚠ ${member.oracle}: no front/lead pane found in session ${sessionName} — skipping teardown (nothing safely identifiable to tear down)`);
+      log(`⚠ ${member.oracle}: no front/lead pane found in session ${sessionName} — skipping teardown (nothing safely identifiable to tear down)`);
+      skipped++;
       continue;
     }
 
     const teardown = await teardownFn({ protectPaneId: rootPaneId });
-    for (const line of teardown.logs) emit(`${member.oracle}: ${line}`);
-    if (!teardown.ok) { emit(`⚠ ${member.oracle}: teardown refused (${teardown.error})`); continue; }
+    for (const line of teardown.logs) log(`${member.oracle}: ${line}`);
+    if (!teardown.ok) { log(`⚠ ${member.oracle}: teardown refused (${teardown.error})`); refused++; continue; }
 
     if (rootPaneId === invokerPane) {
-      emit(`${member.oracle}: front/lead pane IS the invoker — protected, not killed`);
+      log(`${member.oracle}: front/lead pane IS the invoker — protected, not killed`);
+      torn++;
     } else {
       try {
         await hostExecFn(`tmux kill-pane -t ${shellArg(rootPaneId)}`);
-        emit(`${member.oracle}: killed front/lead pane ${rootPaneId}`);
+        log(`${member.oracle}: killed front/lead pane ${rootPaneId}`);
+        torn++;
       } catch {
         /* already gone — race with a manual kill is fine */
+        torn++;
       }
     }
   }
 
+  emit(`✓ down ${company}: ${torn} torn, ${skipped} skipped, ${refused} refused (${roster.length} member${roster.length === 1 ? "" : "s"})`);
   return { ok: true };
 }
 
-/** `maw company down <company> [--force]` CLI-arg wrapper — mirrors runCrew's (args, emit) shape. */
+/** `maw company down <company> [--force] [--verbose|--full]` CLI-arg wrapper — mirrors runCrew's (args, emit) shape. */
 export async function runCompanyDown(args: string[], emit: (line: string) => void): Promise<{ ok: boolean; error?: string }> {
   const force = args.includes("--force");
+  const verbose = args.includes("--verbose") || args.includes("--full");
   const company = args.find((a) => !a.startsWith("--"));
-  return companyDown(company, { force }, emit);
+  return companyDown(company, { force, verbose }, emit);
 }

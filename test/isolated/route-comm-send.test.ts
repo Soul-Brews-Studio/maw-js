@@ -115,6 +115,37 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
     ]);
   });
 
+  // kobo-368 — compact-ack sweep: --verbose/--full both opt into the pre-368
+  // full-echo behavior; unset (default) never adds a `verbose` key at all
+  // (matches the `...({ noVerifySubmit } : {})` spread convention here — no
+  // stray `verbose: false` clutter on the common path).
+  test("--verbose is stripped from the delivered message and passed as a delivery opt", async () => {
+    const handled = await routeComm("hey", ["hey", "local:mawjs", "hello", "--verbose"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", "hello", false, { approve: false, trust: false, inboxOnly: false, verbose: true }],
+    ]);
+  });
+
+  test("--full is an equivalent alias for --verbose", async () => {
+    const handled = await routeComm("hey", ["hey", "local:mawjs", "hello", "--full"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", "hello", false, { approve: false, trust: false, inboxOnly: false, verbose: true }],
+    ]);
+  });
+
+  test("no --verbose/--full → opts carries no verbose key at all (compact is the unmarked default)", async () => {
+    const handled = await routeComm("hey", ["hey", "local:mawjs", "hello"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", "hello", false, { approve: false, trust: false, inboxOnly: false }],
+    ]);
+  });
+
   test("--from may appear before target and is passed as a sender override", async () => {
     const handled = await routeComm("hey", ["hey", "--from", "alpha:volt-oracle", "m5:mawjs", "hello"]);
 

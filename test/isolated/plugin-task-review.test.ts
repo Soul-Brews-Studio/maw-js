@@ -64,7 +64,8 @@ describe("maw company task review + actor + next-action (Track 4)", () => {
   test("ls renders a next-action line for every card (no dead-end)", async () => {
     await task(["add", "a"]);
     await task(["review", "kobo-1", "--to", "patchwork"]);
-    const r = await task(["ls"]);
+    // kobo-368: per-card next-action lines only render under --full — default is lane counts.
+    const r = await task(["ls", "--full"]);
     expect(r.output).toContain("kobo-1");
     expect(r.output).toContain("รอ patchwork ตรวจ"); // review next-action
   });

@@ -160,6 +160,32 @@ describe("roomMerge", () => {
     expect(result.ok).toBe(false);
     expect(result.text).toContain("target room not found: x");
   });
+
+  // kobo-368 (absorbs kobo-361): same fix as kobo-360's roomReply — the endpoint
+  // echoes the FULL merged target room (every message from target + absorbed
+  // sources) on success. Client-side trim, compact-ALWAYS (no --verbose escape
+  // hatch — MCP has no argv flag surface, mirrors roomReply's own precedent).
+  test("kobo-368: success returns a COMPACT ack — NOT the full merged room artifact", async () => {
+    const bigMergedRoom = {
+      id: "main", status: "open", ts: 1000, updatedTs: 2000,
+      messages: Array.from({ length: 500 }, (_, i) => ({ id: `m${i}`, from: "a", text: `padding-${i}`, ts: i })),
+      mergedFrom: ["sub1", "sub2"],
+    };
+    const { deps } = makeDeps({ body: { ok: true, room: bigMergedRoom } });
+    const result = await roomMerge({ company: "kobo", target: "main", sources: ["sub1", "sub2"] }, deps);
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.text);
+    expect(parsed).toEqual({ ok: true, id: "main", status: "open", updatedTs: 2000, messageCount: 500, mergedFrom: ["sub1", "sub2"] });
+    expect(result.text.length).toBeLessThan(200); // compact — not the 500-message dump
+    expect(result.text).not.toContain("padding-0"); // none of the messages leak through
+  });
+
+  test("kobo-368: no room in body (edge case) → {ok:true}, no crash", async () => {
+    const { deps } = makeDeps({ body: { ok: true } });
+    const result = await roomMerge({ company: "kobo", target: "main", sources: ["s"] }, deps);
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(result.text)).toEqual({ ok: true });
+  });
 });
 
 // ── maw_room_close ────────────────────────────────────────────────────────────
@@ -179,6 +205,21 @@ describe("roomClose", () => {
     const result = await roomClose({ company: "kobo", room: "gone" }, deps);
     expect(result.ok).toBe(false);
     expect(result.text).toContain("room not found: gone");
+  });
+
+  // kobo-368 (absorbs kobo-361)
+  test("kobo-368: success returns a COMPACT ack — NOT the full room artifact", async () => {
+    const bigRoom = {
+      id: "bash-mcp", status: "closed", ts: 1000, updatedTs: 2000,
+      messages: Array.from({ length: 500 }, (_, i) => ({ id: `m${i}`, from: "a", text: `padding-${i}`, ts: i })),
+    };
+    const { deps } = makeDeps({ body: { ok: true, room: bigRoom } });
+    const result = await roomClose({ company: "kobo", room: "bash-mcp" }, deps);
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.text);
+    expect(parsed).toEqual({ ok: true, id: "bash-mcp", status: "closed", updatedTs: 2000, messageCount: 500 });
+    expect(result.text.length).toBeLessThan(200);
+    expect(result.text).not.toContain("padding-0");
   });
 });
 
@@ -206,5 +247,14 @@ describe("roomOpen", () => {
     const result = await roomOpen({ company: "bad", room: "r" }, deps);
     expect(result.ok).toBe(false);
     expect(result.text).toContain("unknown company: bad");
+  });
+
+  // kobo-368 (absorbs kobo-361)
+  test("kobo-368: success returns a COMPACT ack — NOT the full room artifact", async () => {
+    const room = { id: "new-room", status: "open", ts: 1000, updatedTs: 1000, messages: [] };
+    const { deps } = makeDeps({ body: { ok: true, room } });
+    const result = await roomOpen({ company: "kobo", room: "new-room", topic: "discuss scope" }, deps);
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(result.text)).toEqual({ ok: true, id: "new-room", status: "open", updatedTs: 1000, messageCount: 0 });
   });
 });

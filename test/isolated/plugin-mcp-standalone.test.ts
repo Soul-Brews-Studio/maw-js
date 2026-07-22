@@ -91,6 +91,32 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(replyFn).toContain("!res.ok"); // error path still short-circuits BEFORE the compact-ack extraction (toText(res) — already compact, unchanged)
   });
 
+  // kobo-368 (absorbs kobo-361): open/close/merge had the SAME full-room-dump shape
+  // roomReply had pre-360. Client-side trim, compact-ALWAYS (no --verbose escape
+  // hatch — mirrors roomReply's own precedent; MCP tool calls have no argv flags).
+  test("kobo-368: roomOpen/roomClose/roomMerge return a compact ack via the shared compactRoomAck helper", () => {
+    const client = readFileSync(join(root, MCP_DIR, "room-client.ts"), "utf8");
+    expect(client).toContain("function compactRoomAck");
+    for (const fn of ["roomOpen", "roomClose", "roomMerge"]) {
+      const start = client.indexOf(`export async function ${fn}`);
+      const end = client.indexOf("\n}\n", start);
+      const body = client.slice(start, end);
+      expect(body).toContain("compactRoomAck(res.body)");
+      expect(body).toContain("!res.ok"); // error path stays the already-compact toText(res)
+    }
+  });
+
+  // kobo-368: `maw_task ls` defaults to a compact lane-count board (task/index.ts's
+  // renderBoardCompact); `full` opts an MCP caller into the pre-368 full render.
+  test("kobo-368: maw_task tool exposes a `full` input for the compact-default ls", () => {
+    const server = readFileSync(join(root, MCP_DIR, "server.ts"), "utf8");
+    expect(server).toContain("full: z.boolean().optional()");
+    const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
+    const lsCase = tools.slice(tools.indexOf('case "ls": {'), tools.indexOf('case "start"'));
+    expect(lsCase).toContain("input.full");
+    expect(lsCase).toContain('"--full"');
+  });
+
   // kobo-21/24: the maw_task tool wraps the CLI task board (spawns
   // `maw company task <verb>` via runMaw, like the other verb tools) — it must
   // NOT reach into core task logic directly. Pin the registration + that taskArgs

@@ -74,6 +74,7 @@ test("parses scope flags and preserves unquoted message", () => {
   expect(parseBroadcastArgs(["--session", "77-mawjs", "--team", "builders", "--fleet", "mawjs", "hello", "team"])).toEqual({
     message: "hello team",
     scope: { session: "77-mawjs", team: "builders", fleet: "mawjs" },
+    verbose: false, // kobo-368 — compact-ack sweep default
   });
 });
 

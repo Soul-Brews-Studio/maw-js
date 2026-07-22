@@ -12,15 +12,18 @@ export interface BroadcastScopeOptions {
 export interface BroadcastCommand {
   message: string;
   scope: BroadcastScopeOptions;
+  /** kobo-368 — compact-ack sweep: --verbose/--full reproduce the pre-368 per-window echo. */
+  verbose: boolean;
 }
 
 function usage(): string {
-  return "usage: maw broadcast <message> [--session <name>] [--team <name>] [--fleet <name>]";
+  return "usage: maw broadcast <message> [--session <name>] [--team <name>] [--fleet <name>] [--verbose|--full]";
 }
 
 export function parseBroadcastArgs(args: string[]): BroadcastCommand {
   const scope: BroadcastScopeOptions = {};
   const messageParts: string[] = [];
+  let verbose = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -32,12 +35,13 @@ export function parseBroadcastArgs(args: string[]): BroadcastCommand {
       else scope.fleet = value;
       continue;
     }
+    if (arg === "--verbose" || arg === "--full") { verbose = true; continue; }
     messageParts.push(arg);
   }
 
   const message = messageParts.join(" ").trim();
   if (!message) throw new Error(usage());
-  return { message, scope };
+  return { message, scope, verbose };
 }
 
 function stripNumericPrefix(value: string): string {
@@ -151,7 +155,7 @@ function scopeDescription(scope: BroadcastScopeOptions): string {
  * skip-reason breakdown when at least one window is skipped, so 0-windows
  * surprises become diagnosable.
  */
-export async function cmdBroadcast(message: string, scope: BroadcastScopeOptions = {}) {
+export async function cmdBroadcast(message: string, scope: BroadcastScopeOptions = {}, verbose = false) {
   if (!message) {
     throw new Error(usage());
   }
@@ -192,7 +196,7 @@ export async function cmdBroadcast(message: string, scope: BroadcastScopeOptions
           continue;
         }
         await tmux.sendText(target, message);
-        console.log(`\x1b[32msent\x1b[0m → ${s.name}:${w.name}`);
+        if (verbose) console.log(`\x1b[32msent\x1b[0m → ${s.name}:${w.name}`);
         sent++;
       } catch {
         skipped++;

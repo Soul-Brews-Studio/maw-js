@@ -687,6 +687,15 @@ export interface CmdSendOptions {
    * /clear'ing pane, kobo-288). Only the room channel opts in.
    */
   queueOnAway?: boolean;
+  /**
+   * kobo-368 — compact-ack sweep. Default (unset/false): print a compact ack
+   * (target + char-count), never echo the full sent message back to the
+   * sender's own terminal — every `maw hey`/`send`/`notify` call otherwise
+   * paid for its own message twice (sent once, echoed back a second time).
+   * true: reproduce the PRE-368 behavior byte-for-byte (full message text +
+   * captured tail-line) — regression-pinned, nothing lost (Principle 1).
+   */
+  verbose?: boolean;
 }
 
 /** @internal — exported for test injection only. */
@@ -1148,7 +1157,13 @@ export async function cmdSend(
       lastLine: reason,
       signed: true,
     }, config.port || 3456);
-    console.log(`\x1b[33mqueued\x1b[0m → ${inbox.oracle} ψ/inbox/${inbox.filename}: ${outboundMessage}`);
+    // kobo-368: the inbox filename/path stays in BOTH modes — small, useful
+    // diagnostic (where to find it), not an echo of the message itself.
+    if (opts.verbose) {
+      console.log(`\x1b[33mqueued\x1b[0m → ${inbox.oracle} ψ/inbox/${inbox.filename}: ${outboundMessage}`);
+    } else {
+      console.log(`\x1b[33mqueued\x1b[0m → ${inbox.oracle} ψ/inbox/${inbox.filename} (${outboundMessage.length} chars)`);
+    }
     console.log(`\x1b[90m  ⤷ ${reason}\x1b[0m`);
     return true;
   };
@@ -1332,7 +1347,14 @@ export async function cmdSend(
       lastLine,
       signed: true,
     }, config.port || 3456);
-    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
+    if (opts.verbose) {
+      console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
+    } else {
+      console.log(`\x1b[32mdelivered\x1b[0m → ${target} (${outboundMessage.length} chars)`);
+    }
+    // kobo-368: the captured tail-line stays in BOTH modes — it's a small, already-
+    // truncated (cfgLimit) diagnostic snippet of what the RECEIVER'S pane now shows,
+    // not an echo of what was just sent; it was never the flagged token-waste.
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
     await runPluginEventHooks("transport:after_send", {
       event: "transport:after_send",
@@ -1385,7 +1407,11 @@ export async function cmdSend(
         signed: true,
       }, config.port || 3456);
       const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
-      console.log(`${color}${state}\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
+      if (opts.verbose) {
+        console.log(`${color}${state}\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
+      } else {
+        console.log(`${color}${state}\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target} (${outboundMessage.length} chars)`);
+      }
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       // #1980: surface the receiving node's misdelivery warning, if any.
       if (res.data.warning) console.log(`  \x1b[33m⚠\x1b[0m ${res.data.warning}`);
@@ -1456,7 +1482,11 @@ export async function cmdSend(
         signed: true,
       }, config.port || 3456);
       const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
-      console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
+      if (opts.verbose) {
+        console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
+      } else {
+        console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query} (${outboundMessage.length} chars)`);
+      }
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runPluginEventHooks("transport:after_send", {
         event: "transport:after_send",

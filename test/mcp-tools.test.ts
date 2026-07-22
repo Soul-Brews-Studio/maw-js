@@ -240,6 +240,17 @@ describe("taskArgs", () => {
     ]);
   });
 
+  // kobo-368 — compact-ack sweep: `full` opts an MCP caller into the pre-368
+  // full per-card board render (default is now the compact lane-count summary).
+  test("ls: full=true appends --full", () => {
+    expect(taskArgs({ action: "ls", full: true })).toEqual(["company", "task", "ls", "--full"]);
+  });
+
+  test("ls: full omitted/false → no --full flag (compact is the unmarked default)", () => {
+    expect(taskArgs({ action: "ls" })).toEqual(["company", "task", "ls"]);
+    expect(taskArgs({ action: "ls", full: false })).toEqual(["company", "task", "ls"]);
+  });
+
   test("start / claim / done / unblock take an id + common flags", () => {
     expect(taskArgs({ action: "start", id: "kobo-3" })).toEqual(["company", "task", "start", "kobo-3"]);
     expect(taskArgs({ action: "claim", id: "kobo-3", from: "eq3" })).toEqual(["company", "task", "claim", "kobo-3", "--from", "eq3"]);

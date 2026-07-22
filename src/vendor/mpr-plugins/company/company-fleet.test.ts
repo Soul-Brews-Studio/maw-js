@@ -110,7 +110,7 @@ describe("companyUp (kobo-362)", () => {
         { paneId: "%3", role: "⚒ worker" }, { paneId: "%4", role: "🔎 reviewer" },
       ] },
     });
-    await companyUp("kobo", (l) => lines.push(l), deps);
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("no company head"))).toBe(true);
     expect(lines.some((l) => l.includes("eq3: crew ready — skip"))).toBe(true);
   });
@@ -128,7 +128,7 @@ describe("companyUp (kobo-362)", () => {
         ],
       },
     });
-    await companyUp("kobo", (l) => lines.push(l), deps);
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("eq3: head-cell ready — skip"))).toBe(true);
     expect(lines.some((l) => l.includes("patchwork: crew ready — skip"))).toBe(true);
   });
@@ -144,7 +144,7 @@ describe("companyUp (kobo-362)", () => {
       sessions: fakeSessions({ "05-eq3": ["main"] }),
       panesBySession: { "05-eq3": [{ paneId: "%1", role: "👤 lead" }] }, // conductor+reviewer missing
     });
-    await companyUp("kobo", (l) => lines.push(l), deps);
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("head-cell incomplete/asleep — repairing"))).toBe(true);
     expect(calls.some((c) => c.includes("send-keys -t '%1'") && c.includes("maw company head spawn kobo"))).toBe(true);
   });
@@ -156,7 +156,7 @@ describe("companyUp (kobo-362)", () => {
       sessions: fakeSessions({ "13-patchwork": ["main"] }),
       panesBySession: { "13-patchwork": [{ paneId: "%1", role: "🧭 coord" }] }, // conductor/worker/reviewer missing
     });
-    await companyUp("kobo", (l) => lines.push(l), deps);
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("repairing"))).toBe(true);
     expect(calls.some((c) => c.includes("send-keys -t '%1'") && c.includes("maw company crew spawn kobo"))).toBe(true);
   });
@@ -169,7 +169,7 @@ describe("companyUp (kobo-362)", () => {
       panesBySession: { "04-charlie": [] }, // freshly created, no crew panes yet
       wakeCreatesSession: (oracle) => (oracle === "charlie" ? fakeSessions({ "04-charlie": ["main"] })[0] : null),
     });
-    await companyUp("kobo", (l) => lines.push(l), deps);
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(calls).toContain("wake:charlie");
     expect(lines.some((l) => l.includes("session created"))).toBe(true);
     // no @role-tagged pane exists yet (fresh session) → injection falls back to the resolved window itself
@@ -180,7 +180,7 @@ describe("companyUp (kobo-362)", () => {
     saveCompany({ name: "kobo", teams: { core: { members: [{ oracle: "ghost-oracle", role: "dev" }] } } });
     const lines: string[] = [];
     const { deps } = makeDeps({ sessions: [], wakeFails: new Set(["ghost-oracle"]) });
-    await companyUp("kobo", (l) => lines.push(l), deps);
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("wake failed") && l.includes("never set up"))).toBe(true);
   });
 
@@ -195,7 +195,7 @@ describe("companyUp (kobo-362)", () => {
       panesBySession: { "05-eq3": [] }, // freshly created, no head panes yet
       wakeCreatesSession: (oracle) => (oracle === "eq3" ? fakeSessions({ "05-eq3": ["main"] })[0] : null),
     });
-    await companyUp("kobo", (l) => lines.push(l), deps);
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(calls).toContain("wake:eq3");
     expect(lines.some((l) => l.includes("session created"))).toBe(true);
     // no @role-tagged pane exists yet (fresh session) → injection falls back to the resolved window itself
@@ -212,8 +212,8 @@ describe("companyUp (kobo-362)", () => {
         { paneId: "%3", role: "⚒ worker" }, { paneId: "%4", role: "🔎 reviewer" },
       ] },
     });
-    await companyUp("kobo", (l) => lines.push(l), deps);
-    await companyUp("kobo", (l) => lines.push(l), deps);
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
+    await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(lines.filter((l) => l.includes("crew ready — skip"))).toHaveLength(2);
   });
 
@@ -222,6 +222,62 @@ describe("companyUp (kobo-362)", () => {
     const lines: string[] = [];
     const r = await runCompanyUp(["kobo"], (l) => lines.push(l));
     expect(r.ok).toBe(true);
+  });
+
+  // kobo-368 compact-ack sweep — default is now ONE tally line, not a per-member
+  // stream. Empty result (empty roster) still gets a valid 0-count ack, no error.
+  describe("compact-ack sweep (kobo-368)", () => {
+    test("default (no verbose) → exactly ONE tally line, no per-member detail", async () => {
+      saveCompany({ name: "kobo", manager: "eq3", teams: { core: { members: [{ oracle: "patchwork", role: "dev" }] } } });
+      const lines: string[] = [];
+      const { deps } = makeDeps({
+        sessions: fakeSessions({ "05-eq3": ["main"], "13-patchwork": ["main"] }),
+        panesBySession: {
+          "05-eq3": [{ paneId: "%1", role: "👤 lead" }, { paneId: "%2", role: "🎼 conductor" }, { paneId: "%3", role: "🔎 reviewer" }],
+          "13-patchwork": [{ paneId: "%4", role: "🧭 coord" }, { paneId: "%5", role: "🎼 conductor" }, { paneId: "%6", role: "⚒ worker" }, { paneId: "%7", role: "🔎 reviewer" }],
+        },
+      });
+      await companyUp("kobo", (l) => lines.push(l), deps); // verbose omitted → default compact
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("✓ up kobo:");
+      expect(lines[0]).toContain("2 ready");
+      expect(lines[0]).toContain("0 repaired");
+      expect(lines[0]).toContain("0 refused/failed");
+    });
+
+    test("empty roster → still a valid 0-count tally, not an error", async () => {
+      saveCompany({ name: "empty-co", teams: {} });
+      const lines: string[] = [];
+      const { deps } = makeDeps({});
+      const r = await companyUp("empty-co", (l) => lines.push(l), deps);
+      expect(r.ok).toBe(true);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("0 ready, 0 repaired, 0 refused/failed (0 members)");
+    });
+
+    // runCompanyUp has no deps-injection seam (mirrors the pre-existing "parses
+    // the company name positional" test above) — an empty-roster company keeps
+    // this hermetic (no real tmux/session calls fire), same convention already
+    // established in this file. This only proves --verbose/--full PARSE without
+    // crashing and don't diverge in shape; behavioral verbose-vs-compact divergence
+    // is covered by the direct companyUp(..., deps, verbose) tests above.
+    test("runCompanyUp parses --verbose and --full without crashing (either order, empty roster = hermetic)", async () => {
+      saveCompany({ name: "kobo", teams: {} });
+      const linesVerbose: string[] = [];
+      const linesFull: string[] = [];
+      const linesDefault: string[] = [];
+      const rVerbose = await runCompanyUp(["kobo", "--verbose"], (l) => linesVerbose.push(l));
+      const rFull = await runCompanyUp(["--full", "kobo"], (l) => linesFull.push(l));
+      const rDefault = await runCompanyUp(["kobo"], (l) => linesDefault.push(l));
+      expect(rVerbose.ok).toBe(true);
+      expect(rFull.ok).toBe(true);
+      expect(rDefault.ok).toBe(true);
+      // no-manager set → the loud "no company head" warning is ALSO gated by
+      // verbose (2 lines: warning + tally) vs default's compact 1 (tally only).
+      expect(linesVerbose).toHaveLength(2);
+      expect(linesFull).toHaveLength(2);
+      expect(linesDefault).toHaveLength(1);
+    });
   });
 });
 
@@ -239,7 +295,7 @@ describe("companyDown (kobo-362)", () => {
     saveCompany({ name: "kobo", teams: { core: { members: [{ oracle: "asleep", role: "dev" }] } } });
     const lines: string[] = [];
     const { deps } = makeDeps({ sessions: [] });
-    const r = await companyDown("kobo", {}, (l) => lines.push(l), deps);
+    const r = await companyDown("kobo", { verbose: true }, (l) => lines.push(l), deps);
     expect(r.ok).toBe(true);
     expect(lines.some((l) => l.includes("nothing to tear down"))).toBe(true);
   });
@@ -258,7 +314,7 @@ describe("companyDown (kobo-362)", () => {
       // session exists but has NO 🧭-tagged pane — e.g. a bare cold-started session
       panesBySession: { "13-patchwork": [{ paneId: "%1", role: "⚒ worker" }] },
     });
-    const r = await companyDown("kobo", {}, (l) => lines.push(l), deps);
+    const r = await companyDown("kobo", { verbose: true }, (l) => lines.push(l), deps);
     expect(r.ok).toBe(true);
     expect(lines.some((l) => l.includes("no front/lead pane found") && l.includes("skipping teardown"))).toBe(true);
     expect(calls.some((c) => c.startsWith("teardown:"))).toBe(false); // teardownFn never called — no empty protectPaneId ever sent
@@ -295,7 +351,7 @@ describe("companyDown (kobo-362)", () => {
       panesBySession: { "13-patchwork": [{ paneId: "%1", role: "🧭 coord" }] },
       busy: { patchwork: true },
     });
-    await companyDown("kobo", {}, (l) => lines.push(l), deps);
+    await companyDown("kobo", { verbose: true }, (l) => lines.push(l), deps); // regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("BUSY") && l.includes("--force"))).toBe(true);
   });
 
@@ -308,7 +364,7 @@ describe("companyDown (kobo-362)", () => {
       busy: { patchwork: true },
     });
     process.env.TMUX_PANE = "%not-this-one";
-    await companyDown("kobo", { force: true }, (l) => lines.push(l), deps);
+    await companyDown("kobo", { force: true, verbose: true }, (l) => lines.push(l), deps); // regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("BUSY"))).toBe(false);
     expect(calls.some((c) => c.includes("kill-pane -t '%1'"))).toBe(true);
   });
@@ -321,7 +377,7 @@ describe("companyDown (kobo-362)", () => {
       panesBySession: { "13-patchwork": [{ paneId: "%1", role: "🧭 coord" }] },
     });
     process.env.TMUX_PANE = "%operator";
-    await companyDown("kobo", {}, (l) => lines.push(l), deps);
+    await companyDown("kobo", { verbose: true }, (l) => lines.push(l), deps); // regression-pin (kobo-368)
     expect(calls.some((c) => c.includes("kill-pane -t '%1'"))).toBe(true);
     expect(lines.some((l) => l.includes("killed front/lead pane"))).toBe(true);
   });
@@ -334,7 +390,7 @@ describe("companyDown (kobo-362)", () => {
       panesBySession: { "13-patchwork": [{ paneId: "%1", role: "🧭 coord" }] },
     });
     process.env.TMUX_PANE = "%1"; // the invoker IS this member's own front pane
-    await companyDown("kobo", {}, (l) => lines.push(l), deps);
+    await companyDown("kobo", { verbose: true }, (l) => lines.push(l), deps); // regression-pin (kobo-368)
     expect(calls.some((c) => c.includes("kill-pane -t '%1'"))).toBe(false);
     expect(lines.some((l) => l.includes("IS the invoker — protected"))).toBe(true);
   });
@@ -347,7 +403,7 @@ describe("companyDown (kobo-362)", () => {
       panesBySession: { "13-patchwork": [{ paneId: "%1", role: "🧭 coord" }] },
       teardownResult: { ok: false, error: "can't list panes — fail-closed", killed: [], logs: [] },
     });
-    await companyDown("kobo", {}, (l) => lines.push(l), deps);
+    await companyDown("kobo", { verbose: true }, (l) => lines.push(l), deps); // regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("teardown refused"))).toBe(true);
     expect(calls.some((c) => c.includes("kill-pane"))).toBe(false);
   });
@@ -368,5 +424,46 @@ describe("companyDown (kobo-362)", () => {
     const r2 = await runCompanyDown(["--force", "kobo"], () => {});
     expect(r1.ok).toBe(true);
     expect(r2.ok).toBe(true);
+  });
+
+  // kobo-368 compact-ack sweep
+  describe("compact-ack sweep (kobo-368)", () => {
+    test("default (no verbose) → exactly ONE tally line, no per-member detail", async () => {
+      saveCompany({ name: "kobo", teams: { core: { members: [{ oracle: "patchwork", role: "dev" }] } } });
+      const lines: string[] = [];
+      const { deps } = makeDeps({
+        sessions: fakeSessions({ "13-patchwork": ["main"] }),
+        panesBySession: { "13-patchwork": [{ paneId: "%1", role: "🧭 coord" }] },
+      });
+      process.env.TMUX_PANE = "%operator";
+      await companyDown("kobo", {}, (l) => lines.push(l), deps); // verbose omitted → default compact
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("✓ down kobo:");
+      expect(lines[0]).toContain("1 torn");
+    });
+
+    test("empty roster → still a valid 0-count tally, not an error", async () => {
+      saveCompany({ name: "empty-co", teams: {} });
+      const lines: string[] = [];
+      const { deps } = makeDeps({});
+      const r = await companyDown("empty-co", {}, (l) => lines.push(l), deps);
+      expect(r.ok).toBe(true);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("0 torn, 0 skipped, 0 refused (0 members)");
+    });
+
+    // runCompanyDown has no deps-injection seam — empty roster keeps this
+    // hermetic (no real tmux calls), matching the file's established convention.
+    test("runCompanyDown parses --verbose and --full without crashing (empty roster = hermetic)", async () => {
+      saveCompany({ name: "kobo", teams: {} });
+      const linesVerbose: string[] = [];
+      const linesFull: string[] = [];
+      const rVerbose = await runCompanyDown(["kobo", "--verbose"], (l) => linesVerbose.push(l));
+      const rFull = await runCompanyDown(["--full", "kobo"], (l) => linesFull.push(l));
+      expect(rVerbose.ok).toBe(true);
+      expect(rFull.ok).toBe(true);
+      expect(linesVerbose).toHaveLength(1);
+      expect(linesFull).toHaveLength(1);
+    });
   });
 });

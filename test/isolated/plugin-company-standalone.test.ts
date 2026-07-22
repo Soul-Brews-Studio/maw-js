@@ -130,6 +130,20 @@ describe("company command plugin standalone boundary", () => {
     expect(fleetSrc).toContain("no company head");
   });
 
+  // kobo-368 compact-ack sweep: up/down default to ONE tally line; --verbose/--full
+  // reproduce the pre-368 per-member log stream (regression pin, Principle 1).
+  test("company-fleet up/down: compact tally by default, --verbose/--full opt into per-member detail (kobo-368)", () => {
+    const fleetSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/company/company-fleet.ts"),
+      "utf8",
+    );
+    expect(fleetSrc).toContain("const log = (line: string) => { if (verbose) emit(line); };");
+    expect(fleetSrc).toContain("const log = (line: string) => { if (opts.verbose) emit(line); };");
+    expect(fleetSrc).toContain("✓ up ${company}:");
+    expect(fleetSrc).toContain("✓ down ${company}:");
+    expect(fleetSrc).toContain('args.includes("--verbose") || args.includes("--full")');
+  });
+
   // kobo-363: departments → teams vocab rename. add-team/rm-team are canonical;
   // add-dept/rm-dept kept as aliases (same underlying logic) during migration.
   test("company keeps add-dept/rm-dept as aliases of add-team/rm-team (kobo-363)", () => {

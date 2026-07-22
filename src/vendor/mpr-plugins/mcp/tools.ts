@@ -53,6 +53,7 @@ export interface TaskInput {
   op?: string;         // dep (required: add|rm)
   mine?: boolean;      // ls
   for?: string;        // ls (decision queue) / block (--for)
+  full?: boolean;      // ls (kobo-368): full per-card board render; default is lane-count compact
   to?: string;         // review / assign (target ball-holder)
   force?: boolean;     // assign: --force-reassign (reassign is friction, correction only — kobo-219)
   gate?: boolean;      // hold: --gate — route the brake to the approve lane (Tony's queue), not review (kobo-224)
@@ -224,6 +225,7 @@ export function taskArgs(input: TaskInput): string[] {
       const argv = ["company", "task", "ls", ...common()];
       if (input.mine) argv.push("--mine");
       if (input.for) argv.push("--for", input.for);
+      if (input.full) argv.push("--full"); // kobo-368: default is now compact (lane counts)
       return argv;
     }
     case "start":

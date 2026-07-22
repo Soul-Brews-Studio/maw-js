@@ -906,7 +906,35 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     expect(emitFeedCalls[0]).toMatchObject({
       event: "MessageSend", oracle: "test-oracle", node: "white", port: 4000,
     });
-    expect(outs.some((o) => o.includes("delivered") && o.includes("08-mawjs:0: [white:test-oracle] ping"))).toBe(true);
+    // kobo-368: default is compact (target + char-count), NOT the full echoed
+    // message — assert the body is genuinely ABSENT (a revert to full-echo
+    // would still pass a bare "delivered"+target check, which is why that
+    // alone is a hollow pin — reviewer .1 finding). The captured tail-line
+    // (small, already-truncated) stays visible in both modes.
+    const deliveredLine = outs.find((o) => o.includes("delivered"));
+    expect(deliveredLine).toBeDefined();
+    expect(deliveredLine).toContain("08-mawjs:0");
+    expect(deliveredLine).toContain("(24 chars)"); // "[white:test-oracle] ping".length === 24 (signed body, not raw text)
+    expect(deliveredLine).not.toContain("[white:test-oracle] ping"); // body genuinely absent
+    expect(outs.some((o) => o.includes("⤷ hello back"))).toBe(true);
+  });
+
+  // kobo-368 reviewer .1 finding: the byte-equiv regression-pin was hollow for
+  // cmdSend (hey/send/notify — the flagship, highest-frequency verb) — a
+  // revert to full-echo-by-default would have passed silently. This test
+  // reproduces the PRE-368 line byte-for-byte with verbose:true.
+  test("kobo-368: verbose:true reproduces the full delivered line byte-equiv (regression pin)", async () => {
+    configOverride = { node: "white", port: 4000 };
+    resolveTargetReturn = { type: "local", target: "08-mawjs:0" };
+    getPaneCommandMap = { "08-mawjs:0": "claude" };
+    captureResponses = [{ match: /08-mawjs:0/, result: "prompt $\nhello back" }];
+
+    await run(() => cmdSend("white:mawjs", "ping", false, { verbose: true }));
+
+    const deliveredLine = outs.find((o) => o.includes("delivered"));
+    expect(deliveredLine).toBeDefined();
+    expect(deliveredLine).toContain("08-mawjs:0: [white:test-oracle] ping"); // full body, byte-equiv to pre-368
+    expect(deliveredLine).not.toContain("chars)"); // NOT the compact char-count form
     expect(outs.some((o) => o.includes("⤷ hello back"))).toBe(true);
   });
 
@@ -1019,7 +1047,34 @@ describe("cmdSend — peer target (federation)", () => {
     expect(runHookCalls.some((h) => h.event === "after_send")).toBe(true);
     expect(logMessageCalls[0]).toMatchObject({ from: "test-oracle", to: "mba:mawjs", route: "peer:mba" });
     expect(emitFeedCalls[0]).toMatchObject({ event: "MessageSend", node: "white", port: 5000 });
-    expect(outs.some((o) => o.includes("delivered") && o.includes("mba") && o.includes("mawjs: [white:test-oracle] ping"))).toBe(true);
+    // kobo-368: default is compact (target + char-count), NOT the full echoed
+    // message — assert the body is genuinely ABSENT (reviewer .1 hollow-pin finding).
+    const deliveredLine = outs.find((o) => o.includes("delivered"));
+    expect(deliveredLine).toBeDefined();
+    expect(deliveredLine).toContain("mba");
+    expect(deliveredLine).toContain("mawjs");
+    expect(deliveredLine).toContain("(24 chars)"); // "[white:test-oracle] ping".length === 24 (signed body, not raw text)
+    expect(deliveredLine).not.toContain("[white:test-oracle] ping"); // body genuinely absent
+    expect(outs.some((o) => o.includes("⤷ peer saw it"))).toBe(true);
+  });
+
+  // kobo-368 reviewer .1 finding: byte-equiv regression pin for the peer path too.
+  test("kobo-368: verbose:true reproduces the full peer delivered line byte-equiv (regression pin)", async () => {
+    configOverride = { node: "white", port: 5000 };
+    resolveTargetReturn = {
+      type: "peer", peerUrl: "https://mba.example", target: "mawjs", node: "mba",
+    };
+    curlFetchResponses = [{
+      match: /mba\.example\/api\/send/,
+      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "peer saw it", state: "delivered" } },
+    }];
+
+    await run(() => cmdSend("mba:mawjs", "ping", false, { verbose: true }));
+
+    const deliveredLine = outs.find((o) => o.includes("delivered"));
+    expect(deliveredLine).toBeDefined();
+    expect(deliveredLine).toContain("mawjs: [white:test-oracle] ping"); // full body, byte-equiv to pre-368
+    expect(deliveredLine).not.toContain("chars)");
     expect(outs.some((o) => o.includes("⤷ peer saw it"))).toBe(true);
   });
 

@@ -66,6 +66,7 @@ describe("broadcast plugin standalone boundary (#2113)", () => {
     expect(parseBroadcastArgs(["--session", "77-mawjs", "hello", "team"])).toEqual({
       message: "hello team",
       scope: { session: "77-mawjs" },
+      verbose: false, // kobo-368 — compact-ack sweep default
     });
     sessions = [{ name: "77-mawjs", windows: [{ index: 0, name: "agent" }, { index: 1, name: "shell" }] }];
     paneCommands.set("77-mawjs:0", "codex");
@@ -83,5 +84,38 @@ describe("broadcast plugin standalone boundary (#2113)", () => {
 
     expect([...fleetScopeSessionNames("mawjs")]).toEqual(["77-mawjs"]);
     expect([...fleetScopeSessionNames("mawjs-oracle")]).toEqual(["77-mawjs"]);
+  });
+
+  // kobo-368 compact-ack sweep
+  describe("compact-ack sweep (kobo-368)", () => {
+    test("default (no --verbose/--full) → per-window 'sent →' lines suppressed, summary stays", async () => {
+      expect(parseBroadcastArgs(["--session", "77-mawjs", "hello"])).toEqual({
+        message: "hello", scope: { session: "77-mawjs" }, verbose: false,
+      });
+      sessions = [{ name: "77-mawjs", windows: [{ index: 0, name: "agent" }] }];
+      paneCommands.set("77-mawjs:0", "codex");
+
+      const result = await broadcastHandler({ source: "cli", args: ["--session", "77-mawjs", "hello"] } as any);
+      expect(result.ok).toBe(true);
+      expect(sendCalls).toEqual([{ target: "77-mawjs:0", text: "[broadcast from sender] hello" }]); // still sent
+      expect(stripAnsi(result.output)).not.toContain("sent → 77-mawjs:agent"); // per-window echo suppressed
+      expect(stripAnsi(result.output)).toContain("Broadcast to 1 windows"); // summary stays (was already compact)
+    });
+
+    test("--verbose/--full reproduce the pre-368 per-window echo (regression pin, byte-equiv)", async () => {
+      expect(parseBroadcastArgs(["--session", "77-mawjs", "hello", "--verbose"])).toEqual({
+        message: "hello", scope: { session: "77-mawjs" }, verbose: true,
+      });
+      expect(parseBroadcastArgs(["--session", "77-mawjs", "hello", "--full"])).toEqual({
+        message: "hello", scope: { session: "77-mawjs" }, verbose: true,
+      });
+      sessions = [{ name: "77-mawjs", windows: [{ index: 0, name: "agent" }] }];
+      paneCommands.set("77-mawjs:0", "codex");
+
+      const result = await broadcastHandler({ source: "cli", args: ["--session", "77-mawjs", "hello", "--verbose"] } as any);
+      expect(result.ok).toBe(true);
+      expect(stripAnsi(result.output)).toContain("sent → 77-mawjs:agent");
+      expect(stripAnsi(result.output)).toContain("Broadcast to 1 windows");
+    });
   });
 });

@@ -421,7 +421,7 @@ describe("broadcast impl extra isolated coverage", () => {
     tmuxCommandByTarget = { "01-neo:1": "claude", "01-neo:2": "zsh" };
     tmuxCommandErrorTargets = new Set(["01-neo:3"]);
 
-    await cmdBroadcast("hello fleet");
+    await cmdBroadcast("hello fleet", {}, true); // verbose=true — regression-pin (kobo-368)
 
     expect(tmuxSendCalls).toEqual([{ target: "01-neo:1", message: "[broadcast from current-oracle] hello fleet" }]);
     expect(output()).toContain("→ 01-neo:chat");

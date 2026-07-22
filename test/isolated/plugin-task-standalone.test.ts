@@ -190,4 +190,21 @@ describe("task command plugin standalone boundary", () => {
     expect(manifest.cli).toBeUndefined(); // hard-removed — not dispatchable as `maw task`
     expect(manifest.module?.exports).toContain("runTask"); // company imports this
   });
+
+  // kobo-368 compact-ack sweep: `ls` defaults to a lane-count summary; `--full`/
+  // `--verbose` reproduce the pre-368 per-card renderBoard byte-for-byte.
+  test("ls: default compact (renderBoardCompact) vs --full/--verbose (renderBoard) gate", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    expect(src).toContain("function renderBoardCompact");
+    const lsStart = src.indexOf('subcmd === "ls"');
+    const nextReadyStart = src.indexOf('subcmd === "next-ready"');
+    const lsBlock = src.slice(lsStart, nextReadyStart);
+    expect(lsBlock).toContain('args.includes("--full")');
+    expect(lsBlock).toContain('args.includes("--verbose")');
+    expect(lsBlock).toContain("renderBoard(tasks"); // --full path
+    expect(lsBlock).toContain("renderBoardCompact(tasks"); // default path
+  });
 });

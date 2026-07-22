@@ -17,8 +17,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
-    const { message, scope } = parseBroadcastArgs(args);
-    await cmdBroadcast(message, scope);
+    const { message, scope, verbose } = parseBroadcastArgs(args);
+    await cmdBroadcast(message, scope, verbose);
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

@@ -124,11 +124,52 @@ describe("maw company task runner (runTask)", () => {
     await run(["add", "unassigned", "--company", "pgw"]);
     await run(["add", "mine", "--company", "pgw"]);
     await run(["claim", "pgw-2", "--company", "pgw"]); // caller claims pgw-2
-    const all = await run(["ls", "--company", "pgw"]);
-    const mine = await run(["ls", "--company", "pgw", "--mine"]);
+    // kobo-368: card titles only render under --full — default is lane counts.
+    const all = await run(["ls", "--company", "pgw", "--full"]);
+    const mine = await run(["ls", "--company", "pgw", "--mine", "--full"]);
     expect(all.output).toContain("unassigned");
     expect(mine.output).toContain("mine");
     expect(mine.output).not.toContain("unassigned");
+  });
+
+  // kobo-368 compact-ack sweep
+  describe("compact-ack sweep (kobo-368)", () => {
+    test("default ls → lane-count summary, NOT the per-card title/id render", async () => {
+      await run(["add", "card one", "--company", "pgw"]);
+      await run(["add", "card two", "--company", "pgw"]);
+      await run(["claim", "pgw-1", "--company", "pgw"]);
+      const r = await run(["ls", "--company", "pgw"]);
+      expect(r.ok).toBe(true);
+      expect(r.output).not.toContain("card one"); // no per-card title
+      expect(r.output).not.toContain("card two");
+      expect(r.output).not.toContain("pgw-1"); // no per-card id
+      expect(r.output).toContain("(2 tasks)");
+      expect(r.output).toContain("TODO(1)");
+      expect(r.output).toContain("IN-PROGRESS(1)");
+    });
+
+    test("--full and --verbose both reproduce the pre-368 per-card render byte-for-byte (regression pin)", async () => {
+      await run(["add", "card one", "--company", "pgw"]);
+      const full = await run(["ls", "--company", "pgw", "--full"]);
+      const verbose = await run(["ls", "--company", "pgw", "--verbose"]);
+      expect(full.output).toBe(verbose.output); // both flags are equivalent
+      expect(full.output).toContain("pgw-1");
+      expect(full.output).toContain("card one");
+      expect(full.output).toContain("↳"); // next-action line (renderBoard-only detail)
+    });
+
+    test("empty board → still a valid compact 0-count ack, never an error", async () => {
+      const r = await run(["ls", "--company", "pgw"]);
+      expect(r.ok).toBe(true);
+      expect(r.error).toBeUndefined();
+      expect(r.output).toContain("(0 tasks)");
+    });
+
+    test("empty board + --full → the pre-368 '(no tasks)' line, unchanged", async () => {
+      const r = await run(["ls", "--company", "pgw", "--full"]);
+      expect(r.ok).toBe(true);
+      expect(r.output).toContain("(no tasks)");
+    });
   });
 
   // kobo-356: the pick-up queue for an idle crew worker — event-driven board-read,
@@ -458,7 +499,8 @@ describe("maw company task runner (runTask)", () => {
     const r = await run(["move", "pgw-1", "wait-for-deploy", "--company", "pgw"]);
     expect(r.ok).toBe(true); // manual park target, no reason
     expect(readTask("pgw", "pgw-1")!.state).toBe("wait-for-deploy");
-    const board = (await run(["ls", "--company", "pgw"])).output;
+    // kobo-368: card titles only render under --full — default is lane counts.
+    const board = (await run(["ls", "--company", "pgw", "--full"])).output;
     expect(board).toContain("WAIT-DEPLOY"); // the lane renders
     expect(board).toContain("ship the lane"); // the parked card is visible, not dropped
   });
@@ -649,12 +691,13 @@ describe("maw company task runner (runTask)", () => {
     await run(["add", "parent", "--company", "pgw"]); // pgw-1
     await run(["move", "pgw-1", "backlog", "--company", "pgw"]); // parent parked → exempt from needsOwner
     await run(["add", "child", "--company", "pgw", "--parent", "pgw-1"]); // pgw-2 depends on the pending parent
-    const active = (await run(["ls", "--company", "pgw"])).output;
+    // kobo-368: the dep-block annotation only renders under --full — default is lane counts.
+    const active = (await run(["ls", "--company", "pgw", "--full"])).output;
     expect(active).toContain("🚫 รอ: pgw-1"); // control: the not-yet-done child IS dep-blocked
 
     await run(["done", "pgw-2", "--company", "pgw"]);
     expect(readTask("pgw", "pgw-2")!.state).toBe("done");
-    const finished = (await run(["ls", "--company", "pgw"])).output;
+    const finished = (await run(["ls", "--company", "pgw", "--full"])).output;
     expect(finished).not.toContain("🚫 รอ: pgw-1"); // done child no longer shows the label
     expect(finished).not.toContain("BLOCKED"); // and isn't pulled into the Blocked lane
   });

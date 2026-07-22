@@ -466,7 +466,26 @@ describe("cmdSend — delivery branch coverage", () => {
         },
       },
     });
-    expect(logs.join("\n")).toContain("delivered");
+    // kobo-368 reviewer .1 finding: assert the body is genuinely ABSENT + the
+    // compact char-count present — a bare "delivered" substring check would
+    // still pass on a reverted full-echo default (hollow pin).
+    const deliveredLine = logs.find((l) => l.includes("delivered"));
+    expect(deliveredLine).toBeDefined();
+    expect(deliveredLine).toContain("(24 chars)"); // "[test-node:sender] hello".length === 24
+    expect(deliveredLine).not.toContain("[test-node:sender] hello"); // body genuinely absent
+    expect(logs.join("\n")).toContain("accepted"); // captured tail-line stays visible in both modes
+  });
+
+  // kobo-368 reviewer .1 finding: byte-equiv regression pin for verbose:true.
+  test("kobo-368: verbose:true reproduces the full local-delivery line byte-equiv", async () => {
+    captureResponses = ["", "accepted"];
+    await runCmd(() => cmdSend("local:session:oracle", "hello", false, { verbose: true }));
+
+    expect(exitCode).toBeUndefined();
+    const deliveredLine = logs.find((l) => l.includes("delivered"));
+    expect(deliveredLine).toBeDefined();
+    expect(deliveredLine).toContain("session:oracle.0: [test-node:sender] hello"); // full body, byte-equiv to pre-368
+    expect(deliveredLine).not.toContain("chars)");
     expect(logs.join("\n")).toContain("accepted");
   });
 
@@ -558,8 +577,13 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(sendKeysCalls).toEqual([]);
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] offline task", route: "inbox" }]);
     expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued" });
-    expect(logs.join("\n")).toContain("queued");
-    expect(logs.join("\n")).toContain("ψ/inbox/msg.md");
+    // kobo-368 reviewer .1 finding: body genuinely ABSENT + char-count present —
+    // the filename/path stays visible in both modes (small diagnostic, not the
+    // flagged waste), but the message TEXT itself must not leak through by default.
+    const queuedLine = logs.find((l) => l.includes("queued") && l.includes("ψ/inbox/msg.md"));
+    expect(queuedLine).toBeDefined();
+    expect(queuedLine).toContain("(31 chars)"); // "[test-node:sender] offline task".length === 31
+    expect(queuedLine).not.toContain("offline task");
     expect(sendKeysCalls).toEqual([]);
     expect(tmuxRunCalls).toContainEqual([
       "set-option",
@@ -678,7 +702,11 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(sendKeysCalls).toEqual([]);
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] queued while busy", route: "inbox" }]);
     expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued", lastLine: "--inbox requested; pane injection skipped" });
-    expect(logs.join("\n")).toContain("busy.md");
+    // kobo-368 reviewer .1 finding: body genuinely ABSENT + char-count present.
+    const queuedLine = logs.find((l) => l.includes("busy.md"));
+    expect(queuedLine).toBeDefined();
+    expect(queuedLine).toContain("(36 chars)"); // "[test-node:sender] queued while busy".length === 36
+    expect(queuedLine).not.toContain("queued while busy");
     expect(tmuxRunCalls).toContainEqual([
       "set-option",
       "-t",

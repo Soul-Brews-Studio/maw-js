@@ -89,6 +89,30 @@ export async function roomReply(
 }
 
 /**
+ * kobo-368 — compact-ack shape for open/close/merge, mirroring roomReply's
+ * kobo-360 fix exactly: trim the room artifact echo down to the handful of
+ * fields a caller actually needs to confirm the op landed. COMPACT-ALWAYS
+ * (no --verbose/--full escape hatch) — this mirrors roomReply's own
+ * precedent, not the CLI verb sweep's opt-in pattern: MCP tool calls have no
+ * argv flag surface, and the full room is separately reachable via
+ * `maw_room_read` for any caller who genuinely needs it. Client-side trim
+ * ONLY — the server endpoints are UNCHANGED (other consumers, e.g. the web
+ * UI, still get the full room).
+ */
+function compactRoomAck(body: unknown): string {
+  const room = (body as { room?: { id?: string; status?: string; ts?: number; updatedTs?: number; messages?: unknown[]; mergedFrom?: string[] } })?.room;
+  if (!room) return JSON.stringify({ ok: true });
+  return JSON.stringify({
+    ok: true,
+    id: room.id,
+    status: room.status,
+    updatedTs: room.updatedTs,
+    messageCount: room.messages?.length ?? 0,
+    ...(room.mergedFrom ? { mergedFrom: room.mergedFrom } : {}),
+  });
+}
+
+/**
  * POST /api/room/merge — consolidate source rooms into target.
  * `confirm` is always true here — the act of calling this MCP tool IS the confirmation.
  */
@@ -102,7 +126,8 @@ export async function roomMerge(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...params, confirm: true }),
   });
-  return { ok: res.ok, text: toText(res) };
+  if (!res.ok) return { ok: false, text: toText(res) }; // already compact — no full-room dump on error
+  return { ok: true, text: compactRoomAck(res.body) };
 }
 
 /**
@@ -118,7 +143,8 @@ export async function roomClose(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  return { ok: res.ok, text: toText(res) };
+  if (!res.ok) return { ok: false, text: toText(res) };
+  return { ok: true, text: compactRoomAck(res.body) };
 }
 
 /**
@@ -134,5 +160,6 @@ export async function roomOpen(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  return { ok: res.ok, text: toText(res) };
+  if (!res.ok) return { ok: false, text: toText(res) };
+  return { ok: true, text: compactRoomAck(res.body) };
 }

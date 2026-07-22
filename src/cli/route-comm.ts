@@ -4,17 +4,18 @@ import { CHANNEL_TASK_EVENTS } from "../core/pane-routes";
 
 function printCommUsage(cmd: "hey" | "send" | "notify", write: (line: string) => void = console.log): void {
   if (cmd === "notify") {
-    write(`usage: maw notify [--from <node:oracle>] <target> <message> [--approve] [--trust]`);
+    write(`usage: maw notify [--from <node:oracle>] <target> <message> [--approve] [--trust] [--verbose|--full]`);
     write("  Routine push — persists to recipient's ψ/inbox/ for them to pull via `maw inbox --unread`.");
     write("  Does NOT inject into the target pane (unlike `maw hey`). #1882");
     write("  --from <node:oracle>: explicit sender for SSH relays; env fallback: MAW_SENDER");
+    write("  --verbose/--full: echo the full sent message back (kobo-368); default is a compact ack");
     write("  target forms: same as maw hey (oracle-window | local:agent | session:window | node:session)");
     write(`  e.g. maw notify mawjs-oracle "task done — fyi, recipient pulls when ready"`);
     write(`       maw notify phaith:01-hojo:3 "routine cross-node ping"`);
     write("  Pairs with `maw hey` (urgent, pane-injecting) and `maw broadcast` (fleet-wide).");
     return;
   }
-  write(`usage: maw ${cmd} [--from <node:oracle>] <target> <message> [--inbox] [--force deprecated] [--approve] [--trust] [--no-verify-submit]`);
+  write(`usage: maw ${cmd} [--from <node:oracle>] <target> <message> [--inbox] [--force deprecated] [--approve] [--trust] [--no-verify-submit] [--verbose|--full]`);
   if (cmd === "send") {
     write("  note: top-level `maw send` is an alias of `maw hey` (#1388 / #1915) — both pane-inject");
     write("        with a signed identity envelope and a trailing Enter. For raw text (no envelope,");
@@ -23,6 +24,7 @@ function printCommUsage(cmd: "hey" | "send" | "notify", write: (line: string) =>
   write("  default: write receiver inbox and inject into the target pane");
   write("  --from <node:oracle>: explicit sender for SSH relays; env fallback: MAW_SENDER");
   write("  --inbox: write receiver inbox only; skip pane injection");
+  write("  --verbose/--full: echo the full sent message back (kobo-368); default is a compact ack");
   write("  --no-verify-submit: skip the post-send Enter-retry probe (#1907). Saves ~800ms per call; only set for tight loops.");
   write("  --force: deprecated compatibility alias; delivery is already forced by default");
   write("  target forms:");
@@ -87,6 +89,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     let trust = false;
     let noVerifySubmit = false;
     let queueOnAway = false; // kobo-306 — room nudge: queue for /seat-return delivery if away
+    let verbose = false; // kobo-368 — compact-ack sweep: --verbose/--full reproduce the pre-368 full echo
     let from: string | undefined;
     let channel: string | undefined;
     let target: string | undefined;
@@ -100,6 +103,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       if (arg === "--trust") { trust = true; continue; }
       if (arg === "--no-verify-submit") { noVerifySubmit = true; continue; }
       if (arg === "--queue-on-away") { queueOnAway = true; continue; } // kobo-306
+      if (arg === "--verbose" || arg === "--full") { verbose = true; continue; } // kobo-368
       // kobo-36 — logical channel; delivery consults the target's channel→pane map.
       if (arg === "--channel") {
         if (!rest[i + 1] || rest[i + 1].startsWith("--")) {
@@ -228,7 +232,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       }
     }
 
-    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(queueOnAway ? { queueOnAway } : {}), ...(from ? { from } : {}), ...(channel ? { channel } : {}) });
+    await cmdSend(target, message, force, { approve, trust, inboxOnly, ...(noVerifySubmit ? { noVerifySubmit } : {}), ...(queueOnAway ? { queueOnAway } : {}), ...(verbose ? { verbose } : {}), ...(from ? { from } : {}), ...(channel ? { channel } : {}) });
     return true;
   }
 

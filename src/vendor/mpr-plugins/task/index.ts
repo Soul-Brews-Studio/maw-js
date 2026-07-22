@@ -282,6 +282,25 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, 
 }
 
 /**
+ * kobo-368 compact-ack sweep — default `task ls` output: per-lane COUNTS only,
+ * not every card's full render. `--full` reproduces `renderBoard` byte-for-byte
+ * (regression pin, Principle 1 — nothing lost, just not the default anymore).
+ * Empty board → still a valid compact line (0 tasks), never an error.
+ */
+function renderBoardCompact(tasks: TaskRecord[], company: string, mine: string | null): string {
+  const header = `\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""} \x1b[90m(${tasks.length} task${tasks.length === 1 ? "" : "s"})\x1b[0m`;
+  if (!tasks.length) return header;
+  const counts = new Map<string, number>();
+  for (const t of tasks) counts.set(t.state, (counts.get(t.state) ?? 0) + 1);
+  const laneOrder: TaskState[] = [...TASK_FLOW, "rejected", "blocked"];
+  const laneStr = laneOrder
+    .filter((s) => counts.get(s))
+    .map((s) => `${STATE_LABEL[s]}(${counts.get(s)})`)
+    .join(" · ");
+  return laneStr ? `${header}\n${laneStr}` : header;
+}
+
+/**
  * kobo-365: `next-ready`'s pick-order — ts ascending (FIFO), THEN numeric id
  * suffix ascending as a deterministic tie-break. Two cards created in the same
  * millisecond (a real CI-observed flake, kobo-356) used to tie on `ts` alone,
@@ -411,11 +430,16 @@ export async function runTask(
       if (mine) tasks = tasks.filter((t) => t.assignee === mine);
       // --for <who> → the decision queue: blocked cards waiting on that person (ADR 0003 B)
       if (flags["--for"]) tasks = tasks.filter((t) => t.state === "blocked" && t.block?.for === flags["--for"]);
-      // stuck-decision badge (mawjs-5 backstop) — DERIVED at read, never mutates state
-      const activity = lastActivityByOracle(company);
-      const now = Date.now();
-      const stale = new Set(tasks.filter((t) => isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now)).map((t) => t.id));
-      console.log(renderBoard(tasks, company, mine, stale));
+      // kobo-368 — default compact (lane counts); --full/--verbose = full per-card render.
+      if (args.includes("--full") || args.includes("--verbose")) {
+        // stuck-decision badge (mawjs-5 backstop) — DERIVED at read, never mutates state
+        const activity = lastActivityByOracle(company);
+        const now = Date.now();
+        const stale = new Set(tasks.filter((t) => isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now)).map((t) => t.id));
+        console.log(renderBoard(tasks, company, mine, stale));
+      } else {
+        console.log(renderBoardCompact(tasks, company, mine));
+      }
     } else if (subcmd === "next-ready") {
       // kobo-356: the pick-up queue for an idle crew worker — event-driven (called from
       // the Stop hook, no loop/poll). `needsOwner` (store.ts) already IS the exact
