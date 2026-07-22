@@ -133,7 +133,11 @@ describe("companyUp (kobo-362)", () => {
     expect(lines.some((l) => l.includes("patchwork: crew ready — skip"))).toBe(true);
   });
 
-  test("manager head-cell incomplete → LOUD report-only, no auto head-spawn", async () => {
+  // kobo-366: kobo-364 shipped `maw company head spawn` — the manager gap is no
+  // longer report-only; it repairs via the same inject-via-send-keys pattern
+  // crew-tier already uses (headSpawn/crewSpawn both read their OWN pane's
+  // TMUX_PANE, so they can't be called in-process against a different session).
+  test("manager head-cell incomplete → repairs via injected head spawn (kobo-366)", async () => {
     saveCompany({ name: "kobo", manager: "eq3", teams: {} });
     const lines: string[] = [];
     const { deps, calls } = makeDeps({
@@ -141,9 +145,8 @@ describe("companyUp (kobo-362)", () => {
       panesBySession: { "05-eq3": [{ paneId: "%1", role: "👤 lead" }] }, // conductor+reviewer missing
     });
     await companyUp("kobo", (l) => lines.push(l), deps);
-    expect(lines.some((l) => l.includes("manager head-cell INCOMPLETE"))).toBe(true);
-    expect(lines.some((l) => l.includes("kobo-364"))).toBe(true);
-    expect(calls.some((c) => c.includes("send-keys"))).toBe(false); // no injection for manager — report-only
+    expect(lines.some((l) => l.includes("head-cell incomplete/asleep — repairing"))).toBe(true);
+    expect(calls.some((c) => c.includes("send-keys -t '%1'") && c.includes("maw company head spawn kobo"))).toBe(true);
   });
 
   test("crew-front member incomplete → repairs via injected crew spawn", async () => {
@@ -181,13 +184,22 @@ describe("companyUp (kobo-362)", () => {
     expect(lines.some((l) => l.includes("wake failed") && l.includes("never set up"))).toBe(true);
   });
 
-  test("manager with no session at all → report-only, does NOT cold-start (no head-spawn to fill it)", async () => {
+  // kobo-366: the manager now gets the SAME session-tier cold-start as
+  // crew-front (kobo-362's carve-out — "no head-spawn to fill it" — no longer
+  // applies now that kobo-364 shipped the verb).
+  test("manager with no session → session-tier cold-start via cmdWake, then repairs via head spawn (kobo-366)", async () => {
     saveCompany({ name: "kobo", manager: "eq3", teams: {} });
     const lines: string[] = [];
-    const { deps, calls } = makeDeps({ sessions: [] });
+    const { deps, calls } = makeDeps({
+      sessions: [],
+      panesBySession: { "05-eq3": [] }, // freshly created, no head panes yet
+      wakeCreatesSession: (oracle) => (oracle === "eq3" ? fakeSessions({ "05-eq3": ["main"] })[0] : null),
+    });
     await companyUp("kobo", (l) => lines.push(l), deps);
-    expect(lines.some((l) => l.includes("manager has no session"))).toBe(true);
-    expect(calls.some((c) => c.startsWith("wake:"))).toBe(false);
+    expect(calls).toContain("wake:eq3");
+    expect(lines.some((l) => l.includes("session created"))).toBe(true);
+    // no @role-tagged pane exists yet (fresh session) → injection falls back to the resolved window itself
+    expect(calls.some((c) => c.includes("send-keys -t '05-eq3:0'") && c.includes("maw company head spawn kobo"))).toBe(true);
   });
 
   test("re-run after repair is idempotent — a now-complete crew skips", async () => {

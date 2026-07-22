@@ -88,7 +88,7 @@ describe("head command plugin standalone boundary", () => {
     expect(spawnSrc).toContain("teardownCrewWindows");
   });
 
-  test("company/index.ts wires `head` to runHead (the CLI seam), does NOT touch company-fleet.ts's ready-check", () => {
+  test("company/index.ts wires `head` to runHead (the CLI seam)", () => {
     const companyIndexSrc = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
       "utf8",
@@ -96,16 +96,23 @@ describe("head command plugin standalone boundary", () => {
     expect(companyIndexSrc).toContain('from "../head/index"');
     expect(companyIndexSrc).toContain("runHead");
     expect(companyIndexSrc).toContain('=== "head"');
+  });
 
-    // kobo-364 LOAD-BEARING claim (eq3 ruling): company-fleet.ts's existing
-    // manager-repair ready-check (👤+🎼+🔎) already matches this verb's output
-    // — ZERO changes needed there. Assert the file is untouched by this card.
+  // kobo-366: closed the manager-repair gap 364 deferred — company-fleet.ts's
+  // existing ready-check (👤+🎼+🔎) already matched this verb's output (364's
+  // load-bearing claim, still true), so `up` now REPAIRS an incomplete manager
+  // head-cell via the same inject-via-send-keys pattern crew-tier already uses
+  // (`maw company head spawn <co>`, injected — NOT a direct in-process runHead
+  // call, since headSpawn reads its OWN pane's TMUX_PANE and must run from
+  // inside it).
+  test("company-fleet.ts repairs an incomplete manager head-cell via injected `maw company head spawn` (kobo-366)", () => {
     const fleetSrc = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/company/company-fleet.ts"),
       "utf8",
     );
-    expect(fleetSrc).toContain("no head-spawn verb yet, kobo-364 follow-up");
-    expect(fleetSrc).not.toContain("runHead"); // confirms zero-change claim: no call added here
+    expect(fleetSrc).toContain("maw company head spawn");
+    expect(fleetSrc).not.toContain("no head-spawn verb yet"); // the old report-only carve-out is gone
+    expect(fleetSrc).not.toContain("runHead"); // still injected via tmux send-keys, never called in-process
   });
 
   test("contract asset templates exist (conductor+reviewer, NO lead.md) and are shipped by crew-skills sync", () => {

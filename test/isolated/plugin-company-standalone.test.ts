@@ -109,18 +109,20 @@ describe("company command plugin standalone boundary", () => {
     expect(indexSrc).toContain("|up|down|"); // usage string mentions the new verbs
   });
 
-  // kobo-362: pin the design-blessed contract on the fleet module itself —
-  // 2-tier up (session-tier cmdWake cold-start, crew-tier repair-via-injection),
-  // manager report-only (no head-spawn verb exists — kobo-364), down reuses
+  // kobo-362/366: pin the design-blessed contract on the fleet module itself —
+  // 2-tier up (session-tier cmdWake cold-start, cell-tier repair-via-injection)
+  // applied SYMMETRICALLY to manager (head spawn, kobo-366 — closed the moment
+  // kobo-364 shipped the verb) and crew-front (crew spawn) alike. down reuses
   // kobo-358's teardownCrewWindows + refuse-if-busy/--force.
-  test("company-fleet: 2-tier up + manager report-only + down reuses 358 teardown + busy-gate", () => {
+  test("company-fleet: 2-tier up (manager+crew symmetric) + down reuses 358 teardown + busy-gate", () => {
     const fleetSrc = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/company/company-fleet.ts"),
       "utf8",
     );
     expect(fleetSrc).toContain('from "../crew/teardown"'); // reuses kobo-358 AS-IS, doesn't re-port it
     expect(fleetSrc).toContain("cmdWake"); // session-tier cold-start (empirically verified, eq3 2-tier ruling)
-    expect(fleetSrc).toContain("kobo-364"); // manager-gap points at the head-spawn follow-up, not silent
+    expect(fleetSrc).toContain("maw company head spawn"); // kobo-366: manager repairs via the head-spawn verb
+    expect(fleetSrc).toContain("maw company crew spawn"); // crew-front repairs via the crew-spawn verb
     expect(fleetSrc).toContain("checkBusyGuard"); // down's refuse-if-busy default
     expect(fleetSrc).toContain("opts.force"); // --force override
     expect(fleetSrc).toContain("invokerPane"); // global-invoker protection (never kill the calling pane)

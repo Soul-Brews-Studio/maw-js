@@ -7,22 +7,23 @@
  *   - no manager set → NO head-cell; every member is crew-front. Reported loudly
  *     (never a silent core-lead fallback — a dept lead is not a company head).
  *
- * v1 SCOPE (eq3 ruling, 2-tier): a manager whose head-cell is incomplete is
- * REPORT-ONLY (loud) — no head-spawn verb exists yet (kobo-364, a separate
- * follow-up: porting /head to a binary verb the way kobo-358 ported /crew).
- * For crew-front members, `up` is 2-tier:
+ * v1 SCOPE (eq3 ruling, 2-tier) — `up` treats manager and crew-front members
+ * SYMMETRICALLY, each getting the same 2-tier repair:
  *   (1) session-tier — no session at all → `cmdWake(oracle, {})` cold-starts
  *       one (empirically verified: `maw wake <asleep-registered-oracle>`
  *       creates a brand-new session from scratch — this is IN-scope core
  *       value, reusing the existing verb, not scope-creep). `cmdWake` itself
  *       throwing (repo/home unresolvable — never set up) → LOUD report, no
  *       retry/guess.
- *   (2) crew-tier — once a session exists (already did, or wake just made
- *       one), incomplete/missing crew panes → repair via injected
- *       `maw company crew spawn <co>` (crewSpawn's own teardown+rebuild is
- *       reused as-is, triggered remotely via tmux send-keys — crewSpawn reads
- *       its OWN pane's TMUX_PANE, so it must run FROM inside that pane, not
- *       be called in-process against a different session).
+ *   (2) cell-tier — once a session exists (already did, or wake just made
+ *       one), incomplete/missing cell panes → repair via injected
+ *       `maw company crew spawn <co>` (crew-front) or `maw company head spawn
+ *       <co>` (manager, kobo-366 — closed the moment kobo-364 ported /head to
+ *       a binary verb the way kobo-358 ported /crew). Both spawn verbs' own
+ *       teardown+rebuild is reused as-is, triggered remotely via tmux
+ *       send-keys — they read their OWN pane's TMUX_PANE, so they must run
+ *       FROM inside that pane, not be called in-process against a different
+ *       session.
  *
  * Member→session resolution reuses `findWindow`/`listSessions` (the exact
  * `maw hey <oracle>` machinery, plugin-safe via maw-js/sdk) rather than
@@ -144,13 +145,13 @@ export async function companyUp(
     let resolved = resolveMemberSession(member.oracle, sessions, findWindowFn);
 
     if (!resolved) {
-      if (member.isManager) {
-        emit(`⚠ ${member.oracle}: manager has no session — needs manual /head (no head-spawn verb yet, kobo-364 follow-up; report-only)`);
-        continue;
-      }
       // session-tier (2-tier, eq3 ruling): no session at all → cold-start via the
       // EXISTING `maw wake` verb (empirically confirmed it creates a session from
-      // scratch for a registered-but-asleep oracle — reuse, don't reinvent).
+      // scratch for a registered-but-asleep oracle — reuse, don't reinvent). Same
+      // tier for manager and crew-front alike — kobo-364 closed the manager-side
+      // gap (head-spawn now exists), so the manager no longer needs a special
+      // report-only carve-out here (kobo-362's reason — "no head-spawn to fill
+      // it" — no longer applies).
       emit(`${member.oracle}: no session found — waking (maw wake, cold-start)`);
       try {
         await cmdWakeFn(member.oracle, {});
@@ -173,7 +174,21 @@ export async function companyUp(
     if (member.isManager) {
       const ready = hasRole(panes, "👤") && hasRole(panes, "🎼") && hasRole(panes, "🔎");
       if (ready) { emit(`${member.oracle}: head-cell ready — skip`); continue; }
-      emit(`⚠ ${member.oracle}: manager head-cell INCOMPLETE — needs manual /head (no head-spawn verb yet, kobo-364 follow-up; report-only)`);
+      // head-tier repair (kobo-366): mirrors crew-tier's inject-via-send-keys —
+      // headSpawn (kobo-364) reads its OWN pane's TMUX_PANE as "lead", so it must
+      // run FROM inside that pane, not be called in-process against a different
+      // session. An already-tagged lead pane keeps its own pane-id as the
+      // injection target; no tag yet (fresh cold-start / never spawned) falls
+      // back to the resolved window itself.
+      const leadInjectTarget = findRolePane(panes, "👤") ?? resolved;
+      emit(`${member.oracle}: head-cell incomplete/asleep — repairing (maw company head spawn)`);
+      try {
+        await hostExecFn(`tmux send-keys -t ${shellArg(leadInjectTarget)} C-u`);
+        await hostExecFn(`tmux send-keys -t ${shellArg(leadInjectTarget)} ${shellArg(`maw company head spawn ${company}`)} Enter`);
+        emit(`${member.oracle}: repair triggered — re-run 'up' to confirm`);
+      } catch (e: any) {
+        emit(`⚠ ${member.oracle}: repair injection failed (${e.message})`);
+      }
       continue;
     }
 
