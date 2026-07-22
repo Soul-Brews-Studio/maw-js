@@ -144,6 +144,25 @@ describe("company command plugin standalone boundary", () => {
     expect(fleetSrc).toContain('args.includes("--verbose") || args.includes("--full")');
   });
 
+  // kobo-371 design-first fix: text and Enter must be SEPARATE send-keys calls
+  // with a settle delay between them — combined text+Enter in one call was
+  // reproducibly swallowed by Claude's TUI paste-detection (kobo-369/371
+  // evidence: identical failure on a fresh cold pane AND the same pane 20s
+  // later — session age was never the variable). Pin the fixed shape.
+  test("company-fleet: injectCommand splits text/Enter into separate send-keys calls with a settle delay (kobo-371)", () => {
+    const fleetSrc = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/company/company-fleet.ts"),
+      "utf8",
+    );
+    expect(fleetSrc).toContain("INJECT_SETTLE_MS");
+    const injectFn = fleetSrc.slice(fleetSrc.indexOf("async function injectCommand"), fleetSrc.indexOf("export interface CompanyFleetDeps"));
+    expect(injectFn).toContain("C-u");
+    expect(injectFn).toContain("await sleepFn(INJECT_SETTLE_MS)"); // settle delay BETWEEN text and Enter
+    // the text-typing call must NOT carry Enter combined — the exact bug reproduced (kobo-369/371)
+    expect(injectFn).toContain("await hostExecFn(`tmux send-keys -t ${shellArg(target)} ${shellArg(command)}`)");
+    expect(injectFn).toContain("await hostExecFn(`tmux send-keys -t ${shellArg(target)} Enter`)"); // Enter sent as its own separate call
+  });
+
   // kobo-363: departments → teams vocab rename. add-team/rm-team are canonical;
   // add-dept/rm-dept kept as aliases (same underlying logic) during migration.
   test("company keeps add-dept/rm-dept as aliases of add-team/rm-team (kobo-363)", () => {

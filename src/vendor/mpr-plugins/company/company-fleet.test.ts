@@ -79,6 +79,9 @@ function makeDeps(opts: {
       if (created) sessions = [...sessions, created];
       return "ok";
     },
+    // kobo-371: real INJECT_SETTLE_MS (450ms) would slow every repair test —
+    // record the call (so ordering is still provable) but resolve instantly.
+    sleepFn: async (ms: number) => { calls.push(`sleep:${ms}`); },
   };
   return { deps, calls };
 }
@@ -159,6 +162,33 @@ describe("companyUp (kobo-362)", () => {
     await companyUp("kobo", (l) => lines.push(l), deps, true); // verbose=true — regression-pin (kobo-368)
     expect(lines.some((l) => l.includes("repairing"))).toBe(true);
     expect(calls.some((c) => c.includes("send-keys -t '%1'") && c.includes("maw company crew spawn kobo"))).toBe(true);
+  });
+
+  // kobo-371 FAIL-ON-REVERT: text and Enter must be SEPARATE send-keys calls
+  // with a settle delay between them. Design-first evidence (kobo-369/371):
+  // combined `send-keys text Enter` (one call) reproducibly failed to submit
+  // to Claude's TUI (paste-detection swallows Enter) — confirmed on BOTH a
+  // fresh cold-started pane AND the same pane 20s later (session age is not
+  // the variable). This test pins the fixed CODE SHAPE (the reviewable,
+  // testable part) — it can't unit-test the real submit-timing behavior
+  // itself without a live tmux/claude process (honest limit, not silent).
+  test("kobo-371: inject text and Enter are SEPARATE send-keys calls with a settle delay between them", async () => {
+    saveCompany({ name: "kobo", teams: { core: { members: [{ oracle: "patchwork", role: "dev" }] } } });
+    const { deps, calls } = makeDeps({
+      sessions: fakeSessions({ "13-patchwork": ["main"] }),
+      panesBySession: { "13-patchwork": [{ paneId: "%1", role: "🧭 coord" }] },
+    });
+    await companyUp("kobo", () => {}, deps);
+    const relevant = calls.filter((c) => c.includes("send-keys -t '%1'") || c.startsWith("sleep:"));
+    // exact order: clear-line, TEXT ONLY (no "Enter" in this call), settle delay, THEN a separate Enter call
+    expect(relevant).toEqual([
+      "tmux send-keys -t '%1' C-u",
+      "tmux send-keys -t '%1' 'maw company crew spawn kobo'",
+      "sleep:450",
+      "tmux send-keys -t '%1' Enter",
+    ]);
+    // the text call must NOT carry Enter combined (the exact bug kobo-369/371 reproduced)
+    expect(calls.find((c) => c.includes("maw company crew spawn kobo"))).not.toContain("Enter");
   });
 
   test("crew-front member with NO session → session-tier cold-start via cmdWake, then repairs", async () => {

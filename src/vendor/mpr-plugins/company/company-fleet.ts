@@ -38,6 +38,13 @@
  * UNLESS it's the GLOBAL invoker's own pane (the one universal exception —
  * `down` must never kill the pane that ran the command). Refuses on a busy
  * member by default (checkBusyGuard) — `--force` to hard-kill anyway.
+ *
+ * kobo-371: a cold-start `up` produced messy layouts (extra windows, missing
+ * role-tags, reviewer boot-fail) — design-first investigation (kobo-369/371)
+ * FALSIFIED the initial "cold boot timing" theory (a 20s-settled pane failed
+ * identically) and found the real mechanism: `injectCommand`'s text+Enter
+ * arriving as one fast burst is read as a paste by Claude's TUI, which
+ * suppresses Enter-as-submit until the input settles. See INJECT_SETTLE_MS.
  */
 import { hostExec, listSessions, findWindow, checkBusyGuard, cmdWake, type Session } from "maw-js/sdk";
 import { loadCompany, type Company } from "./company-helpers";
@@ -102,6 +109,44 @@ function sessionNameOf(resolved: string): string {
   return i === -1 ? resolved : resolved.slice(0, i);
 }
 
+/**
+ * kobo-371: settle delay between typing an injected command and pressing
+ * Enter. Claude Code's TUI treats a fast back-to-back text+Enter burst (as
+ * `tmux send-keys` naturally delivers with no gap) as a paste — Enter is
+ * suppressed as "submit" while a paste is in progress, requiring the input to
+ * settle first. Empirically verified (kobo-369/371 repro): text+Enter
+ * combined in ONE send-keys call, or Enter sent immediately after a separate
+ * call, sat unsubmitted both on a fresh cold-started pane AND on the SAME pane
+ * 20s later (session age is not the variable — the gap before Enter is). A
+ * 300ms gap was sufficient in repeated testing; 450ms gives margin.
+ *
+ * ⚠️ CEILING (heuristic, not a real readiness signal): this is a fixed delay,
+ * not a poll for actual submission — a sufficiently slow/loaded machine, or a
+ * future Claude Code TUI change to the paste-detection window, could still
+ * race this. The structural fix (poll capture-pane for genuine submit
+ * confirmation, or avoid chat-injection entirely in favor of a deterministic
+ * execution path) is a separate follow-up card — this delay is the pragmatic,
+ * evidenced fix for the reproduced failure mode, not a guarantee.
+ */
+const INJECT_SETTLE_MS = 450;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Inject a command into a live tmux pane and submit it — kobo-371: text and
+ * Enter MUST be two separate send-keys calls with a settle delay between
+ * them (see INJECT_SETTLE_MS), or Claude's TUI paste-detection swallows the
+ * Enter and the command sits typed-but-unsubmitted forever.
+ */
+async function injectCommand(hostExecFn: typeof hostExec, target: string, command: string, sleepFn: (ms: number) => Promise<void> = sleep): Promise<void> {
+  await hostExecFn(`tmux send-keys -t ${shellArg(target)} C-u`);
+  await hostExecFn(`tmux send-keys -t ${shellArg(target)} ${shellArg(command)}`);
+  await sleepFn(INJECT_SETTLE_MS);
+  await hostExecFn(`tmux send-keys -t ${shellArg(target)} Enter`);
+}
+
 export interface CompanyFleetDeps {
   hostExecFn?: typeof hostExec;
   listSessionsFn?: typeof listSessions;
@@ -109,6 +154,7 @@ export interface CompanyFleetDeps {
   checkBusyGuardFn?: typeof checkBusyGuard;
   teardownCrewWindowsFn?: typeof teardownCrewWindows;
   cmdWakeFn?: typeof cmdWake;
+  sleepFn?: (ms: number) => Promise<void>;
 }
 
 /** Resolve an oracle's home session via the shared findWindow machinery — null on no-match or ambiguity (fail-safe, never guess). */
@@ -134,6 +180,7 @@ export async function companyUp(
   const listSessionsFn = deps.listSessionsFn ?? listSessions;
   const findWindowFn = deps.findWindowFn ?? findWindow;
   const cmdWakeFn = deps.cmdWakeFn ?? cmdWake;
+  const sleepFn = deps.sleepFn ?? sleep;
 
   // kobo-368 compact-ack sweep: `emit` only reaches the caller when --verbose
   // reproduces the pre-368 per-member log stream byte-for-byte. Default
@@ -194,8 +241,7 @@ export async function companyUp(
       const leadInjectTarget = findRolePane(panes, "👤") ?? resolved;
       log(`${member.oracle}: head-cell incomplete/asleep — repairing (maw company head spawn)`);
       try {
-        await hostExecFn(`tmux send-keys -t ${shellArg(leadInjectTarget)} C-u`);
-        await hostExecFn(`tmux send-keys -t ${shellArg(leadInjectTarget)} ${shellArg(`maw company head spawn ${company}`)} Enter`);
+        await injectCommand(hostExecFn, leadInjectTarget, `maw company head spawn ${company}`, sleepFn);
         log(`${member.oracle}: repair triggered — re-run 'up' to confirm`);
         repaired++;
       } catch (e: any) {
@@ -215,8 +261,7 @@ export async function companyUp(
     const injectTarget = findRolePane(panes, "🧭") ?? resolved;
     log(`${member.oracle}: crew incomplete/asleep — repairing (maw company crew spawn)`);
     try {
-      await hostExecFn(`tmux send-keys -t ${shellArg(injectTarget)} C-u`);
-      await hostExecFn(`tmux send-keys -t ${shellArg(injectTarget)} ${shellArg(`maw company crew spawn ${company}`)} Enter`);
+      await injectCommand(hostExecFn, injectTarget, `maw company crew spawn ${company}`, sleepFn);
       log(`${member.oracle}: repair triggered — re-run 'up' to confirm`);
       repaired++;
     } catch (e: any) {
