@@ -1,13 +1,14 @@
 import { execSync } from "child_process";
 import {
   existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync,
-  lstatSync, unlinkSync, symlinkSync, openSync, readSync, closeSync, realpathSync,
+  lstatSync, unlinkSync, openSync, readSync, closeSync, realpathSync,
   renameSync, rmSync,
 } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { getVersionString } from "./cmd-version";
 import { ghqFindSync } from "../core/ghq";
+import { linkOrCopy } from "./link-or-copy";
 import { withUpdateLock } from "./update-lock";
 import { mawDataPath } from "../core/xdg";
 
@@ -71,7 +72,7 @@ export function linkBundledPluginRoots(pluginDir: string, roots: string[]): numb
       try {
         if (lstatSync(dest).isSymbolicLink() && !existsSync(dest)) unlinkSync(dest);
       } catch {}
-      if (!existsSync(dest)) { symlinkSync(src, dest); refreshed++; }
+      if (!existsSync(dest)) { linkOrCopy(src, dest); refreshed++; }
     }
   }
   return refreshed;
@@ -90,7 +91,7 @@ export function healBrokenPluginSymlinks(pluginDir: string, roots: string[]): { 
         .find((candidate) => existsSync(candidate) && isPluginSourceDir(candidate));
       unlinkSync(p);
       if (replacement) {
-        symlinkSync(replacement, p);
+        linkOrCopy(replacement, p);
         healed++;
       } else {
         pruned++;
