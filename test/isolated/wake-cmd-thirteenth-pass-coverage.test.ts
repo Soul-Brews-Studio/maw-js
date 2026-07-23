@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { handleTopLevelError } from "../../src/cli/error-handler";
 import { UserError } from "../../src/core/util/user-error";
 
+// kobo-376: skip the real settle delay between send-keys text/Enter in tests
+process.env.WAKE_INJECT_SETTLE_MS = "0";
+
 type WindowInfo = { name: string };
 type WorktreeInfo = { name: string; path: string };
 
@@ -856,7 +859,15 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
       target: "54-neo:neo-oracle",
       text: `cd ${repoPath} && codex --agent neo-oracle`,
     }]);
-    expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-oracle", "plain 'prompt'", "Enter"]);
+    // kobo-376: split text + Enter into 2 send-keys calls (paste-residual fix, mirrors kobo-371)
+    expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-oracle", "plain 'prompt'"]);
+    expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-oracle", "Enter"]);
+    const textIdx = respawnCalls.findIndex((c) => c[3] === "plain 'prompt'");
+    const enterIdx = respawnCalls.findIndex((c) => c[3] === "Enter");
+    expect(textIdx).toBeGreaterThanOrEqual(0);
+    expect(enterIdx).toBeGreaterThan(textIdx); // Enter must be a LATER, separate call — not combined
+    // fail-on-revert: a combined single-call burst must NEVER reappear
+    expect(respawnCalls).not.toContainEqual(["send-keys", "-t", "54-neo:neo-oracle", "plain 'prompt'", "Enter"]);
   });
 
   test("existing live windows offer attach and continue when tty answer is unavailable", async () => {
@@ -907,7 +918,9 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
           text: "cd /tmp/neo-oracle.wt-2-alpha && codex --agent neo-alpha",
         },
       ]);
-      expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-alpha", "selected", "Enter"]);
+      // kobo-376: split text + Enter (paste-residual fix, mirrors kobo-371)
+      expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-alpha", "selected"]);
+      expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-alpha", "Enter"]);
     } finally {
       _wtPicker.isStdoutTTY = originalIsTTY;
       _wtPicker.readChoice = originalReadChoice;
@@ -1001,7 +1014,9 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
         text: "cd /tmp/neo-oracle.wt-1-alpha && codex --agent neo-alpha",
       },
     ]);
-    expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-alpha", "ship now", "Enter"]);
+    // kobo-376: split text + Enter (paste-residual fix, mirrors kobo-371)
+    expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-alpha", "ship now"]);
+    expect(respawnCalls).toContainEqual(["send-keys", "-t", "54-neo:neo-alpha", "Enter"]);
     expect(attachCalls).toEqual(["54-neo"]);
     expect(splitCalls).toEqual(["54-neo:neo-alpha"]);
     expect(openCalls).toEqual(["54-neo:neo-alpha"]);

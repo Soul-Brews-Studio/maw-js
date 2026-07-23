@@ -711,10 +711,27 @@ function isClaudeEngine(engine: string | undefined): boolean {
   return isClaudeLikeEngine(engine, config);
 }
 
+// kobo-373/376: `tmux send-keys -t target prompt Enter` in ONE call is the same
+// paste-residual class as kobo-371 — Claude Code's TUI reads a fast back-to-back
+// text+Enter burst as a paste and suppresses Enter-as-submit. Mirrors kobo-371's
+// injectCommand fix (company-fleet.ts): text and Enter are two separate `run`
+// calls with a settle delay between them.
+//
+// ⚠️ CEILING (heuristic, not a real readiness signal, same caveat as kobo-371):
+// a fixed delay is not a poll for actual submission — a slow/loaded machine, or
+// a future TUI paste-detection change, could still race this.
+const WAKE_INJECT_SETTLE_MS_DEFAULT = 450;
+function wakeInjectSettleMs(): number {
+  const override = Number(process.env.WAKE_INJECT_SETTLE_MS);
+  return Number.isFinite(override) && override >= 0 ? override : WAKE_INJECT_SETTLE_MS_DEFAULT;
+}
+
 async function sendPromptViaTmux(target: string, prompt: string): Promise<void> {
   const runner = (tmux as unknown as { run?: (subcommand: string, ...args: Array<string | number>) => Promise<string> }).run;
   if (typeof runner === "function") {
-    await runner.call(tmux, "send-keys", "-t", target, prompt, "Enter");
+    await runner.call(tmux, "send-keys", "-t", target, prompt);
+    await new Promise((r) => setTimeout(r, wakeInjectSettleMs()));
+    await runner.call(tmux, "send-keys", "-t", target, "Enter");
     return;
   }
   await tmux.sendText(target, prompt);
