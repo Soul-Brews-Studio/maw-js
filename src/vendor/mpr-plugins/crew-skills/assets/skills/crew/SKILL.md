@@ -144,13 +144,7 @@ raw pane **ไม่มี auto-idle-notif + ไม่เริ่มงาน�
 
 → ไม่มีช่วง idle รอ manual. **fallback (ready-ping หาย):** front เช็ค `maw ls -v` / `maw peek` — pane boot แล้วยังไม่ได้ hey → **ยิง kick เอง** (อย่ารอ ready-ping อย่างเดียว, §8.11).
 
-- **Layout (v2 2-window · kobo-344)**: **W0/page1** (brains) = front ซ้าย ~45% เต็มสูง, conductor+reviewer stack แนวนอนขวา (3 opus panes). **W1/page2** (crew-workers) = worker sonnet pane เต็มหน้าต่าง. รัน layout เฉพาะ W0 หลัง conductor+reviewer ครบ (W1 pane เดียว ไม่ต้องจัด):
-  ```bash
-  tmux swap-pane -s "$FRONT" -t "$(tmux display-message -p '#{session_name}:#{window_index}.0')" -d 2>/dev/null  # front → W0 main slot (.0) ถ้ายังไม่ใช่
-  tmux set-window-option main-pane-width 45%
-  tmux select-layout main-vertical   # W0 only — front left, conductor+reviewer right
-  ```
-  ⚠️ swap เปลี่ยน index แต่ **pane-id นิ่ง** → roster ไม่พัง (resolve index สดจาก pane-id §3). worker ใน W1 = address `session:W1.pane` (window index ต่างจาก W0 — resolve สดจาก pane-id §3, ข้าม-window อัตโนมัติ)
+- **Layout (W0 brains)**: geometry lives in `spawn.ts` `crewSpawn()` (kobo-358 binary extraction, kobo-375 fix) — front left 50% full-height, conductor/reviewer stacked right 25/25. worker ใน W1 = address `session:W1.pane` (window index ต่างจาก W0 — resolve สดจาก pane-id §3, ข้าม-window อัตโนมัติ)
 - **Pane labels** — ขอบ pane บอกบท + task. ใช้ `@role`/`@task` (⚠️ ห้าม `select-pane -T` — Claude Code ยิง title ทับ). @role **load-bearing** (seat-resume + card-gate อ่าน) → HARDEN (kobo-174) assert แล้ว re-set:
   ```bash
   for pr in "$COND:🎼 conductor" "$WORKER:⚒ worker" "$REV:🔎 reviewer"; do
