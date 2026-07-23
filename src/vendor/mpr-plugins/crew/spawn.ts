@@ -150,16 +150,22 @@ export async function crewSpawn(company: string | undefined, emit: (line: string
   const cwd = process.cwd();
   const settingsPath = join(resolveHome(), ".claude", "crew-worker-settings.json");
 
+  // W0 brains layout (kobo-375): front LEFT 50% full-height, conductor/reviewer
+  // stacked RIGHT 25/25. conductor splits off front (-h -p 50 → front|conductor
+  // 50/50), then reviewer splits off conductor (-v -p 50, of the right half →
+  // conductor top-25/reviewer bottom-25 of the whole). -p 50 explicit (not
+  // relying on tmux's implicit default) so the ratio can't silently drift.
   // conductor (.1) — no --settings/--model (brains, no Stop hook — mirrors head conductor)
   const condCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_STATE_DIR=${shellArg(stateDir)} claude --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"`;
-  const conductor = (await hostExec(`tmux split-window -h -t ${shellArg(front)} -P -F '#{pane_id}' ${shellArg(condCmd)}`)).trim();
+  const conductor = (await hostExec(`tmux split-window -h -p 50 -t ${shellArg(front)} -P -F '#{pane_id}' ${shellArg(condCmd)}`)).trim();
 
   const workerResult = await spawnWorkerSelfHeal({ cwd, company, stateDir, coordPane: conductor, settingsPath, front, emit });
   if (!workerResult.ok || !workerResult.paneId) return { ok: false, error: workerResult.error ?? "worker spawn failed" };
 
-  // reviewer (.3) — WITH --settings (Stop hook), coord=front
+  // reviewer (.3) — WITH --settings (Stop hook), coord=front. split off CONDUCTOR
+  // (not front) so it lands top/bottom on the right half instead of a 3rd column.
   const revCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_ROLE=reviewer CREW_COORD_PANE=${shellArg(front)} CREW_STATE_DIR=${shellArg(stateDir)} claude --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"`;
-  const reviewer = (await hostExec(`tmux split-window -h -t ${shellArg(front)} -P -F '#{pane_id}' ${shellArg(revCmd)}`)).trim();
+  const reviewer = (await hostExec(`tmux split-window -v -p 50 -t ${shellArg(conductor)} -P -F '#{pane_id}' ${shellArg(revCmd)}`)).trim();
 
   await hostExec(`tmux set-option -p -t ${shellArg(conductor)} @role ${shellArg("🎼 conductor")}`);
   await hostExec(`tmux set-option -p -t ${shellArg(workerResult.paneId)} @role ${shellArg("⚒ worker")}`);

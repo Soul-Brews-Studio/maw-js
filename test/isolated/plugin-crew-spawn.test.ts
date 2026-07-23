@@ -197,6 +197,21 @@ describe("crewSpawn (kobo-358)", () => {
     expect(commands.some(c => c.includes("kill-window"))).toBe(false);
   });
 
+  test("W0 layout: conductor splits off front (-h), reviewer splits off CONDUCTOR (-v) — front left-50 full-height, conductor/reviewer stacked right 25/25 (kobo-375)", async () => {
+    paneListForSession = "%front|||🧭 coord|||main\n";
+    bootTranscript["%w1"] = ["", "claude code — bypass permissions on"];
+    const r = await crewSpawn("kobo", emit);
+    expect(r.ok).toBe(true);
+    const splitCalls = commands.filter(c => c.includes("tmux split-window"));
+    expect(splitCalls.length).toBe(2);
+    // conductor: -h -p 50 off front (front|conductor 50/50, explicit ratio not implicit default)
+    expect(splitCalls[0]).toContain("split-window -h -p 50 -t '%front'");
+    // reviewer: -v -p 50 off CONDUCTOR (not front) — stacks top/bottom on the right half,
+    // not a 3rd column. conductor's returned pane-id is the first split-window result (%p1).
+    expect(splitCalls[1]).toContain("split-window -v -p 50 -t '%p1'");
+    expect(splitCalls[1]).not.toContain("split-window -h -t '%front'");
+  });
+
   test("boot-fail → kills orphan window, retries with plain sonnet, poll-verifies retry", async () => {
     paneListForSession = "%front|||🧭 coord|||main\n";
     bootTranscript["%w1"] = ["not available for your account"]; // first (sonnet-5) attempt fails fast

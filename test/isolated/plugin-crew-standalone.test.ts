@@ -53,6 +53,20 @@ describe("crew command plugin standalone boundary", () => {
     expect(spawnSrc).toContain("frontAddr");
   });
 
+  // kobo-375 — W0 brains layout fix: the old recipe split BOTH conductor and
+  // reviewer off `front` (-h twice) which even-splits into 3 columns (25/50/25,
+  // the reported bug). The fix targets reviewer's split at CONDUCTOR (not
+  // front) with -v, so it stacks top/bottom on the right half instead of
+  // opening a 3rd column. -p 50 explicit on both splits (not tmux's implicit
+  // default) so the ratio can't silently drift on a future edit.
+  test("spawn.ts: W0 layout — conductor splits -h off front, reviewer splits -v off CONDUCTOR (not front), both -p 50 explicit", () => {
+    const spawnSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/crew/spawn.ts"), "utf8");
+    expect(spawnSrc).toContain("split-window -h -p 50 -t ${shellArg(front)}");
+    expect(spawnSrc).toContain("split-window -v -p 50 -t ${shellArg(conductor)}");
+    // reviewer must NOT split off front (that's the old 3-column bug)
+    expect(spawnSrc).not.toContain("split-window -h -p 50 -t ${shellArg(front)} -P -F '#{pane_id}' ${shellArg(revCmd)}");
+  });
+
   test("teardown.ts: session-scoped (list-panes -s), never server-wide -a — protects other oracles' live crew cells", () => {
     const teardownSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/crew/teardown.ts"), "utf8");
     expect(teardownSrc).toContain("tmux list-panes -s -t");
