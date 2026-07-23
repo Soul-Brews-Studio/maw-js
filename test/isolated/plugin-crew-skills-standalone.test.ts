@@ -308,10 +308,10 @@ describe("crew-skills global asset contract", () => {
   // edit can't silently drop the model flag (worker back to opus) or the 2-window split. The
   // worker MUST keep every deadlock-critical invariant (--settings, CREW_ROLE=worker,
   // CREW_COORD_PANE, worker-contract.md) — asserted by the kobo-319 test above.
-  test("crew v2: worker spawns sonnet[1m] via self-heal retry in a new-window (W1), brains stay in W0 (kobo-344/352)", () => {
+  test("crew v2: worker spawns claude-sonnet-5 via self-heal retry in a new-window (W1), brains stay in W0 (kobo-344/352/376)", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    // self-heal: try sonnet[1m] first; retry sonnet on fail; variable-driven spawn (kobo-352)
-    expect(skill).toContain('"sonnet[1m]"');                        // initial spawn target (1M context)
+    // self-heal: try claude-sonnet-5 first; retry sonnet on fail; variable-driven spawn (kobo-352/376)
+    expect(skill).toContain('"claude-sonnet-5"');                   // initial spawn target
     expect(skill).toContain("not available for your account");      // fail-detect trigger
     expect(skill).toContain("_WORKER_MODEL");                       // variable-driven spawn, not hardcoded
     // in a SEPARATE window (W1/page2), not another split in W0
@@ -320,19 +320,19 @@ describe("crew-skills global asset contract", () => {
     expect(skill).toMatch(/WORKER=\$\(tmux new-window/);
   });
 
-  // kobo-352 self-heal direction: boot sonnet[1m] → poll → fail → kill orphan → retry sonnet → poll-verify.
+  // kobo-352/376 self-heal direction: boot claude-sonnet-5 → poll → fail → kill orphan → retry sonnet → poll-verify.
   // Can't runtime-test the retry-path on Tony's entitled account; pins the code-review-verifiable path.
-  test("crew self-heal: boot-fail kills orphan, retries sonnet, poll-verifies retry (kobo-352)", () => {
+  test("crew self-heal: boot-fail kills orphan, retries sonnet, poll-verifies retry (kobo-352/376)", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
     const healStart = skill.indexOf("self-heal spawn (kobo-352)");
     const cacheEnd = skill.indexOf('echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"');
     const healBlock = skill.slice(healStart, cacheEnd + 60);
-    // initial spawn uses sonnet[1m] (1M path attempted first)
-    expect(healBlock).toContain('"sonnet[1m]"');
+    // initial spawn uses claude-sonnet-5 (kobo-376: [1m] dropped, account-gated → hard API error)
+    expect(healBlock).toContain('"claude-sonnet-5"');
     // poll-detect: CC TUI boot often >3s
     expect(healBlock).toMatch(/for _i in/);
-    // (1M context) is the positive-proof trigger
-    expect(healBlock).toContain('(1M context)');
+    // "bypass permissions" footer is the positive-proof trigger (model-agnostic, kobo-376)
+    expect(healBlock).toContain('bypass permissions');
     // retry trigger: boot-fail guard
     expect(healBlock).toMatch(/_BOOTED.*eq 0/);
     // no-orphan: kill the failed pane before spawning retry
