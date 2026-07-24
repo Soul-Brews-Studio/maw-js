@@ -71,7 +71,10 @@ describe("queue-store default coverage", () => {
       sender: "old",
       target: "new",
       message: "still pending",
-      sentAt: "2026-05-20T00:00:00.000Z",
+      // Relative to now so the record stays within TTL — a hardcoded past
+      // date silently expires once wall-clock passes sentAt + TTL_MS, which
+      // turned this into a time-bomb that started failing CI after 30 days.
+      sentAt: new Date(Date.now() - 60_000).toISOString(),
       status: "pending",
     }));
 
