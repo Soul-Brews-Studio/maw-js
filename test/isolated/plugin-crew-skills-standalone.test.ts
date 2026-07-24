@@ -372,6 +372,19 @@ describe("crew-skills global asset contract", () => {
     expect(healBlock).toContain('double-fail');
   });
 
+  // kobo-381: §1 COND/REV spawn omitted --model entirely, silently inheriting the CLI
+  // default (sonnet) instead of the W0-brains design (conductor/reviewer = opus). Mirrors
+  // the spawn.ts binary-path fix (kobo-381) — this is the standalone-recipe path
+  // (crew-skills SKILL.md) other companies dogfood without the binary. front is the
+  // invoker's own pane, never spawned here — must stay untouched (no opus claim = board-lie).
+  test("crew §1 conductor + reviewer spawn with --model opus (W0-brains, kobo-381)", () => {
+    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
+    const condLine = skill.split("\n").find((l) => l.includes("conductor-contract.md)") && l.includes("claude "));
+    const revLine = skill.split("\n").find((l) => l.includes("reviewer-contract.md)") && l.includes("claude "));
+    expect(condLine).toContain("claude --model opus --dangerously-skip-permissions");
+    expect(revLine).toContain("claude --model opus --settings");
+  });
+
   // kobo-355: §5 worker-N self-heal parity — mirrors §1 (poll-verify + kill+retry + double-fail hey)
   test("crew §5 worker-N self-heal parity: poll-verify + retry + no-orphan + resolved-addr hey (kobo-355)", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
