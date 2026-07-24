@@ -83,6 +83,7 @@ export function roomHtml(): string {
     .bubble .pill { font-size:11px; padding:1px 8px; border-radius:var(--r-pill); background:var(--muted); color:var(--dim); }
     .bubble .ts { margin-left:auto; color:var(--dim); font-size:11px; }
     .bubble .body { white-space:pre-wrap; word-break:break-word; }
+    .bubble .body a { color:var(--human); text-decoration:underline; }
     .bubble .tag { font-size:11px; color:var(--teammate); }
     /* you = right + sky · lead = left + green · teammate = left + violet */
     .bubble.you { align-self:flex-end; background:rgba(56,189,248,.10); border-color:rgba(56,189,248,.35); }
@@ -140,6 +141,7 @@ export function roomHtml(): string {
         <span class="spacer"></span>
         <button id="inviteBtn" class="act" type="button">+ teammate</button>
         <button id="mergeBtn" class="act" type="button">merge</button>
+        <button id="closeBtn" class="act" type="button">✕ close</button>
         <button id="distillBtn" class="act accent" type="button">distill ▸</button>
       </div>
       <div id="banner" class="banner" style="display:none;"></div>
@@ -164,6 +166,7 @@ let roomId = q.get('room') || '';
 let lead = '';
 let rooms = [];
 let mergeMode = false;
+let roomStatus = 'open';
 
 function syncUrl() {
   const u = new URL(location.href);
@@ -249,12 +252,44 @@ function roleOf(from) {
 function pillText(role) { return role === 'you' ? 'you' : (role === 'lead' ? 'lead' : 'teammate'); }
 function fmtTs(ts) { if (!ts) return ''; const d = new Date(ts); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
 
+// kobo-380 — auto-linkify URLs in message bodies. XSS-safe by construction: text is
+// split into plain segments (appended as text nodes, never raw markup) and URL segments
+// (appended as <a> elements built with createElement + textContent, href only set after
+// isSafeUrl allowlists the protocol). A javascript:/data:/vbscript: URL — or any raw
+// script/HTML in the message — is never parsed as markup, so it renders as inert text.
+const URL_RE = /https?:\\/\\/[^\\s<>"']+/g;
+function isSafeUrl(url) {
+  try { const u = new URL(url); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch { return false; }
+}
+function linkify(container, text) {
+  URL_RE.lastIndex = 0;
+  let last = 0, m;
+  while ((m = URL_RE.exec(text))) {
+    if (m.index > last) container.appendChild(document.createTextNode(text.slice(last, m.index)));
+    let url = m[0], trail = '';
+    while (url && /[),.;:!?\\]'"]$/.test(url)) { trail = url.slice(-1) + trail; url = url.slice(0, -1); }
+    if (url && isSafeUrl(url)) {
+      const a = document.createElement('a');
+      a.href = url; a.textContent = url; a.target = '_blank'; a.rel = 'noopener noreferrer nofollow';
+      container.appendChild(a);
+    } else {
+      container.appendChild(document.createTextNode(url));
+    }
+    if (trail) container.appendChild(document.createTextNode(trail));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) container.appendChild(document.createTextNode(text.slice(last)));
+}
+
 async function loadThread() {
   if (!company || !roomId) return;
   const { status, body } = await getJson('/api/room/thread?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(roomId));
   const thread = $('thread');
   if (status === 404 || !body.ok || !body.room) { thread.replaceChildren(el('div', 'thread-empty', 'ห้องนี้ยังไม่ถูกเปิด')); return; }
   const room = body.room;
+  roomStatus = room.status || 'open';
+  updateRoomControls();
   $('hTopic').textContent = '# ' + (room.topic || room.id);
   const inRoom = new Set(room.messages.map((m) => m.from).filter((f) => f && roleOf(f) !== 'you'));
   $('hSub').textContent = 'with ' + (lead || '—') + ' (lead) · ' + inRoom.size + ' in room';
@@ -280,7 +315,9 @@ async function loadThread() {
     head.appendChild(el('span', 'ts mono', fmtTs(m.ts)));
     b.appendChild(head);
     if (role === 'teammate') b.appendChild(el('div', 'tag', '🔎 pulled in'));
-    b.appendChild(el('div', 'body', m.text || ''));
+    const bodyEl = el('div', 'body');
+    linkify(bodyEl, m.text || '');
+    b.appendChild(bodyEl);
     thread.appendChild(b);
   }
   if (stick) thread.scrollTop = thread.scrollHeight;
@@ -348,6 +385,25 @@ async function invite() {
     setStatus(oracle.trim() + ' pulled in — notified'); loadThread();
   } catch (err) { setStatus('invite failed: ' + (err && err.message ? err.message : err), true); }
 }
+// kobo-379 — close/reopen affordance: ✕ closes an open room (reject further replies,
+// kobo-296 already enforces this server-side); an already-closed/merged room shows
+// "↺ reopen" instead, which re-enables the composer.
+function updateRoomControls() {
+  const btn = $('closeBtn');
+  const open = roomStatus === 'open';
+  btn.textContent = open ? '✕ close' : '↺ reopen';
+  $('text').disabled = !open;
+  $('send').disabled = !open;
+}
+async function toggleRoomOpen() {
+  if (!roomId) return;
+  const wasOpen = roomStatus === 'open';
+  try {
+    await post(wasOpen ? '/api/room/close' : '/api/room/reopen', { company, room: roomId });
+    setStatus(wasOpen ? 'ห้องถูกปิดแล้ว' : 'เปิดห้องอีกครั้งแล้ว');
+    await loadRooms(); loadThread();
+  } catch (err) { setStatus((wasOpen ? 'close' : 'reopen') + ' failed: ' + (err && err.message ? err.message : err), true); }
+}
 function enterMerge() {
   if (!roomId) { setStatus('เลือก target topic (ห้องปัจจุบัน) ก่อน merge', true); return; }
   mergeMode = true; $('mergebar').style.display = ''; $('topicsHead').textContent = 'Merge into: ' + roomId; renderRoomList();
@@ -373,6 +429,7 @@ $('back').addEventListener('click', () => { $('app').classList.remove('showchat'
 $('distillBtn').addEventListener('click', distill);
 $('inviteBtn').addEventListener('click', invite);
 $('mergeBtn').addEventListener('click', enterMerge);
+$('closeBtn').addEventListener('click', toggleRoomOpen);
 $('mergeConfirm').addEventListener('click', confirmMerge);
 $('mergeCancel').addEventListener('click', cancelMerge);
 
