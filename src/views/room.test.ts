@@ -62,6 +62,15 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("<!doctype html>");
   });
 
+  test("kobo-379: close/reopen affordance in the chat header, toggles the composer", () => {
+    expect(html).toContain('id="closeBtn"');
+    expect(html).toContain("/api/room/close");
+    expect(html).toContain("/api/room/reopen");
+    expect(html).toContain("function toggleRoomOpen");
+    expect(html).toContain("function updateRoomControls");
+    expect(html).toContain("$('text').disabled = !open"); // closed room disables reply
+  });
+
   test("room data routes stay auth-protected (loopback bypasses, LAN must auth) — Rule 6", () => {
     expect(isProtected("/rooms", "GET")).toBe(true); // kobo-258: topic list is company-internal
     expect(isProtected("/room/thread", "GET")).toBe(true); // private conversation (kobo-241)

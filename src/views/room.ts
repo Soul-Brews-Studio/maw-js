@@ -140,6 +140,7 @@ export function roomHtml(): string {
         <span class="spacer"></span>
         <button id="inviteBtn" class="act" type="button">+ teammate</button>
         <button id="mergeBtn" class="act" type="button">merge</button>
+        <button id="closeBtn" class="act" type="button">✕ close</button>
         <button id="distillBtn" class="act accent" type="button">distill ▸</button>
       </div>
       <div id="banner" class="banner" style="display:none;"></div>
@@ -164,6 +165,7 @@ let roomId = q.get('room') || '';
 let lead = '';
 let rooms = [];
 let mergeMode = false;
+let roomStatus = 'open';
 
 function syncUrl() {
   const u = new URL(location.href);
@@ -255,6 +257,8 @@ async function loadThread() {
   const thread = $('thread');
   if (status === 404 || !body.ok || !body.room) { thread.replaceChildren(el('div', 'thread-empty', 'ห้องนี้ยังไม่ถูกเปิด')); return; }
   const room = body.room;
+  roomStatus = room.status || 'open';
+  updateRoomControls();
   $('hTopic').textContent = '# ' + (room.topic || room.id);
   const inRoom = new Set(room.messages.map((m) => m.from).filter((f) => f && roleOf(f) !== 'you'));
   $('hSub').textContent = 'with ' + (lead || '—') + ' (lead) · ' + inRoom.size + ' in room';
@@ -348,6 +352,25 @@ async function invite() {
     setStatus(oracle.trim() + ' pulled in — notified'); loadThread();
   } catch (err) { setStatus('invite failed: ' + (err && err.message ? err.message : err), true); }
 }
+// kobo-379 — close/reopen affordance: ✕ closes an open room (reject further replies,
+// kobo-296 already enforces this server-side); an already-closed/merged room shows
+// "↺ reopen" instead, which re-enables the composer.
+function updateRoomControls() {
+  const btn = $('closeBtn');
+  const open = roomStatus === 'open';
+  btn.textContent = open ? '✕ close' : '↺ reopen';
+  $('text').disabled = !open;
+  $('send').disabled = !open;
+}
+async function toggleRoomOpen() {
+  if (!roomId) return;
+  const wasOpen = roomStatus === 'open';
+  try {
+    await post(wasOpen ? '/api/room/close' : '/api/room/reopen', { company, room: roomId });
+    setStatus(wasOpen ? 'ห้องถูกปิดแล้ว' : 'เปิดห้องอีกครั้งแล้ว');
+    await loadRooms(); loadThread();
+  } catch (err) { setStatus((wasOpen ? 'close' : 'reopen') + ' failed: ' + (err && err.message ? err.message : err), true); }
+}
 function enterMerge() {
   if (!roomId) { setStatus('เลือก target topic (ห้องปัจจุบัน) ก่อน merge', true); return; }
   mergeMode = true; $('mergebar').style.display = ''; $('topicsHead').textContent = 'Merge into: ' + roomId; renderRoomList();
@@ -373,6 +396,7 @@ $('back').addEventListener('click', () => { $('app').classList.remove('showchat'
 $('distillBtn').addEventListener('click', distill);
 $('inviteBtn').addEventListener('click', invite);
 $('mergeBtn').addEventListener('click', enterMerge);
+$('closeBtn').addEventListener('click', toggleRoomOpen);
 $('mergeConfirm').addEventListener('click', confirmMerge);
 $('mergeCancel').addEventListener('click', cancelMerge);
 
