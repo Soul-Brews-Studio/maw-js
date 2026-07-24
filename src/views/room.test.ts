@@ -71,6 +71,56 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("$('text').disabled = !open"); // closed room disables reply
   });
 
+  // kobo-380 — auto-linkify: extract the linkify/isSafeUrl block straight out of the
+  // template literal and run it against a minimal document stub (createElement/
+  // createTextNode only) so the XSS-safety claim is BEHAVIORALLY proven, not just
+  // grepped. No new DOM dependency — the stub is a plain object, disposed after.
+  function loadLinkify() {
+    const start = html.indexOf("const URL_RE =");
+    const end = html.indexOf("// ── compose / send", start);
+    const src = html.slice(start, end);
+    return new Function(`${src}; return { isSafeUrl, linkify };`)();
+  }
+
+  test("kobo-380: URL auto-linkify never touches innerHTML (textContent/createElement only)", () => {
+    expect(html).toContain("function linkify");
+    expect(html).toContain("function isSafeUrl");
+    expect(html).toContain("createElement('a')");
+    expect(html).not.toContain("innerHTML ="); // whole view: text nodes + createElement, never raw HTML injection
+  });
+
+  test("kobo-380: isSafeUrl allowlists http/https only", () => {
+    const { isSafeUrl } = loadLinkify();
+    expect(isSafeUrl("http://example.com")).toBe(true);
+    expect(isSafeUrl("https://example.com/path?x=1")).toBe(true);
+    expect(isSafeUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
+    expect(isSafeUrl("not a url")).toBe(false);
+  });
+
+  test("kobo-380: a <script>/javascript: payload renders INERT — only a real http(s) URL becomes a real <a>", () => {
+    const stubDoc = {
+      createTextNode: (text: string) => ({ kind: "text", text }),
+      createElement: (tag: string) => ({ kind: "el", tag, textContent: "", href: "", target: "", rel: "" }),
+    };
+    const prevDoc = (globalThis as any).document;
+    (globalThis as any).document = stubDoc;
+    try {
+      const { linkify } = loadLinkify();
+      const container = { nodes: [] as any[], appendChild(n: any) { this.nodes.push(n); } };
+      linkify(container, "see http://example.com/x and <script>alert(1)</script> also javascript:alert(2)");
+      const anchors = container.nodes.filter((n) => n.kind === "el" && n.tag === "a");
+      expect(anchors.length).toBe(1);
+      expect(anchors[0].href).toBe("http://example.com/x");
+      expect(anchors[0].textContent).toBe("http://example.com/x");
+      const text = container.nodes.filter((n) => n.kind === "text").map((n) => n.text).join("");
+      expect(text).toContain("<script>alert(1)</script>"); // literal text, never parsed as markup
+      expect(text).toContain("javascript:alert(2)"); // rejected protocol → inert text, never an href
+    } finally {
+      if (prevDoc === undefined) delete (globalThis as any).document; else (globalThis as any).document = prevDoc;
+    }
+  });
+
   test("room data routes stay auth-protected (loopback bypasses, LAN must auth) — Rule 6", () => {
     expect(isProtected("/rooms", "GET")).toBe(true); // kobo-258: topic list is company-internal
     expect(isProtected("/room/thread", "GET")).toBe(true); // private conversation (kobo-241)

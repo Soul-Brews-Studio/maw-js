@@ -83,6 +83,7 @@ export function roomHtml(): string {
     .bubble .pill { font-size:11px; padding:1px 8px; border-radius:var(--r-pill); background:var(--muted); color:var(--dim); }
     .bubble .ts { margin-left:auto; color:var(--dim); font-size:11px; }
     .bubble .body { white-space:pre-wrap; word-break:break-word; }
+    .bubble .body a { color:var(--human); text-decoration:underline; }
     .bubble .tag { font-size:11px; color:var(--teammate); }
     /* you = right + sky · lead = left + green · teammate = left + violet */
     .bubble.you { align-self:flex-end; background:rgba(56,189,248,.10); border-color:rgba(56,189,248,.35); }
@@ -251,6 +252,36 @@ function roleOf(from) {
 function pillText(role) { return role === 'you' ? 'you' : (role === 'lead' ? 'lead' : 'teammate'); }
 function fmtTs(ts) { if (!ts) return ''; const d = new Date(ts); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
 
+// kobo-380 — auto-linkify URLs in message bodies. XSS-safe by construction: text is
+// split into plain segments (appended as text nodes, never raw markup) and URL segments
+// (appended as <a> elements built with createElement + textContent, href only set after
+// isSafeUrl allowlists the protocol). A javascript:/data:/vbscript: URL — or any raw
+// script/HTML in the message — is never parsed as markup, so it renders as inert text.
+const URL_RE = /https?:\\/\\/[^\\s<>"']+/g;
+function isSafeUrl(url) {
+  try { const u = new URL(url); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch { return false; }
+}
+function linkify(container, text) {
+  URL_RE.lastIndex = 0;
+  let last = 0, m;
+  while ((m = URL_RE.exec(text))) {
+    if (m.index > last) container.appendChild(document.createTextNode(text.slice(last, m.index)));
+    let url = m[0], trail = '';
+    while (url && /[),.;:!?\\]'"]$/.test(url)) { trail = url.slice(-1) + trail; url = url.slice(0, -1); }
+    if (url && isSafeUrl(url)) {
+      const a = document.createElement('a');
+      a.href = url; a.textContent = url; a.target = '_blank'; a.rel = 'noopener noreferrer nofollow';
+      container.appendChild(a);
+    } else {
+      container.appendChild(document.createTextNode(url));
+    }
+    if (trail) container.appendChild(document.createTextNode(trail));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) container.appendChild(document.createTextNode(text.slice(last)));
+}
+
 async function loadThread() {
   if (!company || !roomId) return;
   const { status, body } = await getJson('/api/room/thread?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(roomId));
@@ -284,7 +315,9 @@ async function loadThread() {
     head.appendChild(el('span', 'ts mono', fmtTs(m.ts)));
     b.appendChild(head);
     if (role === 'teammate') b.appendChild(el('div', 'tag', '🔎 pulled in'));
-    b.appendChild(el('div', 'body', m.text || ''));
+    const bodyEl = el('div', 'body');
+    linkify(bodyEl, m.text || '');
+    b.appendChild(bodyEl);
     thread.appendChild(b);
   }
   if (stick) thread.scrollTop = thread.scrollHeight;
