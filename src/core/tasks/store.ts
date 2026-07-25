@@ -648,7 +648,13 @@ export function holdTask(company: string, id: string, by: string, reason?: strin
   task.reviewReason = reason || "held";
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: hold into review + pending dep → blocked
-  emit(task, by, "task-review", `hold ${task.id} → ${resolveReviewer(task)}: ${task.title}`);
+  // kobo-394: echo the REAL post-reconcile state — a pending dependency can clobber the
+  // intended "→ review" hold into blocked; the worklog message must say that, not "hold".
+  if (task.state === "blocked") {
+    emit(task, by, "task-blocked", `blocked ${task.id} — ${task.block?.reason ?? "dependency pending"}: ${task.title}`);
+  } else {
+    emit(task, by, "task-review", `hold ${task.id} → ${resolveReviewer(task)}: ${task.title}`);
+  }
   return task;
 }
 
@@ -882,7 +888,13 @@ export function prOpenedReview(company: string, id: string, author: string, revi
   task.reviewer = target;
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: PR opened while a dep is still pending → blocked wins
-  emit(task, author, "task-review", `review ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} → ${target}: ${task.title}`);
+  // kobo-394: echo the REAL post-reconcile state — a pending dependency can clobber the
+  // intended "→ review" into blocked; the worklog message must say that, not "review".
+  if (task.state === "blocked") {
+    emit(task, author, "task-blocked", `blocked ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} — ${task.block?.reason ?? "dependency pending"}: ${task.title}`);
+  } else {
+    emit(task, author, "task-review", `review ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} → ${target}: ${task.title}`);
+  }
   return task;
 }
 
@@ -1665,11 +1677,23 @@ export function isBlockedByDependency(
  * touch it (kobo-223 3a). Never blocks a `backlog`/terminal card (already
  * parked). Returns "blocked" | "restored" | null (what it did).
  */
+/**
+ * kobo-394 — human-readable "why" for a dependency block, so a caller/CLI echo can
+ * report the REAL reason instead of a bare "blocked". Names every still-pending
+ * parent + its state, e.g. "parent kobo-12 (wait-for-deploy)" or, for more than
+ * one, "parent kobo-12 (wait-for-deploy), kobo-9 (in-progress)".
+ */
+function dependencyBlockReason(blockedBy: string[], resolve: (id: string) => ParentState): string {
+  const parts = blockedBy.map((id) => `${id} (${resolve(id) ?? "?"})`);
+  return `parent ${parts.join(", ")}`;
+}
+
 function reconcileDependencyState(
   task: TaskRecord,
   resolve: (id: string) => ParentState,
 ): "blocked" | "restored" | null {
-  const pending = dependencyBlock(task, resolve).blockedBy.length > 0;
+  const blockedBy = dependencyBlock(task, resolve).blockedBy;
+  const pending = blockedBy.length > 0;
   if (pending) {
     // enter only from an actionable flow state; never touch an explicit or an
     // already-dependency block (leave its prevState + kind intact). kobo-253 (slice B)
@@ -1678,7 +1702,7 @@ function reconcileDependencyState(
     if (task.state !== "todo" && task.state !== "ready" && task.state !== "in-progress" && task.state !== "review") return null;
     task.prevState = task.state;
     task.state = "blocked";
-    task.block = { kind: "dependency" };
+    task.block = { kind: "dependency", reason: dependencyBlockReason(blockedBy, resolve) };
     return "blocked";
   }
   // no pending parent — restore ONLY a card WE dependency-blocked (not explicit).
