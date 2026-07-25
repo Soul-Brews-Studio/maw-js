@@ -32,6 +32,7 @@ import {
   completeOrParkMergedTask,
   isStaleDecisionCard,
   lastActivityByOracle,
+  _resetActivityByOracleCache,
   STALE_DECISION_MS,
   createsEpicLoop,
   decomposeEpic,
@@ -254,6 +255,25 @@ describe("task store (file-per-card under Company Home)", () => {
     expect(map["patchwork"]).toBeGreaterThan(0);
     expect(map["eq3"]).toBeGreaterThan(0);
     expect(map["patchwork"]).toBeGreaterThanOrEqual(map["eq3"]); // claim came after create
+  });
+
+  // kobo-402: the worklog-derived map used to be re-parsed from scratch on every
+  // call (median 50ms / max 297.8ms measured on a real 7.9MB/34,728-line worklog —
+  // the single biggest contributor to /api/tasks blocking the event loop). Cached
+  // by resolved path + byte size (append-only → unchanged size means unchanged
+  // content). Pin: (1) a second call with no new writes returns the SAME object
+  // reference (cache hit, not just equal values) (2) a write in between forces a
+  // fresh read that reflects it (append-only growth invalidates correctly).
+  test("lastActivityByOracle: caches by worklog size, invalidates on append (kobo-402)", () => {
+    _resetActivityByOracleCache();
+    addTask({ company: "cache1", title: "a", by: "eq3" });
+    const first = lastActivityByOracle("cache1");
+    const second = lastActivityByOracle("cache1");
+    expect(second).toBe(first); // same reference — cache hit, no re-parse
+    claimTask("cache1", "cache1-1", "patchwork"); // worklog grows (new append)
+    const third = lastActivityByOracle("cache1");
+    expect(third).not.toBe(first); // size changed → fresh parse, new object
+    expect(third["patchwork"]).toBeGreaterThan(0); // and it actually sees the new entry
   });
 
   test("completeTask → done + emits task-done", () => {
