@@ -130,7 +130,7 @@ describe("headSpawn (kobo-364)", () => {
     expect(commands.some(c => c.includes("tmux"))).toBe(false);
   });
 
-  test("happy path: 3-pane cell, both opus, no worker window ever created", async () => {
+  test("happy path: 3-pane cell, both claude-opus-5, no worker window ever created", async () => {
     paneListForSession = "%lead|||👤 lead|||main\n";
     bootTranscript["%p1"] = ["", "claude code — bypass permissions on"]; // conductor
     bootTranscript["%p2"] = ["", "claude code — bypass permissions on"]; // reviewer
@@ -140,8 +140,8 @@ describe("headSpawn (kobo-364)", () => {
     const splitCalls = commands.filter(c => c.includes("tmux split-window"));
     expect(splitCalls.length).toBe(2); // conductor + reviewer, NO worker window
     expect(commands.some(c => c.includes("tmux new-window"))).toBe(false); // head ≠ crew
-    expect(splitCalls[0]).toContain("--model opus");
-    expect(splitCalls[1]).toContain("--model opus");
+    expect(splitCalls[0]).toContain("--model claude-opus-5"); // kobo-382: literal id, not the `opus` alias (=4.8)
+    expect(splitCalls[1]).toContain("--model claude-opus-5");
     // reviewer (not conductor) gets --settings (Stop hook → conductor)
     expect(splitCalls[0]).not.toContain("--settings");
     expect(splitCalls[1]).toContain("--settings");

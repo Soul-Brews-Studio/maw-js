@@ -78,7 +78,7 @@ cat > "$STATE_DIR/conductor-contract.md" <<'EOF'
 <Conductor Contract — §4c, เติม company/dept/board>
 EOF
 COND=$(tmux split-window -h -P -F '#{pane_id}' \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/conductor-contract.md)"')
+  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model claude-opus-5 --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/conductor-contract.md)"')
 
 # --- worker (W1/page2) — execute · SONNET pane in a SEPARATE window (kobo-344 v2 340a) · single
 #     pane cap 1 (dynamic ×N = 340b) · Stop hook idle → conductor (worker done → conductor routes to reviewer).
@@ -128,7 +128,7 @@ cat > "$STATE_DIR/reviewer-contract.md" <<'EOF'
 <Reviewer Contract — §4b, เติม company/dept/board + card/PR ที่ตรวจ>
 EOF
 REV=$(tmux split-window -h -P -F '#{pane_id}' \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=reviewer CREW_COORD_PANE="'"$FRONT"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model opus --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/reviewer-contract.md)"')
+  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=reviewer CREW_COORD_PANE="'"$FRONT"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model claude-opus-5 --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/reviewer-contract.md)"')
 ```
 - **verified live** (kobo-89/91): raw pane boot + skip-permissions ทำงาน (footer "bypass permissions on") · pane โผล่ข้าง spawner · `-P -F '#{pane_id}'` → capture `%pane-id` → เขียนแถว roster ทันที (§2)
 - ไม่ใช้ `maw team spawn` / `--exec` — คุม tmux เอง → คุม flag (skip-perm) + auto-kick เอง
