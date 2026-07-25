@@ -373,17 +373,24 @@ async function send() {
 // invite entry fires the EXISTING /api/room/invite (auto-invite), then inserts the
 // tag — narrow-scope routing (server) + broad-roster picker (client), bridged by invite.
 let pickerItems = [];
+let pickerRowEls = []; // kobo-392: DOM rows parallel to pickerItems, for keyboard highlight
+let pickerActiveIndex = 0; // kobo-392: the row Tab/Enter select (mouseover keeps this in sync)
 function tagQueryAt(value, caret) {
   const head = value.slice(0, caret);
   const m = head.match(/(?:^|\s)@([a-z0-9][a-z0-9_.-]*)$/i);
   return m ? { start: caret - m[1].length - 1, query: m[1].toLowerCase() } : null;
 }
-function closePicker() { $('picker').style.display = 'none'; $('picker').replaceChildren(); pickerItems = []; }
-function pickerRow(oracle, needsInvite) {
+function closePicker() { $('picker').style.display = 'none'; $('picker').replaceChildren(); pickerItems = []; pickerRowEls = []; pickerActiveIndex = 0; }
+function highlightActive() {
+  for (let i = 0; i < pickerRowEls.length; i++) pickerRowEls[i].classList.toggle('sel', i === pickerActiveIndex);
+}
+function setActiveIndex(i) { pickerActiveIndex = i; highlightActive(); }
+function pickerRow(oracle, needsInvite, index) {
   const row = el('div', 'picker-item');
   row.appendChild(el('span', null, '@' + oracle));
   if (needsInvite) row.appendChild(el('span', 'hint', 'invite'));
   row.addEventListener('mousedown', (ev) => { ev.preventDefault(); pickTag(oracle, needsInvite); });
+  row.addEventListener('mouseover', () => setActiveIndex(index)); // hover + keyboard agree on one index
   return row;
 }
 function renderPicker(query) {
@@ -394,12 +401,15 @@ function renderPicker(query) {
   pickerItems = inRoom.concat(invite);
   const box = $('picker');
   box.replaceChildren();
+  pickerRowEls = [];
+  pickerActiveIndex = 0;
   if (!pickerItems.length) { closePicker(); return; }
   if (inRoom.length) box.appendChild(el('div', 'picker-group', 'in this room'));
-  for (const o of inRoom) box.appendChild(pickerRow(o, false));
+  for (const o of inRoom) { const row = pickerRow(o, false, pickerRowEls.length); pickerRowEls.push(row); box.appendChild(row); }
   if (invite.length) box.appendChild(el('div', 'picker-group', 'invite to room'));
-  for (const o of invite) box.appendChild(pickerRow(o, true));
+  for (const o of invite) { const row = pickerRow(o, true, pickerRowEls.length); pickerRowEls.push(row); box.appendChild(row); }
   box.style.display = '';
+  highlightActive();
 }
 async function pickTag(oracle, needsInvite) {
   const t = $('text');
@@ -495,11 +505,19 @@ $('company').addEventListener('change', () => { company = $('company').value; ro
 $('newTopic').addEventListener('click', newTopic);
 $('send').addEventListener('click', send);
 $('text').addEventListener('input', onComposeInput);
+function pickActive() { const oracle = pickerItems[pickerActiveIndex]; pickTag(oracle, !participants.includes(oracle)); }
 $('text').addEventListener('keydown', (ev) => {
   if (pickerItems.length && (ev.key === 'Escape')) { ev.preventDefault(); closePicker(); return; }
+  if (pickerItems.length && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) {
+    ev.preventDefault(); // kobo-392: keep the text caret from moving while browsing the picker
+    const delta = ev.key === 'ArrowDown' ? 1 : -1;
+    setActiveIndex(Math.min(Math.max(pickerActiveIndex + delta, 0), pickerItems.length - 1)); // clamp, no wrap
+    return;
+  }
+  if (pickerItems.length && ev.key === 'Tab') { ev.preventDefault(); pickActive(); return; } // preventDefault: keep focus in the box
   if (ev.key === 'Enter' && !ev.shiftKey) {
     ev.preventDefault();
-    if (pickerItems.length) { pickTag(pickerItems[0], !participants.includes(pickerItems[0])); return; }
+    if (pickerItems.length) { pickActive(); return; }
     send();
   }
 });
