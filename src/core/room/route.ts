@@ -85,12 +85,14 @@ function resolveRoomTag(text: string, company: string | null, artifact: RoomArti
  * POST /api/room/send — body { room, to, text, from } → persist the outbound turn to the
  * artifact SYNCHRONOUSLY (kobo-249: the artifact is the source of truth, so a turn lands
  * within <2s of send regardless of whether the lead pane is busy), THEN deliver via
- * `maw hey` (same path a human `maw hey` takes). The turn's own delivery feed event still
- * fires later — idle-gated, lagging under load — but appendRoomMessage dedups it against
- * this send-time write. The lead's reply still persists on its own feed event (slice-1
- * round-trip intact). The persisted `from` is roomSender(from) — the SAME `web:<author>`
- * identity the spawned hey stamps via `--from` (kobo-248), so the two writes agree and
- * dedup. `spawn` is injectable for unit tests.
+ * `maw hey` (same path a human `maw hey` takes). The turn's own delivery feed event never
+ * re-persists it — the nudge hey is deliberately untagged (kobo-260 finding #4), so the
+ * feed listener's `[room:<id>]` capture is a no-op for it; this send-time write is the
+ * ONLY write. The persisted `from` is always the constant `"web"` (kobo-386) — NEVER
+ * `roomSender(from)`/the caller-supplied name, which is untrusted (nothing in the request
+ * path verifies it; a raw POST could pick any string and have it render as an impersonated
+ * teammate). The typed name still reaches the outbound hey's `--from` stamp for notification
+ * cosmetics only. `spawn` is injectable for unit tests.
  */
 export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = defaultSpawn): Promise<Response> {
   let body: { room?: unknown; to?: unknown; text?: unknown; from?: unknown };
@@ -107,8 +109,9 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     return Response.json({ ok: false, error: "room, to and text are required" }, { status: 400 });
   }
   const company = findRoomCompany(room);
-  // Rule-6 (kobo-260): the web/human side may NOT impersonate a company oracle. The stored
-  // identity is bareName(web:<from>); reject it if it collides with a real teammate name.
+  // Rule-6 (kobo-260): the web/human side may NOT impersonate a company oracle — reject the
+  // whole request if the caller-supplied name collides with a real teammate name (defense in
+  // depth for the outbound hey's --from stamp, which still carries the user-typed name).
   const author = bareName(roomSender(from));
   if (company && companyOracles(company).has(author)) {
     return Response.json({ ok: false, error: `"${author}" is a company oracle — the web side can't send as a teammate` }, { status: 403 });
@@ -122,10 +125,14 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
   try {
     // kobo-249 — persist the outbound turn NOW (source of truth), decoupled from delivery.
     // Only an OPEN room has an artifact (findRoomCompany null → deliver but persist nothing).
-    // kobo-260: store the BARE identity ("web") — the SAME one roleOf renders as "you" — so
-    // the turn shows as the human, not a teammate.
+    // kobo-260/386: the PERSISTED identity is always the constant "web" — never the
+    // caller-supplied name. `author` (derived from client-supplied `from`) is NOT trustworthy
+    // as an identity (kobo-386: nothing in the request path verifies it — a raw POST with any
+    // `from` string was rendering as an impersonated teammate). The typed name still reaches
+    // the outbound hey's --from stamp (line below) for notification cosmetics only; it never
+    // becomes the room artifact's speaker of record.
     if (company) {
-      appendRoomMessage(company, room, { id: `send-${author}-${Date.now()}`, from: author, text, ts: Date.now() });
+      appendRoomMessage(company, room, { id: `send-web-${Date.now()}`, from: "web", text, ts: Date.now() });
     }
     // kobo-385: @handle in the text overrides the hey target; unmatched/denied → falls back
     // to the incoming `to` (the web's default = lead). Response surfaces the RESOLVED target.

@@ -85,15 +85,30 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
   const noopSpawn = () => ({ exited: Promise.resolve(0) });
   const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
 
-  test("a send persists the turn synchronously under the BARE author — renders as the human (kobo-260)", async () => {
+  test("a send persists the turn synchronously — always under the constant identity 'web' (kobo-260/386)", async () => {
     await openR({ company: "kobo", room: "r", topic: "t" });
     const res = await post({ room: "r", to: "eq3", text: "urgent turn", from: "tony" }, noopSpawn);
     expect(res.status).toBe(200);
     const room = readRoom("kobo", "r")!;
     expect(room.messages).toHaveLength(1); // present IMMEDIATELY, not after delivery drains
-    // kobo-260: stored under the BARE identity ("tony"), the same one roleOf renders as the
-    // human — NOT the raw "web:tony" that used to render as a teammate.
-    expect(room.messages[0]).toMatchObject({ from: "tony", text: "urgent turn" });
+    // kobo-386: the persisted identity is the CONSTANT "web", never the caller-supplied name.
+    // A prior version stored the bare typed name ("tony") believing it "renders as the human" —
+    // wrong: roleOf() only treats "web"/"you" as human, so any other string rendered as an
+    // impersonated TEAMMATE. Nothing in the request path verifies `from`, so this was a real
+    // attacker-controlled identity spoof.
+    expect(room.messages[0]).toMatchObject({ from: "web", text: "urgent turn" });
+  });
+
+  // kobo-386 — attacker path: raw-POST with an arbitrary `from` must never become the
+  // persisted speaker of record. Mirrors kobo-385's attacker-path test shape.
+  test("attacker path: raw-POST with from:'tony' → persisted identity is 'web', NOT the spoofed name", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const res = await post({ room: "r", to: "eq3", text: "fake message", from: "tony" }, noopSpawn);
+    expect(res.status).toBe(200);
+    const msgs = readRoom("kobo", "r")!.messages;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].from).toBe("web");
+    expect(msgs[0].from).not.toBe("tony");
   });
 
   test("send persists EXACTLY ONCE — the untagged nudge can't self-echo (kobo-260, finding #4)", async () => {
