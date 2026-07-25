@@ -231,6 +231,27 @@ describe("kobo-385: @tag overrides the hey target — POST /api/room/send direct
     expect(calls.flat()).not.toContain("tony"); // "tony" never appears anywhere in the hey argv
   });
 
+  test("attacker path (UNKNOWN-ROOM vector): raw POST to a room with no company → deny still holds, nudge dropped", async () => {
+    // findRoomCompany("does-not-exist") → null under caller control. The deny must NOT be
+    // gated on `company` (only the companyLead fallback needs one) — else this is a free
+    // bypass: skip the guard entirely by targeting a room that was never opened.
+    const { calls, spawn } = spawnSpy();
+    const res = await post({ room: "does-not-exist", to: "tony", text: "hi", from: "web" }, spawn);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { to: string | null; skipped?: boolean }).to).toBeNull();
+    expect(calls).toHaveLength(0); // no lead to redirect to — dropped, never spawned
+    expect(calls.flat()).not.toContain("tony");
+  });
+
+  test("unknown-room, non-denied `to` still routes fine (only denied literals are dropped)", async () => {
+    const { calls, spawn } = spawnSpy();
+    const res = await post({ room: "does-not-exist", to: "eq3", text: "hi", from: "web" }, spawn);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { to: string }).to).toBe("eq3");
+    expect(calls).toHaveLength(1);
+    expect(target(calls[0])).toBe("eq3");
+  });
+
   test("@ mid-word / email-shaped text never matches (word-anchored regex)", async () => {
     await openR({ company: "kobo", room: "r", topic: "t" });
     await inviteR({ company: "kobo", room: "r", oracle: "com" }); // would match if the anchor were broken

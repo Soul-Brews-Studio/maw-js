@@ -130,10 +130,17 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     // kobo-385: @handle in the text overrides the hey target; unmatched/denied → falls back
     // to the incoming `to` (the web's default = lead). Response surfaces the RESOLVED target.
     let target = resolveRoomTag(text, company, artifact) ?? to;
-    // kobo-385 (request-change): the base `to` is ALSO caller-settable (raw POST, no @tag) —
-    // guard the value that actually reaches roomNudgeArgs, not just the tag-handle path, so
-    // web/tony/human are denied a hey-target regardless of which field carried the name.
-    if (company && ROOM_TAG_DENY.has(bareName(target))) target = companyLead(company);
+    // kobo-385 (2nd request-change): the base `to` is ALSO caller-settable (raw POST, no
+    // @tag) — guard the value that actually reaches roomNudgeArgs, not just the tag-handle
+    // path. The deny itself is COMPANY-INDEPENDENT (an unknown/never-opened `room` makes
+    // `company` null under caller control — gating the deny on `company` was itself the
+    // bypass: {room:"does-not-exist", to:"tony"} skipped it entirely). Only the *fallback*
+    // needs a company (to resolve a lead); with none, drop the nudge rather than ever spawn
+    // a denied literal.
+    if (ROOM_TAG_DENY.has(bareName(target))) {
+      if (!company) return Response.json({ ok: true, room, to: null, skipped: true });
+      target = companyLead(company);
+    }
     // kobo-260: nudge the lead with a PLAIN/UNTAGGED hey (no [room:<id>]) → the listener
     // does NOT re-capture it → no self-echo (finding #4 dissolves at the root; no dedup
     // needed). The turn is already persisted above; the lead replies via /api/room/reply.
