@@ -39,6 +39,7 @@ import { loadConfig } from "maw-js/config";
 import { loadCompany } from "../company/company-helpers";
 import { scopeOfOracle } from "../../../core/worklog/company-scope";
 import { teardownCrewWindows } from "../crew/teardown";
+import { BRAIN_MODEL } from "../crew/spawn";
 
 // overridable for tests only (HEAD_SPAWN_POLL_MS) — production always polls at
 // 2s; read at call-time (not module load) so a test can set it in beforeEach.
@@ -181,9 +182,9 @@ export async function headSpawn(company: string | undefined, emit: (line: string
   const cwd = process.cwd();
   const settingsPath = join(resolveHome(), ".claude", "crew-worker-settings.json");
 
-  // conductor — claude-opus-5 literal (kobo-382: the `opus` alias resolves to 4.8), NO
+  // conductor — BRAIN_MODEL (kobo-389: single source, imported from crew/spawn.ts), NO
   // --settings/CREW_ROLE (no Stop hook, mirrors crew's own conductor)
-  const condCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_STATE_DIR=${shellArg(stateDir)} claude --model claude-opus-5 --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"`;
+  const condCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_STATE_DIR=${shellArg(stateDir)} claude --model ${BRAIN_MODEL} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"`;
   const conductor = (await hostExec(`tmux split-window -h -t ${shellArg(lead)} -P -F '#{pane_id}' ${shellArg(condCmd)}`)).trim();
   if (!conductor) return { ok: false, error: "conductor spawn produced no pane-id" };
 
@@ -195,8 +196,8 @@ export async function headSpawn(company: string | undefined, emit: (line: string
     return { ok: false, error: "conductor failed to boot (opus) — see notify" };
   }
 
-  // reviewer — claude-opus-5 literal (kobo-382), WITH --settings (Stop hook), coord=conductor
-  const revCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_ROLE=reviewer CREW_COORD_PANE=${shellArg(conductor)} CREW_STATE_DIR=${shellArg(stateDir)} claude --model claude-opus-5 --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"`;
+  // reviewer — BRAIN_MODEL (kobo-389), WITH --settings (Stop hook), coord=conductor
+  const revCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_ROLE=reviewer CREW_COORD_PANE=${shellArg(conductor)} CREW_STATE_DIR=${shellArg(stateDir)} claude --model ${BRAIN_MODEL} --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"`;
   const reviewer = (await hostExec(`tmux split-window -h -t ${shellArg(lead)} -P -F '#{pane_id}' ${shellArg(revCmd)}`)).trim();
   if (!reviewer) return { ok: false, error: "reviewer spawn produced no pane-id" };
 
