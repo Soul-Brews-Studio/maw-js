@@ -1,3 +1,6 @@
 [test]
 pathIgnorePatterns = ["**/agents/**", "agents/**"]
 testPathIgnorePatterns = ["**/agents/**", "agents/**"]
+# kobo-405: fail-closed for real `maw hey` delivery under ANY `bun test` run —
+# see test/setup/hey-spawn-fail-closed.ts for why this can't be env-var-gated.
+preload = ["./test/setup/hey-spawn-fail-closed.ts"]
