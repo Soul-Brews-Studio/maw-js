@@ -565,3 +565,81 @@ describe("Room write-gate: closed/merged rooms reject POST /api/room/reply + /ap
     expect(calls).toHaveLength(0); // no nudge fired
   });
 });
+
+describe("kobo-390: narrow @tag scope to room participants + idempotent invite — POST direct (bypass UI)", () => {
+  let dir: string; const prev = process.env.MAW_DATA_DIR;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "maw-narrowtag-"));
+    process.env.MAW_DATA_DIR = dir;
+    _setCompaniesDir(join(dir, "companies"));
+    // "patchwork" is a real companyOracle (∈ roomRepliers pre-390) but NEVER a room
+    // participant — this is exactly the gap kobo-390 closes.
+    saveCompany({ name: "kobo", teams: { core: { lead: "eq3", members: [{ oracle: "eq3", role: "lead" }, { oracle: "patchwork", role: "member" }] } } });
+  });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; _setCompaniesDir(origCompaniesDir); rmSync(dir, { recursive: true, force: true }); });
+
+  const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const send = (b: unknown, spawn: (a: string[]) => { exited: Promise<number> }) =>
+    handleRoomSendRequest(new Request("http://x/api/room/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }), spawn);
+  const inviteReq = (b: unknown, spawn: (a: string[]) => { exited: Promise<number> }) =>
+    handleRoomInviteRequest(new Request("http://x/api/room/invite", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }), spawn);
+  const spawnSpy = () => { const calls: string[][] = []; return { calls, spawn: (a: string[]) => { calls.push(a); return { exited: Promise.resolve(0) }; } }; };
+  const target = (argv: string[]) => argv[argv.length - 2];
+
+  test("AC1 — @companyOracle who is NOT a room participant → NOT routed, falls back to lead", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { calls, spawn } = spawnSpy();
+    const res = await send({ room: "r", to: "eq3", text: "@patchwork can you help", from: "web" }, spawn);
+    expect(((await res.json()) as { to: string }).to).toBe("eq3"); // surfaced fallback, not "patchwork"
+    expect(target(calls[0])).toBe("eq3"); // real hey target is the lead, NOT patchwork
+  });
+
+  test("AC2 — @participant IS routed once invited", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { spawn: inviteSpawn } = spawnSpy();
+    await inviteReq({ company: "kobo", room: "r", oracle: "patchwork" }, inviteSpawn);
+    const { calls, spawn } = spawnSpy();
+    const res = await send({ room: "r", to: "eq3", text: "@patchwork can you help", from: "web" }, spawn);
+    expect(((await res.json()) as { to: string }).to).toBe("patchwork");
+    expect(target(calls[0])).toBe("patchwork");
+  });
+
+  test("AC3 — invite writes a REAL participant (artifact-verified, not UI)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { spawn } = spawnSpy();
+    const res = await inviteReq({ company: "kobo", room: "r", oracle: "patchwork" }, spawn);
+    expect(res.status).toBe(200);
+    expect(readRoom("kobo", "r")!.participants).toContain("patchwork");
+  });
+
+  test("AC4 — invite is IDEMPOTENT: re-inviting an existing participant fires NO hey", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { calls, spawn } = spawnSpy();
+    const first = await inviteReq({ company: "kobo", room: "r", oracle: "patchwork" }, spawn);
+    expect(first.status).toBe(200);
+    expect(calls).toHaveLength(1); // first invite: one notify hey
+    const second = await inviteReq({ company: "kobo", room: "r", oracle: "patchwork" }, spawn);
+    expect(second.status).toBe(200); // still succeeds (idempotent write)
+    expect(calls).toHaveLength(1); // NO second hey — re-invite is a silent no-op notify-wise
+    expect(readRoom("kobo", "r")!.participants).toEqual(["patchwork"]); // no duplicate either
+  });
+
+  test("AC5 — kobo-385/386 regression, 3 vectors, still hold under the narrowed predicate", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const v1 = spawnSpy(); // TAG vector
+    const r1 = await send({ room: "r", to: "eq3", text: "@tony ping", from: "tony" }, v1.spawn);
+    expect(((await r1.json()) as { to: string }).to).toBe("eq3");
+    expect(v1.calls.flat()).not.toContain("tony");
+
+    const v2 = spawnSpy(); // BASE vector
+    const r2 = await send({ room: "r", to: "tony", text: "no tag at all", from: "web" }, v2.spawn);
+    expect(((await r2.json()) as { to: string }).to).toBe("eq3");
+    expect(v2.calls.flat()).not.toContain("tony");
+
+    const v3 = spawnSpy(); // NULL-COMPANY vector
+    const r3 = await send({ room: "does-not-exist", to: "tony", text: "hi", from: "web" }, v3.spawn);
+    expect(((await r3.json()) as { to: string | null }).to).toBeNull();
+    expect(v3.calls).toHaveLength(0);
+    expect(v3.calls.flat()).not.toContain("tony");
+  });
+});

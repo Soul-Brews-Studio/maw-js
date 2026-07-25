@@ -78,7 +78,11 @@ function resolveRoomTag(text: string, company: string | null, artifact: RoomArti
   if (!m) return null;
   const handle = bareName(m[1]);
   if (ROOM_TAG_DENY.has(handle)) return null;
-  return roomRepliers(company, artifact).has(handle) ? handle : null;
+  // kobo-390: narrowed from roomRepliers() (companyOracles ∪ participants ∪ speakers) to
+  // participants-only — lead's call: tagging must imply "invited", not "anyone on the
+  // roster" (roomRepliers let `@patchwork` resolve with participants=[]). Deny + sink guards
+  // (above / in handleRoomSendRequest) are unchanged — only this membership predicate moved.
+  return (artifact.participants ?? []).map(bareName).includes(handle) ? handle : null;
 }
 
 /**
@@ -227,10 +231,18 @@ export async function handleRoomInviteRequest(request: Request, spawn: SpawnFn =
   // invited pseudo-identity lands in room.participants, which roomRepliers() unions into its
   // allowlist, so this gap let an invite poison /api/room/reply's allowlist too.
   if (ROOM_TAG_DENY.has(oracle)) return Response.json({ ok: false, error: `cannot invite "${oracle}" — not a real teammate identity` }, { status: 400 });
+  // kobo-390: idempotent notify — re-picking an already-invited oracle (the picker's
+  // "in-room" group, or a client race) must not re-hey. Check membership BEFORE the write:
+  // addRoomParticipant is itself a no-op on an existing participant, but it was always
+  // followed by an unconditional spawn — this reads the PRE-write state to decide.
+  const existing = readRoom(company, room);
+  const alreadyParticipant = !!existing && (existing.participants ?? []).map(bareName).includes(oracle);
   const updated = addRoomParticipant(company, room, oracle);
   if (!updated) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
   // exactly one hey — a plain notify with a deep-link to the room web view (kobo-258 route).
-  try { void spawn(["hey", oracle, `🧵 you're pulled into brainstorm room "${room}" (${company}) — /room?company=${encodeURIComponent(company)}&room=${encodeURIComponent(room)}`]).exited; } catch { /* notify best-effort */ }
+  if (!alreadyParticipant) {
+    try { void spawn(["hey", oracle, `🧵 you're pulled into brainstorm room "${room}" (${company}) — /room?company=${encodeURIComponent(company)}&room=${encodeURIComponent(room)}`]).exited; } catch { /* notify best-effort */ }
+  }
   return Response.json({ ok: true, room: updated });
 }
 
@@ -368,9 +380,11 @@ export function handleRoomsListRequest(request: Request): Response {
   const companies = listCompanies().map((c) => c.name);
   const asked = (new URL(request.url).searchParams.get("company") ?? "").trim();
   const company = asked && companies.includes(asked) ? asked : (companies[0] ?? "");
-  if (!company) return Response.json({ ok: true, company: "", lead: null, companies: [], rooms: [] });
+  if (!company) return Response.json({ ok: true, company: "", lead: null, companies: [], rooms: [], oracles: [] });
   const rooms = listRooms(company).map((r) => ({ id: r.id, topic: r.topic, status: r.status, updatedTs: r.updatedTs, cardId: r.cardId }));
-  return Response.json({ ok: true, company, lead: companyLead(company), companies, rooms });
+  // kobo-390: the picker's roster — grouped client-side against each room's `participants`.
+  const oracles = [...companyOracles(company)].filter((o) => !ROOM_TAG_DENY.has(o));
+  return Response.json({ ok: true, company, lead: companyLead(company), companies, rooms, oracles });
 }
 
 // ── kobo-244 slice 5: distill room-artifact → kanban card (the ONE room→board touch) ──
