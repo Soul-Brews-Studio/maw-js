@@ -187,6 +187,30 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     expect((await inviteR({ company: "kobo", room: "r" })).status).toBe(400); // no oracle
     expect((await inviteR({ company: "kobo", room: "r", oracle: "web" })).status).toBe(400); // can't invite the human
   });
+
+  // kobo-391 — attacker path, mirrors kobo-385/386's shape: invite had its own partial deny
+  // (only "web") instead of reusing ROOM_TAG_DENY, so "tony"/"human" sailed through.
+  test("attacker path: POST /api/room/invite oracle:'tony' and oracle:'human' → both REJECTED", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const tonyRes = await inviteR({ company: "kobo", room: "r", oracle: "tony" });
+    expect(tonyRes.status).toBe(400);
+    const humanRes = await inviteR({ company: "kobo", room: "r", oracle: "human" });
+    expect(humanRes.status).toBe(400);
+  });
+
+  // kobo-391 — chain regression: the invite gap didn't just add a bogus participant, it
+  // poisoned roomRepliers()'s allowlist (unions room.participants), so a later reply could
+  // impersonate the invited pseudo-identity. Pin the full chain stays closed.
+  test("regression: invite can no longer poison reply's allowlist via participants", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    await inviteR({ company: "kobo", room: "r", oracle: "tony" }); // rejected now (400), no participant added
+    const replyRes = await handleRoomReplyRequest(new Request("http://x/api/room/reply", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ company: "kobo", room: "r", from: "tony", text: "impersonated reply" }),
+    }));
+    expect(replyRes.status).toBe(403); // "tony" never entered roomRepliers — reply still rejects it
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(0);
+  });
 });
 
 describe("kobo-385: @tag overrides the hey target — POST /api/room/send directly (bypass web client)", () => {
