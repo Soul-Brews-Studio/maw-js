@@ -16,7 +16,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "fs";
 import { mawDataPath } from "../xdg";
-import { appendWorklog, openClaims, readWorklog } from "../worklog/store";
+import { appendWorklog, openClaims, readWorklog, worklogCacheProbe } from "../worklog/store";
 import type { WorklogEntry, WorklogKind } from "../worklog/types";
 import { notifyParentOfSubcardDone } from "./notify";
 
@@ -1561,16 +1561,35 @@ export function taskNextAction(task: TaskRecord): string {
 /** Silence window for the stuck-decision badge (mawjs-5) — mirrors presence ACTIVE_MS. */
 export const STALE_DECISION_MS = 10 * 60 * 1000; // 10 min
 
+// kobo-402: lastActivityByOracle used to re-read + re-parse the WHOLE worklog
+// file (unbounded, append-only — 7.9MB/34,728 lines observed on kobo) from
+// scratch on every /api/tasks poll, just to derive a handful of numbers
+// (median 50ms, max 297.8ms measured — the single biggest contributor to that
+// endpoint's synchronous blocking). Cached below, keyed by the resolved file
+// path with its byte size as the validity check — the log is append-only, so
+// an unchanged size means unchanged content, no time-based staleness window.
+// Bounded (one entry per company/path, updated in place, never accumulates).
+const activityByOracleCache = new Map<string, { size: number; map: Record<string, number> }>();
+
+/** Test-only — drop cached worklog-derived maps (kobo-402; data dir varies in tests). */
+export function _resetActivityByOracleCache(): void {
+  activityByOracleCache.clear();
+}
+
 /**
  * Newest worklog ts per oracle (mawjs-5 backstop). Excludes 'idle' — a pane-state
  * signal fired every turn-end, not real work — so an owner who wandered off reads
  * as silent even while the pane heartbeats. Read once, reused across every card.
  */
 export function lastActivityByOracle(company: string | null | undefined): Record<string, number> {
+  const { path, size } = worklogCacheProbe(company);
+  const cached = activityByOracleCache.get(path);
+  if (cached && cached.size === size) return cached.map;
   const map: Record<string, number> = {};
   for (const e of readWorklog(company, { excludeKinds: ["idle"] })) {
     if (e.oracle && (map[e.oracle] === undefined || e.ts > map[e.oracle])) map[e.oracle] = e.ts;
   }
+  activityByOracleCache.set(path, { size, map });
   return map;
 }
 

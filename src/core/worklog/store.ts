@@ -17,7 +17,7 @@
  * `appendWorklogAsync` (ordered per-file queue); CLI/poller use the sync variant.
  */
 
-import { appendFileSync, readFileSync, existsSync, mkdirSync, renameSync } from "fs";
+import { appendFileSync, readFileSync, existsSync, mkdirSync, renameSync, statSync } from "fs";
 import { appendFile as appendFileP, mkdir as mkdirP } from "fs/promises";
 import { dirname } from "path";
 import { mawDataPath } from "../xdg";
@@ -156,6 +156,28 @@ export function readWorklog(company: string | null | undefined, opts: ReadWorklo
   if (opts.excludeKinds) entries = entries.filter(e => !opts.excludeKinds!.includes(e.kind));
   if (opts.limit != null && entries.length > opts.limit) entries = entries.slice(-opts.limit);
   return entries;
+}
+
+/**
+ * Cheap freshness probe for a derived-from-worklog cache (kobo-402), WITHOUT
+ * reading the file's contents: resolves the same path readWorklog would use
+ * (post-migration, legacy fallback) and its current byte size. Multiple
+ * processes append this file (server feed listener, CLI, PR poller — see file
+ * header), so a derived cache can't rely on in-process write events alone;
+ * callers key their cache by `path` and treat an unchanged `size` as proof the
+ * content hasn't changed (the log is append-only, so size only grows) —
+ * skipping a full read+parse when nothing changed since the last one.
+ */
+export function worklogCacheProbe(company: string | null | undefined): { path: string; size: number } {
+  ensureWorklogMigrated(company);
+  let p = worklogPath(company);
+  if (!existsSync(p)) {
+    const legacy = legacyWorklogPath(company);
+    if (existsSync(legacy)) p = legacy;
+  }
+  let size = 0;
+  try { size = statSync(p).size; } catch { /* not created yet */ }
+  return { path: p, size };
 }
 
 /** Open claims for a company — claims with no later matching claim-release. */
