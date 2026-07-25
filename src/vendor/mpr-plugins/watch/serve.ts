@@ -13,7 +13,7 @@
 import type { PluginLifecycleContext } from "maw-js/plugin/lifecycle";
 import { registerWorklogListener } from "../../../core/worklog/listener";
 import { handleWorklogRequest, handleWorklogFeedRequest } from "../../../core/worklog/route";
-import { handleTasksRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskDeployedRequest, handleTaskApproveRequest, handleTaskRejectRequest, handleTaskAssignRequest, handleTaskEditRequest, handleTaskEventsRequest } from "../../../core/tasks/route";
+import { handleTasksRequest, handleTaskDetailRequest, handleTaskArchiveRequest, handleTaskNoteRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDoneRequest, handleTaskDeployedRequest, handleTaskApproveRequest, handleTaskRejectRequest, handleTaskAssignRequest, handleTaskEditRequest, handleTaskEventsRequest } from "../../../core/tasks/route";
 import { handleStateDocRequest } from "../../../core/state-doc/route";
 import { handleRosterRequest } from "../../../core/roster/route";
 import { handlePresenceRequest } from "../../../core/presence/route";
@@ -35,6 +35,10 @@ export function serve(ctx: PluginLifecycleContext): { ok: true } {
   ctx.http?.route("GET", "/api/worklog/feed", (request: Request) => handleWorklogFeedRequest(request));
   // company-ui kanban board — stub now, backbone later (behind auth — PROTECTED "/tasks")
   ctx.http?.route("GET", "/api/tasks", (request: Request) => handleTasksRequest(request));
+  // company-ui single-card detail fetch (kobo-401): the bulk list above stopped
+  // shipping body/notes/comments on every card — the detail modal calls this on
+  // card-open instead (behind auth — PROTECTED "/tasks" prefix already covers it).
+  ctx.http?.route("GET", "/api/tasks/detail", (request: Request) => handleTaskDetailRequest(request));
   // company-ui card-detail live push (kobo-207): SSE stream that pushes a `change`
   // event when the open card's content shifts (comment/note/state), so the detail
   // modal hot-reloads without waiting on the board poll. Behind auth ("/tasks/events").

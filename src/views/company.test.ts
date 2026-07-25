@@ -253,6 +253,11 @@ describe("lastActivityTs / hasUnread (kobo-208)", () => {
     expect(lastActivityTs({ id: "k1" })).toBe(0);
     expect(lastActivityTs(null)).toBe(0);
   });
+  test("kobo-401: lastActivityTs honors server-precomputed maxActivityTs (bulk-list cards no longer carry notes/comments arrays)", () => {
+    expect(lastActivityTs({ id: "k1", updatedTs: 10, maxActivityTs: 30 })).toBe(30);
+    expect(lastActivityTs({ id: "k1", updatedTs: 50, maxActivityTs: 30 })).toBe(50); // own update still newest
+    expect(lastActivityTs({ id: "k1", maxActivityTs: 30, comments: [{ ts: 99 }] })).toBe(99); // a full-detail task (post card-open) still scans arrays too
+  });
   test("never-opened card with activity → unread", () => {
     expect(hasUnread({ id: "k1", updatedTs: 5 }, {})).toBe(true); // no seen entry → 0
   });
