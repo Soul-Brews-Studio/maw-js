@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { createHash } from "crypto";
-import { escapeHtml, inlineMd, mdToHtml } from "./md";
+import { escapeHtml, inlineMd, mdToHtml, NOTE_IMG_EXT, renderNoteBody } from "./md";
 
 // kobo-57 cache-bust — the served board is a static HTML/CSS/JS blob. A deploy
 // changes it, but a viewer with an open tab keeps the OLD copy (the 5s poll only
@@ -1172,27 +1172,11 @@ function authorInitials(name) {
   const a = String(name == null ? '?' : name).replace(/[^a-z0-9]/gi, '');
   return (a.slice(0, 2) || '?').toUpperCase();
 }
-// kobo-116 — render a note body: markdown first (mdToHtml, escape-first), then swap
-// maw://<node>/<file>.<ext> image refs for an inline <img>. MVP scope is the local
-// node's upload store (/api/files) — the exact endpoint maw_inline_images resolves a
-// ref to, and the only place note images land today (mesh upload = kobo-117). The ref
-// is matched by a strict [A-Za-z0-9._-] charset + image-ext allowlist (mirror of the
-// resolver's MIME_BY_EXT), and we emit the <img> ourselves, so nothing user-authored
-// reaches the DOM as HTML. Non-image / non-maw refs are left as mdToHtml produced them.
-// ponytail: local node only; cross-node (data-URI via maw_inline_images) is kobo-116 follow-up.
-const NOTE_IMG_EXT = /^(png|jpe?g|gif|webp)$/i;
-function renderNoteBody(txt) {
-  return mdToHtml(txt || '').replace(
-    /maw:\\/\\/[A-Za-z0-9._-]+\\/([A-Za-z0-9._-]+\\.([A-Za-z0-9]+))/g,
-    function (ref, file, ext) {
-      if (!NOTE_IMG_EXT.test(ext)) return ref;
-      const url = '/api/files/' + encodeURIComponent(file);
-      // anchor → native click-to-open (full-size, new tab); no JS handler needed.
-      return '<a class="note-img-link" href="' + url + '" target="_blank" rel="noopener">' +
-        '<img class="note-img" loading="lazy" src="' + url + '" alt="' + escapeHtml(file) + '"></a>';
-    },
-  );
-}
+// kobo-397 — NOTE_IMG_EXT/renderNoteBody moved to src/views/md.ts (shared with
+// room.ts, same 2-live-path lesson as 396). Injected here verbatim via toString()
+// — same single-source pattern as escapeHtml/inlineMd/mdToHtml above.
+const NOTE_IMG_EXT = ${NOTE_IMG_EXT};
+${renderNoteBody.toString()}
 
 // Build one note bubble: avatar (author color + initials) · author name · optional
 // ↳source chip (subtask notes) · timestamp; then the note body. el() sets
