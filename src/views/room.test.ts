@@ -82,11 +82,18 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     return new Function(`${src}; return { isSafeUrl, linkify };`)();
   }
 
-  test("kobo-380: URL auto-linkify never touches innerHTML (textContent/createElement only)", () => {
+  test("kobo-380: URL auto-linkify (bare-URL post-pass) never touches innerHTML (textContent/createElement only)", () => {
     expect(html).toContain("function linkify");
     expect(html).toContain("function isSafeUrl");
     expect(html).toContain("createElement('a')");
-    expect(html).not.toContain("innerHTML ="); // whole view: text nodes + createElement, never raw HTML injection
+  });
+
+  test("kobo-396: the ONLY innerHTML assignment is the escape-first mdToHtml render (no raw-text injection)", () => {
+    expect(html).toContain("function mdToHtml"); // shared renderer (src/views/md.ts) injected verbatim
+    expect(html).toContain("function escapeHtml");
+    expect(html).toContain("bodyEl.innerHTML = mdToHtml(m.text || '')"); // the one legitimate, escape-first sink
+    const innerHtmlAssignments = (html.match(/\.innerHTML\s*=/g) || []).length;
+    expect(innerHtmlAssignments).toBe(1); // no OTHER innerHTML= sink anywhere in the view
   });
 
   test("kobo-380: isSafeUrl allowlists http/https only", () => {

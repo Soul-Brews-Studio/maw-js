@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { escapeHtml, inlineMd, mdToHtml } from "./md";
 
 // Brainstorm Room — 2-pane chat (kobo-258, UX spec eq3 2026-07-10). A company-scoped
 // chat surface to ground a problem with the company LEAD: LEFT = topic/room list of the
@@ -82,7 +83,15 @@ export function roomHtml(): string {
     .bubble .nm { font-weight:600; }
     .bubble .pill { font-size:11px; padding:1px 8px; border-radius:var(--r-pill); background:var(--muted); color:var(--dim); }
     .bubble .ts { margin-left:auto; color:var(--dim); font-size:11px; }
-    .bubble .body { white-space:pre-wrap; word-break:break-word; }
+    /* kobo-396: body now renders as markdown (mdToHtml) — structure (p/ul/li/h*)
+       comes from real HTML, not pre-wrap; tighten prose rhythm like company.ts's .md. */
+    .bubble .body { word-break:break-word; }
+    .bubble .body p { margin:4px 0; } .bubble .body p:first-child { margin-top:0; } .bubble .body p:last-child { margin-bottom:0; }
+    .bubble .body ul, .bubble .body ol { margin:4px 0; padding-left:20px; }
+    .bubble .body h1, .bubble .body h2, .bubble .body h3, .bubble .body h4 { margin:8px 0 4px; font-size:1em; }
+    .bubble .body code { background:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:.9em; }
+    .bubble .body pre { background:var(--muted); border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; }
+    .bubble .body pre code { background:none; border:0; padding:0; }
     .bubble .body a { color:var(--human); text-decoration:underline; }
     .bubble .tag { font-size:11px; color:var(--teammate); }
     /* you = right + sky · lead = left + green · teammate = left + violet */
@@ -257,6 +266,16 @@ function selectRoom(id) {
 }
 
 // ── thread + attribution (you / lead / teammate — pill + alignment + colour) ─
+// kobo-396 — shared markdown renderer (src/views/md.ts), injected verbatim via
+// toString() — same single-source pattern company.ts uses for stateBadge etc.
+// This view's client script stays backtick-free in its OWN source (see file
+// header); mdToHtml/inlineMd use backticks internally (code-span syntax), so
+// they can only be spliced in as the RUNTIME string toString() returns, never
+// pasted as literal source here.
+${escapeHtml.toString()}
+${inlineMd.toString()}
+${mdToHtml.toString()}
+
 function roleOf(from) {
   if (from === 'web' || from === 'you') return 'you';
   if (lead && from === lead) return 'lead';
@@ -295,6 +314,28 @@ function linkify(container, text) {
   if (last < text.length) container.appendChild(document.createTextNode(text.slice(last)));
 }
 
+// kobo-396 — bare-URL autolink (kobo-380) is NOT part of mdToHtml (shared with
+// company.ts's board notes, which never had bare-URL autolink — adding it to the
+// shared inlineMd would change board render, breaking the "byte-identical" board
+// invariant). Kept as a ROOM-ONLY post-pass over mdToHtml's rendered DOM instead:
+// walk text nodes, skip ones already inside <a>/<code>/<pre> (don't double-link
+// or touch code), and re-split each via the existing XSS-safe linkify().
+function linkifyDom(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    const p = n.parentElement;
+    if (p && (p.closest('a') || p.closest('code') || p.closest('pre'))) continue;
+    nodes.push(n);
+  }
+  for (const textNode of nodes) {
+    const frag = document.createDocumentFragment();
+    linkify(frag, textNode.data);
+    textNode.replaceWith(frag);
+  }
+}
+
 async function loadThread() {
   if (!company || !roomId) return;
   const { status, body } = await getJson('/api/room/thread?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(roomId));
@@ -329,8 +370,11 @@ async function loadThread() {
     head.appendChild(el('span', 'ts mono', fmtTs(m.ts)));
     b.appendChild(head);
     if (role === 'teammate') b.appendChild(el('div', 'tag', '🔎 pulled in'));
-    const bodyEl = el('div', 'body');
-    linkify(bodyEl, m.text || '');
+    // kobo-396 — markdown render (shared mdToHtml, escape-first = XSS-safe) + the
+    // room-only bare-URL post-pass (kobo-380 preserved, see linkifyDom).
+    const bodyEl = el('div', 'body md');
+    bodyEl.innerHTML = mdToHtml(m.text || '');
+    linkifyDom(bodyEl);
     b.appendChild(bodyEl);
     thread.appendChild(b);
   }
