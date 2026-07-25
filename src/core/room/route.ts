@@ -222,7 +222,11 @@ export async function handleRoomInviteRequest(request: Request, spawn: SpawnFn =
   const company = str(body.company), room = str(body.room);
   const oracle = bareName(str(body.oracle));
   if (!company || !room || !oracle) return Response.json({ ok: false, error: "company, room and oracle are required" }, { status: 400 });
-  if (oracle === "web") return Response.json({ ok: false, error: "cannot invite the web/human side as a teammate" }, { status: 400 });
+  // kobo-391: reuse ROOM_TAG_DENY (single-source with the @tag/`to` deny, kobo-385) instead of
+  // a local partial check. The old `oracle === "web"` check let "tony"/"human" through — an
+  // invited pseudo-identity lands in room.participants, which roomRepliers() unions into its
+  // allowlist, so this gap let an invite poison /api/room/reply's allowlist too.
+  if (ROOM_TAG_DENY.has(oracle)) return Response.json({ ok: false, error: `cannot invite "${oracle}" — not a real teammate identity` }, { status: 400 });
   const updated = addRoomParticipant(company, room, oracle);
   if (!updated) return Response.json({ ok: false, error: `room not found: ${room}` }, { status: 404 });
   // exactly one hey — a plain notify with a deep-link to the room web view (kobo-258 route).
