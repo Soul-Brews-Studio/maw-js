@@ -108,6 +108,21 @@ describe("crew command plugin standalone boundary", () => {
     expect(guardIdx).toBeLessThan(resolveIdx); // the guard is textually BEFORE the dangerous resolve call
   });
 
+  // kobo-384: crewSpawn/runCrew used to discard the already-declared CrewSpawnResult and
+  // return bare { ok: true } — SKILL.md's auto-kick step needs the pane-ids, and had no
+  // structured way to get them. index.ts's return type widened to surface them through the
+  // module-surface contract; behavioral coverage (populated fields, exact emit-line shape)
+  // lives in plugin-crew-spawn.test.ts.
+  test("index.ts: runCrew's return type is CrewSpawnResult, not the narrower { ok, error } (kobo-384)", () => {
+    const indexSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/crew/index.ts"), "utf8");
+    expect(indexSrc).toContain('import { crewSpawn, type CrewSpawnResult } from "./spawn"');
+    expect(indexSrc).toContain("Promise<CrewSpawnResult>");
+    const spawnSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/crew/spawn.ts"), "utf8");
+    expect(spawnSrc).toContain("export interface CrewSpawnResult");
+    expect(spawnSrc).toContain("front?: string");
+    expect(spawnSrc).toContain("workerModel?: string");
+  });
+
   test("company/index.ts wires `crew` to runCrew (the CLI seam)", () => {
     const companyIndexSrc = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),
