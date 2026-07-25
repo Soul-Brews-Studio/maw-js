@@ -174,6 +174,93 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
   });
 });
 
+describe("kobo-385: @tag overrides the hey target — POST /api/room/send directly (bypass web client)", () => {
+  let dir: string; const prev = process.env.MAW_DATA_DIR;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomtag-")); process.env.MAW_DATA_DIR = dir; seedCompanies(dir, { kobo: "eq3" }); });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; _setCompaniesDir(origCompaniesDir); rmSync(dir, { recursive: true, force: true }); });
+
+  const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const inviteR = (b: unknown) => handleRoomInviteRequest(new Request("http://x/api/room/invite", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }), () => ({ exited: Promise.resolve(0) }));
+  const spawnSpy = () => { const calls: string[][] = []; return { calls, spawn: (a: string[]) => { calls.push(a); return { exited: Promise.resolve(0) }; } }; };
+  const target = (argv: string[]) => argv[argv.length - 2]; // roomNudgeArgs' `to` is second-to-last
+
+  test("@member in room → the REAL hey target is the member, not the UI's default lead", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    await inviteR({ company: "kobo", room: "r", oracle: "worker" });
+    const { calls, spawn } = spawnSpy();
+    const res = await post({ room: "r", to: "eq3", text: "@worker please pick this up", from: "web" }, spawn);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { to: string }).to).toBe("worker"); // response surfaces the resolved target
+    expect(target(calls[0])).toBe("worker"); // the actual hey argv target
+  });
+
+  test("no @tag → target stays the default lead (behavior unchanged)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { calls, spawn } = spawnSpy();
+    const res = await post({ room: "r", to: "eq3", text: "no tag here", from: "web" }, spawn);
+    expect(((await res.json()) as { to: string }).to).toBe("eq3");
+    expect(target(calls[0])).toBe("eq3");
+  });
+
+  test("@nonmember → falls back to lead, but the response SURFACES the resolved (real) destination", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { calls, spawn } = spawnSpy();
+    const res = await post({ room: "r", to: "eq3", text: "@ghost are you there", from: "web" }, spawn);
+    expect(((await res.json()) as { to: string }).to).toBe("eq3"); // never the un-resolved "@ghost"
+    expect(target(calls[0])).toBe("eq3");
+  });
+
+  test("attacker path (TAG vector): from:'tony' + text '@tony' → hard-deny holds; tony is NEVER a hey target", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { calls, spawn } = spawnSpy();
+    const res = await post({ room: "r", to: "eq3", text: "@tony ping", from: "tony" }, spawn);
+    expect(((await res.json()) as { to: string }).to).toBe("eq3"); // falls back to lead
+    expect(target(calls[0])).toBe("eq3");
+    expect(calls.flat()).not.toContain("tony"); // "tony" never appears anywhere in the hey argv
+  });
+
+  test("attacker path (BASE vector): raw POST {to:'tony'}, NO @tag → hard-deny holds on the FINAL resolved target too", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { calls, spawn } = spawnSpy();
+    // no @ anywhere in text — resolveRoomTag returns null, so `target` = the raw `to` field
+    // untouched by the tag-handle deny. The merge-level guard (route.ts, post-merge) must
+    // still catch it, proving the deny sits on the FINAL target, not just the @tag path.
+    const res = await post({ room: "r", to: "tony", text: "ping with no tag at all", from: "web" }, spawn);
+    expect(((await res.json()) as { to: string }).to).toBe("eq3"); // falls back to lead
+    expect(target(calls[0])).toBe("eq3");
+    expect(calls.flat()).not.toContain("tony"); // "tony" never appears anywhere in the hey argv
+  });
+
+  test("attacker path (UNKNOWN-ROOM vector): raw POST to a room with no company → deny still holds, nudge dropped", async () => {
+    // findRoomCompany("does-not-exist") → null under caller control. The deny must NOT be
+    // gated on `company` (only the companyLead fallback needs one) — else this is a free
+    // bypass: skip the guard entirely by targeting a room that was never opened.
+    const { calls, spawn } = spawnSpy();
+    const res = await post({ room: "does-not-exist", to: "tony", text: "hi", from: "web" }, spawn);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { to: string | null; skipped?: boolean }).to).toBeNull();
+    expect(calls).toHaveLength(0); // no lead to redirect to — dropped, never spawned
+    expect(calls.flat()).not.toContain("tony");
+  });
+
+  test("unknown-room, non-denied `to` still routes fine (only denied literals are dropped)", async () => {
+    const { calls, spawn } = spawnSpy();
+    const res = await post({ room: "does-not-exist", to: "eq3", text: "hi", from: "web" }, spawn);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { to: string }).to).toBe("eq3");
+    expect(calls).toHaveLength(1);
+    expect(target(calls[0])).toBe("eq3");
+  });
+
+  test("@ mid-word / email-shaped text never matches (word-anchored regex)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    await inviteR({ company: "kobo", room: "r", oracle: "com" }); // would match if the anchor were broken
+    const { calls, spawn } = spawnSpy();
+    await post({ room: "r", to: "eq3", text: "ping me at a@b.com", from: "web" }, spawn);
+    expect(target(calls[0])).toBe("eq3");
+  });
+});
+
 describe("Brainstorm Room artifact routes (kobo-241 — open/close/reopen/thread)", () => {
   let dir: string; const prev = process.env.MAW_DATA_DIR;
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomroute-")); process.env.MAW_DATA_DIR = dir; seedCompanies(dir, { kobo: "eq3" }); });
