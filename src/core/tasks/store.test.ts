@@ -888,6 +888,18 @@ describe("transition guards: every transition re-checks deps (kobo-253 slice B)"
     expect(t.prevState).toBe("in-progress"); // remembers the lane start aimed at
   });
 
+  // kobo-394 — the block reconcile writes must carry a REASON naming the pending
+  // parent + its state, so a verb's echo (or any consumer reading task.block) can
+  // report the real "why", not a bare "blocked" with no explanation.
+  test("dependency block carries a reason naming the still-pending parent + its state (kobo-394)", () => {
+    const { parent, child } = depBlockedChild("k394reason");
+    startTask("k394reason", child, "p");
+    const t = readTask("k394reason", child)!;
+    expect(t.state).toBe("blocked");
+    expect(t.block?.reason).toContain(parent);
+    expect(t.block?.reason).toContain("todo"); // the fresh parent's real state
+  });
+
   test("claim on a dep-pending card → snaps back to blocked", () => {
     const { child } = depBlockedChild("k253b");
     claimTask("k253b", child, "someone");
@@ -917,6 +929,61 @@ describe("transition guards: every transition re-checks deps (kobo-253 slice B)"
     const { child } = depBlockedChild("k253po");
     prOpenedReview("k253po", child, "author");
     expect(readTask("k253po", child)!.state).toBe("blocked");
+  });
+
+  // kobo-394 — the WORKLOG entry itself must not lie either: prOpenedReview/holdTask
+  // used to always emit kind "task-review" with a "review"/"hold" message even when
+  // the write got clobbered to blocked. Pin the emit kind flips too, not just state.
+  test("kobo-394: prOpenedReview clobbered to blocked emits task-blocked, not task-review", () => {
+    const { child } = depBlockedChild("k394pr-emit");
+    prOpenedReview("k394pr-emit", child, "author");
+    expect(readTask("k394pr-emit", child)!.state).toBe("blocked");
+    const wl = readWorklog("k394pr-emit");
+    expect(wl.some((e) => e.kind === "task-blocked" && e.task === child)).toBe(true);
+    expect(wl.some((e) => e.kind === "task-review" && e.task === child)).toBe(false);
+  });
+
+  test("kobo-394: hold (non-gate) clobbered to blocked emits task-blocked, not task-review", () => {
+    const { child } = depBlockedChild("k394hold-emit");
+    holdTask("k394hold-emit", child, "eq3", "double-check");
+    expect(readTask("k394hold-emit", child)!.state).toBe("blocked");
+    const wl = readWorklog("k394hold-emit");
+    expect(wl.some((e) => e.kind === "task-blocked" && e.task === child)).toBe(true);
+    expect(wl.some((e) => e.kind === "task-review" && e.task === child)).toBe(false);
+  });
+
+  // kobo-394 round 2 — reviewer caught reviewTask + setTaskPr had the IDENTICAL
+  // unconditional emit("task-review") the round-1 fix missed. Pin both, same shape.
+  test("kobo-394 round 2: reviewTask clobbered to blocked emits task-blocked, not task-review", () => {
+    const { child } = depBlockedChild("k394review-emit");
+    reviewTask("k394review-emit", child, "eq3", {});
+    expect(readTask("k394review-emit", child)!.state).toBe("blocked");
+    const wl = readWorklog("k394review-emit");
+    expect(wl.some((e) => e.kind === "task-blocked" && e.task === child)).toBe(true);
+    expect(wl.some((e) => e.kind === "task-review" && e.task === child)).toBe(false);
+  });
+
+  test("kobo-394 round 2: setTaskPr clobbered to blocked emits task-blocked, not task-review", () => {
+    const { child } = depBlockedChild("k394pr-set-emit");
+    setTaskPr("k394pr-set-emit", child, 42, "eq3", "owner/repo");
+    expect(readTask("k394pr-set-emit", child)!.state).toBe("blocked");
+    const wl = readWorklog("k394pr-set-emit");
+    expect(wl.some((e) => e.kind === "task-blocked" && e.task === child)).toBe(true);
+    expect(wl.some((e) => e.kind === "task-review" && e.task === child)).toBe(false);
+  });
+
+  // negative — confirm the happy path (no pending dep) is UNCHANGED for both:
+  // still emits task-review, no accidental task-blocked when nothing's actually blocked.
+  test("kobo-394 round 2: reviewTask/setTaskPr on a dep-CLEAR card still emit task-review normally", () => {
+    const parent = addTask({ company: "k394ok-emit", title: "parent", by: "x" });
+    completeTask("k394ok-emit", parent.id, "x"); // deps clear
+    const child = addTask({ company: "k394ok-emit", title: "child", by: "x", assignee: "p", parentIds: [parent.id] });
+    reviewTask("k394ok-emit", child.id, "eq3", {});
+    expect(readTask("k394ok-emit", child.id)!.state).toBe("review");
+    setTaskPr("k394ok-emit", child.id, 7, "eq3", "o/r");
+    const wl = readWorklog("k394ok-emit");
+    expect(wl.filter((e) => e.kind === "task-review" && e.task === child.id).length).toBe(2);
+    expect(wl.some((e) => e.kind === "task-blocked" && e.task === child.id)).toBe(false);
   });
 
   test("move-to-backlog is NOT force-blocked (parking lot is a valid park for a dep-pending card)", () => {

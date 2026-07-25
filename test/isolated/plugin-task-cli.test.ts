@@ -24,7 +24,7 @@ const seedCompanies = () => {
   const compDir = join(dir, "companies");
   mkdirSync(compDir, { recursive: true });
   const members = ["patchwork", "eq3", "worker", "somsri", "thawanban", "mawjs"].map(o => ({ oracle: o }));
-  for (const c of ["pgw", "acme"]) {
+  for (const c of ["pgw", "acme", "kobo394"]) {
     writeFileSync(join(compDir, `${c}.json`), JSON.stringify({ name: c, departments: { core: { members, lead: "eq3" } } }));
   }
 };
@@ -86,6 +86,43 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("in-progress");
     expect((await run(["done", "pgw-1", "--company", "pgw"])).ok).toBe(true);
     expect(readTask("pgw", "pgw-1")!.state).toBe("done");
+  });
+
+  // kobo-394 — echo-truth: a verb whose write gets reconcile-clobbered back to blocked
+  // must ECHO that real on-disk result, not the pre-overwrite optimistic value it
+  // intended (the "echo-lie" observed live — start/claim printed a hardcoded
+  // "(in-progress)" regardless of what writeTaskWithDepGuard actually persisted).
+  // Dedicated company (kobo394) so ids are predictable and isolated from other tests.
+  test("start on a dep-pending card echoes the REAL blocked state, not a false '(in-progress)' (kobo-394)", async () => {
+    await run(["add", "parent", "--company", "kobo394"]); // kobo394-1, todo — not done, still pending
+    await run(["add", "child", "--company", "kobo394", "--parent", "kobo394-1", "--assignee", "worker"]); // kobo394-2, born blocked
+    expect(readTask("kobo394", "kobo394-2")!.state).toBe("blocked");
+    const r = await run(["start", "kobo394-2", "--company", "kobo394"]);
+    expect(r.ok).toBe(true);
+    expect(readTask("kobo394", "kobo394-2")!.state).toBe("blocked"); // clobbered back — dep still pending
+    expect(r.output).not.toContain("in-progress"); // no false optimistic echo
+    expect(r.output).toContain("dependency"); // the real reconcile reason surfaces
+    expect(r.output).toContain("kobo394-1"); // names the still-pending parent
+  });
+
+  test("claim on a dep-pending card echoes the REAL blocked state, not a false '(in-progress)' (kobo-394)", async () => {
+    await run(["add", "parent", "--company", "kobo394"]);
+    await run(["add", "child", "--company", "kobo394", "--parent", "kobo394-1", "--assignee", "worker"]);
+    const r = await run(["claim", "kobo394-2", "--company", "kobo394"]);
+    expect(r.ok).toBe(true);
+    expect(readTask("kobo394", "kobo394-2")!.state).toBe("blocked");
+    expect(r.output).not.toContain("in-progress");
+    expect(r.output).toContain("kobo394-1");
+  });
+
+  test("hold (non-gate) on a dep-pending card echoes the REAL blocked state, not a false '→ review' (kobo-394)", async () => {
+    await run(["add", "parent", "--company", "kobo394"]);
+    await run(["add", "child", "--company", "kobo394", "--parent", "kobo394-1", "--assignee", "worker"]);
+    const r = await run(["hold", "kobo394-2", "--company", "kobo394", "--reason", "double-check"]);
+    expect(r.ok).toBe(true);
+    expect(readTask("kobo394", "kobo394-2")!.state).toBe("blocked");
+    expect(r.output).not.toContain("review"); // no false "→ review" hold echo
+    expect(r.output).toContain("kobo394-1");
   });
 
   // kobo-275 — the `deployed` verb via the real CLI dispatch (runTask), the same

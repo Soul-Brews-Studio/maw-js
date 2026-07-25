@@ -168,6 +168,26 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('process.env.MAW_TEST_MODE === "1") return');
   });
 
+  // kobo-394 — echo-truth: start/claim/hold go through writeTaskWithDepGuard, which
+  // can clobber the intended write to blocked when a dependency is still pending.
+  // Pin that the CLI echo reads the REAL post-reconcile state (taskNextAction, which
+  // already handles the blocked case + reason) instead of a hardcoded "(in-progress)"/
+  // "review" label — that hardcoding was the actual echo-lie bug (behavioral proof in
+  // plugin-task-cli.test.ts; this pins the source shape so it can't silently regress).
+  test("start/claim/hold echo taskNextAction(t), never a hardcoded state label (kobo-394)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    const startLine = src.split("\n").find((l) => l.includes("▶ started"));
+    const claimLine = src.split("\n").find((l) => l.includes("⛏ claimed"));
+    expect(startLine).toContain("taskNextAction(t)");
+    expect(claimLine).toContain("taskNextAction(t)");
+    expect(startLine).not.toContain("(in-progress)"); // the old hardcoded lie
+    expect(claimLine).not.toContain("(in-progress)");
+    expect(src).toContain('t.state === "blocked"'); // hold's non-gate branch checks real state before echoing
+  });
+
   // cli-reorg kobo-26: `maw task` is HARD-REMOVED (no shim). The plugin exports
   // the shared `runTask` runner (imported by the company plugin for
   // `maw company task`) but registers NO cli command and NO default handler.

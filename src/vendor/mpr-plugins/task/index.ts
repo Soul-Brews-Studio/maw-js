@@ -474,7 +474,11 @@ export async function runTask(
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = startTask(company, id, me, { crewGate: Boolean(process.env.CREW_ROLE) }); // kobo-333: stamp crewGate when in a crew pane
       if (!t) return { ok: false, error: `task not found: ${id}` };
-      console.log(`\x1b[36m▶ started\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
+      // kobo-394: echo the REAL post-reconcile state, not the intended write — a
+      // pending dependency can clobber this to blocked (writeTaskWithDepGuard inside
+      // startTask); taskNextAction(t) already reads t.state live + surfaces the
+      // block reason (kobo-394 also added `reason` to the dependency block itself).
+      console.log(`\x1b[36m▶ started\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
     } else if (subcmd === "move") {
       // kobo-70 — re-file between the "parking" flow states backlog ⇄ todo ⇄ ready
       // (those without a dedicated pick-up verb; ready normally auto-promotes on
@@ -532,7 +536,9 @@ export async function runTask(
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       const t = claimTask(company, id, me, { crewGate: Boolean(process.env.CREW_ROLE) }); // kobo-333: stamp crewGate when in a crew pane
       if (!t) return { ok: false, error: `task not found: ${id}` };
-      console.log(`\x1b[36m⛏ claimed\x1b[0m ${t.id} \x1b[90m(in-progress)\x1b[0m: ${t.title}`);
+      // kobo-394: same echo-truth fix as start — claimTask also goes through
+      // writeTaskWithDepGuard, so a pending dependency can clobber this to blocked.
+      console.log(`\x1b[36m⛏ claimed\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
     } else if (subcmd === "assign") {
       // Reassign = set a card's assignee to <who>. kobo-219: reassign is FRICTION —
       // displacing an existing owner requires --force-reassign (correction only:
@@ -655,7 +661,12 @@ export async function runTask(
       const t = holdTask(company, id, me, flags["--reason"], { gate });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       if (gate) {
+        // gate delegates entirely to approveTask, which never dep-reconciles — always truthful.
         console.log(`\x1b[32m✋ approve\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)} (${t.reviewReason})\x1b[0m: ${t.title} \x1b[90m[gated brake → Tony queue]\x1b[0m`);
+      } else if (t.state === "blocked") {
+        // kobo-394: non-gate hold goes through writeTaskWithDepGuard — a pending
+        // dependency can clobber the intended "→ review" into blocked. Echo the truth.
+        console.log(`\x1b[31m⚑ blocked\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
       } else {
         console.log(`\x1b[35m⏸ hold\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)}\x1b[0m: ${t.title}${flags["--reason"] ? ` \x1b[90m(${flags["--reason"]})\x1b[0m` : ""}`);
       }
