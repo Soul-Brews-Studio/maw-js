@@ -63,7 +63,7 @@ export function roomHtml(): string {
     .list-empty .primary { margin-top:12px; }
 
     /* chat */
-    .chat { display:flex; flex-direction:column; min-height:0; }
+    .chat { display:flex; flex-direction:column; min-height:0; position:relative; }
     .chat-header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); }
     .chat-header .back { display:none; background:none; border:none; color:var(--dim); font-size:20px; padding:0 4px; }
     .chat-header .htopic { font-weight:600; }
@@ -102,6 +102,14 @@ export function roomHtml(): string {
     .composer .send { background:var(--lead); color:#04120A; border:none; border-radius:10px; padding:9px 16px; font-weight:600; }
     .composer .send:disabled { opacity:.5; cursor:default; }
     .status { padding:0 16px 8px; color:var(--dim); font-size:12px; } .status.err { color:var(--danger); }
+
+    /* kobo-390: @-autocomplete picker */
+    .picker { position:absolute; bottom:64px; left:16px; right:16px; max-height:220px; overflow:auto;
+      background:var(--panel,#151515); border:1px solid var(--border); border-radius:10px; box-shadow:0 -4px 16px rgba(0,0,0,.35); z-index:5; }
+    .picker-group { padding:6px 10px 2px; font-size:11px; text-transform:uppercase; color:var(--dim); }
+    .picker-item { padding:7px 12px; cursor:pointer; font-size:14px; display:flex; justify-content:space-between; gap:8px; }
+    .picker-item:hover, .picker-item.sel { background:var(--muted); }
+    .picker-item .hint { color:var(--dim); font-size:11px; }
 
     /* mobile single-pane slide */
     @media (max-width:768px) {
@@ -148,8 +156,9 @@ export function roomHtml(): string {
       <div id="activity"></div>
       <div id="thread" aria-live="polite"><div class="thread-empty">เลือกหัวข้อ หรือเปิดใหม่เพื่อปรึกษา lead.</div></div>
       <div id="status" class="status"></div>
+      <div id="picker" class="picker" style="display:none;"></div>
       <div class="composer">
-        <textarea id="text" rows="1" placeholder="type to lead…" aria-label="message"></textarea>
+        <textarea id="text" rows="1" placeholder="type to lead… (@ to tag)" aria-label="message"></textarea>
         <button id="send" class="send" type="button">send ▸</button>
       </div>
     </section>
@@ -167,6 +176,8 @@ let lead = '';
 let rooms = [];
 let mergeMode = false;
 let roomStatus = 'open';
+let oracles = []; // kobo-390: company roster for the @-picker
+let participants = []; // kobo-390: current room's explicit invite list
 
 function syncUrl() {
   const u = new URL(location.href);
@@ -190,6 +201,7 @@ async function loadRooms() {
   company = body.company || company;
   lead = body.lead || '';
   rooms = Array.isArray(body.rooms) ? body.rooms : [];
+  oracles = Array.isArray(body.oracles) ? body.oracles : [];
   renderCompanies(body.companies || []);
   $('leadName').textContent = lead || '—';
   renderRoomList();
@@ -237,6 +249,7 @@ function renderRoomList() {
 
 function selectRoom(id) {
   roomId = id;
+  closePicker();
   $('app').classList.add('showchat'); // mobile: slide to chat
   renderRoomList();
   syncUrl();
@@ -289,6 +302,7 @@ async function loadThread() {
   if (status === 404 || !body.ok || !body.room) { thread.replaceChildren(el('div', 'thread-empty', 'ห้องนี้ยังไม่ถูกเปิด')); return; }
   const room = body.room;
   roomStatus = room.status || 'open';
+  participants = Array.isArray(room.participants) ? room.participants : [];
   updateRoomControls();
   $('hTopic').textContent = '# ' + (room.topic || room.id);
   const inRoom = new Set(room.messages.map((m) => m.from).filter((f) => f && roleOf(f) !== 'you'));
@@ -353,6 +367,63 @@ async function send() {
     setTimeout(loadThread, 500);
   } catch (err) { setStatus('ส่งไม่สำเร็จ — retry: ' + (err && err.message ? err.message : err), true); }
   finally { $('send').disabled = false; }
+}
+
+// ── @-tag picker (kobo-390): grouped "in this room" vs "invite"; picking an
+// invite entry fires the EXISTING /api/room/invite (auto-invite), then inserts the
+// tag — narrow-scope routing (server) + broad-roster picker (client), bridged by invite.
+let pickerItems = [];
+function tagQueryAt(value, caret) {
+  const head = value.slice(0, caret);
+  const m = head.match(/(?:^|\s)@([a-z0-9][a-z0-9_.-]*)$/i);
+  return m ? { start: caret - m[1].length - 1, query: m[1].toLowerCase() } : null;
+}
+function closePicker() { $('picker').style.display = 'none'; $('picker').replaceChildren(); pickerItems = []; }
+function pickerRow(oracle, needsInvite) {
+  const row = el('div', 'picker-item');
+  row.appendChild(el('span', null, '@' + oracle));
+  if (needsInvite) row.appendChild(el('span', 'hint', 'invite'));
+  row.addEventListener('mousedown', (ev) => { ev.preventDefault(); pickTag(oracle, needsInvite); });
+  return row;
+}
+function renderPicker(query) {
+  const inRoomSet = new Set(participants);
+  const matches = oracles.filter((o) => o.toLowerCase().startsWith(query));
+  const inRoom = matches.filter((o) => inRoomSet.has(o));
+  const invite = matches.filter((o) => !inRoomSet.has(o));
+  pickerItems = inRoom.concat(invite);
+  const box = $('picker');
+  box.replaceChildren();
+  if (!pickerItems.length) { closePicker(); return; }
+  if (inRoom.length) box.appendChild(el('div', 'picker-group', 'in this room'));
+  for (const o of inRoom) box.appendChild(pickerRow(o, false));
+  if (invite.length) box.appendChild(el('div', 'picker-group', 'invite to room'));
+  for (const o of invite) box.appendChild(pickerRow(o, true));
+  box.style.display = '';
+}
+async function pickTag(oracle, needsInvite) {
+  const t = $('text');
+  const at = tagQueryAt(t.value, t.selectionStart);
+  closePicker();
+  if (needsInvite) {
+    try { await post('/api/room/invite', { company, room: roomId, oracle }); }
+    catch (err) { setStatus('invite failed: ' + (err && err.message ? err.message : err), true); return; }
+    participants = participants.concat(oracle);
+  }
+  if (at) {
+    const before = t.value.slice(0, at.start);
+    const after = t.value.slice(t.selectionStart);
+    t.value = before + '@' + oracle + ' ' + after;
+    const pos = (before + '@' + oracle + ' ').length;
+    t.setSelectionRange(pos, pos);
+  }
+  t.focus(); autogrow();
+}
+function onComposeInput() {
+  autogrow();
+  const t = $('text');
+  const at = tagQueryAt(t.value, t.selectionStart);
+  if (at) renderPicker(at.query); else closePicker();
 }
 
 // ── new topic / distill / merge (reuse the engine endpoints) ────────────────
@@ -423,8 +494,16 @@ async function confirmMerge() {
 $('company').addEventListener('change', () => { company = $('company').value; roomId = ''; $('app').classList.remove('showchat'); loadRooms().then(() => loadThread()); });
 $('newTopic').addEventListener('click', newTopic);
 $('send').addEventListener('click', send);
-$('text').addEventListener('input', autogrow);
-$('text').addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } });
+$('text').addEventListener('input', onComposeInput);
+$('text').addEventListener('keydown', (ev) => {
+  if (pickerItems.length && (ev.key === 'Escape')) { ev.preventDefault(); closePicker(); return; }
+  if (ev.key === 'Enter' && !ev.shiftKey) {
+    ev.preventDefault();
+    if (pickerItems.length) { pickTag(pickerItems[0], !participants.includes(pickerItems[0])); return; }
+    send();
+  }
+});
+$('text').addEventListener('blur', () => setTimeout(closePicker, 150)); // 150ms: let a picker-item mousedown fire first
 $('back').addEventListener('click', () => { $('app').classList.remove('showchat'); });
 $('distillBtn').addEventListener('click', distill);
 $('inviteBtn').addEventListener('click', invite);
