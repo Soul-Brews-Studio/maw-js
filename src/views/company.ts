@@ -1589,35 +1589,37 @@ async function openDetail(task) {
     renderBoard(lastTasks); // reflect the cleared dot on the board underneath the modal
   }
   // kobo-401: body/notes/comments (+ childNotes for an epic) no longer ride on the
-  // bulk list card — fetch the single-card detail before rendering the modal so
-  // there's one render pass, not a populate-then-flicker. Same-origin/localhost, fast.
-  let full = task;
+  // bulk list card — fetch the single-card detail and merge it in before rendering
+  // the modal, so there's one render pass, not a populate-then-flicker.
+  // Same-origin/localhost, fast. Reassigns the task parameter itself (rather than
+  // introducing a new variable) so every render call below is untouched from
+  // before this card.
   if (task && task.id) {
     try {
       const company = currentCompany();
       const res = company ? await getJson('/api/tasks/detail?company=' + encodeURIComponent(company) + '&id=' + encodeURIComponent(task.id)) : null;
-      if (res && res.ok && res.task) full = Object.assign({}, task, res.task);
+      if (res && res.ok && res.task) task = Object.assign({}, task, res.task);
     } catch (err) { /* fall back to the slim task — detail sections render empty rather than throwing */ }
   }
-  $('detail-title').textContent = (full.id ? full.id + ' · ' : '') + (full.title || '(untitled)');
-  renderDetailMeta(full); // kobo-62: dept / parent-chip / wait moved off the card face → here
-  renderDetailApprove(full); // kobo-190: approve-only summary + link-out + mark-only Approve button
-  renderDetailDeps(full);   // kobo-136: dependency chips (waits-on / missing / unblocks)
-  renderDetailFamily(full); // kobo-136: family tree (root → descendants, current marked)
+  $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
+  renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
+  renderDetailApprove(task); // kobo-190: approve-only summary + link-out + mark-only Approve button
+  renderDetailDeps(task);   // kobo-136: dependency chips (waits-on / missing / unblocks)
+  renderDetailFamily(task); // kobo-136: family tree (root → descendants, current marked)
   const bodyEl = $('detail-body');
-  if (full.body) { bodyEl.replaceChildren(renderCardBody(full.body)); } // kobo-60: structured field/scope blocks + prose
+  if (task.body) { bodyEl.replaceChildren(renderCardBody(task.body)); } // kobo-60: structured field/scope blocks + prose
   else { const p = el('p', '', '(no detail — add one with: maw company task add ... --body)'); p.style.color = 'var(--muted)'; bodyEl.replaceChildren(p); }
   // kobo-141: the ask/answer comment thread (Board Truth rule 10) sits above the
   // notes log — comments are the primary channel now, notes are evidence/log.
-  renderDetailComments(full);
+  renderDetailComments(task);
   // kobo-39: append-only notes timeline (who / when / what) below the body. Reuse
   // the worklog .entry/.e-* classes. el() sets textContent → escape-first, XSS-safe.
   // kobo-141: notes are now COLLAPSIBLE (หุบได้) + collapsed by default, so the
   // comment thread leads and the evidence log stays a click away.
   const notesEl = $('detail-notes');
   notesEl.replaceChildren();
-  const notes = full.notes || [];
-  const childNotes = childNotesOf(full); // kobo-47: an epic also gathers descendant notes, tagged by source (kobo-401: server-sent task.childNotes on the detail-fetch for epics)
+  const notes = task.notes || [];
+  const childNotes = childNotesOf(task); // kobo-47: an epic also gathers descendant notes, tagged by source (kobo-401: server-sent task.childNotes on the detail-fetch for epics)
   const totalNotes = notes.length + childNotes.length;
   if (totalNotes) {
     const toggle = el('button', 'notes-head notes-toggle', '▸ notes (' + totalNotes + ')'); toggle.type = 'button';
@@ -1635,10 +1637,10 @@ async function openDetail(task) {
     notesEl.appendChild(toggle); notesEl.appendChild(notesBody);
   }
   // kobo-48: write controls (+ subtask, comment box) live inside the modal.
-  buildWriteSection(full);
+  buildWriteSection(task);
   openModal();
-  scrollToNewestComment(full); // kobo-180: land on the newest comment (after openModal — hidden = no layout)
-  if (full && full.id) subscribeDetailEvents(full.id); // kobo-207: hot-reload this card via SSE (idempotent for a reopen)
+  scrollToNewestComment(task); // kobo-180: land on the newest comment (after openModal — hidden = no layout)
+  if (task && task.id) subscribeDetailEvents(task.id); // kobo-207: hot-reload this card via SSE (idempotent for a reopen)
 }
 
 // kobo-180: on open, bring the newest VISIBLE comment into view so a busy card lands
