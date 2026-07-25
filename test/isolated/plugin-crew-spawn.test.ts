@@ -226,10 +226,11 @@ describe("crewSpawn (kobo-358)", () => {
     expect(r.reviewer).not.toBe("");
   });
 
-  // kobo-384: this is now the ONLY place the brain-tier model string is pinned — SKILL.md
-  // no longer duplicates the raw spawn recipe (single-source, kobo-384), so a future
-  // regression back to sonnet/the `opus` alias would otherwise go uncaught.
-  test("conductor + reviewer spawn with the literal model claude-opus-5 (kobo-381/382, single-sourced here since kobo-384)", async () => {
+  // kobo-384: this is now the ONLY behavioral place the brain-tier model is pinned — SKILL.md
+  // no longer duplicates the raw spawn recipe (single-source), so a future regression back
+  // to sonnet/the `opus` alias would otherwise go uncaught. kobo-389: the literal itself now
+  // lives in exactly one place too (BRAIN_MODEL, this file), imported by head/spawn.ts.
+  test("conductor + reviewer spawn with the literal model claude-opus-5 (kobo-381/382, single-sourced via BRAIN_MODEL since kobo-389)", async () => {
     paneListForSession = "%front|||🧭 coord|||main\n";
     bootTranscript["%w1"] = ["", "claude code — bypass permissions on"];
     await crewSpawn("kobo", emit);

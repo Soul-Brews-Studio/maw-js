@@ -65,7 +65,7 @@ tmux set-option -p -t "$TMUX_PANE" @role "🧭 coord"
 
 ## 1. Spawn — front spawns conductor + worker + reviewer (3 permanent panes)
 
-รันจาก **front pane** (pane ที่เรียก /crew). **Single source (kobo-384):** layout, contract files, model (`claude-opus-5` brains /
+รันจาก **front pane** (pane ที่เรียก /crew). **Single source (kobo-384/389):** layout, contract files, model (`BRAIN_MODEL` brains /
 `claude-sonnet-5` worker + self-heal), role-tags, `worker-model.txt` — all live in
 `spawn.ts` `crewSpawn()` (finishes the migration kobo-358 started for the contract
 templates but never did for the recipe itself). This block calls the verb + extracts

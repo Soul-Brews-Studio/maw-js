@@ -408,10 +408,12 @@ describe("crew-skills global asset contract", () => {
     // review chain wired head-reviewer → lead (299 AC)
     expect(head).toContain("worker → crew reviewer → head reviewer → lead");
     // opus top tier (299 AC — model-tier full mapping is sibling kobo-300); kobo-384: the
-    // literal --model claude-opus-5 invocation moved to spawn.ts (single source) — pinned
-    // there now (plugin-head-spawn.test.ts "happy path: 3-pane cell, both claude-opus-5").
-    // SKILL.md keeps the model-tier PROSE describing it (checked below).
-    expect(head).toContain("claude-opus-5");
+    // literal --model invocation moved to spawn.ts (single source) — pinned there now
+    // (plugin-head-spawn.test.ts "happy path: 3-pane cell, both BRAIN_MODEL"). kobo-389:
+    // the model-tier PROSE also stopped hardcoding the literal id (`BRAIN_MODEL` instead),
+    // since the const is now the one place a model change happens.
+    expect(head).toContain("BRAIN_MODEL");
+    expect(head).not.toContain("claude-opus-5");
     expect(head).toContain("model tier (spawn)");
   });
 

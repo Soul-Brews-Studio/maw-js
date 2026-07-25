@@ -70,13 +70,18 @@ describe("crew command plugin standalone boundary", () => {
   // kobo-381 — W0-brains design says conductor+reviewer run opus; both spawn commands
   // omitted --model entirely and silently inherited the CLI default (sonnet). worker
   // stays parameterized (DEFAULT/FALLBACK_WORKER_MODEL, self-heal) — untouched.
-  // kobo-382 — the `opus` alias resolves to Opus 4.8, not the intended Opus 5; pin the
-  // literal model id `claude-opus-5` instead of the alias.
-  test("spawn.ts: crew conductor + reviewer spawn with --model claude-opus-5 (W0-brains, kobo-381/382)", () => {
+  // kobo-382 — the `opus` alias resolves to Opus 4.8, not the intended Opus 5.
+  // kobo-389 — the literal model id was still duplicated at 4 sites (this file's 2 +
+  // head/spawn.ts's 2); hoisted to a single `BRAIN_MODEL` const, exported from here.
+  test("spawn.ts: crew conductor + reviewer spawn with BRAIN_MODEL (W0-brains, kobo-381/382/389)", () => {
     const spawnSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/crew/spawn.ts"), "utf8");
-    expect(spawnSrc).toContain('claude --model claude-opus-5 --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"');
-    expect(spawnSrc).toContain('claude --model claude-opus-5 --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"');
+    expect(spawnSrc).toContain('export const BRAIN_MODEL = "claude-opus-5"');
+    expect(spawnSrc).toContain('claude --model ${BRAIN_MODEL} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"');
+    expect(spawnSrc).toContain('claude --model ${BRAIN_MODEL} --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"');
     expect(spawnSrc).toContain("claude --model ${shellArg(model)} --settings"); // worker: parameterized self-heal, unchanged
+    // AC: the literal string appears ONLY at the const definition, nowhere else in src/
+    const literalHits = (spawnSrc.match(/claude-opus-5/g) || []).length;
+    expect(literalHits).toBe(1);
   });
 
   test("teardown.ts: session-scoped (list-panes -s), never server-wide -a — protects other oracles' live crew cells", () => {

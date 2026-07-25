@@ -33,7 +33,7 @@ description: Spin up a /head strategic cell — top tier of the 3-tier operating
 
 **comm = opt-in** (ต่างจาก warroom ที่ spawn เสมอ): เพิ่ม comm pane **เมื่อ federation/peer traffic หนัก** (reliable ear, dnd-proof). ไม่มี traffic → 3 บทพอ, inbound มาที่ conductor/lead ผ่าน inbox+route.
 
-**model tier (spawn)** — `claude --model <id>` per pane. opus-tier panes use the **literal id `claude-opus-5`** (kobo-382: the CLI's `opus` alias resolves to 4.8, not the intended 5) · sonnet-tier stays the alias `sonnet`. **แพงบน-ถูกล่าง** (judgment บน · execute ล่าง):
+**model tier (spawn)** — `claude --model <id>` per pane. opus-tier panes use `BRAIN_MODEL` (kobo-389: single source in `crew/spawn.ts`, imported by `head/spawn.ts` — the literal id, not the `opus` alias, which resolves to 4.8 not the intended 5) · sonnet-tier stays the alias `sonnet`. **แพงบน-ถูกล่าง** (judgment บน · execute ล่าง):
 
 | tier | roles | model |
 |------|-------|-------|
