@@ -34,9 +34,9 @@ describe("head command plugin standalone boundary", () => {
     expect(indexSrc).toContain("headSpawn");
   });
 
-  test("spawn.ts: head cell = lead + conductor + reviewer, both spawned roles opus, NO worker window (head ≠ crew)", () => {
+  test("spawn.ts: head cell = lead + conductor + reviewer, both spawned roles claude-opus-5, NO worker window (head ≠ crew)", () => {
     const spawnSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/head/spawn.ts"), "utf8");
-    expect(spawnSrc).toContain("--model opus");
+    expect(spawnSrc).toContain("--model claude-opus-5"); // kobo-382: literal id, not the `opus` alias (=4.8)
     expect(spawnSrc).not.toContain("hostExec(`tmux new-window"); // no worker window ever EXECUTED (not just mentioned in doc prose)
     expect(spawnSrc).not.toContain('"claude-sonnet-5"'); // not a crew worker spawn (string literal, not doc prose)
   });

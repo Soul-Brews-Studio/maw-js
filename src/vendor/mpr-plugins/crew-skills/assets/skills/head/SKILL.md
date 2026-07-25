@@ -33,7 +33,7 @@ description: Spin up a /head strategic cell — top tier of the 3-tier operating
 
 **comm = opt-in** (ต่างจาก warroom ที่ spawn เสมอ): เพิ่ม comm pane **เมื่อ federation/peer traffic หนัก** (reliable ear, dnd-proof). ไม่มี traffic → 3 บทพอ, inbound มาที่ conductor/lead ผ่าน inbox+route.
 
-**model tier (spawn)** — `claude --model <alias>` per pane (CLI รับ alias `opus`/`sonnet`). **แพงบน-ถูกล่าง** (judgment บน · execute ล่าง):
+**model tier (spawn)** — `claude --model <id>` per pane. opus-tier panes use the **literal id `claude-opus-5`** (kobo-382: the CLI's `opus` alias resolves to 4.8, not the intended 5) · sonnet-tier stays the alias `sonnet`. **แพงบน-ถูกล่าง** (judgment บน · execute ล่าง):
 
 | tier | roles | model |
 |------|-------|-------|
@@ -87,7 +87,7 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
 ## Spawn (lead ทำครั้งเดียว — จากนั้น conductor+reviewer[+comm] คุมกันเอง)
 
 1. **company-gate + fresh-start** — ตาม crew §0 + §9.4 (`rm -f ψ/active/head/*.md` ก่อนเสมอ — spawn ซ้ำ = ล้างก่อน). crew §0 ตั้ง `$CO_NAME` (company name) → spawn ด้านล่างใช้ stamp `MAW_ROOM_COMPANY` (kobo-267 presence scope)
-2. **lead spawn conductor + reviewer** (raw panes, `--model opus`) **[+comm ถ้า opt-in — `--model sonnet`]**. conductor = ไม่มี worker hook · **reviewer** ใช้ crew-worker-settings (Stop hook idle → conductor):
+2. **lead spawn conductor + reviewer** (raw panes, `--model claude-opus-5`) **[+comm ถ้า opt-in — `--model sonnet`]**. conductor = ไม่มี worker hook · **reviewer** ใช้ crew-worker-settings (Stop hook idle → conductor):
    ```bash
    LEAD=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_id}')
    # conductor — opus (contract-to-file แล้ว cat ตอน spawn — กัน backtick substitute)
@@ -95,13 +95,13 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
    <Conductor Contract — §ล่าง>
    EOF
    COND=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/conductor-contract.md)"')
+     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model claude-opus-5 --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/conductor-contract.md)"')
    # reviewer — opus + crew-worker-settings (Stop hook → conductor)
    cat > ψ/active/head/reviewer-contract.md <<'EOF'
    <Reviewer Contract — §ล่าง>
    EOF
    REV=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=reviewer CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR=ψ/active/head claude --model opus --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/reviewer-contract.md)"')
+     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=reviewer CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR=ψ/active/head claude --model claude-opus-5 --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/reviewer-contract.md)"')
    # comm — OPT-IN: spawn เฉพาะเมื่อ federation/peer traffic หนัก (sonnet — relay ปริมาณมาก judgment ต่ำ)
    cat > ψ/active/head/comm-contract.md <<'EOF'
    <Comm Contract — §ล่าง>

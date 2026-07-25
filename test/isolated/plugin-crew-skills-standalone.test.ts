@@ -454,8 +454,9 @@ describe("crew-skills global asset contract", () => {
     expect(head).toContain("MAW_ROOM_COMPANY=");
     // review chain wired head-reviewer → lead (299 AC)
     expect(head).toContain("worker → crew reviewer → head reviewer → lead");
-    // opus top tier (299 AC — model-tier full mapping is sibling kobo-300)
-    expect(head).toContain("--model opus");
+    // opus top tier (299 AC — model-tier full mapping is sibling kobo-300); kobo-382:
+    // literal id claude-opus-5, not the `opus` alias (=4.8)
+    expect(head).toContain("--model claude-opus-5");
   });
 
   // kobo-300 — model tier: แพงบน-ถูกล่าง. head lead/conductor/reviewer = opus (judgment),
