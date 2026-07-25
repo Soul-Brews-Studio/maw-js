@@ -15,7 +15,7 @@
  * merge (4), distill-to-card (5).
  */
 
-import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms, findRoomCompany, appendRoomMessage, addRoomParticipant, paginateRoomMessages, type RoomPageOpts } from "./store";
+import { openRoom, closeRoom, reopenRoom, readRoom, listRooms, linkRoomCard, mergeRooms, findRoomCompany, appendRoomMessage, addRoomParticipant, paginateRoomMessages, type RoomPageOpts, type RoomArtifact } from "./store";
 import { addTask, readTask } from "../tasks/store";
 import { roomActivity, bareName } from "./activity";
 import { readWorklog } from "../worklog/store";
@@ -64,6 +64,23 @@ export type SpawnFn = (argv: string[]) => { exited: Promise<number> };
 
 const defaultSpawn: SpawnFn = (argv) => Bun.spawn(["maw", ...argv], { stdout: "ignore", stderr: "ignore" });
 
+// kobo-385: @handle-in-text → hey-target override. Word-anchored so `a@b.com` / mid-word `@`
+// never match. Hard-deny is caller-independent (roomRepliers harvests every `m.from` that has
+// spoken, so a caller POSTing `from:"tony"` would otherwise seed "tony" into the set) — checked
+// BEFORE membership, so it can't be bypassed by planting a speaker.
+const ROOM_TAG_RE = /(?:^|\s)@([a-z0-9][a-z0-9_.-]*)/i;
+const ROOM_TAG_DENY = new Set(["web", "tony", "human"]);
+
+/** First valid @handle in `text`, or null (falls back to the incoming `to` = lead). */
+function resolveRoomTag(text: string, company: string | null, artifact: RoomArtifact | null): string | null {
+  if (!company || !artifact) return null;
+  const m = text.match(ROOM_TAG_RE);
+  if (!m) return null;
+  const handle = bareName(m[1]);
+  if (ROOM_TAG_DENY.has(handle)) return null;
+  return roomRepliers(company, artifact).has(handle) ? handle : null;
+}
+
 /**
  * POST /api/room/send — body { room, to, text, from } → persist the outbound turn to the
  * artifact SYNCHRONOUSLY (kobo-249: the artifact is the source of truth, so a turn lands
@@ -97,11 +114,10 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     return Response.json({ ok: false, error: `"${author}" is a company oracle — the web side can't send as a teammate` }, { status: 403 });
   }
   // kobo-296: enforce room write-gate — closed/merged rooms reject all replies (not persisted, not nudged)
-  if (company) {
-    const artifact = readRoom(company, room);
-    if (artifact && artifact.status !== "open") {
-      return Response.json({ ok: false, error: `room "${room}" is ${artifact.status} — replies are not accepted` }, { status: 403 });
-    }
+  // kobo-385: hoisted out of the if-block — resolveRoomTag needs the artifact for roomRepliers.
+  const artifact = company ? readRoom(company, room) : null;
+  if (artifact && artifact.status !== "open") {
+    return Response.json({ ok: false, error: `room "${room}" is ${artifact.status} — replies are not accepted` }, { status: 403 });
   }
   try {
     // kobo-249 — persist the outbound turn NOW (source of truth), decoupled from delivery.
@@ -111,12 +127,15 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     if (company) {
       appendRoomMessage(company, room, { id: `send-${author}-${Date.now()}`, from: author, text, ts: Date.now() });
     }
+    // kobo-385: @handle in the text overrides the hey target; unmatched/denied → falls back
+    // to the incoming `to` (the web's default = lead). Response surfaces the RESOLVED target.
+    const target = resolveRoomTag(text, company, artifact) ?? to;
     // kobo-260: nudge the lead with a PLAIN/UNTAGGED hey (no [room:<id>]) → the listener
     // does NOT re-capture it → no self-echo (finding #4 dissolves at the root; no dedup
     // needed). The turn is already persisted above; the lead replies via /api/room/reply.
-    const proc = spawn(roomNudgeArgs(room, to, from));
+    const proc = spawn(roomNudgeArgs(room, target, from));
     void proc.exited;
-    return Response.json({ ok: true, room, to });
+    return Response.json({ ok: true, room, to: target });
   } catch (e) {
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "send failed" }, { status: 500 });
   }
