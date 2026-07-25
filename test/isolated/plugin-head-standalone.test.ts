@@ -34,6 +34,19 @@ describe("head command plugin standalone boundary", () => {
     expect(indexSrc).toContain("headSpawn");
   });
 
+  // kobo-384: headSpawn/runHead used to discard the already-declared HeadSpawnResult and
+  // return bare { ok: true } — mirrors the crewSpawn fix (SKILL.md auto-kick needs the
+  // pane-ids). index.ts's return type widened to surface them. Behavioral coverage
+  // (populated fields, exact emit-line shape) lives in plugin-head-spawn.test.ts.
+  test("index.ts: runHead's return type is HeadSpawnResult, not the narrower { ok, error } (kobo-384)", () => {
+    const indexSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/head/index.ts"), "utf8");
+    expect(indexSrc).toContain('import { headSpawn, type HeadSpawnResult } from "./spawn"');
+    expect(indexSrc).toContain("Promise<HeadSpawnResult>");
+    const spawnSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/head/spawn.ts"), "utf8");
+    expect(spawnSrc).toContain("export interface HeadSpawnResult");
+    expect(spawnSrc).toContain("lead?: string");
+  });
+
   test("spawn.ts: head cell = lead + conductor + reviewer, both spawned roles claude-opus-5, NO worker window (head ≠ crew)", () => {
     const spawnSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/head/spawn.ts"), "utf8");
     expect(spawnSrc).toContain("--model claude-opus-5"); // kobo-382: literal id, not the `opus` alias (=4.8)

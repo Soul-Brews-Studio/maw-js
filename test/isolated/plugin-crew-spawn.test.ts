@@ -197,6 +197,61 @@ describe("crewSpawn (kobo-358)", () => {
     expect(commands.some(c => c.includes("kill-window"))).toBe(false);
   });
 
+  // kobo-384: SKILL.md §1 now calls `maw company crew spawn` instead of raw tmux/claude,
+  // and parses pane-ids out of this exact summary line (only channel a bash caller has —
+  // the structured CrewSpawnResult return isn't surfaced by the CLI). Pin the literal
+  // shape so a future wording change can't silently break SKILL.md's parser.
+  test("emits the exact summary line shape SKILL.md's bash parses for pane-ids (kobo-384)", async () => {
+    paneListForSession = "%front|||🧭 coord|||main\n";
+    bootTranscript["%w1"] = ["", "claude code — bypass permissions on"];
+    await crewSpawn("kobo", emit);
+    const summary = logs.find((l) => l.startsWith("✓ crew spawned"));
+    expect(summary).toMatch(/^✓ crew spawned — front=\S+ conductor=\S+ worker=\S+ \(\S+\) reviewer=\S+$/);
+  });
+
+  // kobo-384: crewSpawn used to discard its own declared CrewSpawnResult and return bare
+  // { ok: true } — SKILL.md's auto-kick step needs the pane-ids to fire the first hey to
+  // each spawned pane, and had no structured way to get them.
+  test("returns populated CrewSpawnResult (front/conductor/worker/workerModel/reviewer), not bare { ok: true } (kobo-384)", async () => {
+    paneListForSession = "%front|||🧭 coord|||main\n";
+    bootTranscript["%w1"] = ["", "claude code — bypass permissions on"];
+    const r = await crewSpawn("kobo", emit);
+    expect(r.ok).toBe(true);
+    expect(r.front).toBe("%front");
+    expect(typeof r.conductor).toBe("string");
+    expect(r.conductor).not.toBe("");
+    expect(r.worker).toBe("%w1");
+    expect(r.workerModel).toBe("claude-sonnet-5");
+    expect(typeof r.reviewer).toBe("string");
+    expect(r.reviewer).not.toBe("");
+  });
+
+  // kobo-384: this is now the ONLY place the brain-tier model string is pinned — SKILL.md
+  // no longer duplicates the raw spawn recipe (single-source, kobo-384), so a future
+  // regression back to sonnet/the `opus` alias would otherwise go uncaught.
+  test("conductor + reviewer spawn with the literal model claude-opus-5 (kobo-381/382, single-sourced here since kobo-384)", async () => {
+    paneListForSession = "%front|||🧭 coord|||main\n";
+    bootTranscript["%w1"] = ["", "claude code — bypass permissions on"];
+    await crewSpawn("kobo", emit);
+    const splitCalls = commands.filter(c => c.includes("tmux split-window"));
+    expect(splitCalls.length).toBe(2); // conductor + reviewer
+    expect(splitCalls[0]).toContain("claude --model claude-opus-5 --dangerously-skip-permissions");
+    expect(splitCalls[1]).toContain("claude --model claude-opus-5 --settings");
+  });
+
+  // kobo-345/347 (moved here from SKILL.md-content by kobo-384): the base worker's env role
+  // must stay bare "worker" (not "worker-1") — deadlock-critical, the Stop-hook glob `worker*`
+  // and cross-window addressing both key off the bare form. A regression to a numbered form
+  // here would silently break the base worker's idle-completion signal.
+  test("worker spawns with bare CREW_ROLE=worker, not worker-1 (kobo-345/347)", async () => {
+    paneListForSession = "%front|||🧭 coord|||main\n";
+    bootTranscript["%w1"] = ["", "claude code — bypass permissions on"];
+    await crewSpawn("kobo", emit);
+    const newWindowCalls = commands.filter(c => c.includes("tmux new-window"));
+    expect(newWindowCalls[0]).toContain("CREW_ROLE=worker ");
+    expect(newWindowCalls[0]).not.toContain("CREW_ROLE=worker-1");
+  });
+
   test("W0 layout: conductor splits off front (-h), reviewer splits off CONDUCTOR (-v) — front left-50 full-height, conductor/reviewer stacked right 25/25 (kobo-375)", async () => {
     paneListForSession = "%front|||🧭 coord|||main\n";
     bootTranscript["%w1"] = ["", "claude code — bypass permissions on"];

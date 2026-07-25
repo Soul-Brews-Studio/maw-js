@@ -138,7 +138,7 @@ export interface HeadSpawnResult {
   reviewer?: string;
 }
 
-export async function headSpawn(company: string | undefined, emit: (line: string) => void): Promise<{ ok: boolean; error?: string }> {
+export async function headSpawn(company: string | undefined, emit: (line: string) => void): Promise<HeadSpawnResult> {
   if (!company) return { ok: false, error: "usage: maw company head spawn <company>" };
 
   const co = loadCompany(company);
@@ -212,5 +212,7 @@ export async function headSpawn(company: string | undefined, emit: (line: string
   await hostExec(`tmux set-option -p -t ${shellArg(reviewer)} @role ${shellArg("🔎 reviewer")}`);
 
   emit(`✓ head spawned — lead=${lead} conductor=${conductor} reviewer=${reviewer}`);
-  return { ok: true };
+  // kobo-384: populate the already-declared HeadSpawnResult (was silently discarded as
+  // `{ ok: true }`) — mirrors the crewSpawn fix, same rationale (SKILL.md auto-kick).
+  return { ok: true, lead, conductor, reviewer };
 }

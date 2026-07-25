@@ -280,10 +280,8 @@ describe("crew-skills global asset contract", () => {
   // KILLS numbered workers. The Stop-hook glob `worker*` must cover BOTH bare + worker-N (idle signal).
   test("crew v2: base worker bare + dynamic worker-N spawn/kill in W1 (kobo-345)", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    // base worker keeps the bare deadlock-critical form (env role stays bare "worker" = the base)
-    expect(skill).toContain("CREW_ROLE=worker ");
-    expect(skill).not.toContain("CREW_ROLE=worker-1"); // base is bare "worker", not env worker-1
-    expect(skill).toContain("worker-contract.md");
+    // base worker's bare CREW_ROLE=worker (not worker-1) moved into spawn.ts's self-heal
+    // buildCmd with the rest of §1 (kobo-384) — pinned there now (plugin-crew-spawn.test.ts).
     expect(skill).toContain("$CREW_STATE_DIR/worker.md");
     expect(skill).toContain('"$WORKER:⚒ worker"');
     // §5 dynamic scale: spawn ADDITIONAL numbered workers (split into W1) + KILL them (despawn)
@@ -303,45 +301,22 @@ describe("crew-skills global asset contract", () => {
     expect(skill).toContain("worker*|reviewer");
   });
 
-  // kobo-344 v2 340a — the worker spawns on the SONNET tier in a SEPARATE window (W1/page2),
-  // while the brains (front/conductor/reviewer) stay opus in W0. Pin the spawn form so a future
-  // edit can't silently drop the model flag (worker back to opus) or the 2-window split. The
-  // worker MUST keep every deadlock-critical invariant (--settings, CREW_ROLE=worker,
-  // CREW_COORD_PANE, worker-contract.md) — asserted by the kobo-319 test above.
-  test("crew v2: worker spawns claude-sonnet-5 via self-heal retry in a new-window (W1), brains stay in W0 (kobo-344/352/376)", () => {
+  // kobo-384: the raw self-heal recipe (claude-sonnet-5 spawn, boot-fail/retry, new-window
+  // form) moved entirely to spawn.ts crewSpawn() — single source, no more duplicate in
+  // SKILL.md to drift. That behavior is pinned where it now lives: plugin-crew-spawn.test.ts
+  // ("boots claude-sonnet-5 on first try", "boot-fail → kills orphan window, retries with
+  // plain sonnet", "double-fail ... surfaces via maw hey with a RESOLVED addr"). This test
+  // instead pins that SKILL.md §1 calls the verb and the duplicate recipe is actually gone.
+  test("crew §1 calls the spawn verb — self-heal/model recipe no longer duplicated in SKILL.md (kobo-384)", () => {
     const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    // self-heal: try claude-sonnet-5 first; retry sonnet on fail; variable-driven spawn (kobo-352/376)
-    expect(skill).toContain('"claude-sonnet-5"');                   // initial spawn target
-    expect(skill).toContain("not available for your account");      // fail-detect trigger
-    expect(skill).toContain("_WORKER_MODEL");                       // variable-driven spawn, not hardcoded
-    // in a SEPARATE window (W1/page2), not another split in W0
-    expect(skill).toContain("tmux new-window -P -F '#{pane_id}'");
-    // the WORKER pane-id comes from that new-window (the spawn form binds WORKER to W1)
-    expect(skill).toMatch(/WORKER=\$\(tmux new-window/);
-  });
-
-  // kobo-352/376 self-heal direction: boot claude-sonnet-5 → poll → fail → kill orphan → retry sonnet → poll-verify.
-  // Can't runtime-test the retry-path on Tony's entitled account; pins the code-review-verifiable path.
-  test("crew self-heal: boot-fail kills orphan, retries sonnet, poll-verifies retry (kobo-352/376)", () => {
-    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    const healStart = skill.indexOf("self-heal spawn (kobo-352)");
-    const cacheEnd = skill.indexOf('echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"');
-    const healBlock = skill.slice(healStart, cacheEnd + 60);
-    // initial spawn uses claude-sonnet-5 (kobo-376: [1m] dropped, account-gated → hard API error)
-    expect(healBlock).toContain('"claude-sonnet-5"');
-    // poll-detect: CC TUI boot often >3s
-    expect(healBlock).toMatch(/for _i in/);
-    // "bypass permissions" footer is the positive-proof trigger (model-agnostic, kobo-376)
-    expect(healBlock).toContain('bypass permissions');
-    // retry trigger: boot-fail guard
-    expect(healBlock).toMatch(/_BOOTED.*eq 0/);
-    // no-orphan: kill the failed pane before spawning retry
-    expect(healBlock).toContain('tmux kill-window -t "$WORKER"');
-    // retry with plain sonnet
-    expect(healBlock).toContain('_WORKER_MODEL="sonnet"');
-    // retry also polled — two for-loops (initial + retry-verify)
-    const loops = (healBlock.match(/for _i in/g) || []).length;
-    expect(loops).toBeGreaterThanOrEqual(2);
+    expect(skill).toContain('maw company crew spawn "$CO_NAME"');
+    expect(skill).not.toContain("tmux new-window -P -F '#{pane_id}' -n crew-workers");
+    expect(skill).not.toContain('claude --model "claude-sonnet-5"');
+    expect(skill).not.toContain("claude --model claude-opus-5");
+    // pane-ids still extracted for the auto-kick step (§ auto-kick) and worker-model.txt
+    // still written for §5 worker-N reuse — same external contract as before
+    expect(skill).toMatch(/FRONT=\$\(printf '%s' "\$_OUT"/);
+    expect(skill).toContain('echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"');
   });
 
   // kobo-353: conductor sets @task on dispatch, clears on idle — baked into dispatch recipe in §4c
@@ -354,38 +329,12 @@ describe("crew-skills global asset contract", () => {
     expect(skill).toContain("tmux list-panes -F '#{@role} #{@task}'");         // AC verify command
   });
 
-  // kobo-354: §1 double-fail belt — retry sonnet also fails → resolve addr → hey front immediately
-  test("crew §1 double-fail: _RETRY_BOOTED guard + resolved-addr hey front on both-fail (kobo-354)", () => {
-    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    const healStart = skill.indexOf("self-heal spawn (kobo-352)");
-    const cacheEnd = skill.indexOf('echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"');
-    const healBlock = skill.slice(healStart, cacheEnd + 60);
-    // _RETRY_BOOTED tracks whether the retry pane booted
-    expect(healBlock).toContain('_RETRY_BOOTED=0');
-    expect(healBlock).toMatch(/_RETRY_BOOTED=1/);
-    // addr resolved via tmux display-message before hey (not bare %pane-id — §3 convention)
-    expect(healBlock).toContain('_FRONT_ADDR=$(tmux display-message -t "$FRONT"');
-    expect(healBlock).toContain('#{session_name}:#{window_index}.#{pane_index}');
-    // hey uses resolved addr, not bare $FRONT
-    expect(healBlock).toContain('maw hey "$_FRONT_ADDR"');
-    expect(healBlock).not.toContain('maw hey "$FRONT"');
-    expect(healBlock).toContain('double-fail');
-  });
-
-  // kobo-381: §1 COND/REV spawn omitted --model entirely, silently inheriting the CLI
-  // default (sonnet) instead of the W0-brains design (conductor/reviewer = opus). Mirrors
-  // the spawn.ts binary-path fix (kobo-381) — this is the standalone-recipe path
-  // (crew-skills SKILL.md) other companies dogfood without the binary. front is the
-  // invoker's own pane, never spawned here — must stay untouched (no opus claim = board-lie).
-  // kobo-382: the `opus` alias resolves to Opus 4.8, not the intended Opus 5 — pin the
-  // literal model id `claude-opus-5` instead of the alias.
-  test("crew §1 conductor + reviewer spawn with --model claude-opus-5 (W0-brains, kobo-381/382)", () => {
-    const skill = readFileSync(join(assetsDir, "skills/crew/SKILL.md"), "utf8");
-    const condLine = skill.split("\n").find((l) => l.includes("conductor-contract.md)") && l.includes("claude "));
-    const revLine = skill.split("\n").find((l) => l.includes("reviewer-contract.md)") && l.includes("claude "));
-    expect(condLine).toContain("claude --model claude-opus-5 --dangerously-skip-permissions");
-    expect(revLine).toContain("claude --model claude-opus-5 --settings");
-  });
+  // kobo-384: the double-fail belt (_RETRY_BOOTED guard, resolved-addr hey front) moved to
+  // spawn.ts crewSpawn() with the rest of self-heal — pinned there (plugin-crew-spawn.test.ts
+  // "double-fail (both models fail to boot) → surfaces via maw hey with a RESOLVED addr, not a
+  // bare pane-id"). kobo-381/382's conductor+reviewer model pin similarly moved — now the ONLY
+  // place it's pinned is plugin-crew-spawn.test.ts ("conductor + reviewer spawn with the literal
+  // model claude-opus-5"), since SKILL.md no longer duplicates the raw spawn command at all.
 
   // kobo-355: §5 worker-N self-heal parity — mirrors §1 (poll-verify + kill+retry + double-fail hey)
   test("crew §5 worker-N self-heal parity: poll-verify + retry + no-orphan + resolved-addr hey (kobo-355)", () => {
@@ -445,18 +394,25 @@ describe("crew-skills global asset contract", () => {
     expect(head).toContain("@role \"🎼 conductor\"");
     expect(head).toContain("@role \"🔎 reviewer\"");
     expect(head).toContain("@role \"👤 lead\"");
-    // reviewer is the Stop-hook worker (deadlock-critical global settings path, kobo-91/94)
+    // reviewer's Stop-hook wiring (--settings global path, deadlock-critical kobo-91/94) moved
+    // into spawn.ts headSpawn() with the rest of the raw recipe (kobo-384) — pinned there now
+    // (plugin-head-spawn.test.ts "reviewer (not conductor) gets --settings"). scratchpad's own
+    // spawn line (still raw here, untouched by 384) also carries the global settings path —
+    // that's a real, separate invariant this line still legitimately covers.
     expect(head).toContain('--settings "$HOME/.claude/crew-worker-settings.json"');
     expect(head).not.toContain("--settings .claude/crew-worker-settings.json");
-    // reviewer writes to ψ/active/head/ — CREW_STATE_DIR must follow (kobo-95)
+    // scratchpad writes to ψ/active/head/ — CREW_STATE_DIR must follow (kobo-95, kobo-301)
     expect(head).toContain("CREW_STATE_DIR=ψ/active/head");
     // presence scoping (kobo-267)
     expect(head).toContain("MAW_ROOM_COMPANY=");
     // review chain wired head-reviewer → lead (299 AC)
     expect(head).toContain("worker → crew reviewer → head reviewer → lead");
-    // opus top tier (299 AC — model-tier full mapping is sibling kobo-300); kobo-382:
-    // literal id claude-opus-5, not the `opus` alias (=4.8)
-    expect(head).toContain("--model claude-opus-5");
+    // opus top tier (299 AC — model-tier full mapping is sibling kobo-300); kobo-384: the
+    // literal --model claude-opus-5 invocation moved to spawn.ts (single source) — pinned
+    // there now (plugin-head-spawn.test.ts "happy path: 3-pane cell, both claude-opus-5").
+    // SKILL.md keeps the model-tier PROSE describing it (checked below).
+    expect(head).toContain("claude-opus-5");
+    expect(head).toContain("model tier (spawn)");
   });
 
   // kobo-300 — model tier: แพงบน-ถูกล่าง. head lead/conductor/reviewer = opus (judgment),
