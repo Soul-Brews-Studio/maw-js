@@ -12,7 +12,7 @@
  * derives it (by≠assignee · state≠done). Read-only.
  */
 
-import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isSelfReview, isStaleDecisionCard, lastActivityByOracle, listTasks, markDeployedTask, needsOwner, noteTask, openEpicChildren, parentStateResolver, readTask, ReassignFrictionError, rejectTask, resolveReviewer, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
+import { addTask, archiveTask, assignTask, checklistProgress, commentTask, completeTask, dependencyBlock, editTask, epicRollup, EpicArchiveBlockedError, familyNotes, isSelfReview, isStaleDecisionCard, lastActivityByOracle, listTasks, markDeployedTask, needsOwner, noteTask, openEpicChildren, parentStateResolver, parseMentions, readTask, ReassignFrictionError, rejectTask, resolveReviewer, setTaskEpic, taskNextAction, type ChecklistProgress, type DependencyBlock, type FamilyNote, type ParentState, type TaskKind, type TaskRecord } from "./store";
 import { notifyCommentReply, notifyTaskComment } from "./notify";
 
 export interface TaskCard {
@@ -39,16 +39,36 @@ export interface TaskCard {
   nextAction: string; // "what next + who" — computed, always present (Track 4)
   checklist?: ChecklistProgress; // derived N/M from body markdown (ADR 0003 C); absent when none
   dependency?: DependencyBlock; // derived blocked-by-dependency (ADR 0003 A) — present only when blockedBy/missing non-empty. NOTE: derived, NOT state==="blocked"
-  body?: string; // raw markdown body (ADR 0003 C) — passthrough for the detail view (eq3-010 kobo-11)
-  notes?: TaskRecord["notes"]; // append-only notes (kobo-39) — passthrough for the detail-panel timeline
-  comments?: TaskRecord["comments"]; // threaded ask/answer comments (kobo-140) — passthrough for the detail-panel thread (kobo-141)
+  // kobo-401: body/notes/comments/familyNotes are a DETAIL-panel concern (card-open
+  // only) — they used to ride along on EVERY card of the bulk list fetch, ballooning
+  // /api/tasks (7.3MB → sub-500KB target, measured: notes 3.99MB/familyNotes
+  // 0.81MB/comments 0.70MB of it). The list response now ships slim derived fields
+  // instead (below); the full fields are passthrough ONLY on the single-card detail
+  // fetch (GET /api/tasks/detail, handleTaskDetailRequest).
+  body?: string; // raw markdown body — detail-fetch only (was passthrough on every list card)
+  notes?: TaskRecord["notes"]; // full notes timeline — detail-fetch only
+  comments?: TaskRecord["comments"]; // full comment thread — detail-fetch only
   needsOwner?: true; // derived (eq3-011 kobo-14): todo + unassigned → off-flow "needs an owner". Absent otherwise.
   kind?: TaskRecord["kind"]; // "epic" for a container card (kobo-45) — absent for a normal task
-  familyNotes?: FamilyNote[]; // derived (kobo-46): descendant notes tagged by source, for the epic's parent modal. Epics only, when non-empty.
+  // familyNotes (kobo-46) was a client-server naming mismatch (client always read
+  // task.childNotes, server always sent task.familyNotes) — the client never
+  // actually consumed it. Dropped entirely (kobo-401 grep-gate: zero consumers).
+  // The real epic-modal "notes from subtasks" feature is served as `childNotes` on
+  // the detail-fetch response instead (see handleTaskDetailRequest).
   stale?: true; // derived (mawjs-5): in-progress + no-PR + owner worklog silent → "⏳ stuck? ball on?" soft badge. Visual only, never a state.
+  // List-only slim fields (kobo-401) — cover what the board grid actually renders
+  // per card without shipping the full arrays: latest-note preview + unread-dot
+  // (company.ts:1071-1098, 147-153) and the @mentions decision queue
+  // (company.ts:2002-2010, 2205-2211).
+  lastNote?: { by: string; ts: number; text: string }; // latest note, text capped 200ch (card-face preview is visually clipped anyway, no hover-title consumer)
+  maxActivityTs?: number; // max(ts) across notes+comments — drives the unread-dot without shipping the arrays
+  mentionComments?: { id: string; by: string; ts: number; text: string; mentions: string[] }[]; // comments carrying an @mention, text FULL (renderMentions:2026 sets title=full text for hover — truncating breaks that)
+  commentCount?: number; // total comment count — family-tree row badge (company.ts:1426) needs a count, not the full thread, on every sibling in the tree
 }
 
-function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards: TaskRecord[], stale = false): TaskCard {
+const LAST_NOTE_TEXT_MAX_CHARS = 200;
+
+function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards: TaskRecord[], stale = false, detail = false): TaskCard {
   const card: TaskCard = {
     id: t.id,
     title: t.title,
@@ -75,9 +95,32 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   if (t.updatedTs) card.updatedTs = t.updatedTs;
   const progress = checklistProgress(t.body);
   if (progress) card.checklist = progress;
-  if (t.body) card.body = t.body; // raw body for the detail panel (read-only)
-  if (t.notes?.length) card.notes = t.notes; // append-only notes for the detail-panel timeline (kobo-39)
-  if (t.comments?.length) card.comments = t.comments; // threaded comments for the detail-panel thread + mentions queue (kobo-141)
+  if (detail) {
+    // Single-card detail fetch (card-open) — full passthrough, same shape the list
+    // endpoint used to ship on every card (kobo-401).
+    if (t.body) card.body = t.body;
+    if (t.notes?.length) card.notes = t.notes;
+    if (t.comments?.length) card.comments = t.comments;
+  } else {
+    // Bulk list fetch — slim derived fields only (kobo-401).
+    if (t.notes?.length) {
+      const n = t.notes[t.notes.length - 1];
+      const text = n.text.length > LAST_NOTE_TEXT_MAX_CHARS ? n.text.slice(0, LAST_NOTE_TEXT_MAX_CHARS - 1) + "…" : n.text;
+      card.lastNote = { by: n.by, ts: n.ts, text };
+    }
+    let maxTs = 0;
+    for (const n of t.notes ?? []) if (n.ts > maxTs) maxTs = n.ts;
+    for (const c of t.comments ?? []) if (c.ts > maxTs) maxTs = c.ts;
+    if (maxTs) card.maxActivityTs = maxTs;
+    // kobo-401: comments carrying an @mention (any target), text kept FULL —
+    // renderMentions (company.ts:2028) sets title=full text for hover, truncating
+    // would break that.
+    const mentionComments = (t.comments ?? [])
+      .map((c) => ({ id: c.id, by: c.by, ts: c.ts, text: c.text, mentions: parseMentions(c.text) }))
+      .filter((c) => c.mentions.length > 0);
+    if (mentionComments.length) card.mentionComments = mentionComments;
+    if (t.comments?.length) card.commentCount = t.comments.length; // company.ts:1426 family-tree row badge (💬 N) — a count, not the thread
+  }
   if (needsOwner(t)) card.needsOwner = true; // derived needs-owner block (eq3-011 kobo-14)
   // Derived dependency detail (ADR 0003 A) — reuse the SAME store helper the CLI
   // board uses, so web + CLI never disagree. Emitted only when there's something to
@@ -87,12 +130,6 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   const dep = dependencyBlock(t, resolveParent);
   if (dep.blockedBy.length || dep.missing.length) card.dependency = dep;
   if (t.kind) card.kind = t.kind; // "epic" (kobo-45) — task default is left absent
-  // Epic parent modal (kobo-46 §Comment): descendant notes tagged by source,
-  // ready for c3 to merge with the card's own `notes`. Only when there are any.
-  if (t.kind === "epic") {
-    const fam = familyNotes(t.id, cards);
-    if (fam.length) card.familyNotes = fam;
-  }
   if (stale) card.stale = true; // soft stuck-decision badge (mawjs-5) — visual only
   return card;
 }
@@ -107,6 +144,36 @@ export function handleTasksRequest(request: Request): Response {
   const activity = lastActivityByOracle(company);
   const now = Date.now();
   return Response.json({ company, tasks: cards.map((t) => toCard(t, resolveParent, cards, isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now))) });
+}
+
+/**
+ * GET /api/tasks/detail?company=&id= — single-card detail fetch (kobo-401). The
+ * bulk list (handleTasksRequest) no longer ships body/notes/comments on every
+ * card; the board calls this on card-open instead. Also carries `childNotes`
+ * (kobo-47 epic parent modal) for epic cards — the client already reads
+ * `task.childNotes` (company.ts:852) but the list card never populated it under
+ * that name (a pre-existing naming mismatch vs the old `familyNotes` field); wiring
+ * it here on the detail path is a necessary fix, not scope creep — the client-side
+ * fallback that used to paper over the mismatch derived child notes from sibling
+ * cards' own `.notes` in the bulk list, which no longer exist there post-kobo-401.
+ */
+export function handleTaskDetailRequest(request: Request): Response {
+  const url = new URL(request.url);
+  const company = url.searchParams.get("company");
+  const id = url.searchParams.get("id");
+  if (!company || !id) return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
+  const resolveParent = parentStateResolver(company);
+  const cards = listTasks(company);
+  const t = cards.find((c) => c.id === id);
+  if (!t) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+  const activity = lastActivityByOracle(company);
+  const now = Date.now();
+  const card = toCard(t, resolveParent, cards, isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now), true) as TaskCard & { childNotes?: FamilyNote[] };
+  if (t.kind === "epic") {
+    const fam = familyNotes(t.id, cards);
+    if (fam.length) card.childNotes = fam;
+  }
+  return Response.json({ ok: true, task: card });
 }
 
 /**

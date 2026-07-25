@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskAssignRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDeployedRequest, handleTaskDoneRequest, handleTaskEditRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskRejectRequest, handleTasksRequest } from "./route";
+import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskAssignRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDeployedRequest, handleTaskDetailRequest, handleTaskDoneRequest, handleTaskEditRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskRejectRequest, handleTasksRequest } from "./route";
 import { addTask, assignTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, moveTask, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
@@ -83,15 +83,22 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     expect("checklist" in (plain as object)).toBe(false); // no badge on a plain card
   });
 
-  test("passes body through for the detail view; absent when no body (eq3-010 kobo-11)", async () => {
+  test("kobo-401: list no longer carries body — it's a single-card detail-fetch (GET /api/tasks/detail)", async () => {
     process.env.MAW_DATA_DIR = dir;
-    addTask({ company: "det", title: "has body", by: "eq3", body: "# why\n- [ ] step a" });
+    const withBody = addTask({ company: "det", title: "has body", by: "eq3", body: "# why\n- [ ] step a" });
     addTask({ company: "det", title: "no body", by: "eq3" });
-    const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=det")).json()) as {
+    const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=det")).json()) as {
       tasks: Array<{ title: string; body?: string }>;
     };
-    expect(body.tasks.find((t) => t.title === "has body")?.body).toBe("# why\n- [ ] step a"); // raw markdown passthrough
-    expect("body" in (body.tasks.find((t) => t.title === "no body") as object)).toBe(false); // absent when none
+    // bulk list: body absent on every card, even the one that has one (kobo-401 slim shape)
+    expect("body" in (board.tasks.find((t) => t.title === "has body") as object)).toBe(false);
+    expect("body" in (board.tasks.find((t) => t.title === "no body") as object)).toBe(false);
+    // detail fetch: raw markdown passthrough for the opened card; absent when none
+    const detail = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=det&id=" + withBody.id)).json()) as {
+      ok: boolean; task: { body?: string };
+    };
+    expect(detail.ok).toBe(true);
+    expect(detail.task.body).toBe("# why\n- [ ] step a");
   });
 
   test("derives dependency block from parents (ADR 0003 A on web); reuses the store helper", async () => {
@@ -209,18 +216,25 @@ describe("handleTaskNoteRequest (POST /api/tasks/note — kobo-46)", () => {
     expect(bad.status).toBe(400);
   });
 
-  test("epic card projection carries derived familyNotes (descendant notes, tagged)", async () => {
+  test("kobo-401: familyNotes dropped from the list entirely; epic detail-fetch carries childNotes instead (descendant notes, tagged)", async () => {
     const epic = addTask({ company: "fam", title: "epic", by: "eq3", kind: "epic" });
     const child = addTask({ company: "fam", title: "child", by: "eq3", epic: epic.id });
     noteTask("fam", child.id, "patchwork", "child progress");
-    const body = (await handleTasksRequest(new Request("http://x/api/tasks?company=fam")).json()) as {
-      tasks: Array<{ id: string; kind?: string; familyNotes?: Array<{ from: string; text: string }> }>;
+    const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=fam")).json()) as {
+      tasks: Array<{ id: string; kind?: string; familyNotes?: unknown }>;
     };
-    const epicCard = body.tasks.find((c) => c.id === epic.id)!;
+    const epicCard = board.tasks.find((c) => c.id === epic.id)!;
     expect(epicCard.kind).toBe("epic");
-    expect(epicCard.familyNotes).toEqual([{ from: child.id, text: "child progress", by: "patchwork", ts: expect.any(Number), iso: expect.any(String) }]);
-    // a plain task carries no familyNotes
-    expect(body.tasks.find((c) => c.id === child.id)!.familyNotes).toBeUndefined();
+    expect(epicCard.familyNotes).toBeUndefined(); // dropped entirely — zero client consumers (kobo-401 grep-gate)
+    const detail = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=fam&id=" + epic.id)).json()) as {
+      ok: boolean; task: { childNotes?: Array<{ from: string; text: string }> };
+    };
+    expect(detail.task.childNotes).toEqual([{ from: child.id, text: "child progress", by: "patchwork", ts: expect.any(Number), iso: expect.any(String) }]);
+    // a plain (non-epic) task carries no childNotes on its own detail fetch
+    const childDetail = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=fam&id=" + child.id)).json()) as {
+      task: { childNotes?: unknown };
+    };
+    expect(childDetail.task.childNotes).toBeUndefined();
   });
 });
 
@@ -245,13 +259,20 @@ describe("handleTaskCommentRequest (POST /api/tasks/comment — kobo-141; kobo-2
     expect(j2.comments[0].resolved).toBeUndefined(); // never resolved (concept gone)
   });
 
-  test("comment GET-projection exposes comments[]; bad replyTo → 400; unknown id → 404; missing fields/bad JSON → 400", async () => {
+  test("kobo-401: list drops comments[] for a commentCount + mentionComments; detail-fetch still exposes the full thread. bad replyTo → 400; unknown id → 404; missing fields/bad JSON → 400", async () => {
     const t = addTask({ company: "cmt2", title: "proj", by: "eq3", assignee: "patchwork" });
-    commentTask("cmt2", t.id, "eq3", "hi");
+    commentTask("cmt2", t.id, "eq3", "hi @tony");
     const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=cmt2")).json()) as {
-      tasks: Array<{ id: string; comments?: Array<{ id: string; text: string }> }>;
+      tasks: Array<{ id: string; comments?: unknown; commentCount?: number; mentionComments?: Array<{ id: string; text: string; mentions: string[] }> }>;
     };
-    expect(board.tasks.find((c) => c.id === t.id)!.comments).toEqual([expect.objectContaining({ id: "c1", text: "hi" })]);
+    const listCard = board.tasks.find((c) => c.id === t.id)!;
+    expect(listCard.comments).toBeUndefined(); // no longer shipped on the bulk list
+    expect(listCard.commentCount).toBe(1); // family-tree row badge needs a count, not the thread
+    expect(listCard.mentionComments).toEqual([expect.objectContaining({ id: "c1", text: "hi @tony", mentions: ["tony"] })]);
+    const detail = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=cmt2&id=" + t.id)).json()) as {
+      task: { comments?: Array<{ id: string; text: string }> };
+    };
+    expect(detail.task.comments).toEqual([expect.objectContaining({ id: "c1", text: "hi @tony" })]);
     // replyTo names a comment not on this card → 400 (no dangling threads)
     expect((await comment({ company: "cmt2", id: t.id, text: "x", replyTo: "c99" })).status).toBe(400);
     expect((await comment({ company: "cmt2", id: t.id })).status).toBe(400); // no text

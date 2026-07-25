@@ -25,7 +25,7 @@ describe("company board view — kobo-127 board UX Phase A (display)", () => {
   test("collapse: 1-line title clamp + latest-note-faint / full-notes on Blocked (kobo-199 grid col)", () => {
     expect(html).toContain("t-note-latest"); // flow-lane cards → latest note only
     expect(html).toContain("t-notes-full"); // Blocked column → every note in full (decision queue)
-    expect(html).toContain("{ notes: 'full' }"); // the Blocked branch passes the flag
+    expect(html).toContain("notes: 'full'"); // the Blocked branch passes the flag (kobo-401: now alongside notesData, the on-demand full trail)
     expect(html).toContain("text-overflow:ellipsis; white-space:nowrap"); // title clamp
   });
 

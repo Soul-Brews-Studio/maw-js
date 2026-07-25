@@ -60,6 +60,10 @@ describe("watch command plugin standalone boundary", () => {
     // toggles with the board it streams.
     expect(serveSrc).toContain("handleTaskEventsRequest");
     expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/tasks\/events["']/);
+    // kobo-401: single-card detail fetch (GET) — the bulk list stopped shipping
+    // body/notes/comments on every card; the board calls this on card-open instead.
+    expect(serveSrc).toContain("handleTaskDetailRequest");
+    expect(serveSrc).toMatch(/ctx\.http\??\.route\(\s*["']GET["'],\s*["']\/api\/tasks\/detail["']/);
     // kobo-35: per-card archive write route (POST) lives on the same plugin so it
     // toggles with the worklog engine + the board it mutates.
     expect(serveSrc).toContain("handleTaskArchiveRequest");
@@ -141,6 +145,7 @@ describe("watch command plugin standalone boundary", () => {
     // serve hook untouched — the worklog/board HTTP routes still toggle with the plugin.
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/worklog/feed");
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks");
+    expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/detail"); // kobo-401
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/events"); // kobo-207
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/archive"); // kobo-35
     expect(manifest.hooks!.serve!.ensures).toContain("http:route:/api/tasks/note"); // kobo-46

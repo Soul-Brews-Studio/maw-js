@@ -144,8 +144,13 @@ export function columnCollapsed(col, state) {
 // kobo-208: newest activity ts on a card = the max of its own updatedTs and every
 // note/comment ts. DOM-free + annotation-free: unit-tested, then injected into the
 // client script via `${lastActivityTs.toString()}` (single source, no drift).
+// kobo-401: the bulk list no longer ships full notes/comments arrays — the server
+// precomputes maxActivityTs (same scan, server-side) and ships that instead. Still
+// scan notes/comments here too so a full-detail task (post card-open fetch) stays
+// correct without a second code path.
 export function lastActivityTs(task) {
   let ts = (task && task.updatedTs) || 0;
+  if (task && task.maxActivityTs && task.maxActivityTs > ts) ts = task.maxActivityTs;
   const scan = (arr) => { for (const x of (arr || [])) if ((x.ts || 0) > ts) ts = x.ts || 0; };
   scan(task && task.notes);
   scan(task && task.comments);
@@ -802,6 +807,14 @@ function currentCompany() { return (companyInput.value || '').trim(); }
 // and fall back to the client derivation. Same spec shape either way.
 let taskIndex = { byId: new Map(), childrenOf: new Map() };
 let lastTasks = [];
+// kobo-401: the bulk list no longer carries the Blocked lane's full 3-note trail
+// (it only ships lastNote, same as every other card) — fetched on demand instead,
+// one small /api/tasks/detail call per visible Blocked card, cached by id so a 5s
+// board poll doesn't re-fetch a card that hasn't changed. Cache entry carries the
+// maxActivityTs it was fetched at, so a NEW note (bumping maxActivityTs on the next
+// poll's slim card) invalidates it instead of freezing the trail forever.
+const blockedNotesCache = new Map(); // id → { ts: maxActivityTs at fetch, notes: [] }
+const blockedNotesInFlight = new Set(); // id → fetch pending, dedupe across renders
 let lastEntries = []; // cached worklog feed — powers the Worklog + Presence tabs (kobo-49)
 let lastRoster = []; // cached company roster (GET /api/roster) — authoritative Presence membership (kobo-50)
 let lastHeld = {}; // cached { oracle → held work } from /api/roster (kobo-105) — idle-with-work signal
@@ -1068,9 +1081,14 @@ function taskCard(task, opts) {
   // The Blocked column is Tony's decision queue, so opts.notes==='full' shows every
   // note untruncated for triage-at-a-glance (kobo-199 keeps this when Blocked moved
   // from the floating attention lane into the grid).
-  const notes = task.notes || [];
-  if (notes.length) {
-    if (opts.notes === 'full') {
+  // kobo-401: the bulk list no longer carries the full notes array — only
+  // task.lastNote (latest, text capped 200ch). The Blocked-lane full trail is
+  // fetched on demand (blockedNotesCache, populated by fetchBlockedNotes) and
+  // passed in via opts.notesData; falls back to the single lastNote while that
+  // fetch is in flight so the card isn't blank.
+  if (opts.notes === 'full') {
+    const notes = opts.notesData || (task.lastNote ? [task.lastNote] : []);
+    if (notes.length) {
       const wrap = el('div', 't-notes-full');
       // kobo-215 — cap the board face at the latest N notes so a many-note Blocked
       // card no longer stacks into a full-column wall (kobo-201 clamped each note to
@@ -1088,14 +1106,14 @@ function taskCard(task, opts) {
         wrap.appendChild(ln);
       }
       card.appendChild(wrap);
-    } else {
-      const n = notes[notes.length - 1];
-      const ln = el('div', 't-note-latest');
-      ln.appendChild(el('span', 't-note-by', (n.by || '?') + ': '));
-      const one = String(n.text || '').replace(/\\s+/g, ' ').trim();
-      ln.appendChild(document.createTextNode(one.length > 90 ? one.slice(0, 87) + '…' : one));
-      card.appendChild(ln);
     }
+  } else if (task.lastNote) {
+    const n = task.lastNote;
+    const ln = el('div', 't-note-latest');
+    ln.appendChild(el('span', 't-note-by', (n.by || '?') + ': '));
+    const one = String(n.text || '').replace(/\\s+/g, ' ').trim();
+    ln.appendChild(document.createTextNode(one.length > 90 ? one.slice(0, 87) + '…' : one));
+    card.appendChild(ln);
   }
   // archive button — ONLY on done cards (kobo-35). done = finished, awaiting
   // human review; clicking archive = Tony signs "checked" → the card moves off
@@ -1405,9 +1423,12 @@ function renderDetailFamily(task) {
     const owner = el('span', 'ft-owner' + (t.assignee ? '' : ' unassigned'), '🎯 ' + (t.assignee || '—'));
     if (t.assignee) { owner.style.borderColor = authorColor(t.assignee); owner.style.color = authorColor(t.assignee); }
     row.appendChild(owner);
-    // 💬 comment count (from c1 comments[]). kobo-237: the resolve concept is gone,
-    // so this is just the total thread size (no unresolved/resolved split).
-    const nCmt = (t.comments || []).length;
+    // 💬 comment count. kobo-237: the resolve concept is gone, so this is just the
+    // total thread size (no unresolved/resolved split). kobo-401: the bulk list no
+    // longer carries full comments on every sibling — server ships commentCount
+    // instead (t.comments only present on the ONE card that went through the
+    // detail-fetch merge, so prefer commentCount and fall back for that case).
+    const nCmt = typeof t.commentCount === 'number' ? t.commentCount : (t.comments || []).length;
     if (nCmt) {
       const badge = el('span', 'ft-cmt' + (nCmt ? ' has-open' : ''), '💬 ' + nCmt);
       badge.title = nCmt + ' comment' + (nCmt === 1 ? '' : 's');
@@ -1543,13 +1564,26 @@ function renderDetailComments(task) {
   }
 }
 
-function openDetail(task) {
+async function openDetail(task) {
   if (task && task.id) syncUrlToCard(task.id); // kobo-181: reflect the open card in the URL (deep-link)
   if (task && task.id) { // kobo-208 — opening the card marks its activity seen; clear its unread dot
     seenState = loadSeenState();
     seenState[task.id] = Date.now();
     saveSeenState(seenState);
     renderBoard(lastTasks); // reflect the cleared dot on the board underneath the modal
+  }
+  // kobo-401: body/notes/comments (+ childNotes for an epic) no longer ride on the
+  // bulk list card — fetch the single-card detail and merge it in before rendering
+  // the modal, so there's one render pass, not a populate-then-flicker.
+  // Same-origin/localhost, fast. Reassigns the task parameter itself (rather than
+  // introducing a new variable) so every render call below is untouched from
+  // before this card.
+  if (task && task.id) {
+    try {
+      const company = currentCompany();
+      const res = company ? await getJson('/api/tasks/detail?company=' + encodeURIComponent(company) + '&id=' + encodeURIComponent(task.id)) : null;
+      if (res && res.ok && res.task) task = Object.assign({}, task, res.task);
+    } catch (err) { /* fall back to the slim task — detail sections render empty rather than throwing */ }
   }
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
@@ -1569,7 +1603,7 @@ function openDetail(task) {
   const notesEl = $('detail-notes');
   notesEl.replaceChildren();
   const notes = task.notes || [];
-  const childNotes = childNotesOf(task); // kobo-47: an epic also gathers descendant notes, tagged by source
+  const childNotes = childNotesOf(task); // kobo-47: an epic also gathers descendant notes, tagged by source (kobo-401: server-sent task.childNotes on the detail-fetch for epics)
   const totalNotes = notes.length + childNotes.length;
   if (totalNotes) {
     const toggle = el('button', 'notes-head notes-toggle', '▸ notes (' + totalNotes + ')'); toggle.type = 'button';
@@ -1983,11 +2017,16 @@ function parseMentions(t) { const out = new Set(); const re = /@([a-z0-9_-]+)/gi
 // COMMENTS (Board Truth rule 10). kobo-237: the resolve concept is gone — every
 // comment carrying an @mention is listed (the reader trims via mark-as-read,
 // kobo-238). Mirrors store.pendingMentions.
+// kobo-401: the bulk list no longer carries full comments — the server
+// precomputes mentionComments (comments containing an @mention, full text kept —
+// this IS the mentions-bar text + its title= hover source, company.ts:2026), with
+// its mentions field already canonicalized (mirrors mentionKey). Read that
+// instead of re-scanning task.comments.
 function pendingMentions(tasks) {
   const out = [];
   for (const t of tasks) {
-    for (const c of (t.comments || [])) {
-      for (const who of parseMentions(c.text)) out.push({ id: t.id, title: t.title, who: who, by: c.by, ts: c.ts, text: c.text, commentId: c.id });
+    for (const c of (t.mentionComments || [])) {
+      for (const who of c.mentions) out.push({ id: t.id, title: t.title, who: who, by: c.by, ts: c.ts, text: c.text, commentId: c.id });
     }
   }
   out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -2186,6 +2225,29 @@ function wireColumnCollapse() {
   }
 }
 
+// kobo-401: fetch the full note trail for any visible Blocked-lane card not
+// already cached, then re-render once so the trails land together (one reflow,
+// not one per card). Cheap in practice — Blocked is Tony's decision queue, a small
+// column, not the whole board.
+function fetchBlockedNotes(blockedTasks) {
+  const company = currentCompany();
+  if (!company) return;
+  const missing = blockedTasks.filter((t) => {
+    if (blockedNotesInFlight.has(t.id)) return false;
+    const cached = blockedNotesCache.get(t.id);
+    if (!cached) return true;
+    return (t.maxActivityTs || 0) > cached.ts; // a new note/comment bumped maxActivityTs → cache stale
+  });
+  if (!missing.length) return;
+  for (const t of missing) blockedNotesInFlight.add(t.id);
+  Promise.all(missing.map((t) =>
+    getJson('/api/tasks/detail?company=' + encodeURIComponent(company) + '&id=' + encodeURIComponent(t.id))
+      .then((res) => { if (res && res.ok && res.task) blockedNotesCache.set(t.id, { ts: t.maxActivityTs || 0, notes: res.task.notes || [] }); })
+      .catch(() => { /* stays uncached — card face falls back to lastNote */ })
+      .finally(() => blockedNotesInFlight.delete(t.id))
+  )).then(() => renderBoard(lastTasks));
+}
+
 function renderBoard(tasks) {
   seenState = loadSeenState(); // kobo-208 — refresh the per-card last-seen map for unread badges
   // Family/assignee filters are display-only — taskIndex stays built over the FULL
@@ -2208,16 +2270,24 @@ function renderBoard(tasks) {
   // derived overlay pulling a card out of its flow lane.
   const isOffFlow = (task) => task.state === 'blocked' || task.needsOwner;
   const doneCards = []; // kobo-127 — deferred so the Done lane can fold to newest 5
+  const blockedTasks = []; // kobo-401 — collected so their full note trail can be fetched once, not per card
   for (const task of shown) {
     // kobo-199 — Blocked moved from the floating attention lane (kobo-55) into the
     // grid as col-blocked, but stays Tony's decision queue → keep the full-notes face
     // for triage-at-a-glance (block-reason badge also rides in the card meta).
-    if (isOffFlow(task)) { attn.appendChild(taskCard(task, { notes: 'full' })); counts['blocked']++; continue; }
+    if (isOffFlow(task)) {
+      blockedTasks.push(task);
+      const cached = blockedNotesCache.get(task.id);
+      attn.appendChild(taskCard(task, { notes: 'full', notesData: cached && cached.notes }));
+      counts['blocked']++;
+      continue;
+    }
     const state = cols[task.state] ? task.state : 'todo';
     if (state === 'done') { doneCards.push(task); counts['done']++; continue; }
     cols[state].appendChild(taskCard(task));
     counts[state]++;
   }
+  fetchBlockedNotes(blockedTasks); // kobo-401 — async top-up for any card not yet cached/stale; re-renders once done
   renderDoneLane(cols['done'], doneCards); // kobo-127 — newest 5 + "show all N"
   for (const s of COLS) {
     $('c-' + s).textContent = counts[s];
