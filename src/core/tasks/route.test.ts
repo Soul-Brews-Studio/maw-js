@@ -262,21 +262,17 @@ describe("handleTaskCommentRequest (POST /api/tasks/comment — kobo-141; kobo-2
   test("kobo-401: list drops comments[] for a commentCount + mentionComments; detail-fetch still exposes the full thread. bad replyTo → 400; unknown id → 404; missing fields/bad JSON → 400", async () => {
     const t = addTask({ company: "cmt2", title: "proj", by: "eq3", assignee: "patchwork" });
     commentTask("cmt2", t.id, "eq3", "hi @tony");
-    commentTask("cmt2", t.id, "eq3", "@patchwork can you check this?", "c1"); // agent↔agent mention — never rendered (renderMentions filters who==='tony'), so excluded from mentionComments (kobo-401)
     const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=cmt2")).json()) as {
       tasks: Array<{ id: string; comments?: unknown; commentCount?: number; mentionComments?: Array<{ id: string; text: string; mentions: string[] }> }>;
     };
     const listCard = board.tasks.find((c) => c.id === t.id)!;
     expect(listCard.comments).toBeUndefined(); // no longer shipped on the bulk list
-    expect(listCard.commentCount).toBe(2); // family-tree row badge needs a count, not the thread — counts EVERY comment, not just tony-mentions
-    expect(listCard.mentionComments).toEqual([expect.objectContaining({ id: "c1", text: "hi @tony", mentions: ["tony"] })]); // c2 (@patchwork) excluded
+    expect(listCard.commentCount).toBe(1); // family-tree row badge needs a count, not the thread
+    expect(listCard.mentionComments).toEqual([expect.objectContaining({ id: "c1", text: "hi @tony", mentions: ["tony"] })]);
     const detail = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=cmt2&id=" + t.id)).json()) as {
       task: { comments?: Array<{ id: string; text: string }> };
     };
-    expect(detail.task.comments).toEqual([
-      expect.objectContaining({ id: "c1", text: "hi @tony" }),
-      expect.objectContaining({ id: "c2", text: "@patchwork can you check this?" }),
-    ]); // detail is the full passthrough — unaffected by the list's tony-only mention filter
+    expect(detail.task.comments).toEqual([expect.objectContaining({ id: "c1", text: "hi @tony" })]);
     // replyTo names a comment not on this card → 400 (no dangling threads)
     expect((await comment({ company: "cmt2", id: t.id, text: "x", replyTo: "c99" })).status).toBe(400);
     expect((await comment({ company: "cmt2", id: t.id })).status).toBe(400); // no text

@@ -112,15 +112,12 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
     for (const n of t.notes ?? []) if (n.ts > maxTs) maxTs = n.ts;
     for (const c of t.comments ?? []) if (c.ts > maxTs) maxTs = c.ts;
     if (maxTs) card.maxActivityTs = maxTs;
-    // kobo-401: the ONLY consumer of this data (renderMentions, company.ts:2028)
-    // filters to who==='tony' before ever rendering a row — @patchwork/@eq3/etc
-    // mentions are computed client-side today but always discarded. Shipping only
-    // the tony/human-addressed comments here is behavior-identical (measured on
-    // live kobo data: cuts this field from 250KB to 157KB, kept full-text per the
-    // renderMentions hover-title ruling).
+    // kobo-401: comments carrying an @mention (any target), text kept FULL —
+    // renderMentions (company.ts:2028) sets title=full text for hover, truncating
+    // would break that.
     const mentionComments = (t.comments ?? [])
       .map((c) => ({ id: c.id, by: c.by, ts: c.ts, text: c.text, mentions: parseMentions(c.text) }))
-      .filter((c) => c.mentions.includes("tony"));
+      .filter((c) => c.mentions.length > 0);
     if (mentionComments.length) card.mentionComments = mentionComments;
     if (t.comments?.length) card.commentCount = t.comments.length; // company.ts:1426 family-tree row badge (💬 N) — a count, not the thread
   }
