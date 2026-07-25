@@ -210,10 +210,22 @@ describe("kobo-385: @tag overrides the hey target — POST /api/room/send direct
     expect(target(calls[0])).toBe("eq3");
   });
 
-  test("attacker path: from:'tony' + text '@tony' → hard-deny holds; tony is NEVER a hey target", async () => {
+  test("attacker path (TAG vector): from:'tony' + text '@tony' → hard-deny holds; tony is NEVER a hey target", async () => {
     await openR({ company: "kobo", room: "r", topic: "t" });
     const { calls, spawn } = spawnSpy();
     const res = await post({ room: "r", to: "eq3", text: "@tony ping", from: "tony" }, spawn);
+    expect(((await res.json()) as { to: string }).to).toBe("eq3"); // falls back to lead
+    expect(target(calls[0])).toBe("eq3");
+    expect(calls.flat()).not.toContain("tony"); // "tony" never appears anywhere in the hey argv
+  });
+
+  test("attacker path (BASE vector): raw POST {to:'tony'}, NO @tag → hard-deny holds on the FINAL resolved target too", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const { calls, spawn } = spawnSpy();
+    // no @ anywhere in text — resolveRoomTag returns null, so `target` = the raw `to` field
+    // untouched by the tag-handle deny. The merge-level guard (route.ts, post-merge) must
+    // still catch it, proving the deny sits on the FINAL target, not just the @tag path.
+    const res = await post({ room: "r", to: "tony", text: "ping with no tag at all", from: "web" }, spawn);
     expect(((await res.json()) as { to: string }).to).toBe("eq3"); // falls back to lead
     expect(target(calls[0])).toBe("eq3");
     expect(calls.flat()).not.toContain("tony"); // "tony" never appears anywhere in the hey argv
