@@ -70,10 +70,12 @@ describe("crew command plugin standalone boundary", () => {
   // kobo-381 — W0-brains design says conductor+reviewer run opus; both spawn commands
   // omitted --model entirely and silently inherited the CLI default (sonnet). worker
   // stays parameterized (DEFAULT/FALLBACK_WORKER_MODEL, self-heal) — untouched.
-  test("spawn.ts: crew conductor + reviewer spawn with --model opus (W0-brains, kobo-381)", () => {
+  // kobo-382 — the `opus` alias resolves to Opus 4.8, not the intended Opus 5; pin the
+  // literal model id `claude-opus-5` instead of the alias.
+  test("spawn.ts: crew conductor + reviewer spawn with --model claude-opus-5 (W0-brains, kobo-381/382)", () => {
     const spawnSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/crew/spawn.ts"), "utf8");
-    expect(spawnSrc).toContain('claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"');
-    expect(spawnSrc).toContain('claude --model opus --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"');
+    expect(spawnSrc).toContain('claude --model claude-opus-5 --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"');
+    expect(spawnSrc).toContain('claude --model claude-opus-5 --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"');
     expect(spawnSrc).toContain("claude --model ${shellArg(model)} --settings"); // worker: parameterized self-heal, unchanged
   });
 

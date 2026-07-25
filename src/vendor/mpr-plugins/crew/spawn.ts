@@ -156,8 +156,8 @@ export async function crewSpawn(company: string | undefined, emit: (line: string
   // conductor top-25/reviewer bottom-25 of the whole). -p 50 explicit (not
   // relying on tmux's implicit default) so the ratio can't silently drift.
   // conductor (.1) — no --settings (brains, no Stop hook — mirrors head conductor); --model
-  // opus (kobo-381: W0-brains design is opus, was silently inheriting the CLI default sonnet)
-  const condCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_STATE_DIR=${shellArg(stateDir)} claude --model opus --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"`;
+  // claude-opus-5 literal (kobo-382: the `opus` alias resolves to 4.8, not the intended 5)
+  const condCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_STATE_DIR=${shellArg(stateDir)} claude --model claude-opus-5 --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "conductor-contract.md"))})"`;
   const conductor = (await hostExec(`tmux split-window -h -p 50 -t ${shellArg(front)} -P -F '#{pane_id}' ${shellArg(condCmd)}`)).trim();
 
   const workerResult = await spawnWorkerSelfHeal({ cwd, company, stateDir, coordPane: conductor, settingsPath, front, emit });
@@ -165,7 +165,7 @@ export async function crewSpawn(company: string | undefined, emit: (line: string
 
   // reviewer (.3) — WITH --settings (Stop hook), coord=front. split off CONDUCTOR
   // (not front) so it lands top/bottom on the right half instead of a 3rd column.
-  const revCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_ROLE=reviewer CREW_COORD_PANE=${shellArg(front)} CREW_STATE_DIR=${shellArg(stateDir)} claude --model opus --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"`;
+  const revCmd = `cd ${shellArg(cwd)} && MAW_ROOM_COMPANY=${shellArg(company)} CREW_ROLE=reviewer CREW_COORD_PANE=${shellArg(front)} CREW_STATE_DIR=${shellArg(stateDir)} claude --model claude-opus-5 --settings ${shellArg(settingsPath)} --dangerously-skip-permissions --append-system-prompt "$(cat ${shellArg(join(stateDir, "reviewer-contract.md"))})"`;
   const reviewer = (await hostExec(`tmux split-window -v -p 50 -t ${shellArg(conductor)} -P -F '#{pane_id}' ${shellArg(revCmd)}`)).trim();
 
   await hostExec(`tmux set-option -p -t ${shellArg(conductor)} @role ${shellArg("🎼 conductor")}`);
