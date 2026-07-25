@@ -87,21 +87,18 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
 ## Spawn (lead ทำครั้งเดียว — จากนั้น conductor+reviewer[+comm] คุมกันเอง)
 
 1. **company-gate + fresh-start** — ตาม crew §0 + §9.4 (`rm -f ψ/active/head/*.md` ก่อนเสมอ — spawn ซ้ำ = ล้างก่อน). crew §0 ตั้ง `$CO_NAME` (company name) → spawn ด้านล่างใช้ stamp `MAW_ROOM_COMPANY` (kobo-267 presence scope)
-2. **lead spawn conductor + reviewer** (raw panes, `--model claude-opus-5`) **[+comm ถ้า opt-in — `--model sonnet`]**. conductor = ไม่มี worker hook · **reviewer** ใช้ crew-worker-settings (Stop hook idle → conductor):
+2. **lead spawn conductor + reviewer via the spawn verb** (single source, kobo-384 — layout,
+   contract files, model, role-tags all live in `spawn.ts` `headSpawn()`; this extracts
+   pane-ids from its one deterministic summary line, `✓ head spawned — lead=... conductor=...
+   reviewer=...`, pinned by test — the only channel a bash caller has) **[+comm ถ้า opt-in —
+   `--model sonnet`, still raw — the verb doesn't spawn comm]**:
    ```bash
-   LEAD=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_id}')
-   # conductor — opus (contract-to-file แล้ว cat ตอน spawn — กัน backtick substitute)
-   cat > ψ/active/head/conductor-contract.md <<'EOF'
-   <Conductor Contract — §ล่าง>
-   EOF
-   COND=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model claude-opus-5 --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/conductor-contract.md)"')
-   # reviewer — opus + crew-worker-settings (Stop hook → conductor)
-   cat > ψ/active/head/reviewer-contract.md <<'EOF'
-   <Reviewer Contract — §ล่าง>
-   EOF
-   REV=$(tmux split-window -h -P -F '#{pane_id}' \
-     'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=reviewer CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR=ψ/active/head claude --model claude-opus-5 --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/reviewer-contract.md)"')
+   _OUT=$(maw company head spawn "$CO_NAME" 2>&1); _RC=$?
+   echo "$_OUT"
+   [ "$_RC" -ne 0 ] && echo "head spawn failed (rc=$_RC) — see output above, no partial spawn" && exit 1
+   LEAD=$(printf '%s' "$_OUT" | sed -n 's/.*lead=\([^ ]*\).*/\1/p')
+   COND=$(printf '%s' "$_OUT" | sed -n 's/.*conductor=\([^ ]*\).*/\1/p')
+   REV=$(printf '%s' "$_OUT" | sed -n 's/.*reviewer=\([^ ]*\)$/\1/p')
    # comm — OPT-IN: spawn เฉพาะเมื่อ federation/peer traffic หนัก (sonnet — relay ปริมาณมาก judgment ต่ำ)
    cat > ψ/active/head/comm-contract.md <<'EOF'
    <Comm Contract — §ล่าง>

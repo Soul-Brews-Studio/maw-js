@@ -151,6 +151,33 @@ describe("headSpawn (kobo-364)", () => {
     expect(commands.some(c => c.includes("set-option -p -t '%lead' @role") && c.includes("lead"))).toBe(true);
   });
 
+  // kobo-384: head SKILL.md §Spawn now calls `maw company head spawn` instead of raw
+  // tmux/claude, and parses pane-ids out of this exact summary line. Pin the literal
+  // shape so a future wording change can't silently break SKILL.md's parser.
+  test("emits the exact summary line shape SKILL.md's bash parses for pane-ids (kobo-384)", async () => {
+    paneListForSession = "%lead|||👤 lead|||main\n";
+    bootTranscript["%p1"] = ["", "claude code — bypass permissions on"];
+    bootTranscript["%p2"] = ["", "claude code — bypass permissions on"];
+    await headSpawn("kobo", emit);
+    const summary = logs.find((l) => l.startsWith("✓ head spawned"));
+    expect(summary).toMatch(/^✓ head spawned — lead=\S+ conductor=\S+ reviewer=\S+$/);
+  });
+
+  // kobo-384: headSpawn used to discard its own declared HeadSpawnResult and return bare
+  // { ok: true } — mirrors the crewSpawn fix, same rationale (SKILL.md auto-kick).
+  test("returns populated HeadSpawnResult (lead/conductor/reviewer), not bare { ok: true } (kobo-384)", async () => {
+    paneListForSession = "%lead|||👤 lead|||main\n";
+    bootTranscript["%p1"] = ["", "claude code — bypass permissions on"];
+    bootTranscript["%p2"] = ["", "claude code — bypass permissions on"];
+    const r = await headSpawn("kobo", emit);
+    expect(r.ok).toBe(true);
+    expect(r.lead).toBe("%lead");
+    expect(typeof r.conductor).toBe("string");
+    expect(r.conductor).not.toBe("");
+    expect(typeof r.reviewer).toBe("string");
+    expect(r.reviewer).not.toBe("");
+  });
+
   // kobo-364 empirical finding (live dogfood, throwaway session): a 3-way
   // horizontal split makes the reviewer pane genuinely narrow in a normal
   // terminal (~19 cols observed) — the CC TUI's "bypass permissions on"

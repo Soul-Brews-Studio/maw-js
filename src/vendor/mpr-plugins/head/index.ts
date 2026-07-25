@@ -9,12 +9,12 @@
  * this binary verb (source symlink = always latest, no LLM re-interpretation
  * of stale prose at spawn time).
  */
-import { headSpawn } from "./spawn";
+import { headSpawn, type HeadSpawnResult } from "./spawn";
 
 export async function runHead(
   args: string[],
   emit: (line: string) => void,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<HeadSpawnResult> {
   const subcmd = args[0]?.toLowerCase();
 
   if (subcmd === "spawn") {

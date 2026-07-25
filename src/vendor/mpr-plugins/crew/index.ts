@@ -10,12 +10,12 @@
  * was the ROOT CAUSE of the version-skew this card fixes (dup crew-workers
  * windows from an old session spawning v2 over v1 leftovers).
  */
-import { crewSpawn } from "./spawn";
+import { crewSpawn, type CrewSpawnResult } from "./spawn";
 
 export async function runCrew(
   args: string[],
   emit: (line: string) => void,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<CrewSpawnResult> {
   const subcmd = args[0]?.toLowerCase();
 
   if (subcmd === "spawn") {

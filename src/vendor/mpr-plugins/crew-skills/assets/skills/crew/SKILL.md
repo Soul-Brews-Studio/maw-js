@@ -65,70 +65,26 @@ tmux set-option -p -t "$TMUX_PANE" @role "🧭 coord"
 
 ## 1. Spawn — front spawns conductor + worker + reviewer (3 permanent panes)
 
-รันจาก **front pane** (pane ที่เรียก /crew). **Contract เขียนลงไฟล์ก่อน แล้ว cat ตอน spawn** — กัน backtick/`$(...)` ใน Contract โดน shell substitute:
+รันจาก **front pane** (pane ที่เรียก /crew). **Single source (kobo-384):** layout, contract files, model (`claude-opus-5` brains /
+`claude-sonnet-5` worker + self-heal), role-tags, `worker-model.txt` — all live in
+`spawn.ts` `crewSpawn()` (finishes the migration kobo-358 started for the contract
+templates but never did for the recipe itself). This block calls the verb + extracts
+pane-ids from its one deterministic summary line (`✓ crew spawned — front=... conductor=...
+worker=... (model) reviewer=...`, pinned by test) — the only channel a bash caller has,
+since the CLI doesn't surface a structured return. A model/layout/self-heal change now
+touches `spawn.ts` only:
 
 ```bash
-FRONT=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_id}')   # front (coord) pane-id
 STATE_DIR="${CREW_STATE_DIR:-ψ/active/crew}"
-mkdir -p "$STATE_DIR"
-rm -f "$STATE_DIR"/*.md    # §9.5 fresh-start — ล้าง stale ก่อน spawn (กัน false continuity)
-
-# --- conductor (.1) — decompose/route · NO Stop hook (ไม่อยู่ใน gate worker*|reviewer, เหมือน head conductor)
-cat > "$STATE_DIR/conductor-contract.md" <<'EOF'
-<Conductor Contract — §4c, เติม company/dept/board>
-EOF
-COND=$(tmux split-window -h -P -F '#{pane_id}' \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model claude-opus-5 --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/conductor-contract.md)"')
-
-# --- worker (W1/page2) — execute · SONNET pane in a SEPARATE window (kobo-344 v2 340a) · single
-#     pane cap 1 (dynamic ×N = 340b) · Stop hook idle → conductor (worker done → conductor routes to reviewer).
-#     `tmux new-window -P -F '#{pane_id}'` opens W1 at the next free index and returns the new
-#     window's (only) pane-id = the worker. self-heal spawn (kobo-352): try claude-sonnet-5
-#     first, poll-verify, kill+retry plain sonnet on fail — no orphan (kobo-376). Brains stay opus in W0. Cross-window works:
-#     CREW_COORD_PANE=$COND (%id) → the Stop hook resolves session:W0.conductor fresh each turn
-#     (`#{window_index}` follows the pane's real window, so W1→W0 addressing is automatic).
-cat > "$STATE_DIR/worker-contract.md" <<'EOF'
-<Worker Contract — §4, เติม company/dept/board>
-EOF
-# self-heal spawn (kobo-352): boot claude-sonnet-5 directly, poll-verify, retry sonnet on fail,
-# no orphan. kobo-376: [1m] dropped — 1M context is account-gated and a gated account gets a hard
-# API error (not a boot), which killed the worker before self-heal ever got a chance to catch it.
-# boot-detect on "bypass permissions" footer (TUI up, any model) — not a per-model string, which
-# would silently break the moment a model's display label changes (mirrors spawn.ts kobo-358).
-_WORKER_MODEL="claude-sonnet-5"
-WORKER=$(tmux new-window -P -F '#{pane_id}' -n crew-workers \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model "claude-sonnet-5" --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
-_BOOTED=0
-for _i in 1 2 3 4 5 6 7 8 9 10; do  # poll up to 20s — CC TUI boot often >3s
-  sleep 2
-  _BOOT=$(tmux capture-pane -t "$WORKER" -p -S -20 2>/dev/null)
-  printf '%s' "$_BOOT" | grep -qE "not available for your account|unknown model|invalid model|no such model" && break
-  printf '%s' "$_BOOT" | grep -q "bypass permissions" && { _BOOTED=1; break; }
-done
-if [ "$_BOOTED" -eq 0 ]; then
-  tmux kill-window -t "$WORKER" 2>/dev/null  # no orphan
-  _WORKER_MODEL="sonnet"
-  WORKER=$(tmux new-window -P -F '#{pane_id}' -n crew-workers \
-    'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=worker CREW_COORD_PANE="'"$COND"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model sonnet --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/worker-contract.md)"')
-  _RETRY_BOOTED=0
-  for _i in 1 2 3 4 5; do  # poll-verify retry — double-fail = worker lost
-    sleep 2
-    _BOOT=$(tmux capture-pane -t "$WORKER" -p -S -20 2>/dev/null)
-    printf '%s' "$_BOOT" | grep -q "bypass permissions" && { _RETRY_BOOTED=1; break; }
-  done
-  if [ "$_RETRY_BOOTED" -eq 0 ]; then
-    _FRONT_ADDR=$(tmux display-message -t "$FRONT" -p '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)
-    maw hey "$_FRONT_ADDR" "[crew §1 double-fail] worker failed claude-sonnet-5+sonnet boot — worker lost, manual recovery needed (kobo-376)"
-  fi
-fi
-echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"  # §5 worker-N reuse
-
-# --- reviewer (.3) — review · OPUS brains, stays in W0 (page1) · Stop hook idle → front (verdict → front loopback → head-lead)
-cat > "$STATE_DIR/reviewer-contract.md" <<'EOF'
-<Reviewer Contract — §4b, เติม company/dept/board + card/PR ที่ตรวจ>
-EOF
-REV=$(tmux split-window -h -P -F '#{pane_id}' \
-  'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" CREW_ROLE=reviewer CREW_COORD_PANE="'"$FRONT"'" CREW_STATE_DIR="'"$STATE_DIR"'" claude --model claude-opus-5 --settings "$HOME/.claude/crew-worker-settings.json" --dangerously-skip-permissions --append-system-prompt "$(cat '"$STATE_DIR"'/reviewer-contract.md)"')
+_OUT=$(CREW_STATE_DIR="$STATE_DIR" maw company crew spawn "$CO_NAME" 2>&1); _RC=$?
+echo "$_OUT"
+[ "$_RC" -ne 0 ] && echo "crew spawn failed (rc=$_RC) — see output above, no partial spawn" && exit 1
+FRONT=$(printf '%s' "$_OUT" | sed -n 's/.*front=\([^ ]*\).*/\1/p')
+COND=$(printf '%s' "$_OUT" | sed -n 's/.*conductor=\([^ ]*\).*/\1/p')
+WORKER=$(printf '%s' "$_OUT" | sed -n 's/.*worker=\([^ ]*\) (.*/\1/p')
+_WORKER_MODEL=$(printf '%s' "$_OUT" | sed -n 's/.*(\(.*\)).*/\1/p')
+REV=$(printf '%s' "$_OUT" | sed -n 's/.*reviewer=\([^ ]*\)$/\1/p')
+echo "$_WORKER_MODEL" > "$STATE_DIR/worker-model.txt"    # §5 worker-N reuse — same contract as before
 ```
 - **verified live** (kobo-89/91): raw pane boot + skip-permissions ทำงาน (footer "bypass permissions on") · pane โผล่ข้าง spawner · `-P -F '#{pane_id}'` → capture `%pane-id` → เขียนแถว roster ทันที (§2)
 - ไม่ใช้ `maw team spawn` / `--exec` — คุม tmux เอง → คุม flag (skip-perm) + auto-kick เอง

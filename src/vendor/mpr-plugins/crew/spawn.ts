@@ -110,7 +110,7 @@ export interface CrewSpawnResult {
   reviewer?: string;
 }
 
-export async function crewSpawn(company: string | undefined, emit: (line: string) => void): Promise<{ ok: boolean; error?: string }> {
+export async function crewSpawn(company: string | undefined, emit: (line: string) => void): Promise<CrewSpawnResult> {
   if (!company) return { ok: false, error: "usage: maw company crew spawn <company>" };
 
   const co = loadCompany(company);
@@ -173,7 +173,10 @@ export async function crewSpawn(company: string | undefined, emit: (line: string
   await hostExec(`tmux set-option -p -t ${shellArg(reviewer)} @role ${shellArg("🔎 reviewer")}`);
 
   emit(`✓ crew spawned — front=${front} conductor=${conductor} worker=${workerResult.paneId} (${workerResult.model}) reviewer=${reviewer}`);
-  return { ok: true };
+  // kobo-384: populate the already-declared CrewSpawnResult (was silently discarded as
+  // `{ ok: true }`) — SKILL.md's auto-kick step needs these pane-ids to fire the first
+  // hey per spawned pane, and the emit() log stream is the only place that carried them.
+  return { ok: true, front, conductor, worker: workerResult.paneId, workerModel: workerResult.model, reviewer };
 }
 
 interface WorkerSpawnResult { ok: boolean; error?: string; paneId?: string; model?: string }
