@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { escapeHtml, inlineMd, mdToHtml } from "./md";
 
 describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
-  test("escapeHtml escapes & < > only (order matters: & first, so entities aren't double-escaped)", () => {
+  test("escapeHtml escapes & < > \" ' (order matters: & first, so entities aren't double-escaped)", () => {
     expect(escapeHtml("<script>alert(1)</script>")).toBe("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(escapeHtml("a & b")).toBe("a &amp; b");
     expect(escapeHtml("<img onerror=alert(1) src=x>")).toBe("&lt;img onerror=alert(1) src=x&gt;");
+    expect(escapeHtml('say "hi"')).toBe("say &quot;hi&quot;");
+    expect(escapeHtml("it's")).toBe("it&#39;s");
   });
 
   test("mdToHtml renders bold", () => {
@@ -66,5 +68,20 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
     // escaped literal text instead of a link.
     const out = mdToHtml('[click](javascript:alert(1))');
     expect(out).not.toContain("<a href=\"javascript:");
+  });
+
+  // 🔴 kobo-396 request-change (reviewer PoC): the md-link URL pattern allows a
+  // double-quote (only excludes `)` + whitespace) — an unescaped `"` in the URL
+  // closes the href="..." attribute early, letting the rest of the URL text land
+  // as a NEW attribute (e.g. onmouseover=). escapeHtml runs FIRST on the whole
+  // source, so the quote is &quot; by the time inlineMd builds the <a>, and can
+  // never break out of the attribute.
+  test("XSS: a quote-breakout payload inside a markdown-link URL can't inject an attribute", () => {
+    const out = mdToHtml('[click](https://a.com/"onmouseover=alert(1))');
+    // exact match: onmouseover= lands INSIDE the quoted href value (harmless text,
+    // since &quot; is an entity not a real delimiter) — never as a second, live
+    // attribute on the <a> tag (which would require a REAL unescaped " to open it).
+    expect(out).toBe('<p><a href="https://a.com/&quot;onmouseover=alert(1" target="_blank" rel="noopener">click</a>)</p>');
+    expect(out).not.toContain('" onmouseover='); // the tell-tale shape of a broken-out attribute
   });
 });
