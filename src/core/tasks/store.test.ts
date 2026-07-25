@@ -952,6 +952,40 @@ describe("transition guards: every transition re-checks deps (kobo-253 slice B)"
     expect(wl.some((e) => e.kind === "task-review" && e.task === child)).toBe(false);
   });
 
+  // kobo-394 round 2 — reviewer caught reviewTask + setTaskPr had the IDENTICAL
+  // unconditional emit("task-review") the round-1 fix missed. Pin both, same shape.
+  test("kobo-394 round 2: reviewTask clobbered to blocked emits task-blocked, not task-review", () => {
+    const { child } = depBlockedChild("k394review-emit");
+    reviewTask("k394review-emit", child, "eq3", {});
+    expect(readTask("k394review-emit", child)!.state).toBe("blocked");
+    const wl = readWorklog("k394review-emit");
+    expect(wl.some((e) => e.kind === "task-blocked" && e.task === child)).toBe(true);
+    expect(wl.some((e) => e.kind === "task-review" && e.task === child)).toBe(false);
+  });
+
+  test("kobo-394 round 2: setTaskPr clobbered to blocked emits task-blocked, not task-review", () => {
+    const { child } = depBlockedChild("k394pr-set-emit");
+    setTaskPr("k394pr-set-emit", child, 42, "eq3", "owner/repo");
+    expect(readTask("k394pr-set-emit", child)!.state).toBe("blocked");
+    const wl = readWorklog("k394pr-set-emit");
+    expect(wl.some((e) => e.kind === "task-blocked" && e.task === child)).toBe(true);
+    expect(wl.some((e) => e.kind === "task-review" && e.task === child)).toBe(false);
+  });
+
+  // negative — confirm the happy path (no pending dep) is UNCHANGED for both:
+  // still emits task-review, no accidental task-blocked when nothing's actually blocked.
+  test("kobo-394 round 2: reviewTask/setTaskPr on a dep-CLEAR card still emit task-review normally", () => {
+    const parent = addTask({ company: "k394ok-emit", title: "parent", by: "x" });
+    completeTask("k394ok-emit", parent.id, "x"); // deps clear
+    const child = addTask({ company: "k394ok-emit", title: "child", by: "x", assignee: "p", parentIds: [parent.id] });
+    reviewTask("k394ok-emit", child.id, "eq3", {});
+    expect(readTask("k394ok-emit", child.id)!.state).toBe("review");
+    setTaskPr("k394ok-emit", child.id, 7, "eq3", "o/r");
+    const wl = readWorklog("k394ok-emit");
+    expect(wl.filter((e) => e.kind === "task-review" && e.task === child.id).length).toBe(2);
+    expect(wl.some((e) => e.kind === "task-blocked" && e.task === child.id)).toBe(false);
+  });
+
   test("move-to-backlog is NOT force-blocked (parking lot is a valid park for a dep-pending card)", () => {
     const { child } = depBlockedChild("k253bl");
     moveTask("k253bl", child, "backlog", "tony");

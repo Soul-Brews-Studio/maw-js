@@ -243,6 +243,24 @@ function writeTaskWithDepGuard(task: TaskRecord): void {
 }
 
 /**
+ * kobo-394 — echo-truth, single point of truth. Every verb that calls
+ * writeTaskWithDepGuard MUST emit through here instead of its own bare `emit()`:
+ * reconcile can clobber the intended write to blocked (dependency still pending),
+ * and the worklog/feed entry has to say THAT, not the verb's optimistic success
+ * message — the echo-lie bug (kobo-394 round 1 fixed 2 sites ad hoc; round 2,
+ * reviewer caught 2 MORE unconditional emits — this centralizes it so a future
+ * writeTaskWithDepGuard call can't reintroduce the same lie one site at a time).
+ * Call AFTER writeTaskWithDepGuard, when `task` already reflects the real result.
+ */
+function emitDepGuardedResult(task: TaskRecord, by: string, successKind: WorklogKind, successMsg: string): void {
+  if (task.state === "blocked" && task.block?.kind === "dependency") {
+    emit(task, by, "task-blocked", `blocked ${task.id} — ${task.block.reason ?? "dependency pending"}: ${task.title}`);
+  } else {
+    emit(task, by, successKind, successMsg);
+  }
+}
+
+/**
  * Create a NEW card, claiming its id atomically via an exclusive open (O_EXCL,
  * the "wx" flag). If a concurrent writer already took this id the open throws
  * EEXIST — we report the collision so the caller can pick the next id and retry.
@@ -451,7 +469,7 @@ export function claimTask(company: string, id: string, oracle: string, opts?: { 
   if (opts?.crewGate && !task.crewGate) task.crewGate = true; // kobo-333: crew-dispatch stamp
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253: pending dep → snaps back to blocked
-  emit(task, oracle, "claim", `claimed ${task.id}: ${task.title}`);
+  emitDepGuardedResult(task, oracle, "claim", `claimed ${task.id}: ${task.title}`);
   return task;
 }
 
@@ -503,7 +521,7 @@ export function startTask(company: string, id: string, oracle: string, opts?: { 
   if (opts?.crewGate && !task.crewGate) task.crewGate = true; // kobo-333: crew-dispatch stamp
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253: pending dep → snaps back to blocked
-  emit(task, holder, "claim", `started ${task.id}: ${task.title}`);
+  emitDepGuardedResult(task, holder, "claim", `started ${task.id}: ${task.title}`);
   return task;
 }
 
@@ -620,7 +638,7 @@ export function reviewTask(company: string, id: string, by: string, opts: Review
   if (opts.reason) task.reviewReason = opts.reason; else delete task.reviewReason;
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: review + pending dep → blocked (blocked wins)
-  emit(task, by, "task-review", `review ${task.id}${opts.to ? ` → ${opts.to}` : ""}: ${task.title}`);
+  emitDepGuardedResult(task, by, "task-review", `review ${task.id}${opts.to ? ` → ${opts.to}` : ""}: ${task.title}`);
   return task;
 }
 
@@ -648,13 +666,7 @@ export function holdTask(company: string, id: string, by: string, reason?: strin
   task.reviewReason = reason || "held";
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: hold into review + pending dep → blocked
-  // kobo-394: echo the REAL post-reconcile state — a pending dependency can clobber the
-  // intended "→ review" hold into blocked; the worklog message must say that, not "hold".
-  if (task.state === "blocked") {
-    emit(task, by, "task-blocked", `blocked ${task.id} — ${task.block?.reason ?? "dependency pending"}: ${task.title}`);
-  } else {
-    emit(task, by, "task-review", `hold ${task.id} → ${resolveReviewer(task)}: ${task.title}`);
-  }
+  emitDepGuardedResult(task, by, "task-review", `hold ${task.id} → ${resolveReviewer(task)}: ${task.title}`);
   return task;
 }
 
@@ -722,7 +734,7 @@ export function setTaskPr(company: string, id: string, pr: number, by: string, r
   task.state = "review";
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: PR up but dep still pending → blocked, not review
-  emit(task, by, "task-review", `review ${task.id} (PR #${pr}): ${task.title}`);
+  emitDepGuardedResult(task, by, "task-review", `review ${task.id} (PR #${pr}): ${task.title}`);
   return task;
 }
 
@@ -888,13 +900,7 @@ export function prOpenedReview(company: string, id: string, author: string, revi
   task.reviewer = target;
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: PR opened while a dep is still pending → blocked wins
-  // kobo-394: echo the REAL post-reconcile state — a pending dependency can clobber the
-  // intended "→ review" into blocked; the worklog message must say that, not "review".
-  if (task.state === "blocked") {
-    emit(task, author, "task-blocked", `blocked ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} — ${task.block?.reason ?? "dependency pending"}: ${task.title}`);
-  } else {
-    emit(task, author, "task-review", `review ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} → ${target}: ${task.title}`);
-  }
+  emitDepGuardedResult(task, author, "task-review", `review ${task.id}${task.pr ? ` (PR #${task.pr})` : ""} → ${target}: ${task.title}`);
   return task;
 }
 
