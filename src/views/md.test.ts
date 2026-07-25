@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { escapeHtml, inlineMd, mdToHtml } from "./md";
+import { escapeHtml, inlineMd, mdToHtml, renderNoteBody } from "./md";
 
 describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
   test("escapeHtml escapes & < > \" ' (order matters: & first, so entities aren't double-escaped)", () => {
@@ -83,5 +83,45 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
     // attribute on the <a> tag (which would require a REAL unescaped " to open it).
     expect(out).toBe('<p><a href="https://a.com/&quot;onmouseover=alert(1" target="_blank" rel="noopener">click</a>)</p>');
     expect(out).not.toContain('" onmouseover='); // the tell-tale shape of a broken-out attribute
+  });
+});
+
+describe("renderNoteBody — maw:// image-ref swap (kobo-397, extracted from company.ts kobo-116)", () => {
+  test("swaps an allowlisted-ext maw:// ref for a real <img>, src built from OUR OWN /api/files/ + the matched filename", () => {
+    const out = renderNoteBody("here: maw://local/abc123.png done");
+    expect(out).toContain('<img class="note-img" loading="lazy" src="/api/files/abc123.png" alt="abc123.png">');
+    expect(out).toContain('<a class="note-img-link" href="/api/files/abc123.png"');
+  });
+
+  test("a non-allowlisted extension (e.g. svg — not in png/jpg/gif/webp) is left as plain text, not an <img>", () => {
+    const out = renderNoteBody("maw://local/evil.svg");
+    expect(out).not.toContain("<img");
+    expect(out).toContain("maw://local/evil.svg"); // untouched, rendered as inert text
+  });
+
+  // 🔴 XSS (card AC): a maw://-disguised or javascript:/data: ref must NEVER become
+  // a live src — renderNoteBody only ever builds src from ITS OWN regex-captured,
+  // charset-allowlisted filename; it never echoes a caller-supplied URL/scheme.
+  test("XSS: a bare javascript:/data: URI (no maw:// prefix) never becomes an <img src>", () => {
+    const out = renderNoteBody('gotcha javascript:alert(1) and data:text/html,<script>alert(2)</script>');
+    expect(out).not.toContain("<img");
+    expect(out).not.toContain("src=\"javascript:");
+    expect(out).not.toContain("src=\"data:");
+  });
+
+  test("XSS: a maw:// ref carrying a quote/attribute-breakout payload in the filename position fails to match (charset-only) and renders inert", () => {
+    // escapeHtml already ran (quotes → &quot;) before this regex sees the text, and
+    // the filename charset ([A-Za-z0-9._-]+) excludes quotes/slashes/parens anyway —
+    // double protection. No <img> is emitted, and no live onerror/onload attribute
+    // appears anywhere in the output.
+    const out = renderNoteBody('maw://local/x.png"onerror=alert(1).png');
+    expect(out).not.toMatch(/<img[^>]*\bonerror=/);
+    expect(out).not.toContain('.png"onerror=');
+  });
+
+  test("a real render call from a room message still runs mdToHtml first (bold + image together)", () => {
+    const out = renderNoteBody("**shipped** maw://local/shot.jpg");
+    expect(out).toContain("<strong>shipped</strong>");
+    expect(out).toContain('src="/api/files/shot.jpg"');
   });
 });

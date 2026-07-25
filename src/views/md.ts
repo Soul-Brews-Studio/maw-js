@@ -43,3 +43,33 @@ export function mdToHtml(src) {
   closeList();
   return out.join('\n');
 }
+
+/**
+ * kobo-397 — extracted VERBATIM from company.ts (kobo-116, where it lived inline
+ * in the served client script as `renderNoteBody`), so room.ts can reuse the SAME
+ * markdown+image renderer for message bodies (2-live-path lesson, same as the 396
+ * extract above). Name kept for minimal diff at company.ts's 3 call sites — the
+ * behavior is generic (any escape-first markdown body + maw:// image refs), not
+ * note-specific.
+ *
+ * mdToHtml first (escape-first, XSS-safe), then swap `maw://<node>/<file>.<ext>`
+ * refs for an `<img>` WE build ourselves from regex-captured, charset+ext
+ * allowlisted groups — the src is NEVER attacker-controlled: it's always our own
+ * `/api/files/<matched-filename>` string, so a disguised `javascript:`/`data:`/
+ * arbitrary-URL ref can never reach a live `src` (it isn't a maw:// match at all,
+ * so it stays inert escaped text from mdToHtml). Local-node scope only (MVP);
+ * cross-node data-URI resolution is a separate concern (maw_inline_images).
+ */
+export const NOTE_IMG_EXT = /^(png|jpe?g|gif|webp)$/i;
+export function renderNoteBody(txt) {
+  return mdToHtml(txt || '').replace(
+    /maw:\/\/[A-Za-z0-9._-]+\/([A-Za-z0-9._-]+\.([A-Za-z0-9]+))/g,
+    function (ref, file, ext) {
+      if (!NOTE_IMG_EXT.test(ext)) return ref;
+      const url = '/api/files/' + encodeURIComponent(file);
+      // anchor → native click-to-open (full-size, new tab); no JS handler needed.
+      return '<a class="note-img-link" href="' + url + '" target="_blank" rel="noopener">' +
+        '<img class="note-img" loading="lazy" src="' + url + '" alt="' + escapeHtml(file) + '"></a>';
+    },
+  );
+}

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { escapeHtml, inlineMd, mdToHtml } from "./md";
+import { escapeHtml, inlineMd, mdToHtml, NOTE_IMG_EXT, renderNoteBody } from "./md";
 
 // Brainstorm Room — 2-pane chat (kobo-258, UX spec eq3 2026-07-10). A company-scoped
 // chat surface to ground a problem with the company LEAD: LEFT = topic/room list of the
@@ -93,6 +93,8 @@ export function roomHtml(): string {
     .bubble .body pre { background:var(--muted); border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; }
     .bubble .body pre code { background:none; border:0; padding:0; }
     .bubble .body a { color:var(--human); text-decoration:underline; }
+    .bubble .body .note-img-link { display:inline-block; margin:4px 0; }
+    .bubble .body .note-img { display:block; max-width:100%; max-height:320px; height:auto; border:1px solid var(--border); border-radius:9px; }
     .bubble .tag { font-size:11px; color:var(--teammate); }
     /* you = right + sky · lead = left + green · teammate = left + violet */
     .bubble.you { align-self:flex-end; background:rgba(56,189,248,.10); border-color:rgba(56,189,248,.35); }
@@ -203,6 +205,23 @@ async function post(url, body) {
   return j;
 }
 
+// kobo-397 — reuses the EXISTING POST /api/upload (upload.ts) as-is, multipart
+// 'file' field. On a non-2xx, turns the server's already-detailed error into an
+// ACTIONABLE message (real size/type + a concrete next step), not a dead end.
+async function uploadImage(file) {
+  const fd = new FormData();
+  fd.append('file', file, file.name || 'image');
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || !j.ok) {
+    const msg = j.error || (res.status + ' upload failed');
+    if (res.status === 413) throw new Error(msg + ' — try cropping or resizing the image first.');
+    if (res.status === 415) throw new Error("can't upload this file type — " + msg);
+    throw new Error(msg);
+  }
+  return j; // { ok, id, url, path, name, size, mime }
+}
+
 // ── company + room list (scoped, server-enforced) ──────────────────────────
 async function loadRooms() {
   const { body } = await getJson('/api/rooms' + (company ? '?company=' + encodeURIComponent(company) : ''));
@@ -275,6 +294,9 @@ function selectRoom(id) {
 ${escapeHtml.toString()}
 ${inlineMd.toString()}
 ${mdToHtml.toString()}
+// kobo-397 — same toString() embed for the maw:// image-ref renderer (md.ts).
+const NOTE_IMG_EXT = ${NOTE_IMG_EXT};
+${renderNoteBody.toString()}
 
 function roleOf(from) {
   if (from === 'web' || from === 'you') return 'you';
@@ -370,10 +392,12 @@ async function loadThread() {
     head.appendChild(el('span', 'ts mono', fmtTs(m.ts)));
     b.appendChild(head);
     if (role === 'teammate') b.appendChild(el('div', 'tag', '🔎 pulled in'));
-    // kobo-396 — markdown render (shared mdToHtml, escape-first = XSS-safe) + the
-    // room-only bare-URL post-pass (kobo-380 preserved, see linkifyDom).
+    // kobo-396/397 — markdown render + maw:// image-ref swap (shared renderNoteBody,
+    // escape-first = XSS-safe: src is always OUR OWN /api/files/<matched-filename>
+    // string, never attacker-controlled) + the room-only bare-URL post-pass
+    // (kobo-380 preserved, see linkifyDom).
     const bodyEl = el('div', 'body md');
-    bodyEl.innerHTML = mdToHtml(m.text || '');
+    bodyEl.innerHTML = renderNoteBody(m.text || '');
     linkifyDom(bodyEl);
     b.appendChild(bodyEl);
     thread.appendChild(b);
@@ -411,6 +435,49 @@ async function send() {
     setTimeout(loadThread, 500);
   } catch (err) { setStatus('ส่งไม่สำเร็จ — retry: ' + (err && err.message ? err.message : err), true); }
   finally { $('send').disabled = false; }
+}
+
+// kobo-397 — paste (Ctrl+V) or drag-drop an image into the compose box → upload
+// via the EXISTING /api/upload → insert the SAME maw://<node>/<file> ref format
+// notes use (no invented scheme) → renderNoteBody (above) swaps it for a real
+// <img> once sent. 'local' = this codebase's existing self/same-node alias
+// (routing.ts) — correct for the MVP local-node scope (kobo-116), same as the
+// render side never resolving the node segment for local display.
+function insertTextAtCursor(t, text) {
+  const start = t.selectionStart, end = t.selectionEnd;
+  const before = t.value.slice(0, start), after = t.value.slice(end);
+  t.value = before + text + after;
+  const pos = (before + text).length;
+  t.setSelectionRange(pos, pos);
+  autogrow();
+}
+async function handleImageFile(file) {
+  setStatus('uploading ' + (file.name || 'image') + '…');
+  try {
+    const j = await uploadImage(file);
+    const filename = (j.url || '').split('/').pop(); // the servable /api/files/<filename> — see upload.ts
+    insertTextAtCursor($('text'), 'maw://local/' + filename + ' ');
+    setStatus('image attached — send to share');
+  } catch (err) {
+    setStatus('upload failed: ' + (err && err.message ? err.message : err), true);
+  }
+}
+function isImageFile(file) { return !!file && !!file.type && file.type.indexOf('image/') === 0; }
+function onComposePaste(ev) {
+  const items = (ev.clipboardData && ev.clipboardData.items) || [];
+  for (const item of items) {
+    if (item.kind === 'file' && item.type && item.type.indexOf('image/') === 0) {
+      ev.preventDefault();
+      const file = item.getAsFile();
+      if (file) handleImageFile(file);
+      return;
+    }
+  }
+}
+function onComposeDrop(ev) {
+  ev.preventDefault();
+  const files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+  for (const file of files) if (isImageFile(file)) handleImageFile(file);
 }
 
 // ── @-tag picker (kobo-390): grouped "in this room" vs "invite"; picking an
@@ -566,6 +633,9 @@ $('text').addEventListener('keydown', (ev) => {
   }
 });
 $('text').addEventListener('blur', () => setTimeout(closePicker, 150)); // 150ms: let a picker-item mousedown fire first
+$('text').addEventListener('paste', onComposePaste); // kobo-397: image paste
+$('text').addEventListener('dragover', (ev) => { ev.preventDefault(); }); // kobo-397: allow drop
+$('text').addEventListener('drop', onComposeDrop); // kobo-397: image drag-drop
 $('back').addEventListener('click', () => { $('app').classList.remove('showchat'); });
 $('distillBtn').addEventListener('click', distill);
 $('inviteBtn').addEventListener('click', invite);

@@ -88,10 +88,11 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("createElement('a')");
   });
 
-  test("kobo-396: the ONLY innerHTML assignment is the escape-first mdToHtml render (no raw-text injection)", () => {
+  test("kobo-396/397: the ONLY innerHTML assignment is the escape-first renderNoteBody render (no raw-text injection)", () => {
     expect(html).toContain("function mdToHtml"); // shared renderer (src/views/md.ts) injected verbatim
     expect(html).toContain("function escapeHtml");
-    expect(html).toContain("bodyEl.innerHTML = mdToHtml(m.text || '')"); // the one legitimate, escape-first sink
+    expect(html).toContain("function renderNoteBody"); // kobo-397: markdown + maw:// image-ref swap
+    expect(html).toContain("bodyEl.innerHTML = renderNoteBody(m.text || '')"); // the one legitimate, escape-first sink
     const innerHtmlAssignments = (html.match(/\.innerHTML\s*=/g) || []).length;
     expect(innerHtmlAssignments).toBe(1); // no OTHER innerHTML= sink anywhere in the view
   });
@@ -134,5 +135,23 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(isProtected("/room/send", "POST")).toBe(true);
     expect(isProtected("/room/merge", "POST")).toBe(true);
     expect(isProtected("/room", "GET")).toBe(false); // the /room VIEW itself stays public read
+  });
+
+  test("kobo-397: paste + drag-drop upload wiring reuses the EXISTING /api/upload (no invented endpoint)", () => {
+    expect(html).toContain("fetch('/api/upload'");
+    expect(html).toContain("function uploadImage");
+    expect(html).toContain("function onComposePaste");
+    expect(html).toContain("function onComposeDrop");
+    expect(html).toContain("addEventListener('paste', onComposePaste)");
+    expect(html).toContain("addEventListener('drop', onComposeDrop)");
+  });
+
+  test("kobo-397: the inserted ref is the SAME maw://<node>/<file> format notes use (no invented scheme)", () => {
+    expect(html).toContain("'maw://local/' + filename");
+  });
+
+  test("kobo-397: >10MB / bad-mime errors are surfaced as an ACTIONABLE message, not a dead end (lead heads-up)", () => {
+    expect(html).toContain("try cropping or resizing the image first"); // 413 → a concrete way out
+    expect(html).toContain("can't upload this file type"); // 415 → names what's wrong, server names what IS accepted
   });
 });
