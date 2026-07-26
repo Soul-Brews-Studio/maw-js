@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { spawnHeyProcess } from "./hey-spawn";
 
 // kobo-405 — exploit-reality: prove the fail-closed test preload
-// (bunfig.toml → test/setup/hey-spawn-fail-closed.ts) is what's actually
+// (bunfig.toml → test/helpers/hey-spawn-fail-closed.ts) is what's actually
 // standing between a test and a real `maw hey` subprocess, without ever
 // spawning a real one.
 describe("hey-spawn (kobo-405)", () => {
