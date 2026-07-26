@@ -88,13 +88,98 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("createElement('a')");
   });
 
-  test("kobo-396/397: the ONLY innerHTML assignment is the escape-first renderNoteBody render (no raw-text injection)", () => {
+  test("kobo-396/397/398: only 2 KNOWN innerHTML sinks — escape-first renderNoteBody + mermaid's own trusted SVG", () => {
     expect(html).toContain("function mdToHtml"); // shared renderer (src/views/md.ts) injected verbatim
     expect(html).toContain("function escapeHtml");
     expect(html).toContain("function renderNoteBody"); // kobo-397: markdown + maw:// image-ref swap
-    expect(html).toContain("bodyEl.innerHTML = renderNoteBody(m.text || '')"); // the one legitimate, escape-first sink
+    expect(html).toContain("bodyEl.innerHTML = renderNoteBody(m.text || '')"); // sink 1: escape-first
+    expect(html).toContain("block.innerHTML = svg"); // sink 2: mermaid's OWN output (strict mode), not user text
     const innerHtmlAssignments = (html.match(/\.innerHTML\s*=/g) || []).length;
-    expect(innerHtmlAssignments).toBe(1); // no OTHER innerHTML= sink anywhere in the view
+    expect(innerHtmlAssignments).toBe(2); // no OTHER innerHTML= sink anywhere in the view
+  });
+
+  // kobo-398 — extract the mermaid loader/renderer straight from the served client
+  // script (same technique as loadLinkify above) and run it against stub
+  // document/window objects so lazy-by-absence, load-once, and per-block
+  // isolation are BEHAVIORALLY proven, not just grepped.
+  function loadMermaidRenderer() {
+    const start = html.indexOf("const MERMAID_ASSET_URL");
+    const end = html.indexOf("async function loadThread", start);
+    const src = html.slice(start, end);
+    return new Function(`${src}; return { loadMermaid, renderMermaidBlocks };`)();
+  }
+  function stubEnv(renderImpl) {
+    const createdTags = [];
+    const doc = {
+      createElement: (tag) => { createdTags.push(tag); const el = { tag, onload: null, onerror: null }; Object.defineProperty(el, "src", { set() { queueMicrotask(() => el.onload && el.onload()); } }); return el; },
+      head: { appendChild: () => {} },
+    };
+    const win = { mermaid: { initialize: () => {}, render: renderImpl } };
+    return { doc, win, createdTags };
+  }
+
+  test("kobo-398 LAZY-BY-ABSENCE: no .mermaid-src block → the asset is NEVER loaded (no <script> created)", async () => {
+    const { renderMermaidBlocks } = loadMermaidRenderer();
+    const { doc, win, createdTags } = stubEnv(async () => ({ svg: "<svg/>" }));
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const emptyRoot = { querySelectorAll: () => [] };
+      await renderMermaidBlocks(emptyRoot);
+      expect(createdTags).toEqual([]); // absence proven: nothing was ever loaded
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  test("kobo-398 LAZY-BY-ABSENCE (present case): a .mermaid-src block DOES trigger the asset load", async () => {
+    const { renderMermaidBlocks } = loadMermaidRenderer();
+    const { doc, win, createdTags } = stubEnv(async () => ({ svg: "<svg>ok</svg>" }));
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const block = { textContent: "graph TD; A-->B;", innerHTML: "" };
+      const root = { querySelectorAll: () => [block] };
+      await renderMermaidBlocks(root);
+      expect(createdTags).toEqual(["script"]); // present → loaded exactly once
+      expect(block.innerHTML).toBe("<svg>ok</svg>");
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  test("kobo-398 LOAD-ONCE: two render passes (simulating two 2.5s polls) load the asset only ONCE", async () => {
+    const { renderMermaidBlocks } = loadMermaidRenderer();
+    const { doc, win, createdTags } = stubEnv(async () => ({ svg: "<svg>x</svg>" }));
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      await renderMermaidBlocks({ querySelectorAll: () => [{ textContent: "graph TD; A-->B;", innerHTML: "" }] });
+      await renderMermaidBlocks({ querySelectorAll: () => [{ textContent: "graph TD; C-->D;", innerHTML: "" }] });
+      expect(createdTags.length).toBe(1); // the module-level Promise cache holds across calls
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  test("kobo-398 PER-BLOCK ISOLATION: 1 bad + 1 good diagram → the good one still renders (bad falls back to source)", async () => {
+    const { renderMermaidBlocks } = loadMermaidRenderer();
+    const { doc, win } = stubEnv(async (_id, src) => {
+      if (src.includes("BADSYNTAX")) throw new Error("mermaid parse error");
+      return { svg: "<svg>good</svg>" };
+    });
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const bad = { textContent: "BADSYNTAX ---", innerHTML: "" };
+      const good = { textContent: "graph TD; A-->B;", innerHTML: "" };
+      const root = { querySelectorAll: () => [bad, good] };
+      await renderMermaidBlocks(root); // must not throw — the bad block's error is caught PER-BLOCK
+      expect(bad.innerHTML).toBe(""); // untouched — the escaped source text (its existing content) is the fallback
+      expect(good.innerHTML).toBe("<svg>good</svg>"); // NOT aborted by the bad sibling
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
   });
 
   test("kobo-380: isSafeUrl allowlists http/https only", () => {

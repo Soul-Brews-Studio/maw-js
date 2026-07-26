@@ -20,13 +20,28 @@ export function inlineMd(s) {
 export function mdToHtml(src) {
   const lines = escapeHtml(src).split(/\r?\n/);
   const out = [];
-  let i = 0, inCode = false, listType = null;
+  let i = 0, inCode = false, codeLang = '', listType = null;
   const closeList = () => { if (listType) { out.push('</' + listType + '>'); listType = null; } };
   while (i < lines.length) {
     const line = lines[i];
-    if (/^\s*```/.test(line)) {
-      if (!inCode) { closeList(); out.push('<pre><code>'); inCode = true; }
-      else { out.push('</code></pre>'); inCode = false; }
+    // kobo-398: capture the fence info-string (```mermaid vs ```js) — previously
+    // discarded entirely. `mermaid` gets a render-TARGET div whose visible TEXT
+    // CONTENT is the escaped source (not an empty div+data-attr) — this is SHARED
+    // with company.ts (the board), which has no mermaid loader: the board degrades
+    // to showing the source as text instead of a blank/broken div, and it's also
+    // room's parse-failure fallback for free (already the div's text). Any other
+    // lang (or none) renders as a normal <pre><code> block, unchanged.
+    const fence = line.match(/^\s*```(\w*)/);
+    if (fence) {
+      if (!inCode) {
+        closeList();
+        codeLang = fence[1] || '';
+        out.push(codeLang === 'mermaid' ? '<div class="mermaid-src">' : '<pre><code>');
+        inCode = true;
+      } else {
+        out.push(codeLang === 'mermaid' ? '</div>' : '</code></pre>');
+        inCode = false; codeLang = '';
+      }
       i++; continue;
     }
     if (inCode) { out.push(line); i++; continue; }
@@ -39,7 +54,7 @@ export function mdToHtml(src) {
     if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) { if (listType !== 'ol') { closeList(); out.push('<ol>'); listType = 'ol'; } out.push('<li>' + inlineMd(m[1]) + '</li>'); i++; continue; }
     closeList(); out.push('<p>' + inlineMd(line) + '</p>'); i++;
   }
-  if (inCode) out.push('</code></pre>');
+  if (inCode) out.push(codeLang === 'mermaid' ? '</div>' : '</code></pre>');
   closeList();
   return out.join('\n');
 }

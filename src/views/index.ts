@@ -6,6 +6,7 @@ import { infoView } from "./info";
 import { messagesView } from "./messages";
 import { companyView } from "./company";
 import { roomView } from "./room";
+import { assetsView } from "./assets";
 
 // UI moved to Soul-Brews-Studio/maw-ui (dev server on :5173).
 // Only keep standalone HTML views that are self-contained.
@@ -17,4 +18,5 @@ export function mountViews(app: Hono) {
   app.route("/messages", messagesView);
   app.route("/company", companyView);
   app.route("/room", roomView); // kobo-245 — Brainstorm Room core wire
+  app.route("/assets", assetsView); // kobo-398 — same-origin static assets (mermaid.js)
 }
