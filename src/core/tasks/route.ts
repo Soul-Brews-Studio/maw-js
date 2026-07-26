@@ -207,7 +207,7 @@ export async function handleTaskNoteRequest(request: Request): Promise<Response>
   if (!task) {
     return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
   }
-  notifyTaskComment(task, by, text); // comment = poke assignee (non-author only, task-events → coord pane)
+  notifyTaskComment(task, by, text, "note"); // note = poke assignee (non-author only, task-events → coord pane)
   return Response.json({ ok: true, id: task.id, notes: task.notes });
 }
 
@@ -248,7 +248,7 @@ export async function handleTaskCommentRequest(request: Request): Promise<Respon
   if (!task) {
     return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
   }
-  notifyTaskComment(task, by, text); // comment = poke assignee / review-chain fallback (task-events → coord pane)
+  notifyTaskComment(task, by, text, "comment"); // comment = poke assignee / review-chain fallback (task-events → coord pane)
   // kobo-156: a reply also pings the parent comment's author (thread reaches the
   // person answered, not just the assignee). Tony's board reply is the main case.
   if (replyTo) notifyCommentReply(task, replyTo, by);

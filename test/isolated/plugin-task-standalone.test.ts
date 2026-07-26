@@ -76,6 +76,10 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('"--no-deploy-required": Boolean');
     expect(src).toContain("deployRequired"); // kobo-274: forwarded into addTask/editTask (has-PR default → wait-for-deploy)
     expect(src).toContain("notifyTaskComment"); // kobo-46: a note by a non-author pokes the assignee (comment = poke) on task-events
+    // kobo-406: notifyTaskComment now takes a required kind ("note"|"comment") so the
+    // notification verb matches what was actually written — pin both call sites explicit.
+    expect(src).toContain('notifyTaskComment(t, me, noteText, "note")'); // note verb
+    expect(src).toContain('notifyTaskComment(t, me, text, "comment")'); // comment verb
     expect(src).toContain("notifyCommentReply"); // kobo-156: a reply also pokes the parent comment's author (thread reaches the person answered)
     expect(src).toContain("commentTask"); // kobo-140: threaded ask/answer comment (the ask channel — thread/@mention)
     expect(src).toContain("commentClarityError"); // kobo-263: @tony/@human comment → tldr+ask REQUIRED (tool rejects; supersedes the 262 nudge)
