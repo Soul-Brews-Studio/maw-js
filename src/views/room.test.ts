@@ -98,6 +98,15 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(innerHtmlAssignments).toBe(2); // no OTHER innerHTML= sink anywhere in the view
   });
 
+  // kobo-398 review fix (B3): check 11 (strict must be hardcoded, no flag/env
+  // can disable it in production) was previously enforced only by a human
+  // grepping the PR — 0 hits for "securityLevel" existed in this test file. A
+  // future edit that turned strict into an option/env would sail through green.
+  // Exact-string match on the literal initialize() call closes that gap.
+  test("kobo-398 check 11: securityLevel:'strict' + startOnLoad:false are hardcoded literals, no flag/env can disable them", () => {
+    expect(html).toContain("window.mermaid.initialize({ securityLevel: 'strict', startOnLoad: false })");
+  });
+
   // kobo-398 — extract the mermaid loader/renderer straight from the served client
   // script (same technique as loadLinkify above) and run it against stub
   // document/window objects so lazy-by-absence, load-once, and per-block
@@ -107,6 +116,21 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     const end = html.indexOf("async function loadThread", start);
     const src = html.slice(start, end);
     return new Function(`${src}; return { loadMermaid, renderMermaidBlocks };`)();
+  }
+  // kobo-398 review fix (B2): the real querySelectorAll returns a NodeList, not
+  // an Array — a plain-array stub is a MORE capable fake than the real DOM (it
+  // has .map/.filter that NodeList lacks), which is exactly how the room.ts:402
+  // `blocks.map(...)` bug (B1 — real TypeError in a browser) shipped past every
+  // test here green. This fake has length + forEach + Symbol.iterator, like the
+  // real thing, and deliberately NO map/filter, so a stray array-method call on
+  // the querySelectorAll result fails the test instead of silently passing.
+  function nodeList(items) {
+    return {
+      length: items.length,
+      item: (i) => items[i],
+      forEach: (cb) => items.forEach(cb),
+      [Symbol.iterator]: () => items[Symbol.iterator](),
+    };
   }
   function stubEnv(renderImpl) {
     const createdTags = [];
@@ -124,7 +148,7 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
     (globalThis as any).document = doc; (globalThis as any).window = win;
     try {
-      const emptyRoot = { querySelectorAll: () => [] };
+      const emptyRoot = { querySelectorAll: () => nodeList([]) };
       await renderMermaidBlocks(emptyRoot);
       expect(createdTags).toEqual([]); // absence proven: nothing was ever loaded
     } finally {
@@ -139,7 +163,7 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     (globalThis as any).document = doc; (globalThis as any).window = win;
     try {
       const block = { textContent: "graph TD; A-->B;", innerHTML: "", isConnected: true };
-      const root = { querySelectorAll: () => [block] };
+      const root = { querySelectorAll: () => nodeList([block]) };
       await renderMermaidBlocks(root);
       expect(createdTags).toEqual(["script"]); // present → loaded exactly once
       expect(block.innerHTML).toBe("<svg>ok</svg>");
@@ -154,8 +178,8 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
     (globalThis as any).document = doc; (globalThis as any).window = win;
     try {
-      await renderMermaidBlocks({ querySelectorAll: () => [{ textContent: "graph TD; A-->B;", innerHTML: "", isConnected: true }] });
-      await renderMermaidBlocks({ querySelectorAll: () => [{ textContent: "graph TD; C-->D;", innerHTML: "", isConnected: true }] });
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([{ textContent: "graph TD; A-->B;", innerHTML: "", isConnected: true }]) });
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([{ textContent: "graph TD; C-->D;", innerHTML: "", isConnected: true }]) });
       expect(createdTags.length).toBe(1); // the module-level Promise cache holds across calls
     } finally {
       (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
@@ -177,10 +201,10 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     try {
       const src = "graph TD; A-->B;";
       const block1 = { textContent: src, innerHTML: "", isConnected: true };
-      await renderMermaidBlocks({ querySelectorAll: () => [block1] });
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block1]) });
       // poll 2 rebuilds the thread → a brand-new DOM node, SAME source text
       const block2 = { textContent: src, innerHTML: "", isConnected: true };
-      await renderMermaidBlocks({ querySelectorAll: () => [block2] });
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block2]) });
       expect(renderCalls).toBe(1); // poll 2 was a cache hit — mermaid.render never called again
       expect(block2.innerHTML).toBe("<svg>x</svg>"); // cached SVG applied synchronously, no async gap
       expect(createdTags.length).toBe(1); // asset load still only-once too
@@ -205,7 +229,7 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     try {
       const src = "graph TD; A-->B;";
       const block = { textContent: src, innerHTML: "", isConnected: true };
-      const pending = renderMermaidBlocks({ querySelectorAll: () => [block] });
+      const pending = renderMermaidBlocks({ querySelectorAll: () => nodeList([block]) });
       block.isConnected = false; // the next poll rebuilt the thread before this render settled
       resolveRender({ svg: "<svg>late</svg>" });
       await pending;
@@ -213,7 +237,7 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
       // next poll: a NEW connected node, same source — the cache (set even though
       // the write was dropped) means this is a hit, no second mermaid.render call.
       const block2 = { textContent: src, innerHTML: "", isConnected: true };
-      await renderMermaidBlocks({ querySelectorAll: () => [block2] });
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block2]) });
       expect(block2.innerHTML).toBe("<svg>late</svg>");
     } finally {
       (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
@@ -231,9 +255,9 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     (globalThis as any).document = doc; (globalThis as any).window = win;
     try {
       const block = { textContent: "graph TD; A-->B;", innerHTML: "", isConnected: true };
-      await renderMermaidBlocks({ querySelectorAll: () => [block] }); // populates the cache
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block]) }); // populates the cache
       expect(createdTags).toEqual(["script"]);
-      await renderMermaidBlocks({ querySelectorAll: () => [] }); // a different thread, no diagrams at all
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([]) }); // a different thread, no diagrams at all
       expect(createdTags).toEqual(["script"]); // still exactly one load — absence still means absence
     } finally {
       (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
@@ -252,10 +276,10 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     try {
       const src = "graph TD; A-->B;";
       const warm = { textContent: src, innerHTML: "", isConnected: true };
-      await renderMermaidBlocks({ querySelectorAll: () => [warm] }); // warm the cache for `src`
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([warm]) }); // warm the cache for `src`
       const throwing = { textContent: src, isConnected: true, set innerHTML(_v) { throw new Error("boom"); } };
       const good = { textContent: src, innerHTML: "", isConnected: true };
-      await renderMermaidBlocks({ querySelectorAll: () => [throwing, good] }); // both cache hits
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([throwing, good]) }); // both cache hits
       expect(good.innerHTML).toBe("<svg>ok</svg>"); // sibling write still lands despite `throwing`'s failure
     } finally {
       (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
@@ -273,7 +297,7 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     try {
       const bad = { textContent: "BADSYNTAX ---", innerHTML: "", isConnected: true };
       const good = { textContent: "graph TD; A-->B;", innerHTML: "", isConnected: true };
-      const root = { querySelectorAll: () => [bad, good] };
+      const root = { querySelectorAll: () => nodeList([bad, good]) };
       await renderMermaidBlocks(root); // must not throw — the bad block's error is caught PER-BLOCK
       expect(bad.innerHTML).toBe(""); // untouched — the escaped source text (its existing content) is the fallback
       expect(good.innerHTML).toBe("<svg>good</svg>"); // NOT aborted by the bad sibling

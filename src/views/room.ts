@@ -399,7 +399,9 @@ async function renderMermaidBlocks(root) {
   // pending[i].svg stays undefined until we have SOMETHING to paint (cache hit
   // or a fresh render) — the actual write happens in ONE place below, so a
   // cache hit and a freshly-rendered diagram are the same sink, not two.
-  const pending = blocks.map((block) => ({ block, src: block.textContent || '', svg: undefined }));
+  // querySelectorAll returns a NodeList — no .map (same idiom as the existing
+  // Array.from(...).map at line ~675 for .msrc:checked).
+  const pending = Array.from(blocks).map((block) => ({ block, src: block.textContent || '', svg: undefined }));
   const misses = pending.filter((p) => { const c = mermaidSvgCache.get(p.src); if (c !== undefined) p.svg = c; return c === undefined; });
   if (misses.length) {
     try {
