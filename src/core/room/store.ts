@@ -23,6 +23,11 @@ export interface RoomMessage {
   from: string;
   text: string; // the message with its [room:<id>] tag already stripped
   ts: number;
+  // kobo-415: company-wide (not per-room) — minted once at append, never re-derived, so
+  // mergeRooms unions two rooms' messages without ever colliding (unique by construction).
+  // Non-contiguous within a room after a merge (3, then 9, then 14) — never compute a
+  // "messages missed" count by subtracting seq; count actual messages instead.
+  seq: number;
 }
 
 export interface RoomArtifact {
@@ -52,6 +57,36 @@ export function roomFilePath(company: string, id: string): string {
   return mawDataPath("companies", safeSegment(company), "rooms", `${safeSegment(id)}.json`);
 }
 
+/** Kept OUTSIDE rooms/ — a rooms/ dotfile would still end in .json and get scanned by listRooms. */
+function roomSeqCounterPath(company: string): string {
+  return mawDataPath("companies", safeSegment(company), "room-seq.json");
+}
+
+/**
+ * Mint the next company-wide message seq (kobo-415). A persisted counter, not a scan —
+ * so backfilling one legacy room's messages never has to re-derive the company max from
+ * every other room (which would recurse back through readRoom's own backfill below).
+ * Synchronous read-increment-write, no `await` in between, so same-process concurrent
+ * appends can't observe a stale value (matches nextTaskId's single-writer assumption).
+ */
+function nextRoomSeq(company: string): number {
+  const path = roomSeqCounterPath(company);
+  let n = 0;
+  if (existsSync(path)) {
+    try {
+      n = (JSON.parse(readFileSync(path, "utf8")) as { seq: number }).seq ?? 0;
+    } catch {
+      n = 0;
+    }
+  }
+  n += 1;
+  mkdirSync(mawDataPath("companies", safeSegment(company)), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ seq: n }) + "\n");
+  renameSync(tmp, path);
+  return n;
+}
+
 /** Atomic overwrite — temp file in the same dir, then rename (mirrors the task store). */
 function writeRoom(room: RoomArtifact): void {
   const path = roomFilePath(room.company, room.id);
@@ -64,11 +99,30 @@ function writeRoom(room: RoomArtifact): void {
 export function readRoom(company: string, id: string): RoomArtifact | null {
   const path = roomFilePath(company, id);
   if (!existsSync(path)) return null;
+  let room: RoomArtifact;
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as RoomArtifact;
+    room = JSON.parse(readFileSync(path, "utf8")) as RoomArtifact;
   } catch {
     return null; // corrupt/partial → treat as absent (never throw on read)
   }
+  if (backfillRoomSeq(room)) writeRoom(room); // kobo-415: legacy room, minted once, then never again
+  return room;
+}
+
+/**
+ * kobo-415: a room persisted before this feature has messages with no `seq` — mint one
+ * for each, in existing (already time-ordered) array order. Idempotent: a room with every
+ * message already numbered is untouched (no write, no seq churn on repeat reads).
+ */
+function backfillRoomSeq(room: RoomArtifact): boolean {
+  let changed = false;
+  for (const m of room.messages) {
+    if (m.seq === undefined) {
+      m.seq = nextRoomSeq(room.company);
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 /**
@@ -162,12 +216,12 @@ export function reopenRoom(company: string, id: string): RoomArtifact | null {
  */
 const SEND_DEDUP_WINDOW_MS = 120_000; // send-write ↔ its lagging delivery feed event (~2 min covers the measured drain)
 
-export function appendRoomMessage(company: string, id: string, msg: RoomMessage): RoomArtifact | null {
+export function appendRoomMessage(company: string, id: string, msg: Omit<RoomMessage, "seq">): RoomArtifact | null {
   const room = readRoom(company, id);
   if (!room) return null;
   if (room.messages.some((m) => m.id === msg.id)) return room; // dedup — same lifecycle id
   if (msg.text && room.messages.some((m) => m.from === msg.from && m.text === msg.text && Math.abs((m.ts || 0) - (msg.ts || 0)) < SEND_DEDUP_WINDOW_MS)) return room; // dedup — same turn (send-write ↔ lagging feed event), windowed so genuine later repeats survive (kobo-249)
-  room.messages.push(msg);
+  room.messages.push({ ...msg, seq: nextRoomSeq(company) }); // kobo-415: company-wide, minted here — never touched again
   room.updatedTs = msg.ts || Date.now();
   writeRoom(room);
   return room;

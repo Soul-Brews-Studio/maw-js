@@ -83,6 +83,7 @@ export function roomHtml(): string {
     .bubble .nm { font-weight:600; }
     .bubble .pill { font-size:11px; padding:1px 8px; border-radius:var(--r-pill); background:var(--muted); color:var(--dim); }
     .bubble .ts { margin-left:auto; color:var(--dim); font-size:11px; }
+    .bubble .seqno { color:var(--dim); font-size:11px; }
     /* kobo-396: body now renders as markdown (mdToHtml) — structure (p/ul/li/h*)
        comes from real HTML, not pre-wrap; tighten prose rhythm like company.ts's .md. */
     .bubble .body { word-break:break-word; }
@@ -457,9 +458,11 @@ async function loadThread() {
   for (const m of msgs) {
     const role = roleOf(m.from);
     const b = el('div', 'bubble ' + role);
+    b.id = 'msg-' + m.seq; // kobo-415: stable anchor — a banner's #N always scrolls to the same message
     const head = el('div', 'head');
     head.appendChild(el('span', 'nm', m.from || '?'));
     head.appendChild(el('span', 'pill', pillText(role)));
+    head.appendChild(el('span', 'seqno mono', '#' + m.seq));
     head.appendChild(el('span', 'ts mono', fmtTs(m.ts)));
     b.appendChild(head);
     if (role === 'teammate') b.appendChild(el('div', 'tag', '🔎 pulled in'));

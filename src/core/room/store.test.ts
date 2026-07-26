@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms, addRoomParticipant, paginateRoomMessages, ROOM_DEFAULT_LAST, type RoomMessage } from "./store";
@@ -136,7 +136,7 @@ describe("mergeRooms (kobo-243 — lead-driven consolidation, Nothing Deleted)",
 
 describe("paginateRoomMessages (kobo-322 — default-cap room reads)", () => {
   const msgs = (n: number): RoomMessage[] =>
-    Array.from({ length: n }, (_, i) => ({ id: `m${i}`, from: "a", text: "x", ts: i + 1 }));
+    Array.from({ length: n }, (_, i) => ({ id: `m${i}`, from: "a", text: "x", ts: i + 1, seq: i + 1 }));
 
   test("no params → the last ROOM_DEFAULT_LAST turns (footgun guard, not full dump)", () => {
     const out = paginateRoomMessages(msgs(50));
@@ -206,5 +206,70 @@ describe("paginateRoomMessages (kobo-322 — default-cap room reads)", () => {
     test("offset is ignored under `all` (full dump — no partial-skip escape hatch)", () => {
       expect(paginateRoomMessages(msgs(50), { all: true, offset: 10 })).toHaveLength(50);
     });
+  });
+});
+
+describe("room message seq (kobo-415 — company-wide, unique by construction)", () => {
+  test("appendRoomMessage mints an increasing seq, stable across repeat reads", () => {
+    openRoom("kobo", "r1", "topic");
+    appendRoomMessage("kobo", "r1", { id: "m1", from: "a", text: "hi", ts: 1 });
+    const after = appendRoomMessage("kobo", "r1", { id: "m2", from: "b", text: "yo", ts: 2 })!;
+    const [m1, m2] = after.messages;
+    expect(m1.seq).toBeGreaterThan(0);
+    expect(m2.seq).toBe(m1.seq + 1);
+    expect(readRoom("kobo", "r1")!.messages.map((m) => m.seq)).toEqual([m1.seq, m2.seq]); // no drift
+    expect(readRoom("kobo", "r1")!.messages.map((m) => m.seq)).toEqual([m1.seq, m2.seq]); // repeat read, still stable
+  });
+
+  test("seq is company-wide, not per-room — a second room does NOT restart at 1", () => {
+    openRoom("kobo", "a", "a");
+    openRoom("kobo", "b", "b");
+    const a = appendRoomMessage("kobo", "a", { id: "a1", from: "x", text: "x", ts: 1 })!;
+    const b = appendRoomMessage("kobo", "b", { id: "b1", from: "x", text: "x", ts: 1 })!;
+    expect(b.messages[0].seq).toBe(a.messages[0].seq + 1);
+  });
+
+  test("concurrent-tick appends (identical ts) still get distinct seq", () => {
+    openRoom("kobo", "r1", "topic");
+    appendRoomMessage("kobo", "r1", { id: "m1", from: "a", text: "x", ts: 100 });
+    appendRoomMessage("kobo", "r1", { id: "m2", from: "b", text: "y", ts: 100 });
+    const seqs = readRoom("kobo", "r1")!.messages.map((m) => m.seq);
+    expect(new Set(seqs).size).toBe(2);
+  });
+
+  test("readRoom backfills a legacy message with no seq — idempotent across re-reads", () => {
+    openRoom("kobo", "legacy", "topic");
+    // bypass the store to simulate a room persisted BEFORE this feature shipped (no seq field)
+    const raw = JSON.parse(readFileSync(roomFilePath("kobo", "legacy"), "utf8"));
+    raw.messages = [
+      { id: "old1", from: "a", text: "x", ts: 1 },
+      { id: "old2", from: "b", text: "y", ts: 2 },
+    ];
+    writeFileSync(roomFilePath("kobo", "legacy"), JSON.stringify(raw));
+
+    const first = readRoom("kobo", "legacy")!;
+    expect(first.messages.every((m) => typeof m.seq === "number")).toBe(true); // no error, not empty
+    expect(new Set(first.messages.map((m) => m.seq)).size).toBe(2); // distinct
+
+    const second = readRoom("kobo", "legacy")!;
+    expect(second.messages.map((m) => m.seq)).toEqual(first.messages.map((m) => m.seq)); // no drift on repeat open
+  });
+
+  // THE BINDING AC (eq3 ruling): the guard must CONSTRUCT the collision two
+  // independently-numbered rooms would produce under a naive per-room counter, then
+  // assert it can't happen — not just observe a freshly built dataset (which has no
+  // collision to find). Verified RED-then-GREEN during dev: temporarily keying
+  // nextRoomSeq per-room (the rejected/naive design) makes this test fail with two
+  // duplicate seq after merge; the shipped company-wide counter makes it pass.
+  test("mergeRooms: two independently-numbered rooms merge with NO duplicate seq", () => {
+    openRoom("kobo", "t", "target");
+    appendRoomMessage("kobo", "t", { id: "t1", from: "a", text: "x", ts: 10 });
+    openRoom("kobo", "s", "source");
+    appendRoomMessage("kobo", "s", { id: "s1", from: "b", text: "y", ts: 5 });
+    appendRoomMessage("kobo", "s", { id: "s2", from: "c", text: "z", ts: 20 });
+
+    const merged = mergeRooms("kobo", "t", ["s"])!;
+    const seqs = merged.messages.map((m) => m.seq);
+    expect(new Set(seqs).size).toBe(seqs.length); // no two messages share a seq
   });
 });
