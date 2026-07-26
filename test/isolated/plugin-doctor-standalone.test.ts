@@ -81,7 +81,12 @@ afterEach(() => {
 
 describe("doctor plugin standalone boundary (#2328)", () => {
   test("all doctor sources use SDK or local/platform imports only", () => {
-    const imports = expectStandalonePluginBoundary({ plugin: "doctor", root, allowMawJs: ["maw-js/core/gateway"] });
+    const imports = expectStandalonePluginBoundary({
+      plugin: "doctor",
+      root,
+      allowMawJs: ["maw-js/core/gateway"],
+      allowRelative: [/^(?:\.\.\/){3}core\/tasks\/hey-spawn$/], // kobo-405: shared fail-closed-under-test hey spawn seam
+    });
 
     expect(command).toMatchObject({ name: "doctor" });
     expect(imports.map((record) => record.spec)).toContain("maw-js/sdk");

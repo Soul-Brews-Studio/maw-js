@@ -33,6 +33,7 @@ describe("company command plugin standalone boundary", () => {
         /^(?:\.\.\/){3}core\/policy\//,  // attach-store — policy inject gate
         /^(?:\.\.\/){3}core\/util\//,    // fuzzy matcher for attach resolution
         /^(?:\.\.\/){3}core\/worklog\//, // hook-setup (provision) + company-scope (#2 re-home)
+        /^(?:\.\.\/){3}core\/tasks\/hey-spawn$/, // kobo-405: shared fail-closed-under-test hey spawn seam
       ],
     }).map((record) => record.spec);
 

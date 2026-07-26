@@ -26,6 +26,7 @@ import { checkStalePeers, cmdFixStalePeers } from "./internal/stale-peers";
 import { detectBunLinkedCheckout } from "./internal/bun-link-detect";
 import { fixDoubledGithubSessions } from "./internal/fix-sessions";
 import { normalizeGateway, resolveGatewayBinary, type GatewayKind } from "maw-js/core/gateway";
+import { spawnHeyProcess } from "../../../core/tasks/hey-spawn";
 
 export type DoctorSeverity = "info" | "warn" | "error";
 
@@ -266,7 +267,8 @@ async function maybeForwardDoctorReport(opts: {
   if (!target) return undefined;
   const message = formatForwardMessage(opts.checks, opts.comparison, opts.captured ?? captureTmuxPane(30));
   try {
-    const proc = Bun.spawn(["maw", "hey", target, message], { stdout: "pipe", stderr: "pipe" });
+    // kobo-405: shared fail-closed-under-test seam
+    const proc = spawnHeyProcess([target, message], { stdout: "pipe", stderr: "pipe" });
     const code = await proc.exited;
     if (code === 0) return { name: "forward", ok: true, severity: "info", message: `forwarded doctor report to ${target}` };
     const stderr = await new Response(proc.stderr).text();

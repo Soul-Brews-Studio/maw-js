@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import type { Hook, SchedulerJob } from "./jobs";
+import { spawnHeyProcess } from "../../../core/tasks/hey-spawn";
 
 export interface HookDeps {
   now?: () => number;
@@ -17,7 +18,8 @@ async function defaultRunShell(command: string): Promise<number> {
 }
 
 export async function defaultMawHey(target: string, message: string): Promise<number> {
-  const proc = Bun.spawn(["maw", "hey", target, message], { stdout: "inherit", stderr: "inherit" });
+  // kobo-405: shared fail-closed-under-test seam
+  const proc = spawnHeyProcess([target, message], { stdout: "inherit", stderr: "inherit" });
   return await proc.exited;
 }
 
