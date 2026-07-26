@@ -37,17 +37,23 @@ export function notifyTaskComment(
   task: TaskRecord,
   commenter: string,
   text: string,
+  kind: "note" | "comment",
   send: (args: string[]) => void = spawnHey,
 ): boolean {
   const target = task.assignee || resolveReviewer(task); // owner, else the review chain (unassigned fallback, kobo-156)
   if (!target || target === commenter) return false; // self-comment or nobody to reach → nothing to poke
   const oneLine = text.replace(/\s+/g, " ").trim();
   const preview = oneLine.length > 80 ? oneLine.slice(0, 77) + "…" : oneLine;
+  // kobo-406: the verb must match what was actually written — a note reader who's
+  // told "commented on" checks `comments` (empty) and wrongly suspects a write-path
+  // bug. `kind` is a required param (not inferred) so a future 3rd caller can't
+  // silently default to the wrong verb.
+  const verb = kind === "note" ? "added a note on" : "commented on";
   try {
-    send(["--channel", CHANNEL_TASK_EVENTS, target, `[task] ${commenter} commented on ${task.id}: ${preview}`]);
+    send(["--channel", CHANNEL_TASK_EVENTS, target, `[task] ${commenter} ${verb} ${task.id}: ${preview}`]);
     return true;
   } catch {
-    return false; // best-effort — the note is already stored
+    return false; // best-effort — the write is already stored
   }
 }
 

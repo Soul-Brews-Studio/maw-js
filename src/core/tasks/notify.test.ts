@@ -8,7 +8,7 @@ const mk = (over: Partial<TaskRecord>): TaskRecord =>
 describe("notifyTaskComment (kobo-46 — comment = poke)", () => {
   test("non-author comment pokes the assignee on the task-events channel", () => {
     const calls: string[][] = [];
-    const sent = notifyTaskComment(mk({ assignee: "patchwork" }), "tony", "please rebase", (a) => calls.push(a));
+    const sent = notifyTaskComment(mk({ assignee: "patchwork" }), "tony", "please rebase", "comment", (a) => calls.push(a));
     expect(sent).toBe(true);
     expect(calls).toHaveLength(1);
     const argv = calls[0];
@@ -18,7 +18,7 @@ describe("notifyTaskComment (kobo-46 — comment = poke)", () => {
 
   test("self-comment (author IS the assignee) does not poke", () => {
     const calls: string[][] = [];
-    const sent = notifyTaskComment(mk({ assignee: "patchwork" }), "patchwork", "note to self", (a) => calls.push(a));
+    const sent = notifyTaskComment(mk({ assignee: "patchwork" }), "patchwork", "note to self", "comment", (a) => calls.push(a));
     expect(sent).toBe(false);
     expect(calls).toHaveLength(0);
   });
@@ -26,21 +26,21 @@ describe("notifyTaskComment (kobo-46 — comment = poke)", () => {
   test("an unassigned card falls to the review chain (creator) instead of going silent (kobo-156)", () => {
     const calls: string[][] = [];
     // no assignee, by="eq3" → resolveReviewer → creator "eq3"; commenter "tony" ≠ target
-    const sent = notifyTaskComment(mk({ assignee: null, by: "eq3" }), "tony", "anyone?", (a) => calls.push(a));
+    const sent = notifyTaskComment(mk({ assignee: null, by: "eq3" }), "tony", "anyone?", "comment", (a) => calls.push(a));
     expect(sent).toBe(true);
     expect(calls[0]).toEqual(["--channel", "task-events", "eq3", expect.stringContaining("[task] tony commented on kobo-1")]);
   });
 
   test("unassigned card commented by the creator → no self-poke (kobo-156)", () => {
     const calls: string[][] = [];
-    const sent = notifyTaskComment(mk({ assignee: null, by: "eq3" }), "eq3", "mine", (a) => calls.push(a));
+    const sent = notifyTaskComment(mk({ assignee: null, by: "eq3" }), "eq3", "mine", "comment", (a) => calls.push(a));
     expect(sent).toBe(false); // resolveReviewer → "eq3" === commenter → skip
     expect(calls).toHaveLength(0);
   });
 
   test("a comment on a DONE card still pokes the assignee (regression-safe, kobo-156)", () => {
     const calls: string[][] = [];
-    const sent = notifyTaskComment(mk({ assignee: "patchwork", state: "done" }), "tony", "one more thing", (a) => calls.push(a));
+    const sent = notifyTaskComment(mk({ assignee: "patchwork", state: "done" }), "tony", "one more thing", "comment", (a) => calls.push(a));
     expect(sent).toBe(true);
     expect(calls[0][2]).toBe("patchwork");
   });
@@ -48,15 +48,32 @@ describe("notifyTaskComment (kobo-46 — comment = poke)", () => {
   test("long comment is previewed (≤80 chars) in the poke", () => {
     const calls: string[][] = [];
     const long = "x".repeat(200);
-    notifyTaskComment(mk({}), "tony", long, (a) => calls.push(a));
+    notifyTaskComment(mk({}), "tony", long, "comment", (a) => calls.push(a));
     const msg = calls[0][3];
     expect(msg.length).toBeLessThan(120); // prefix + 77-char preview + …
     expect(msg).toContain("…");
   });
 
   test("a spawn failure is swallowed (best-effort) → returns false", () => {
-    const sent = notifyTaskComment(mk({}), "tony", "boom", () => { throw new Error("spawn failed"); });
+    const sent = notifyTaskComment(mk({}), "tony", "boom", "comment", () => { throw new Error("spawn failed"); });
     expect(sent).toBe(false);
+  });
+
+  // kobo-406 — a note must say "note", not "commented on" (the reader checks the
+  // wrong field otherwise: `maw task comments` comes back empty for a real note).
+  test("kind=note pokes with 'added a note on', not 'commented on'", () => {
+    const calls: string[][] = [];
+    const sent = notifyTaskComment(mk({ assignee: "patchwork" }), "eq3", "SCOPE CORRECTION", "note", (a) => calls.push(a));
+    expect(sent).toBe(true);
+    expect(calls[0][3]).toContain("[task] eq3 added a note on kobo-1");
+    expect(calls[0][3]).not.toContain("commented on");
+  });
+
+  test("kind=comment still pokes with 'commented on' (regression-pin)", () => {
+    const calls: string[][] = [];
+    const sent = notifyTaskComment(mk({ assignee: "patchwork" }), "eq3", "ok merge it", "comment", (a) => calls.push(a));
+    expect(sent).toBe(true);
+    expect(calls[0][3]).toContain("[task] eq3 commented on kobo-1");
   });
 });
 

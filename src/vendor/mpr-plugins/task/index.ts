@@ -923,7 +923,7 @@ export async function runTask(
       console.log(`\x1b[36m📝 note\x1b[0m ${t.id} \x1b[90m(${t.notes?.length} total)\x1b[0m: ${t.title}`);
       // comment = poke (kobo-46): a note by someone other than the assignee pokes
       // the assignee on task-events → coord pane. Shared with the web POST path.
-      if (notifyTaskComment(t, me, noteText)) console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
+      if (notifyTaskComment(t, me, noteText, "note")) console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
     } else if (subcmd === "edit") {
       // kobo-213 — reword a card's title/body IN PLACE (same id). Non-destructive:
       // deps/thread/comments/PR link/state/assignee untouched; the previous wording
@@ -1117,7 +1117,7 @@ export async function runTask(
       // and poke the assignee (comment = nudge, kobo-46) unless they were @mentioned already or are self.
       // unassigned cards fall to the review chain inside notifyTaskComment (kobo-156).
       if (t.assignee !== me && !parseMentions(text).includes(t.assignee ?? "")) {
-        if (notifyTaskComment(t, me, text)) console.log(`  \x1b[36m→ pinged ${t.assignee ?? "creator/reviewer"}\x1b[0m`);
+        if (notifyTaskComment(t, me, text, "comment")) console.log(`  \x1b[36m→ pinged ${t.assignee ?? "creator/reviewer"}\x1b[0m`);
       }
       // kobo-156: a reply also pings the AUTHOR of the comment it answers, so the
       // thread reaches the person addressed (in addition to the assignee poke above).
