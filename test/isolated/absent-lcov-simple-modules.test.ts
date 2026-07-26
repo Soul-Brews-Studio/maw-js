@@ -47,6 +47,7 @@ describe("absent-from-LCOV simple modules", { timeout: 30000 }, () => {
       "/messages",
       "/company",
       "/room", // kobo-245 — Brainstorm Room core wire
+      "/assets", // kobo-398 — same-origin static assets (mermaid.js)
     ]);
     expect(routes.find((route) => route.path === "/timemachine")?.view).toBe(timemachineView);
     expect(routes.find((route) => route.path === "/federation")?.view).toBe(federationView);
