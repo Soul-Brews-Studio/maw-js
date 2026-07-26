@@ -36,10 +36,10 @@ export function mdToHtml(src) {
       if (!inCode) {
         closeList();
         codeLang = fence[1] || '';
-        out.push(codeLang === 'mermaid' ? '<div class="mermaid-src">' : '<pre><code>');
+        out.push(codeLang === 'mermaid' ? '<pre class="mermaid-src">' : '<pre><code>');
         inCode = true;
       } else {
-        out.push(codeLang === 'mermaid' ? '</div>' : '</code></pre>');
+        out.push(codeLang === 'mermaid' ? '</pre>' : '</code></pre>');
         inCode = false; codeLang = '';
       }
       i++; continue;
@@ -54,7 +54,7 @@ export function mdToHtml(src) {
     if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) { if (listType !== 'ol') { closeList(); out.push('<ol>'); listType = 'ol'; } out.push('<li>' + inlineMd(m[1]) + '</li>'); i++; continue; }
     closeList(); out.push('<p>' + inlineMd(line) + '</p>'); i++;
   }
-  if (inCode) out.push(codeLang === 'mermaid' ? '</div>' : '</code></pre>');
+  if (inCode) out.push(codeLang === 'mermaid' ? '</pre>' : '</code></pre>');
   closeList();
   return out.join('\n');
 }

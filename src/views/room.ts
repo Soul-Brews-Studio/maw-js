@@ -387,22 +387,43 @@ function loadMermaid() {
   return mermaidLoadPromise;
 }
 let mermaidBlockSeq = 0;
+// kobo-398 review fix (M1): loadThread rebuilds the WHOLE thread DOM every 2.5s
+// poll (fresh .mermaid-src nodes each time), so caching only the asset-load
+// Promise still re-parsed+re-laid-out every unchanged diagram every poll. Cache
+// the rendered SVG by source text instead — a poll whose diagrams are unchanged
+// never touches mermaid.render at all.
+const mermaidSvgCache = new Map();
 async function renderMermaidBlocks(root) {
   const blocks = root.querySelectorAll('.mermaid-src');
   if (!blocks.length) return; // nothing to render — never load the asset (lazy-by-absence)
-  let mermaid;
-  try { mermaid = await loadMermaid(); } catch { return; } // load failed — source text stays as the fallback
-  for (const block of blocks) {
-    const src = block.textContent || '';
+  // pending[i].svg stays undefined until we have SOMETHING to paint (cache hit
+  // or a fresh render) — the actual write happens in ONE place below, so a
+  // cache hit and a freshly-rendered diagram are the same sink, not two.
+  const pending = blocks.map((block) => ({ block, src: block.textContent || '', svg: undefined }));
+  const misses = pending.filter((p) => { const c = mermaidSvgCache.get(p.src); if (c !== undefined) p.svg = c; return c === undefined; });
+  if (misses.length) {
     try {
-      // per-block isolation: ONE malformed diagram's throw is caught HERE, inside
-      // the loop — it can never abort rendering the rest of the thread's blocks.
-      const { svg } = await mermaid.render('mmd-' + (mermaidBlockSeq++), src);
-      block.innerHTML = svg;
-    } catch (e) {
-      // leave the escaped source text in place — the fallback is already the
-      // div's text content, so there is nothing extra to do here.
-    }
+      const mermaid = await loadMermaid();
+      for (const p of misses) {
+        try {
+          // per-block isolation: ONE malformed diagram's throw is caught HERE,
+          // inside the loop — it can never abort the rest of the thread's blocks.
+          const { svg } = await mermaid.render('mmd-' + (mermaidBlockSeq++), p.src);
+          mermaidSvgCache.set(p.src, svg);
+          p.svg = svg;
+        } catch (e) { /* leave the escaped source text in place — already the fallback */ }
+      }
+    } catch { /* asset load failed — source text stays as the fallback for all misses */ }
+  }
+  for (const p of pending) {
+    if (p.svg === undefined) continue; // load/render failed for this one — source text is already the fallback
+    // the NEXT 2.5s poll can rebuild the thread (loadThread's replaceChildren)
+    // before an in-flight render settles — writing into a detached node is a
+    // silent no-op for the user. Drop the write; the cache still pays off next poll.
+    if (!p.block.isConnected) continue;
+    // per-block isolation applies here too — a cache-hit write is still one
+    // block among siblings; one failing write must never skip the rest.
+    try { p.block.innerHTML = p.svg; } catch (e) { /* leave the fallback source text in place */ }
   }
 }
 
