@@ -22,6 +22,12 @@ describe("task command plugin standalone boundary", () => {
     }).map((record) => record.spec);
 
     expect(imports).toContain("maw-js/sdk");
+    // kobo-405: ping()'s inline Bun.spawn(["maw","hey",...]) now routes through the
+    // shared fail-closed-under-test seam (core/tasks/hey-spawn) — already covered by
+    // the broad core/tasks/ allowRelative pattern above, pinned explicitly here so
+    // the plugin-coverage-gate's "did this PR touch the companion test" check has a
+    // real, reviewable signal instead of an incidental file touch.
+    expect(imports).toContain("../../../core/tasks/hey-spawn");
   });
 
   // kobo-216 — task resolves its company through the STRICT resolver: --company wins,

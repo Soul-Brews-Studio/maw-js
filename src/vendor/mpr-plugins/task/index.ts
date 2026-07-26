@@ -95,6 +95,7 @@ editTask,
   type TaskState,
 } from "../../../core/tasks/store";
 import { notifyCommentReply, notifyReviewer, notifyTaskComment } from "../../../core/tasks/notify";
+import { spawnHeyProcess } from "../../../core/tasks/hey-spawn";
 
 /**
  * Best-effort `owner/repo` of the git repo at CWD (kobo-80). The worker links a PR
@@ -173,7 +174,9 @@ function ping(target: string, message: string): void {
   try {
     // ponytail: channel is hard-coded "task-events" — all task board pings are
     // coord-plane events; a per-event channel split isn't needed yet.
-    Bun.spawn(["maw", "hey", "--channel", "task-events", target, message], { stdout: "ignore", stderr: "ignore" });
+    // kobo-405: routed through the shared spawn module — the test preload
+    // fail-closes this even when MAW_TEST_MODE isn't set (bare `bun test`).
+    spawnHeyProcess(["--channel", "task-events", target, message]);
   } catch {
     /* worklog already recorded the event — delivery is best effort */
   }

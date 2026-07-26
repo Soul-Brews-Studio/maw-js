@@ -18,10 +18,11 @@
 
 import { CHANNEL_TASK_EVENTS } from "../pane-routes";
 import { resolveReviewer, type TaskRecord } from "./store";
+import { spawnHeyProcess } from "./hey-spawn";
 
 function spawnHey(args: string[]): void {
   if (process.env.MAW_TEST_MODE === "1") return; // don't fire real subprocesses under test
-  Bun.spawn(["maw", "hey", ...args], { stdout: "ignore", stderr: "ignore" });
+  spawnHeyProcess(args); // kobo-405: the test preload fail-closes this even when MAW_TEST_MODE isn't set
 }
 
 /**

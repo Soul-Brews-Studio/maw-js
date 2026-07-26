@@ -8,6 +8,7 @@
  */
 
 import { scopeOfOracle } from "./company-scope";
+import { spawnHeyProcess } from "../tasks/hey-spawn";
 
 export interface PingDeps {
   send: (target: string, message: string) => void;
@@ -15,7 +16,7 @@ export interface PingDeps {
 
 const defaultSend = (target: string, message: string) => {
   try {
-    Bun.spawn(["maw", "hey", target, message], { stdout: "ignore", stderr: "ignore" });
+    spawnHeyProcess([target, message]); // kobo-405: shared fail-closed-under-test seam
   } catch {
     /* best effort — the worklog entry still records the event */
   }

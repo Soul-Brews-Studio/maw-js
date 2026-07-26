@@ -5,6 +5,7 @@ import {
   loadCompany, departmentMembers, kbTagFor,
   type DeptMember,
 } from "./company-helpers";
+import { spawnHeyProcess } from "../../../core/tasks/hey-spawn";
 
 /**
  * Company plugin — Department Knowledge Exchange (spec §4, Phase 2.2).
@@ -434,7 +435,8 @@ export async function deptSync(
 
 /** Shell out `maw hey <member> "<msg>"` (isolates cmdSend's process.exit). */
 async function defaultSend(member: string, message: string): Promise<void> {
-  const proc = Bun.spawn(["maw", "hey", member, message], {
+  // kobo-405: shared fail-closed-under-test seam
+  const proc = spawnHeyProcess([member, message], {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
