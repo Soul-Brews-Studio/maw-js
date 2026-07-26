@@ -38,6 +38,51 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
     expect(inlineMd("run `npm test`")).toBe("run <code>npm test</code>");
   });
 
+  // kobo-398 review fix (L2) — the fence info-string capture (mermaid vs any
+  // other/none) was shipped without a lock in this shared-renderer test file,
+  // same shape as the 396 review scar (behavior verified by hand, never pinned).
+  test("kobo-398: a ```mermaid fence renders as a .mermaid-src <pre>, source text HTML-escaped (escape-first, before mermaid ever sees it)", () => {
+    const out = mdToHtml('```mermaid\ngraph TD\nA["<script>alert(1)</script>"]\n```');
+    expect(out).toContain('<pre class="mermaid-src">');
+    expect(out).toContain('</pre>');
+    expect(out).not.toContain('<pre><code>'); // mermaid fences never fall into the generic code-block path
+    expect(out).toContain('&lt;script&gt;alert(1)&lt;/script&gt;'); // escaped BEFORE mermaid touches it
+    expect(out).not.toContain('<script>alert(1)</script>'); // never a live tag in the source text
+  });
+
+  test("kobo-398: a ```js fence (any non-mermaid lang) is unchanged — still a normal <pre><code> block", () => {
+    const out = mdToHtml("```js\nconst x = 1;\n```");
+    expect(out).toContain("<pre><code>");
+    expect(out).toContain("const x = 1;");
+    expect(out).toContain("</code></pre>");
+    expect(out).not.toContain("mermaid-src");
+  });
+
+  test("kobo-398: a bare fence (no lang) is unchanged — still a normal <pre><code> block", () => {
+    const out = mdToHtml("```\nplain text\n```");
+    expect(out).toContain("<pre><code>");
+    expect(out).toContain("plain text");
+    expect(out).toContain("</code></pre>");
+    expect(out).not.toContain("mermaid-src");
+  });
+
+  test("kobo-398: an unclosed ```mermaid fence still closes its </pre> (mirrors the pre-existing unclosed-code-fence behavior)", () => {
+    const out = mdToHtml('```mermaid\ngraph TD\nA-->B');
+    expect(out).toContain('<pre class="mermaid-src">');
+    expect(out.trim().endsWith('</pre>')).toBe(true);
+  });
+
+  // kobo-398 review fix (L3 regression guard): the mermaid element changed from
+  // <div> to <pre> so it inherits white-space:pre on both room AND the board
+  // (same shared renderer) — this pins that the UNRELATED, pre-existing
+  // <pre><code> path for every non-mermaid fence is byte-for-byte untouched,
+  // not just "doesn't say mermaid-src somewhere".
+  test("kobo-398 L3 regression guard: a non-mermaid fence emits exactly <pre><code>...</code></pre>, never <pre class=\"mermaid-src\">", () => {
+    const out = mdToHtml("```js\nconst x = 1;\n```");
+    expect(out).toBe("<pre><code>\nconst x = 1;\n</code></pre>");
+    expect(out).not.toContain('mermaid-src');
+  });
+
   // 🔴 XSS: escape-first must survive markdown structuring — a payload embedded
   // INSIDE markdown syntax (not just as plain text) must still render inert.
   test("XSS: a <script> payload inside a message renders INERT, never as a live tag", () => {

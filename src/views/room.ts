@@ -92,6 +92,10 @@ export function roomHtml(): string {
     .bubble .body code { background:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:.9em; }
     .bubble .body pre { background:var(--muted); border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; }
     .bubble .body pre code { background:none; border:0; padding:0; }
+    /* kobo-398: fallback/source appearance before mermaid loads (or on parse-fail);
+       once swapped to an <svg> child, white-space:pre only affects text nodes. */
+    .bubble .body .mermaid-src { white-space:pre; background:var(--muted); border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em; }
+    .bubble .body .mermaid-src svg { max-width:100%; height:auto; }
     .bubble .body a { color:var(--human); text-decoration:underline; }
     .bubble .body .note-img-link { display:inline-block; margin:4px 0; }
     .bubble .body .note-img { display:block; max-width:100%; max-height:320px; height:auto; border:1px solid var(--border); border-radius:9px; }
@@ -358,6 +362,73 @@ function linkifyDom(root) {
   }
 }
 
+// kobo-398 — mermaid, lazy-loaded ONLY when a mermaid-fenced code block is
+// actually present (LAZY-BY-ABSENCE: a thread with no diagram never touches the
+// network for this asset). Same-origin asset (/assets/vendor/mermaid.js, new
+// route — no CDN). Load-once: the Promise is cached so re-polls never re-fetch.
+// securityLevel:'strict' disables htmlLabels (labels render as SVG <text>, no
+// foreignObject) — the load-bearing guard, layered on top of mdToHtml's
+// escape-first source (the div's text content is ALREADY html-escaped).
+const MERMAID_ASSET_URL = '/assets/vendor/mermaid.js?v=11.16.0'; // bump alongside package.json's exact pin
+let mermaidLoadPromise = null;
+function loadMermaid() {
+  if (!mermaidLoadPromise) {
+    mermaidLoadPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = MERMAID_ASSET_URL;
+      s.onload = () => {
+        try { window.mermaid.initialize({ securityLevel: 'strict', startOnLoad: false }); resolve(window.mermaid); }
+        catch (e) { reject(e); }
+      };
+      s.onerror = () => reject(new Error('failed to load mermaid asset'));
+      document.head.appendChild(s);
+    });
+  }
+  return mermaidLoadPromise;
+}
+let mermaidBlockSeq = 0;
+// kobo-398 review fix (M1): loadThread rebuilds the WHOLE thread DOM every 2.5s
+// poll (fresh .mermaid-src nodes each time), so caching only the asset-load
+// Promise still re-parsed+re-laid-out every unchanged diagram every poll. Cache
+// the rendered SVG by source text instead — a poll whose diagrams are unchanged
+// never touches mermaid.render at all.
+const mermaidSvgCache = new Map();
+async function renderMermaidBlocks(root) {
+  const blocks = root.querySelectorAll('.mermaid-src');
+  if (!blocks.length) return; // nothing to render — never load the asset (lazy-by-absence)
+  // pending[i].svg stays undefined until we have SOMETHING to paint (cache hit
+  // or a fresh render) — the actual write happens in ONE place below, so a
+  // cache hit and a freshly-rendered diagram are the same sink, not two.
+  // querySelectorAll returns a NodeList — no .map (same idiom as the existing
+  // Array.from(...).map at line ~675 for .msrc:checked).
+  const pending = Array.from(blocks).map((block) => ({ block, src: block.textContent || '', svg: undefined }));
+  const misses = pending.filter((p) => { const c = mermaidSvgCache.get(p.src); if (c !== undefined) p.svg = c; return c === undefined; });
+  if (misses.length) {
+    try {
+      const mermaid = await loadMermaid();
+      for (const p of misses) {
+        try {
+          // per-block isolation: ONE malformed diagram's throw is caught HERE,
+          // inside the loop — it can never abort the rest of the thread's blocks.
+          const { svg } = await mermaid.render('mmd-' + (mermaidBlockSeq++), p.src);
+          mermaidSvgCache.set(p.src, svg);
+          p.svg = svg;
+        } catch (e) { /* leave the escaped source text in place — already the fallback */ }
+      }
+    } catch { /* asset load failed — source text stays as the fallback for all misses */ }
+  }
+  for (const p of pending) {
+    if (p.svg === undefined) continue; // load/render failed for this one — source text is already the fallback
+    // the NEXT 2.5s poll can rebuild the thread (loadThread's replaceChildren)
+    // before an in-flight render settles — writing into a detached node is a
+    // silent no-op for the user. Drop the write; the cache still pays off next poll.
+    if (!p.block.isConnected) continue;
+    // per-block isolation applies here too — a cache-hit write is still one
+    // block among siblings; one failing write must never skip the rest.
+    try { p.block.innerHTML = p.svg; } catch (e) { /* leave the fallback source text in place */ }
+  }
+}
+
 async function loadThread() {
   if (!company || !roomId) return;
   const { status, body } = await getJson('/api/room/thread?company=' + encodeURIComponent(company) + '&room=' + encodeURIComponent(roomId));
@@ -403,6 +474,7 @@ async function loadThread() {
     thread.appendChild(b);
   }
   if (stick) thread.scrollTop = thread.scrollHeight;
+  renderMermaidBlocks(thread); // kobo-398 — async, fire-and-forget; leaves source text until it resolves
   loadActivity();
 }
 
