@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { join } from "path";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 
 const root = join(import.meta.dir, "../..");
@@ -38,8 +38,10 @@ const { COMPANIES_DIR, _setCompaniesDir, saveCompany } = await import("../../ven
 const { _clearScopeCache } = await import("../../core/worklog/company-scope");
 
 const ORIGINAL_COMPANIES_DIR = COMPANIES_DIR;
+const ORIGINAL_DATA_DIR = process.env.MAW_DATA_DIR;
 const ORIGINAL_FETCH = globalThis.fetch;
 let companiesTmp: string;
+let dataTmp: string;
 
 const pgw = () => ({
   name: "pgw",
@@ -55,7 +57,19 @@ const kobo = () => ({
 const realExit = process.exit.bind(process);
 
 beforeEach(() => {
-  companiesTmp = mkdtempSync(join(tmpdir(), "kobo431-cli-companies-"));
+  // isPaneAway's companyOfOracleLight (presence-away.ts) is a barrel-free
+  // twin that reads mawDataPath("companies") directly — it does NOT go
+  // through the COMPANIES_DIR export _setCompaniesDir overrides. Left
+  // unset, it falls through to the real ~/.maw/companies on the box, so the
+  // "same-company send" test's away-check sees real fleet presence instead
+  // of this test's fixtures (kobo-431 c2: flaky on any dev box where the
+  // fixture oracle name collides with a real, actually-away oracle). Fix:
+  // point MAW_DATA_DIR at the same temp root company-helpers writes into,
+  // same as production where COMPANIES_DIR defaults to mawDataPath("companies").
+  dataTmp = mkdtempSync(join(tmpdir(), "kobo431-cli-data-"));
+  process.env.MAW_DATA_DIR = dataTmp;
+  companiesTmp = join(dataTmp, "companies");
+  mkdirSync(companiesTmp, { recursive: true });
   _setCompaniesDir(companiesTmp);
   _clearScopeCache();
   saveCompany(pgw() as any);
@@ -78,8 +92,10 @@ beforeEach(() => {
 });
 afterEach(() => {
   _setCompaniesDir(ORIGINAL_COMPANIES_DIR);
+  if (ORIGINAL_DATA_DIR === undefined) delete process.env.MAW_DATA_DIR;
+  else process.env.MAW_DATA_DIR = ORIGINAL_DATA_DIR;
   _clearScopeCache();
-  try { rmSync(companiesTmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+  try { rmSync(dataTmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   process.exit = realExit;
   globalThis.fetch = ORIGINAL_FETCH;
 });
@@ -121,5 +137,24 @@ describe("cmdSend — company-scope gate on local/self-node delivery, CLI path (
     await trySend("m5:nai", "othernode:lek", "hello");
 
     expect(sendKeysMock).not.toHaveBeenCalled();
+  });
+
+  it("order-guard (kobo-431 c2, kobo-424 pattern) — unregistered target still allows, pinning crossCompanyDeliveryRefusal(sender, target) call-site order", async () => {
+    // crossCompanyDeliveryRefusal is NOT symmetric: it resolves the TARGET's
+    // company, then checks the SENDER is a member of it. An unregistered
+    // target (no company at all) is a documented KNOWN GAP that allows
+    // through — see company-scope.ts's crossCompanyDeliveryRefusal comment.
+    // The other two tests above stay refused/refused either way the call
+    // site's two arguments are ordered (both fixture oracles are registered
+    // in different companies, so the mismatch is symmetric — that's exactly
+    // why a prior 8/8-green swap of the call site went undetected, kobo-431
+    // c2). This fixture is asymmetric on purpose: only ONE side is
+    // registered, so a swapped call site flips the outcome — unswapped
+    // allows (sendKeys called), swapped would refuse (sendKeys never
+    // called) because it'd instead ask "is the unregistered ghost oracle a
+    // member of patchwork's company (kobo)?" and refuse.
+    resolveTargetImpl = () => ({ type: "local", target: "ghost-oracle:0" }); // "ghost" is registered nowhere
+    await trySend("m5:patchwork", "ghost", "hello"); // patchwork (kobo, registered) → ghost (unregistered)
+    expect(sendKeysMock).toHaveBeenCalledTimes(1);
   });
 });
