@@ -185,3 +185,18 @@ describe("POST /api/send — company-scope gate on local/self-node delivery (kob
     expect(res.status).toBe(200);
   });
 });
+
+// kobo-474 — the sessions.ts twin (api/sessions.ts:89-99, localMessageIdentity/
+// requestMessageFrom falling to config.oracle when x-maw-from is absent)
+// shares the SAME poison comm-send.ts's aclSenderOracle had, but is
+// DELIBERATELY NOT TOUCHED in this card. %5's review (kobo-474 c7) found
+// that a fail-loud-on-missing-header change here breaks 5 pre-existing
+// tests representing REAL, already-live callers that send local/self-node
+// without x-maw-from and expect success — meaning any change here is an API
+// CONTRACT change, not a bugfix, and needs its own explicit review/approval
+// (unlike the CLI fix, which restored an already-correctly-resolved value
+// that was simply being discarded — there is no equivalent "already correct"
+// signal to restore on the HTTP path without a header). Deferred whole to
+// kobo-475, which already owns the deeper question (messageSignedRequest
+// treats "header present" as "signed" with no authentication behind it at
+// all). See PR #327 body for the full writeup.

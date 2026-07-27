@@ -28,9 +28,14 @@ mock.module(join(root, "sdk"), () => ({
   resolveTarget: (q: string) => resolveTargetImpl(q),
 }));
 
+// kobo-474 — mutable so tests can simulate a node whose config.oracle IS set
+// (the real live value on this box is literally "mawjs", but %11's finding
+// is that ANY node with a real oracle name here is dangerous — T4 proves it).
+let configOracle: string | undefined;
 mock.module(join(root, "config"), () => mockConfigModule(() => ({
   node: "m5",
   agents: {},
+  oracle: configOracle,
 })));
 
 const { cmdSend } = await import("./comm-send");
@@ -55,8 +60,20 @@ const kobo = () => ({
 });
 
 const realExit = process.exit.bind(process);
+const ORIGINAL_CLAUDE_AGENT_NAME = process.env.CLAUDE_AGENT_NAME;
+const ORIGINAL_TMUX = process.env.TMUX;
+const ORIGINAL_MAW_SENDER = process.env.MAW_SENDER;
 
 beforeEach(() => {
+  configOracle = undefined;
+  // kobo-474 — resolveMyName (comm-send.ts:138) checks CLAUDE_AGENT_NAME
+  // first; this test RUNS inside a real tmux pane on the dev box, so leaving
+  // process.env.TMUX set would let resolveMyName fall through to a REAL tmux
+  // session-name lookup if a test forgets to set CLAUDE_AGENT_NAME — delete
+  // both here and require each "auto" test to set what it needs explicitly.
+  delete process.env.CLAUDE_AGENT_NAME;
+  delete process.env.TMUX;
+  delete process.env.MAW_SENDER;
   // isPaneAway's companyOfOracleLight (presence-away.ts) is a barrel-free
   // twin that reads mawDataPath("companies") directly — it does NOT go
   // through the COMPANIES_DIR export _setCompaniesDir overrides. Left
@@ -98,11 +115,32 @@ afterEach(() => {
   try { rmSync(dataTmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   process.exit = realExit;
   globalThis.fetch = ORIGINAL_FETCH;
+  if (ORIGINAL_CLAUDE_AGENT_NAME === undefined) delete process.env.CLAUDE_AGENT_NAME; else process.env.CLAUDE_AGENT_NAME = ORIGINAL_CLAUDE_AGENT_NAME;
+  if (ORIGINAL_TMUX === undefined) delete process.env.TMUX; else process.env.TMUX = ORIGINAL_TMUX;
+  if (ORIGINAL_MAW_SENDER === undefined) delete process.env.MAW_SENDER; else process.env.MAW_SENDER = ORIGINAL_MAW_SENDER;
 });
 
 async function trySend(from: string, target: string, message: string) {
   try {
     await cmdSend(target, message, false, { from, noVerifySubmit: true, receiverInbox: false });
+    return { exited: false as const };
+  } catch (e: any) {
+    return { exited: true as const, error: e };
+  }
+}
+
+// kobo-474 — the property that triggers this whole bug class: source ===
+// "auto". Every existing test above calls trySend(from, ...), which passes
+// `from` into cmdSend's opts, which resolveSenderIdentity (comm-send.ts:265,
+// "const explicit = opts.from?.trim()") reads as `explicit` → source:"flag".
+// NONE of them ever exercise the "auto" branch aclSenderOracle only mis-
+// resolves on. This helper omits `from` entirely — the real shape of a bare
+// `maw hey <target> "msg"`, source:"auto" (comm-send.ts:286) — so callers
+// must set process.env.CLAUDE_AGENT_NAME themselves to control who "auto"
+// resolves to, exactly like resolveMyName (comm-send.ts:139) does for real.
+async function trySendAuto(target: string, message: string) {
+  try {
+    await cmdSend(target, message, false, { noVerifySubmit: true, receiverInbox: false });
     return { exited: false as const };
   } catch (e: any) {
     return { exited: true as const, error: e };
@@ -156,5 +194,96 @@ describe("cmdSend — company-scope gate on local/self-node delivery, CLI path (
     resolveTargetImpl = () => ({ type: "local", target: "ghost-oracle:0" }); // "ghost" is registered nowhere
     await trySend("m5:patchwork", "ghost", "hello"); // patchwork (kobo, registered) → ghost (unregistered)
     expect(sendKeysMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// kobo-474 — every test above uses trySend(from, ...), which sets
+// source:"flag" and never touches aclSenderOracle's "auto" branch. These use
+// trySendAuto — the real shape of a bare `maw hey <target> "msg"` — the ONLY
+// shape that actually exercises the bug. Fixtures are self-contained
+// (pgw/kobo saved fresh per test above) — NONE of these depend on the real
+// ~/.maw/companies/smoke375.json or its ambiguity (front's AC2): "patchwork"
+// here is unambiguous (only ever saved into kobo in this file's fixtures),
+// so these stay meaningful after smoke375.json is eventually deleted in a
+// later card, unlike a test that happened to pass only via the ambiguous-
+// target catch-and-allow gap.
+describe("cmdSend — sender-identity resolution on the AUTO path, source==='auto' (kobo-474)", () => {
+  it("T1: unambiguous target, sender's real (env-resolved) identity IS a genuine same-company member — must deliver", async () => {
+    // Today: aclSenderOracle ignores the correctly-resolved "nai" and
+    // substitutes config.oracle (undefined here → falls to the "mawjs"
+    // literal) — "mawjs" is not a pgw member → wrongly refused.
+    process.env.CLAUDE_AGENT_NAME = "nai"; // real sender, genuinely a pgw member
+    resolveTargetImpl = () => ({ type: "local", target: "lek-oracle:0" }); // pgw target, unambiguous
+    await trySendAuto("lek", "hello");
+    expect(sendKeysMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("T2 (regression guard, not proof of today's bug): unambiguous cross-company send still refuses after the identity fix lands", async () => {
+    // This is expected to pass BOTH before and after the fix — its job is to
+    // catch the fix accidentally loosening the gate itself (front/%11's
+    // scope condition), not to demonstrate the bug. Real sender "nai" (pgw)
+    // is genuinely not a kobo member either way.
+    process.env.CLAUDE_AGENT_NAME = "nai";
+    resolveTargetImpl = () => ({ type: "local", target: "patchwork-oracle:0" }); // kobo target, unambiguous in THIS file's isolated fixtures
+    await trySendAuto("patchwork", "hello");
+    expect(sendKeysMock).not.toHaveBeenCalled();
+  });
+
+  it("T3: sender identity that resolves to nothing registered ANYWHERE must fail with a message naming the resolved identity as the problem — not the generic cross-company string", async () => {
+    // No CLAUDE_AGENT_NAME, no TMUX (both deleted in beforeEach) — resolveMyName
+    // falls to its own bottom fallback (config.node || "cli") = "m5", which
+    // isn't a member of any fixture company. Today this produces the SAME
+    // generic "'X' is not in company 'Y'" string a real cross-company member
+    // would get — indistinguishable from "you're a real oracle, wrong company"
+    // vs "we don't actually know who you are." NEW behavior, not a revert —
+    // will need its own implementation, not just the senderName swap.
+    resolveTargetImpl = () => ({ type: "local", target: "lek-oracle:0" });
+    // The refusal reason is printed via console.error, not carried on the
+    // process.exit(1) mock's thrown message (that's just "__PROCESS_EXIT_1__") —
+    // spy console.error to see what the operator actually sees.
+    const errSpy = mock((..._args: unknown[]) => {});
+    const realConsoleError = console.error;
+    console.error = errSpy as any;
+    let result: Awaited<ReturnType<typeof trySendAuto>>;
+    try {
+      result = await trySendAuto("lek", "hello");
+    } finally {
+      console.error = realConsoleError;
+    }
+    expect(sendKeysMock).not.toHaveBeenCalled();
+    expect(result.exited).toBe(true);
+    const printed = errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+    expect(printed).toMatch(/sender|identity/i); // must name the SENDER as the problem, not just "not in company"
+  });
+
+  it("T4 (the scary one, %11/front's AC4): a node whose config.oracle is set to a REAL member of the target's own company must not silently authorize a DIFFERENT real sender", async () => {
+    // ⚠️ DO NOT DELETE OR SKIP THIS TEST, EVEN THOUGH config.oracle IS
+    // "mawjs" (nobody) ON EVERY NODE TODAY — that is exactly why it must stay.
+    // Simulates the single-tenant-node case %11 flagged (kobo-471/474 c2):
+    // config.oracle = "eq3" — a genuine, registered kobo member (not "mawjs",
+    // which fails safe by accident since nobody owns that name). Real sender
+    // (env-resolved) is "nai" — a genuine PGW member, NOT kobo. Pre-fix:
+    // aclSenderOracle ignored "nai" entirely and substituted config.oracle
+    // ("eq3") — eq3 IS a kobo member → WRONGLY ALLOWED. The real "nai" was
+    // never checked at all. This is the silent-wrong-person case, not a mere
+    // refusal-message defect: the send actually went through under someone
+    // else's authorization.
+    //
+    // Why this guard is PERMANENT, not a today-only regression test: the
+    // most "helpful" future fix anyone will propose for the mawjs symptom is
+    // "just set config.oracle to a real oracle name" — it looks like a
+    // one-line cleanup and it is the exact opposite. eq3 lead has broadcast
+    // fleet-wide: never set config.oracle to a real name, never delete
+    // smoke375.json, until this card is merged+deployed+verified live. This
+    // test is the ONLY thing standing between "someone tries that" and it
+    // silently shipping — kobo-471/kobo-474, same lesson as the missing
+    // warning file that should have existed beside smoke375.json but didn't.
+    // If you are refactoring aclSenderOracle later: this test must still
+    // fail loud if the fix is ever reverted to trusting config.oracle.
+    configOracle = "eq3"; // defence-in-depth guard, no current producer on THIS box (live config.oracle is "mawjs") — %11's correction, kobo-474 c2
+    process.env.CLAUDE_AGENT_NAME = "nai"; // real sender — genuinely NOT a kobo member
+    resolveTargetImpl = () => ({ type: "local", target: "patchwork-oracle:0" }); // kobo target, unambiguous
+    await trySendAuto("patchwork", "hello");
+    expect(sendKeysMock).not.toHaveBeenCalled(); // must refuse — real sender "nai" is not a kobo member
   });
 });
