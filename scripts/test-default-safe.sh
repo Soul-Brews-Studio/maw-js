@@ -218,10 +218,11 @@ done
 # every mock-module file still waiting its turn does) used to vanish with no
 # trace: no skip line, no name, no count — silence read as "the rest passed".
 # CASE_NAMES is the full run order decided up front; CASE_POS tracks how many
-# cases have been (or are being) attempted. One EXIT trap covers every exit
-# point at once — the shared sweep failing, any mock file failing mid-loop,
-# or any future case this script doesn't have yet — instead of duplicating
-# the same "what's left" logic at every call site.
+# cases have been (or are being) attempted. One EXIT trap covers every
+# ordinary exit and SIGTERM — the shared sweep failing, any mock file failing
+# mid-loop, or any future case this script doesn't have yet — instead of
+# duplicating the same "what's left" logic at every call site. (SIGKILL can't
+# be trapped; that's an OS limit, not a gap in this script.)
 CASE_NAMES=("shared sweep (${#SAFE_FILES[@]} file(s))")
 for f in "${MOCK_FILES[@]}"; do
   CASE_NAMES+=("mock-isolated: $f")

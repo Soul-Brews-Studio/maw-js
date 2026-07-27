@@ -110,5 +110,6 @@ describe("scripts/test-default-safe.sh — unattempted-case visibility (kobo-476
     const r = repo.run();
 
     expect(r.code).toBe(0);
+    expect(r.combined).not.toContain("NEVER RAN");
   });
 });
