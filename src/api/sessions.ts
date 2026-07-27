@@ -18,8 +18,6 @@ import { defaultReceiverInboxWriter, type ReceiverInboxResult, type ReceiverInbo
 import { notifyLiveInboxReceiver, type LiveInboxNotifyDeps } from "../commands/shared/live-inbox-notify";
 export { formatInboxNotification, resolveLiveInboxNotificationTarget } from "../commands/shared/live-inbox-notify";
 import { checkBusyGuard, queueForDispatch } from "../core/agent-status-guard";
-import { crossCompanyDeliveryRefusal } from "../core/worklog/company-scope";
-import { targetOracle } from "../core/tasks/auto-create";
 import type { Session } from "../core/transport/ssh";
 
 type Config = ReturnType<typeof loadConfig>;
@@ -452,30 +450,11 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
 
       // Local or self-node → send via tmux
       if (resolved?.type === "local" || resolved?.type === "self-node") {
-        // kobo-431 (Defect A) — local/self-node deliveries had NO company-scope
-        // check at all (only the peer/#842 ACL gate did, and only for cross-node).
-        const senderOracle = targetOracle(messageFrom);
-        const targetOracleName = targetOracle(resolved.target);
-        const violation = crossCompanyDeliveryRefusal(senderOracle, targetOracleName);
-        if (violation) {
-          // kobo-504 — Tony, 2026-07-28: "ข้ามบริษัทไม่เป็นไร ให้คุยกันได้ ไม่ต้อง guard".
-          // No longer a 403. The mismatch is still computed and still emitted as a
-          // lifecycle event so a message that lands in the wrong cell stays
-          // traceable after the fact — that trail is what replaces the block.
-          // Delivery continues; the trust-store bypass is gone with the refusal.
-          emitLifecycle({
-            direction: "inbound",
-            state: "queued",
-            channel: "api-send",
-            route: resolved.type,
-            from: messageFrom,
-            to: messageTo,
-            target: resolved.target,
-            text: message,
-            error: `cross-company (allowed, kobo-504): ${violation}`,
-            signed: messageSigned,
-          });
-        }
+        // kobo-504 — Tony, 2026-07-28, confirmed twice ("ถอด company guard เลย",
+        // then "ยืนยัน เอาแบบ ก" choosing remove-silently over remove-but-log):
+        // the kobo-431 company-scope check is off this path entirely. No 403,
+        // no lifecycle notice, nothing to be exempt from — so the trust-store
+        // lookup goes too. Cross-company sends are ordinary sends now.
         const live = await verifyDeliverableTarget(resolved.target);
         if (!live.ok) return queueOrFail(resolved.target, live.reason);
         // Phase 2 busy guard — queue for auto-delivery if target is actively working

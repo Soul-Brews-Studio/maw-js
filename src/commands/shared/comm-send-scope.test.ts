@@ -148,13 +148,13 @@ async function trySendAuto(target: string, message: string) {
 }
 
 describe("cmdSend — company-scope gate on local/self-node delivery, CLI path (kobo-431)", () => {
-  it("kobo-504: cross-company DELIVERS, but never silently — the mismatch is still named", async () => {
-    // Was "refuses: sendKeys is NEVER called" (kobo-431). Tony removed the
-    // block on 2026-07-28 ("ข้ามบริษัทไม่เป็นไร ให้คุยกันได้ ไม่ต้อง guard"),
-    // so the assertion flips from refuse to deliver — but NOT to silence.
-    // The trail is what replaces the block: a message landing in the wrong
-    // cell must still be findable afterwards, which is the whole reason the
-    // mismatch is still computed instead of the check being deleted.
+  it("kobo-504: cross-company is an ORDINARY send — delivered, and nothing is said about it", async () => {
+    // Was "refuses: sendKeys is NEVER called" (kobo-431). Tony removed the gate
+    // on 2026-07-28 ("ถอด company guard เลย") and, when offered
+    // remove-silently vs remove-but-log, chose remove-silently ("ยืนยัน เอาแบบ ก").
+    // So this asserts BOTH halves of that instruction: it delivers, and it does
+    // not narrate. If a future change re-adds a warning here, that is a product
+    // decision reversing Tony's, not a cleanup — it should fail this test first.
     resolveTargetImpl = () => ({ type: "local", target: "nai-oracle:0" });
     const errSpy = mock((..._args: unknown[]) => {});
     const realConsoleError = console.error;
@@ -165,7 +165,7 @@ describe("cmdSend — company-scope gate on local/self-node delivery, CLI path (
       console.error = realConsoleError;
     }
     expect(sendKeysMock).toHaveBeenCalledTimes(1);
-    expect(errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n")).toMatch(/cross-company/i);
+    expect(errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n")).not.toMatch(/company/i);
   });
 
   it("still delivers same-company sends — no regression on the hot path everyone uses", async () => {
@@ -232,11 +232,11 @@ describe("cmdSend — sender-identity resolution on the AUTO path, source==='aut
     expect(sendKeysMock).toHaveBeenCalledTimes(1);
   });
 
-  it("T2 (regression guard, not proof of today's bug): unambiguous cross-company send still refuses after the identity fix lands", async () => {
-    // This is expected to pass BOTH before and after the fix — its job is to
-    // catch the fix accidentally loosening the gate itself (front/%11's
-    // scope condition), not to demonstrate the bug. Real sender "nai" (pgw)
-    // is genuinely not a kobo member either way.
+  it("T2 (kobo-504): cross-company on the AUTO path delivers silently too — the identity path must not resurrect the gate", async () => {
+    // Originally "still refuses after the identity fix lands". The gate it
+    // guarded is gone by Tony's instruction (kobo-504), so the assertion flips.
+    // What it still catches is real: the AUTO identity path must not grow its
+    // own company check to compensate.
     process.env.CLAUDE_AGENT_NAME = "nai";
     resolveTargetImpl = () => ({ type: "local", target: "patchwork-oracle:0" }); // kobo target, unambiguous in THIS file's isolated fixtures
     const errSpy = mock((..._args: unknown[]) => {});
@@ -247,11 +247,9 @@ describe("cmdSend — sender-identity resolution on the AUTO path, source==='aut
     } finally {
       console.error = realConsoleError;
     }
-    // kobo-504 — the gate no longer refuses, so this test's job narrows to what
-    // it was always really guarding: the identity fix must not stop the
-    // cross-company mismatch being DETECTED and named. Delivery is now expected.
+    // kobo-504, option ก — delivered, and no company talk on the way out.
     expect(sendKeysMock).toHaveBeenCalledTimes(1);
-    expect(errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n")).toMatch(/cross-company/i);
+    expect(errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n")).not.toMatch(/company/i);
   });
 
   it("T3: sender identity that resolves to nothing registered ANYWHERE must fail with a message naming the resolved identity as the problem — not the generic cross-company string", async () => {
@@ -316,16 +314,32 @@ describe("cmdSend — sender-identity resolution on the AUTO path, source==='aut
     } finally {
       console.error = realConsoleError;
     }
-    // kobo-504 — cross-company no longer refuses, so "not called" can no longer
-    // carry this test. The property it actually guards is UNCHANGED and now
-    // asserted directly: the identity used must be the REAL env-resolved sender
-    // ("nai"), never config.oracle ("eq3"). If aclSenderOracle ever goes back to
-    // trusting config.oracle, "eq3" IS a kobo member → no mismatch → no
+    // 🔴 kobo-504, option ก — READ THIS BEFORE TRUSTING THIS TEST.
+    //
+    // The company gate is gone from the delivery path entirely, and with option
+    // ก there is no warning line either. That removes BOTH observable effects
+    // this test used to hang on, so it can no longer detect the thing its title
+    // describes: with no company check anywhere, substituting config.oracle for
+    // the real sender changes NOTHING about delivery, so nothing can catch it
+    // here. The test is kept, un-renamed and un-deleted, as the marker for that
+    // loss — deleting it would erase the fact that the protection lapsed.
+    //
+    // What it still asserts is thin and honest: delivery happens, silently.
+    // The real property (aclSenderOracle must resolve the env sender, never
+    // config.oracle) is now UNGUARDED at this layer. Whoever re-adds any
+    // company-scoped decision to delivery must restore a real assertion here
+    // FIRST — see kobo-471/474 for why: the "helpful" fix everyone proposes is
+    // "just set config.oracle to a real oracle name", which is the exact
+    // opposite, and this was the only test standing in its way.
+    //
+    // Superseded reasoning, kept for the record: the identity used must be the
+    // REAL env-resolved sender ("nai"), never config.oracle ("eq3"). If
+    // aclSenderOracle ever goes back to trusting config.oracle, "eq3" IS a
+    // kobo member → no mismatch → no
     // cross-company line at all, and this test fails. That is the same
     // silent-wrong-person failure as before, caught the same way.
     const printed = errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
-    expect(printed).toMatch(/cross-company/i);
-    expect(printed).toMatch(/"nai"/); // the REAL sender, not config.oracle's "eq3"
-    expect(printed).not.toMatch(/"eq3" is not in company/);
+    expect(sendKeysMock).toHaveBeenCalledTimes(1);
+    expect(printed).not.toMatch(/company/i);
   });
 });
