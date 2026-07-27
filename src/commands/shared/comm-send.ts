@@ -133,20 +133,34 @@ export async function paneIdOfTarget(
   }
 }
 
-/** Resolve the current oracle name from CLAUDE_AGENT_NAME or the attached tmux pane. */
-/** @internal */
-export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
-  if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
+/**
+ * Resolve the current oracle name from CLAUDE_AGENT_NAME or the attached tmux
+ * pane, PLUS whether that name came from a real signal (kobo-474 T3) — the
+ * bottom fallback (`config.node || "cli"`) means we genuinely don't know who
+ * is sending, which callers that make an authorization decision (the
+ * company-scope gate) need to treat differently from a real, just-not-a-
+ * member identity: "we don't know" and "we know and it's someone else" must
+ * not collapse into the same refusal (the same two-states-collapsed shape as
+ * isPaneAway conflating found-back with found-nothing, kobo-471).
+ */
+function resolveMyNameWithConfidence(config: ReturnType<typeof loadConfig>): { name: string; resolved: boolean } {
+  if (process.env.CLAUDE_AGENT_NAME) return { name: process.env.CLAUDE_AGENT_NAME, resolved: true };
   // Only trust tmux when this process is actually running inside a tmux pane.
   // Outside tmux, `tmux display-message` can still succeed by reporting the
   // server's current/last-active session, which misattributes sender envelopes.
   if (process.env.TMUX) {
     try {
       const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
-      if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
+      if (tmuxSession) return { name: tmuxSession.replace(/^\d+-/, ""), resolved: true };
     } catch {}
   }
-  return config.node || "cli";
+  return { name: config.node || "cli", resolved: false };
+}
+
+/** Resolve the current oracle name from CLAUDE_AGENT_NAME or the attached tmux pane. */
+/** @internal */
+export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
+  return resolveMyNameWithConfidence(config).name;
 }
 
 async function currentTmuxSessionName(): Promise<string | undefined> {
@@ -171,6 +185,14 @@ export interface SenderIdentity {
   /** Back-compat name for message log rows. */
   senderName: string;
   source: "auto" | "flag" | "env";
+  /**
+   * kobo-474 T3 — true when `senderName` came from a real signal (explicit
+   * --from/MAW_SENDER, CLAUDE_AGENT_NAME, or a real tmux session). False only
+   * for the "auto" path's bottom fallback (`config.node || "cli"`), where we
+   * genuinely do not know who is sending — distinct from "we know, and they
+   * aren't a member," which is the ordinary cross-company refusal.
+   */
+  identityResolved: boolean;
 }
 
 const SENDER_PART_RE = /^[A-Za-z0-9_.-]+$/;
@@ -268,14 +290,14 @@ export function resolveSenderIdentity(
   if (raw) {
     const parsed = parseSenderOverride(raw);
     if (!parsed) throw new Error(`invalid sender '${raw}' (expected <node>:<oracle>)`);
-    return { ...parsed, source: explicit ? "flag" : "env" };
+    return { ...parsed, source: explicit ? "flag" : "env", identityResolved: true };
   }
 
   if (hasSshRelayEnv(env)) {
     throw new Error("refusing to stamp SSH-relayed maw hey as the local oracle; set --from <node:oracle> or MAW_SENDER=<node:oracle>");
   }
 
-  const senderName = resolveMyName(config);
+  const { name: senderName, resolved: identityResolved } = resolveMyNameWithConfidence(config);
   const node = config.node || "local";
   return {
     node,
@@ -284,6 +306,7 @@ export function resolveSenderIdentity(
     wireFrom: "auto",
     senderName,
     source: "auto",
+    identityResolved,
   };
 }
 
@@ -294,10 +317,19 @@ function rejectSenderIdentity(error: unknown): never {
   process.exit(1);
 }
 
-function aclSenderOracle(config: ReturnType<typeof loadConfig>, senderIdentity: SenderIdentity): string {
-  return senderIdentity.source === "auto"
-    ? (config.oracle ?? "mawjs")
-    : senderIdentity.senderName;
+/**
+ * kobo-474 — fixed root cause. Used to special-case `source === "auto"` and
+ * substitute the NODE's static `config.oracle` (a single, shared, per-file
+ * value — no per-pane override exists) instead of the already-correctly-
+ * resolved `senderIdentity.senderName`. That was a NODE-identity answer
+ * plugged into a PANE-identity question: `resolveSenderIdentity`'s auto path
+ * (comm-send.ts:300) already calls `resolveMyNameWithConfidence`, which
+ * reads CLAUDE_AGENT_NAME / the real tmux session for THIS process — always
+ * the better answer, explicit sender or not. Threat model + the "obvious
+ * one-line alternative fix is worse" finding are in the PR body (kobo-474).
+ */
+function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity: SenderIdentity): string {
+  return senderIdentity.senderName;
 }
 
 /**
@@ -1038,6 +1070,17 @@ export async function cmdSend(
     // comm-send-*.test.ts partially mock.module() — a static import here
     // broke link-time for all of them. Same reasoning as the trust-store
     // dynamic import right below.
+    // kobo-474 T3 — a gate that authorizes must be able to say "I don't know
+    // who you are" distinctly from "I know, and you're someone else." Fail
+    // BEFORE crossCompanyDeliveryRefusal, which only ever produces the
+    // latter shape ("X is not in company Y") — collapsing "unresolved" into
+    // that message would look like a real, just-wrong-company oracle tried
+    // to reach here, when actually nobody could confirm who's sending.
+    if (!senderIdentity.identityResolved) {
+      console.error(`\x1b[31merror\x1b[0m: could not resolve a real sender identity — no CLAUDE_AGENT_NAME, no tmux session (got node fallback "${senderIdentity.senderName}"). Refusing rather than guessing who is sending.`);
+      console.error("\x1b[33mhint\x1b[0m:  use `maw hey --from <node:oracle> <target> <message>` or set `MAW_SENDER=<node:oracle>`");
+      process.exit(1);
+    }
     const { crossCompanyDeliveryRefusal } = await import("../../core/worklog/company-scope");
     const { targetOracle } = await import("../../core/tasks/auto-create");
     const senderOracle = targetOracle(aclSenderOracle(config, senderIdentity));

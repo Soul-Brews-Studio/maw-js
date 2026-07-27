@@ -95,6 +95,23 @@ async function postSend(api: ReturnType<typeof createSessionsApi>, from: string,
   );
 }
 
+// kobo-474 — the real shape of every web-initiated send: NO x-maw-from header
+// at all. Verified before writing this: zero matches for "x-maw-from" across
+// src/views and src/vendor — the browser client never sets it. requestMessageFrom
+// (sessions.ts:93-99) falls to localMessageIdentity(config), which is
+// `${config.node}:${config.oracle ?? "mawjs"}` — the SAME poison as comm-send.ts's
+// aclSenderOracle, via a separate code path. %11's T5 requirement (kobo-474 c2):
+// without this, the CLI path can heal while the web UI stays silently broken.
+async function postSendNoFrom(api: ReturnType<typeof createSessionsApi>, target: string, text: string) {
+  return api.handle(
+    new Request("http://localhost/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target, text }),
+    }),
+  );
+}
+
 describe("POST /api/send — company-scope gate on local/self-node delivery (kobo-431)", () => {
   it("refuses cross-company: sendKeys is NEVER called, not just warned-and-sent", async () => {
     const { api, sendKeys } = makeApi({
@@ -179,6 +196,52 @@ describe("POST /api/send — company-scope gate on local/self-node delivery (kob
       resolveTarget: () => ({ type: "local", target: "nai-oracle:0" }),
     });
     const res = await postSend(api, "patchwork:m5", "nai", "hello");
+    await res.json();
+
+    expect(sendKeys).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+  });
+});
+
+// kobo-474 T5 — the sessions.ts twin of comm-send.ts's T1-T4. All 4 tests
+// above pass `x-maw-from` explicitly, so none of them ever exercise
+// requestMessageFrom's no-header fallback path — same gap as comm-send.ts's
+// trySend always setting `from`.
+describe("POST /api/send — sender-identity resolution with NO x-maw-from header (kobo-474 T5)", () => {
+  // Scope, confirmed by %11 (kobo-474 c2 + live thread) and lead: this twin
+  // is FAIL-LOUD ONLY. It does NOT resolve a "real" sender for HTTP the way
+  // comm-send.ts's CLI path can (there is no tmux/env identity to read for
+  // an arbitrary HTTP request) and does NOT decide whether `x-maw-from` (when
+  // present) should be trusted — messageSignedRequest currently treats
+  // "header present" as "signed" with zero authentication behind it, which
+  // is its own separate finding, tracked as kobo-475. This card's job is
+  // narrower: stop the SILENT node-identity substitution.
+  it("T5: a local/self-node send with no x-maw-from header refuses loudly instead of silently substituting the node's static identity", async () => {
+    // Today: requestMessageFrom falls to localMessageIdentity(config) =
+    // `${node}:${config.oracle ?? "mawjs"}` → senderOracle "mawjs" flows
+    // straight into crossCompanyDeliveryRefusal with NO signal that this was
+    // an unattributed request — same two-states-collapsed shape as
+    // isPaneAway (kobo-471) and comm-send.ts's old T3 gap. Fixed: refuse
+    // BEFORE reaching the company-scope check, with a message distinguishing
+    // "no sender identity was ever provided" from an ordinary cross-company
+    // refusal.
+    const { api, sendKeys } = makeApi({
+      resolveTarget: () => ({ type: "local", target: "lek-oracle:0" }),
+    });
+    const res = await postSendNoFrom(api, "lek", "hello"); // target: lek (pgw), unambiguous — proves this isn't a company-scope refusal in disguise
+    const body = await res.json();
+
+    expect(sendKeys).not.toHaveBeenCalled();
+    expect(res.status).toBe(403);
+    expect(body.ok).toBe(false);
+    expect(body.error).toMatch(/sender|identity/i);
+  });
+
+  it("T5b (regression guard): a send WITH x-maw-from still works exactly as before — this card does not touch the signed path", async () => {
+    const { api, sendKeys } = makeApi({
+      resolveTarget: () => ({ type: "local", target: "lek-oracle:0" }),
+    });
+    const res = await postSend(api, "nai:m5", "lek", "hello"); // has x-maw-from, same as every kobo-431 test
     await res.json();
 
     expect(sendKeys).toHaveBeenCalledTimes(1);

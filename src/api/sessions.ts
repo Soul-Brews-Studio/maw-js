@@ -452,6 +452,19 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
 
       // Local or self-node → send via tmux
       if (resolved?.type === "local" || resolved?.type === "self-node") {
+        // kobo-474 T5 — requestMessageFrom (line 93-99) falls to
+        // localMessageIdentity(config) — the SAME node-static poison as
+        // comm-send.ts's old aclSenderOracle bug — whenever `x-maw-from` is
+        // absent, which is EVERY web-initiated send (verified: zero matches
+        // for "x-maw-from" across src/views and src/vendor, the browser
+        // client never sets it). FAIL LOUD here, deliberately not deciding
+        // whether to trust `x-maw-from` when present — that's a genuine,
+        // separate HTTP-trust question (messageSignedRequest treats "header
+        // present" as "signed" with no authentication behind it at all;
+        // tracked as kobo-475, out of scope for this card).
+        if (!messageSigned) {
+          return Response.json({ ok: false, error: "sender identity required for local/self-node delivery — no 'x-maw-from' header on this request; refusing rather than guessing who is sending (kobo-474)" }, { status: 403 });
+        }
         // kobo-431 (Defect A) — local/self-node deliveries had NO company-scope
         // check at all (only the peer/#842 ACL gate did, and only for cross-node).
         const senderOracle = targetOracle(messageFrom);
