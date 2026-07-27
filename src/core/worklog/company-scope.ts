@@ -139,6 +139,47 @@ export function companyScopeViolation(company: string, target: string | null | u
   return `refuse: "${t}" is not in company "${company}" — cross-company dispatch is blocked (kobo-341). Assign/review to a company member (a dept oracle or the manager) or a human.`;
 }
 
+/**
+ * kobo-431 (Defect A) — delivery-side cross-company refusal. Distinct from
+ * companyScopeViolation, which guards task assign/review WRITE verbs only;
+ * this guards actual message DELIVERY (comm-send.ts / api/sessions.ts local +
+ * self-node injection) — a hole `companyScopeViolation` was never wired to
+ * (kobo-399 finding: notify.ts + ping() never called it).
+ *
+ * Symmetric-in-intent but reuses companyScopeViolation's tested logic:
+ * resolves the TARGET's own company, then checks whether SENDER is a member
+ * of it (or is in the always-allowed set — human/tony/any, Board Truth rule
+ * 14). Returns a refusal string, or null to allow.
+ *
+ * 🔴 KNOWN GAP, not silently hardened (kobo-431 review — flagged as a finding,
+ * not patched around): if the target's own company cannot be positively
+ * determined — unregistered oracle, or ambiguous (companyOfOracleStrict
+ * throws or returns null) — this ALLOWS. That is the same conservative
+ * default companyScopeViolation already uses for an unregistered COMPANY
+ * (company-scope.ts:135-138), applied here to an unregistered/unresolvable
+ * TARGET. It matters more here than there: Defect B's unknown-node fallback
+ * specifically guesses a same-named LOCAL pane, which is exactly the kind of
+ * target likely to have no company registration at all (a scratch/dev
+ * session, not a real oracle) — so a guessed target with no determinable
+ * company sails through this guard. Not fixed here; this function's job is
+ * the mismatch case Tony approved (real company X sending to real company
+ * Y), not inventing a stricter default for the unregistered case, which is a
+ * separate, larger behavior change with its own regression surface across
+ * the whole fleet.
+ */
+export function crossCompanyDeliveryRefusal(senderOracle: string, targetOracle: string): string | null {
+  const target = (targetOracle ?? "").trim();
+  if (!target) return null;
+  let targetCompany: string | null;
+  try {
+    targetCompany = companyOfOracleStrict(target);
+  } catch {
+    return null; // ambiguous target company — can't confirm a mismatch, allow (see KNOWN GAP above)
+  }
+  if (!targetCompany) return null; // unregistered/unscoped target — see KNOWN GAP above
+  return companyScopeViolation(targetCompany, senderOracle);
+}
+
 /** One roster entry — an oracle's place in the company org (kobo-50 presence). */
 export interface RosterMember {
   oracle: string;

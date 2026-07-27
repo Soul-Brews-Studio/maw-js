@@ -35,6 +35,7 @@ Edit `~/.config/maw/maw.config.json`:
 
 - `node` — unique name for this machine (e.g., `white`, `mba`, `m5`)
 - `oracle` — the oracle family this node belongs to
+- `hostAliases` — optional array of other names this same machine answers to for `node:agent` routing, e.g. `"hostAliases": ["mba"]` if this host is also addressed as `mba` elsewhere. Only needed if a `node:agent` send names this host by more than one identity; an undeclared, unrecognized node fails with an error instead of guessing.
 
 Verify:
 

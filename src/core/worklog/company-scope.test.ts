@@ -16,7 +16,7 @@ import {
   saveCompany,
   type Company,
 } from "../../vendor/mpr-plugins/company/company-helpers";
-import { scopeOfOracle, companyOfOracle, companiesOfOracle, companyOfOracleStrict, companyRoster, companyOracles, _clearScopeCache } from "./company-scope";
+import { scopeOfOracle, companyOfOracle, companiesOfOracle, companyOfOracleStrict, companyRoster, companyOracles, crossCompanyDeliveryRefusal, _clearScopeCache } from "./company-scope";
 import { companyOfOracleLight } from "./presence-away";
 import { handleRosterRequest } from "../roster/route";
 
@@ -215,5 +215,59 @@ describe("company-scope caching (eq3-014 retry-on-miss)", () => {
     // config rarely changes within a run).
     rmSync(join(tmp, "pgw.json"), { force: true });
     expect(companyOfOracle("lek")).toBe("pgw");
+  });
+});
+
+describe("crossCompanyDeliveryRefusal (kobo-431, Defect A — delivery-side, not task-write-side)", () => {
+  it("refuses a genuine cross-company pair, real refusal string", () => {
+    saveCompany(pgw()); // members: thawanban, nai, lek
+    saveCompany(zeta()); // members: lek
+    // "patchwork" is not a member of pgw, and is not in either fixture — a
+    // clean outsider, matching the card's own "company X sends to company Y" framing.
+    const violation = crossCompanyDeliveryRefusal("patchwork", "nai"); // nai is a pgw member
+    expect(violation).toContain("cross-company dispatch is blocked");
+  });
+
+  it("allows same-company delivery — no regression on the hot path everyone uses", () => {
+    saveCompany(pgw());
+    expect(crossCompanyDeliveryRefusal("nai", "lek")).toBeNull(); // both pgw members
+  });
+
+  it("allows the always-allowed set as sender (human/tony/any, Board Truth rule 14)", () => {
+    saveCompany(pgw());
+    expect(crossCompanyDeliveryRefusal("tony", "nai")).toBeNull();
+    expect(crossCompanyDeliveryRefusal("human", "nai")).toBeNull();
+  });
+
+  it("allows a manager-tier sender reaching their own company from outside a dept", () => {
+    saveCompany(pgw());
+    expect(crossCompanyDeliveryRefusal("thawanban", "nai")).toBeNull(); // manager IS a pgw member
+  });
+
+  it("ambiguous target company (multi-company oracle, no explicit) — cannot confirm a mismatch, allows", () => {
+    saveCompany(pgw());
+    saveCompany(zeta());
+    // "lek" belongs to both pgw and zeta — companyOfOracleStrict throws for the
+    // target side; a throw must not crash a normal send, so this allows.
+    expect(() => companyOfOracleStrict("lek")).toThrow(); // sanity: confirms the throw this function must catch
+    expect(crossCompanyDeliveryRefusal("stranger", "lek")).toBeNull();
+  });
+
+  // 🔴 KNOWN GAP, characterized on purpose (kobo-431 review) — not a bug to fix here.
+  // Defect B's unknown-node fallback guesses a same-named LOCAL pane; that guessed
+  // target is exactly the kind of thing likely to have NO company registration at
+  // all (a scratch/dev session, not a real oracle). This test pins the documented
+  // current behavior — an unregistered target company auto-allows — so nobody
+  // "accidentally fixes" it later without seeing this test change, and so the PR
+  // can point at a real, checked test rather than an assertion in prose.
+  it("KNOWN GAP: target with no registered company at all → cannot confirm mismatch, allows", () => {
+    saveCompany(pgw());
+    expect(companyOfOracleStrict("some-unregistered-scratch-pane")).toBeNull(); // sanity: confirms it's truly unregistered
+    expect(crossCompanyDeliveryRefusal("nai", "some-unregistered-scratch-pane")).toBeNull();
+  });
+
+  it("empty/blank target → allow (nothing to scope)", () => {
+    saveCompany(pgw());
+    expect(crossCompanyDeliveryRefusal("nai", "")).toBeNull();
   });
 });

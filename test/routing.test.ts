@@ -4,7 +4,7 @@
  * See: #201
  */
 import { afterEach, describe, test, expect } from "bun:test";
-import { resolveTarget, resolveLocalFallbackForUnknownNode, type ResolveResult } from "../src/core/routing";
+import { resolveTarget } from "../src/core/routing";
 import type { Session } from "../src/core/runtime/find-window";
 import type { MawConfig } from "../src/config";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
@@ -127,7 +127,28 @@ describe("resolveTarget", () => {
   });
 
   // #6: NODE:AGENT → UNKNOWN NODE
-  test("unknown node returns error", () => {
+  test("unknown node returns error, hint names the hostAliases remedy (kobo-431 AC4)", () => {
+    const r = resolveTarget("mars:neo", BASE_CONFIG, SESSIONS);
+    expect(r).toMatchObject({ type: "error", reason: "unknown_node" });
+    expect((r as any).hint).toContain("hostAliases");
+    expect((r as any).hint).toContain("mars");
+  });
+
+  // kobo-431 Option C: a declared hostAlias resolves node:agent on THIS normal
+  // self-node path — replacing the deleted guessing fallback (eq3-006's case).
+  test("hostAliases entry resolves node:agent as self-node", () => {
+    const config: MawConfig = { ...BASE_CONFIG, hostAliases: ["mba-tag"] };
+    const r = resolveTarget("mba-tag:mawjs", config, SESSIONS);
+    expect(r).toEqual({ type: "self-node", target: "08-mawjs:1" });
+  });
+
+  test("node field's own meaning is untouched by hostAliases (kobo-431 AC2)", () => {
+    const config: MawConfig = { ...BASE_CONFIG, hostAliases: ["mba-tag"] };
+    const r = resolveTarget("white:mawjs", config, SESSIONS);
+    expect(r).toEqual({ type: "self-node", target: "08-mawjs:1" });
+  });
+
+  test("unset hostAliases behaves identically to today — unknown node still fails loud", () => {
     const r = resolveTarget("mars:neo", BASE_CONFIG, SESSIONS);
     expect(r).toMatchObject({ type: "error", reason: "unknown_node" });
   });
@@ -309,42 +330,6 @@ describe("resolveTarget — #758 candidate filtering", () => {
   });
 });
 
-describe("resolveLocalFallbackForUnknownNode (eq3-006)", () => {
-  const unknownNode: ResolveResult = { type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers or peers" };
-
-  test("unknown node + bare name live local → returns the local target (inject, don't persist)", () => {
-    const r = resolveLocalFallbackForUnknownNode("mba:nai", unknownNode, (bare) =>
-      bare === "nai" ? { type: "local", target: "24-nai:nai-oracle" } : { type: "error", reason: "not_found", detail: "" });
-    expect(r).toEqual({ type: "local", target: "24-nai:nai-oracle" });
-  });
-
-  test("unknown node + bare self-node session is also accepted", () => {
-    const r = resolveLocalFallbackForUnknownNode("mba:nai", unknownNode, () => ({ type: "self-node", target: "24-nai:nai-oracle" }));
-    expect(r).toMatchObject({ type: "self-node", target: "24-nai:nai-oracle" });
-  });
-
-  test("unknown node + bare name offline → null (stays inbox-persist)", () => {
-    const r = resolveLocalFallbackForUnknownNode("mba:nai", unknownNode, () => ({ type: "error", reason: "not_found", detail: "" }));
-    expect(r).toBeNull();
-  });
-
-  test("unknown node + bare name resolves to a peer → null (never routes cross-node)", () => {
-    const r = resolveLocalFallbackForUnknownNode("mba:nai", unknownNode, () => ({ type: "peer", peerUrl: "http://x", target: "nai", node: "elsewhere" }));
-    expect(r).toBeNull();
-  });
-
-  test("primary is a real peer (known node) → null, resolver never consulted", () => {
-    let called = false;
-    const r = resolveLocalFallbackForUnknownNode(
-      "monkut:nai",
-      { type: "peer", peerUrl: "http://monkut", target: "nai", node: "monkut" },
-      () => { called = true; return { type: "local", target: "x" }; });
-    expect(r).toBeNull();
-    expect(called).toBe(false);
-  });
-
-  test("no node prefix → null", () => {
-    const r = resolveLocalFallbackForUnknownNode("nai", unknownNode, () => ({ type: "local", target: "24-nai:nai-oracle" }));
-    expect(r).toBeNull();
-  });
-});
+// resolveLocalFallbackForUnknownNode (eq3-006's old guessing fallback) was
+// DELETED by kobo-431 Option C — replaced by the declared `hostAliases`
+// field, covered above in the main resolveTarget describe block.

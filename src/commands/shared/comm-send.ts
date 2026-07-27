@@ -8,7 +8,7 @@ import {
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
 import { AmbiguousMatchError } from "../../core/runtime/find-window";
-import { detectWindowMismatch, resolveLocalFallbackForUnknownNode } from "../../core/routing";
+import { detectWindowMismatch } from "../../core/routing";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
@@ -22,6 +22,8 @@ import {
   type HeyLocateResolution,
 } from "./hey-locate-resolution";
 import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
+import { crossCompanyDeliveryRefusal } from "../../core/worklog/company-scope";
+import { targetOracle } from "../../core/tasks/auto-create";
 import { runPluginEventHooks } from "../../plugin/event-hooks";
 import { notifyLiveInboxReceiver } from "./live-inbox-notify";
 import { getPaneRoute } from "../../core/pane-routes";
@@ -1012,17 +1014,42 @@ export async function cmdSend(
   }
 
   // --- Unified resolution via resolveTarget (#201) ---
-  const baseResult = bareResolution.result ?? (
+  // kobo-431 Option C: the guessing fallback (resolveLocalFallbackForUnknownNode)
+  // is gone. eq3-006's case now resolves inside resolveTarget itself via a
+  // declared `hostAliases` entry; an undeclared unknown node stays an error
+  // and drops to inbox-persist, on purpose (Defect B).
+  const result = bareResolution.result ?? (
     isBareLocalHeyTarget(query)
       ? { type: "error" as const, reason: "not_live", detail: `'${query}' found but no active session`, hint: `maw wake ${query}` }
       : resolveTarget(query, config, sessions, currentSession)
   );
-  // eq3-006 — node:name with an unknown node, but the bare oracle name is a live
-  // local session → inject that pane instead of dropping to the receiver inbox.
-  // Mirrors the server /api/send path; never routes cross-node.
-  const result = resolveLocalFallbackForUnknownNode(
-    query, baseResult, (bare) => resolveTarget(bare, config, sessions, currentSession),
-  ) ?? baseResult;
+
+  // --- kobo-431 (Defect A) — company-scope gate on local/self-node delivery ---
+  //
+  // The #842 ACL gate right below only ever fired for `result.type === "peer"`
+  // (genuine cross-node) — its own comment says so plainly ("self-node and
+  // local results bypass the ACL gate"). So a local/self-node send — the CLI
+  // path notify.ts's task-event pings actually use (spawnHeyProcess → real
+  // `maw hey` subprocess) — had NO company-scope check at all. Mirrors
+  // api/sessions.ts's identical gate exactly (same trust-store bypass) —
+  // one card, one fix, two call sites.
+  if (result?.type === "local" || result?.type === "self-node") {
+    const senderOracle = targetOracle(aclSenderOracle(config, senderIdentity));
+    const targetOracleName = targetOracle(result.target);
+    const violation = crossCompanyDeliveryRefusal(senderOracle, targetOracleName);
+    if (violation) {
+      // Explicit pre-declared intent bypass (unhappy path 2) — the EXISTING
+      // trust-store (already used for peer ACL trust pairs below), not a new
+      // caller-settable flag/env var (kobo-335 lesson: a flag the sender can
+      // set on their own send is not a gate).
+      const { loadTrust, samePair } = await import("../../lib/trust-store");
+      const trusted = loadTrust().some((e) => samePair(e, { sender: senderOracle, target: targetOracleName }));
+      if (!trusted) {
+        console.error(`\x1b[31merror\x1b[0m: ${violation}`);
+        process.exit(1);
+      }
+    }
+  }
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---
   //
