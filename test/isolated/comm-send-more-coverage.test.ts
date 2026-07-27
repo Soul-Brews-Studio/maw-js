@@ -256,7 +256,18 @@ describe("cmdSend — more isolated coverage", () => {
     expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "remote:oracle", message: "[test-node:sender] hello" } }]);
   });
 
-  test("approved trust persistence falls back to mawjs when config has no oracle name", async () => {
+  // kobo-474 — RENAMED + assertions updated (config-oracle-fallback behavior
+  // intentionally withdrawn, not a regression). Old name/assertions pinned
+  // aclSenderOracle's pre-kobo-474 bug directly: on the "auto" source path it
+  // discarded the already-correctly-resolved sender identity (senderName, set
+  // from CLAUDE_AGENT_NAME="sender" in this file's beforeEach) and substituted
+  // config.oracle instead — so deleting config.oracle produced the "mawjs"
+  // fallback this test asserted on. aclSenderOracle now always returns
+  // senderIdentity.senderName regardless of config.oracle; deleting
+  // config.oracle here no longer has any effect on who gets attributed as
+  // sender, which is the fix working as intended (kobo-474 threat model: ACL
+  // subject is the resolved identity, never a node-static config value).
+  test("approved trust persistence uses the resolved sender identity, unaffected by config.oracle", async () => {
     delete config.oracle;
     resolveTargetReturn = { type: "peer", target: "receiver", node: "remote", peerUrl: "http://remote:3456" };
 
@@ -267,8 +278,8 @@ describe("cmdSend — more isolated coverage", () => {
     }));
 
     expect(exitCode).toBeUndefined();
-    expect(trustAddCalls).toEqual([{ sender: "mawjs", target: "receiver" }]);
-    expect(logs.join("\n")).toContain("trusted mawjs ↔ receiver");
+    expect(trustAddCalls).toEqual([{ sender: "sender", target: "receiver" }]); // CLAUDE_AGENT_NAME, set in beforeEach — not config.oracle
+    expect(logs.join("\n")).toContain("trusted sender ↔ receiver");
     expect(curlFetchCalls).toHaveLength(1);
     expect(curlFetchCalls[0].url).toBe("http://remote:3456/api/send");
     expect(logMessageCalls[0]).toMatchObject({ route: "peer:remote", message: "[test-node:sender] approved" });
