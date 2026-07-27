@@ -89,13 +89,18 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
   // config-value read, not gated by mockActive at all) — untouched here,
   // that's not the mockActive-misfire hazard this file is being fixed for.
   loadConfig: () => resolveMock(() => config, () => realConfig.loadConfig(), "loadConfig"),
+  // kobo-483-intentional-real-read: unrelated config key, always-active by design.
   cfgTimeout: (key: Parameters<typeof realConfig.cfgTimeout>[0]) => (
     mockActive && key === "pty" ? timeout : realConfig.cfgTimeout(key)
   ),
   cfgLimit: (key: Parameters<typeof realConfig.cfgLimit>[0]) => {
-    if (!mockActive) return realConfig.cfgLimit(key);
+    if (!mockActive) {
+      if (!suiteStarted) return realConfig.cfgLimit(key);
+      return realCallForbidden("cfgLimit");
+    }
     if (key === "ptyCols") return colsLimit;
     if (key === "ptyRows") return rowsLimit;
+    // kobo-483-intentional-real-read: unrelated config key, always-active by design.
     return realConfig.cfgLimit(key);
   },
 }));

@@ -48,6 +48,31 @@ class FakeTmux extends Tmux {
   async exitModeIfNeeded(_target: string): Promise<boolean> {
     return false;
   }
+
+  // kobo-483 (fail-closed): 14 sibling `extends Tmux` test files already
+  // override `run()` — the one bottleneck every Tmux method funnels through
+  // before reaching hostExec (tmux-class.ts) — which makes them safe by
+  // STRUCTURE. This file was the one exception: it only overrode individual
+  // primitives, and was safe today only by LUCK of the call graph — sendText
+  // calls submitWithConfirm + paneInputPending (neither overridden here),
+  // which happen to bottom out at `capture` (which IS overridden). The day
+  // someone adds a line to submitWithConfirm that calls some other primitive,
+  // that call falls through to the REAL base-class method — straight to
+  // `run()` → hostExec → a live shell command, silently. Patching individual
+  // primitives here would only extend that luck, not end it; overriding
+  // `run()` itself turns the safety into structure, matching the other 14
+  // files, and turns any future gap into an immediate throw instead of a
+  // silent real tmux call. This file exercises sendText — the exact
+  // keystroke-injection mechanism kobo-477 froze the whole fleet's test
+  // suite over — so if any file needed this to be structural rather than
+  // lucky, it was this one.
+  async run(subcommand: string, ..._args: (string | number)[]): Promise<string> {
+    throw new Error(
+      `[kobo-483 fail-closed] Tmux.run("${subcommand}") reached the base-class ` +
+      `bottleneck — FakeTmux didn't stub a primitive that the real implementation ` +
+      `called. Stub the missing primitive; don't let it fall through to hostExec.`,
+    );
+  }
 }
 
 const PROMPT_IDLE = "agent@host:~$ "; // prompt marker + trailing space → submitted

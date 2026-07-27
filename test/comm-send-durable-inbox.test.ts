@@ -146,6 +146,7 @@ mock.module(join(srcRoot, "src/core/worklog/presence-away"), () => ({
   // gated by the mockActive race at all), same category as pty-transport's
   // cfgTimeout non-"pty" branch. Left untouched: not the write/exec hazard
   // this file is being fixed for.
+  // kobo-483-intentional-real-read: unrelated to the mockActive race.
   isPaneAway: (...args: Parameters<typeof realAway.isPaneAway>) => (mockActive && paneAway) ? true : realAway.isPaneAway(...args),
 }));
 

@@ -56,6 +56,7 @@ mock.module(import.meta.resolve("../src/config"), () => ({
       return realCallForbidden("cfgLimit");
     }
     if (config?.limits && key in config.limits) return config.limits[key];
+    // kobo-483-intentional-real-read: unrelated config key, always-active by design.
     return key === "peerProbeRetries" ? 0 : realConfig.cfgLimit(key);
   },
   cfgInterval: (key: Parameters<typeof realConfig.cfgInterval>[0]) => {
@@ -64,6 +65,7 @@ mock.module(import.meta.resolve("../src/config"), () => ({
       return realCallForbidden("cfgInterval");
     }
     if (config?.intervals && key in config.intervals) return config.intervals[key];
+    // kobo-483-intentional-real-read: unrelated config key, always-active by design.
     return key === "peerRetryBackoff" ? 0 : realConfig.cfgInterval(key);
   },
 }));

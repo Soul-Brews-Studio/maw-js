@@ -417,7 +417,9 @@ mock.module(join(import.meta.dir, "../src/config"), () => ({
       return realCallForbidden("buildCommandInDir");
     }
     if (useRealBuildCommandInDir) {
-      return _rCommandLogic.buildCommandInDirFromConfig(config, windowName, cwd, optsOrEngine as any);
+      // deliberate opt-in test technique, only reachable once mockActive is
+      // true — not the race hazard the guard above is closing.
+      return _rCommandLogic.buildCommandInDirFromConfig(config, windowName, cwd, optsOrEngine as any); // kobo-483-intentional-real-read
     }
     const engine = typeof optsOrEngine === "string" ? optsOrEngine : optsOrEngine?.engine;
     return `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`;
