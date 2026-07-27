@@ -350,7 +350,11 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
     expect(second.map(e => e.summary)).toEqual(["git op-1"]); // not corrupted by the mutation above
   });
 
-  it("guard: an incomplete trailing line is never counted as consumed (defensive — no known writer produces one, see kobo-463 c9 measurement: 0 torn tails / 2187 real concurrent reads)", () => {
+  // PAIRED WITH the mixed Thai/ASCII byte-offset test below — they guard DIFFERENT
+  // directions of the same read (this one: don't advance past an incomplete tail; that
+  // one: DO advance exactly to the true size on a complete tail) and neither implies the
+  // other passes. Do not delete either thinking it's redundant with the other (%5, c9).
+  it("guard: an incomplete trailing line is never counted as consumed — a torn read is possible on a regular file (no PIPE_BUF-style guarantee applies, kobo-463 c9/%4), and the old full-re-read design used to self-heal it every call", () => {
     _resetWorklogCache();
     appendWorklog(entry("c463e", 1));
     const first = readWorklog("c463e");
@@ -393,6 +397,10 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
     expect(after.map(e => e.summary)).toEqual(["git op-1", "git op-2", "git op-3", "git op-4"]); // all land together, none duplicated
   });
 
+  // PAIRED WITH the two "guard" tests above — this one guards advancing correctly on a
+  // COMPLETE tail; those guard NOT advancing on an incomplete one. Neither implies the
+  // other (%5 verified this by mutation: dropping this fix while trusting stat size
+  // directly leaves this test green but the torn-line guard red, and vice versa).
   it("the cache's recorded offset stays byte-exact on mixed Thai/ASCII content with varying line lengths (kobo-463, %5 c10 — a pure-Thai fixture alone would have passed the earlier char-based bug too)", () => {
     // %5 measured: a char-based offset only visibly breaks readWorklog's RETURNED entries
     // once the accumulated drift can swallow a WHOLE prior line — which depends on the
