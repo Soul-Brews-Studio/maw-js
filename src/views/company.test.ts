@@ -72,6 +72,23 @@ describe("companyHtml injection (kobo-171; kobo-237 removed resolve-fold)", () =
   });
 });
 
+// kobo-425: the board's `>` blockquote CSS (`.md blockquote`) existed since
+// before md.ts's blockquote regex actually worked (kobo-396's escape-first
+// broke it — see md.test.ts), so it rendered NOTHING. Fixing the shared
+// regex makes `.md blockquote` live for the first time — this pins that the
+// board still gets the ORIGINAL thin-gray-line design (room's red BOX is a
+// separately-scoped `.bubble .body blockquote` rule, added in room.ts only).
+describe("kobo-425: board `.md` blockquote/strong stay the pre-existing thin-line design (room's red-box highlight is scoped elsewhere, never here)", () => {
+  const html = companyHtml();
+  test("`.md blockquote` is still the original thin gray left-line, not a red box", () => {
+    expect(html).toContain(".md blockquote { border-left:3px solid var(--line); margin:8px 0; padding:2px 0 2px 12px; color:var(--muted); }");
+    expect(html).not.toContain("var(--danger)"); // the board never grows a red box
+  });
+  test("`.md strong` is still plain bold, no highlighter background", () => {
+    expect(html).toContain(".md strong { color:var(--fg); }");
+  });
+});
+
 describe("board-collapse v2 — parking columns hidden + reveal button (kobo-197)", () => {
   const html = companyHtml();
   test("collapsed parking column is fully removed from the grid (display:none, not a strip)", () => {

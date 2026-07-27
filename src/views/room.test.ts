@@ -35,6 +35,22 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("class=\"app\""); // the 2-pane grid
   });
 
+  // kobo-425: **bold** → highlighter-pen look, `>` → one solid red box, ROOM
+  // ONLY. The board (company.ts) shares md.ts's renderer but scopes its CSS
+  // under `.md` — room scopes under `.bubble .body`, a different selector
+  // namespace, so the two surfaces can't collide (see company.test.ts for
+  // the board-side half of this pin — its .md rules stay untouched).
+  test("kobo-425: room-only CSS — **bold** highlights and `>` renders a red box with a left border, scoped to .bubble .body", () => {
+    expect(html).toContain(".bubble .body strong {");
+    expect(html).toContain(".bubble .body blockquote {");
+    const strongRule = html.slice(html.indexOf(".bubble .body strong {"), html.indexOf("}", html.indexOf(".bubble .body strong {")) + 1);
+    expect(strongRule).toContain("background:"); // a highlighter fill, not just bold text
+    const bqRule = html.slice(html.indexOf(".bubble .body blockquote {"), html.indexOf("}", html.indexOf(".bubble .body blockquote {")) + 1);
+    expect(bqRule).toContain("border-left:"); // left border, per spec
+    expect(bqRule).toContain("var(--danger)"); // red, not the board's thin gray line
+    expect(bqRule).toContain("background:"); // a filled BOX, not just a border/line
+  });
+
   test("default partner = the company lead (send targets `lead`, from the /api/rooms response)", () => {
     expect(html).toContain("body.lead"); // lead resolved server-side, carried in the list response
     expect(html).toContain("to: lead"); // the send defaults to the company lead

@@ -89,6 +89,12 @@ export function roomHtml(): string {
     .bubble .body p { margin:4px 0; } .bubble .body p:first-child { margin-top:0; } .bubble .body p:last-child { margin-bottom:0; }
     .bubble .body ul, .bubble .body ol { margin:4px 0; padding-left:20px; }
     .bubble .body h1, .bubble .body h2, .bubble .body h3, .bubble .body h4 { margin:8px 0 4px; font-size:1em; }
+    /* kobo-425 — room-only (never .md, that's the board — kobo-396 extracted
+       ONE renderer, but scoping the CSS keeps the two surfaces' looks separate):
+       bold = highlighter pen, not just bold; a quoted block = one solid red
+       box with a left border (Tony: the box IS the signal, never nested). */
+    .bubble .body strong { background:rgba(250,204,21,.28); padding:0 2px; border-radius:2px; color:var(--fg); }
+    .bubble .body blockquote { border-left:4px solid var(--danger); background:rgba(239,68,68,.12); color:var(--fg); margin:6px 0; padding:6px 12px; border-radius:0 6px 6px 0; }
     .bubble .body code { background:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:.9em; }
     .bubble .body pre { background:var(--muted); border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; }
     .bubble .body pre code { background:none; border:0; padding:0; }
