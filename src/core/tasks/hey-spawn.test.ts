@@ -25,4 +25,25 @@ describe("hey-spawn (kobo-405)", () => {
     const src = readFileSync(new URL("./hey-spawn.ts", import.meta.url), "utf-8");
     expect(src).toMatch(/Bun\.spawn\(\s*\[\s*"maw",\s*"hey",\s*\.\.\.args\s*\]/);
   });
+
+  // kobo-481 — same source-contract-check shape as the test above, same
+  // reason: the preload replaces this whole module for every test, so the
+  // REAL wiring between spawnHeyProcess and the failure-visibility watcher
+  // can only be verified by reading the file, not calling it. The watcher's
+  // OWN behavior (does it actually log correctly, does success stay silent,
+  // does a rejected exited-promise not throw) is exercised for real, with
+  // real code and no mocking at all, in hey-spawn-failure-log.test.ts — this
+  // test only proves spawnHeyProcess is WIRED to call it under the right
+  // condition, which a spy/mock on this module could not observe (the
+  // preload would intercept the spy target itself).
+  test("the REAL implementation wires the fire-and-forget path (no explicit opts.stderr) to watchHeySpawnForFailure, and does NOT for callers that pass their own opts.stderr", () => {
+    const src = readFileSync(new URL("./hey-spawn.ts", import.meta.url), "utf-8");
+    expect(src).toMatch(/import\s*\{\s*watchHeySpawnForFailure\s*\}\s*from\s*"\.\/hey-spawn-failure-log"/);
+    expect(src).toMatch(/callerHandlesStderr\s*=\s*opts\.stderr\s*!==\s*undefined/);
+    expect(src).toMatch(/if\s*\(\s*!callerHandlesStderr\s*\)\s*\{\s*\n\s*void watchHeySpawnForFailure\(proc, args\);/);
+    // AC: no longer an unconditional "ignore" default — must default to
+    // "pipe" specifically for the unhandled-by-caller case, or there is
+    // nothing for watchHeySpawnForFailure to read.
+    expect(src).toMatch(/stderr:\s*callerHandlesStderr\s*\?\s*opts\.stderr!\s*:\s*"pipe"/);
+  });
 });

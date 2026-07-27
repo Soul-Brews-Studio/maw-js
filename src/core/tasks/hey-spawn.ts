@@ -1,3 +1,5 @@
+import { watchHeySpawnForFailure } from "./hey-spawn-failure-log";
+
 /**
  * kobo-405 — the ONE place in the whole codebase that spawns a real `maw hey`
  * subprocess. Originally just notify.ts's spawnHey + task/index.ts's ping();
@@ -18,6 +20,19 @@
  * to await exit code / read stderr (doctor's forward, company-knowledge's
  * defaultSend) still can — the 2 original fire-and-forget callers just ignore
  * the return value, unaffected.
+ *
+ * kobo-481: `opts.stderr` used to default to "ignore" unconditionally — the 3
+ * genuinely fire-and-forget callers (notify.ts, ping.ts, task/index.ts) never
+ * pass it, so a spawn failure (identity refused, `maw` binary missing,
+ * anything) vanished with zero trace: no log, no counter, nothing. When the
+ * caller does NOT specify `opts.stderr` (the fire-and-forget shape this bit
+ * them), the default is now "pipe" and a failure gets surfaced via
+ * hey-spawn-failure-log.ts's watchHeySpawnForFailure — success stays silent
+ * (no added noise), non-zero exit gets a console.error naming the exit code
+ * and captured stderr. Callers that already pass their own `opts.stderr`
+ * (hooks.ts, doctor/impl.ts, company-knowledge.ts) are untouched — they
+ * already surface failures their own way (verified per-caller, not assumed;
+ * see kobo-481 PR body).
  */
 export function spawnHeyProcess(
   args: string[],
@@ -28,10 +43,15 @@ export function spawnHeyProcess(
     env?: NodeJS.ProcessEnv;
   } = {},
 ): ReturnType<typeof Bun.spawn> {
-  return Bun.spawn(["maw", "hey", ...args], {
+  const callerHandlesStderr = opts.stderr !== undefined;
+  const proc = Bun.spawn(["maw", "hey", ...args], {
     stdout: opts.stdout ?? "ignore",
-    stderr: opts.stderr ?? "ignore",
+    stderr: callerHandlesStderr ? opts.stderr! : "pipe",
     ...(opts.stdin ? { stdin: opts.stdin } : {}),
     ...(opts.env ? { env: opts.env } : {}),
   });
+  if (!callerHandlesStderr) {
+    void watchHeySpawnForFailure(proc, args);
+  }
+  return proc;
 }
