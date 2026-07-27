@@ -22,8 +22,6 @@ import {
   type HeyLocateResolution,
 } from "./hey-locate-resolution";
 import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
-import { crossCompanyDeliveryRefusal } from "../../core/worklog/company-scope";
-import { targetOracle } from "../../core/tasks/auto-create";
 import { runPluginEventHooks } from "../../plugin/event-hooks";
 import { notifyLiveInboxReceiver } from "./live-inbox-notify";
 import { getPaneRoute } from "../../core/pane-routes";
@@ -1034,6 +1032,14 @@ export async function cmdSend(
   // api/sessions.ts's identical gate exactly (same trust-store bypass) —
   // one card, one fix, two call sites.
   if (result?.type === "local" || result?.type === "self-node") {
+    // Dynamic import, not a top-level named import (kobo-449 lesson): this
+    // symbol chain (company-scope.ts → company-helpers.ts → sdk's
+    // getGhqRoot) is exactly the widely-mocked barrel several isolated
+    // comm-send-*.test.ts partially mock.module() — a static import here
+    // broke link-time for all of them. Same reasoning as the trust-store
+    // dynamic import right below.
+    const { crossCompanyDeliveryRefusal } = await import("../../core/worklog/company-scope");
+    const { targetOracle } = await import("../../core/tasks/auto-create");
     const senderOracle = targetOracle(aclSenderOracle(config, senderIdentity));
     const targetOracleName = targetOracle(result.target);
     const violation = crossCompanyDeliveryRefusal(senderOracle, targetOracleName);
