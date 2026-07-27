@@ -482,6 +482,7 @@ describe("appendRoomMessage concurrency (kobo-430 — real cross-process writers
     const bOrder = room.messages.filter((m) => m.id.startsWith("B-")).map((m) => m.id);
     expect(aOrder).toEqual(Array.from({ length: 40 }, (_, i) => `A-${i}`));
     expect(bOrder).toEqual(Array.from({ length: 40 }, (_, i) => `B-${i}`));
+    expect(new Set(room.messages.map((m) => m.seq)).size).toBe(80); // seq unique under true concurrency (kobo-415 × kobo-430 merge)
     // CLEANUP: no stale .lock file left behind after a normal run — dropping the `finally`
     // unlink would leave this behind and every SUBSEQUENT append would find a lock file that
     // no live process holds (self-healing via the stale-pid check, but silently, not free).
