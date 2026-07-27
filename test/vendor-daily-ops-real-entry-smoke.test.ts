@@ -49,6 +49,23 @@ function smokeEnv(home: string): Record<string, string | undefined> {
     SSH_CLIENT: undefined,
     SSH_CONNECTION: undefined,
     SSH_TTY: undefined,
+    // kobo-474 — resolveMyName (comm-send.ts:139) resolves sender identity
+    // from CLAUDE_AGENT_NAME, then a real tmux session name, then a fallback
+    // that now fails loud (kobo-474 T3) rather than silently guessing. This
+    // harness spawns `bun src/cli.ts send ...` as a bare Bun.spawnSync
+    // subprocess — it is NOT itself running inside the tmux session it
+    // creates (that session is only a TARGET pane to send keys into), so
+    // process.env.TMUX is unset for the spawned CLI process even though a
+    // real tmux session genuinely exists. That is a gap in THIS harness's
+    // fidelity to real usage, not a case this smoke test is meant to prove:
+    // every real interactive `maw send` invocation this whole architecture
+    // is built around happens from a shell that IS itself inside a tmux
+    // pane (an oracle's own pane, or an operator's own session) or an
+    // agent context where CLAUDE_AGENT_NAME is set — "no identity signal at
+    // all" is not the scenario "daily ops real-entry" is simulating. Setting
+    // it explicitly here fills that harness gap; it does not paper over the
+    // gate the test is meant to exercise.
+    CLAUDE_AGENT_NAME: "daily-ops-smoke",
   };
 }
 
