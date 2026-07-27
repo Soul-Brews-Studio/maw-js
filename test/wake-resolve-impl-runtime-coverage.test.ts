@@ -52,6 +52,25 @@ const realWorktrees = { scanWorktrees: _rWorktrees.scanWorktrees };
 const realScanSuggest = { scanSuggestOracle: _rScanSuggest.scanSuggestOracle };
 
 let mockActive = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
+// see that file's header for the full rationale (hostExec/tmux fallthrough
+// here can touch a live tmux server / real network on a shared dev machine).
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] mockActive was false for "${label}" after the test suite ` +
+    `had already started — refusing to fall through to the real implementation. ` +
+    `Fix the race, don't restore the real passthrough.`,
+  );
+}
+
+function resolveMock<T>(fake: () => T, real: () => T, label: string): T {
+  if (mockActive) return fake();
+  if (!suiteStarted) return real();
+  return realCallForbidden(label);
+}
+
 let config: any;
 let envVars: Record<string, string>;
 let sessions: Array<{ name: string }>;
@@ -92,21 +111,30 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ..._rSdk,
   FLEET_DIR: fleetRoot,
   hostExec: async (cmd: string) => {
-    if (!mockActive) return realSdk.hostExec(cmd);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.hostExec(cmd);
+      return realCallForbidden("hostExec");
+    }
     hostExecCalls.push(cmd);
     return hostExecImpl(cmd);
   },
   curlFetch: async (url: string, init?: any) => {
-    if (!mockActive) return realSdk.curlFetch(url, init);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.curlFetch(url, init);
+      return realCallForbidden("curlFetch");
+    }
     curlFetchCalls.push({ url, init });
     return curlFetchImpl(url, init);
   },
   tmux: {
     ..._rSdk.tmux,
-    listSessions: async () => (mockActive ? sessions : realSdk.tmux.listSessions()),
-    listPanes: async () => (mockActive ? [] : realSdk.tmux.listPanes()),
+    listSessions: async () => resolveMock(() => sessions, () => realSdk.tmux.listSessions(), "tmux.listSessions"),
+    listPanes: async () => resolveMock(() => [], () => realSdk.tmux.listPanes(), "tmux.listPanes"),
     setEnvironment: async (session: string, key: string, val: string) => {
-      if (!mockActive) return realSdk.tmux.setEnvironment(session, key, val);
+      if (!mockActive) {
+        if (!suiteStarted) return realSdk.tmux.setEnvironment(session, key, val);
+        return realCallForbidden("tmux.setEnvironment");
+      }
       setEnvCalls.push({ session, key, val });
     },
   },
@@ -114,19 +142,25 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
 
 mock.module(join(import.meta.dir, "../src/config"), () => ({
   ..._rConfig,
-  loadConfig: () => (mockActive ? config : realConfig.loadConfig()),
-  getEnvVars: () => (mockActive ? envVars : realConfig.getEnvVars()),
+  loadConfig: () => resolveMock(() => config, () => realConfig.loadConfig(), "loadConfig"),
+  getEnvVars: () => resolveMock(() => envVars, () => realConfig.getEnvVars(), "getEnvVars"),
 }));
 
 mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
   ..._rGhq,
   ghqList: async () => {
-    if (!mockActive) return realGhq.ghqList();
+    if (!mockActive) {
+      if (!suiteStarted) return realGhq.ghqList();
+      return realCallForbidden("ghqList");
+    }
     if (ghqListError) throw ghqListError;
     return ghqListValue;
   },
   ghqFind: async (query: string) => {
-    if (!mockActive) return realGhq.ghqFind(query);
+    if (!mockActive) {
+      if (!suiteStarted) return realGhq.ghqFind(query);
+      return realCallForbidden("ghqFind");
+    }
     ghqFindCalls.push(query);
     if (ghqFindImpl) return ghqFindImpl(query);
     return ghqFindMap[query] ?? null;
@@ -136,7 +170,10 @@ mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
 mock.module(join(import.meta.dir, "../src/core/fleet/worktrees-scan"), () => ({
   ..._rWorktrees,
   scanWorktrees: async () => {
-    if (!mockActive) return realWorktrees.scanWorktrees();
+    if (!mockActive) {
+      if (!suiteStarted) return realWorktrees.scanWorktrees();
+      return realCallForbidden("scanWorktrees");
+    }
     if (scanWorktreesError) throw scanWorktreesError;
     return worktreeList;
   },
@@ -145,7 +182,10 @@ mock.module(join(import.meta.dir, "../src/core/fleet/worktrees-scan"), () => ({
 mock.module(join(import.meta.dir, "../src/commands/shared/wake-resolve-scan-suggest"), () => ({
   ..._rScanSuggest,
   scanSuggestOracle: async (...args: Parameters<typeof _rScanSuggest.scanSuggestOracle>) => {
-    if (!mockActive) return realScanSuggest.scanSuggestOracle(...args);
+    if (!mockActive) {
+      if (!suiteStarted) return realScanSuggest.scanSuggestOracle(...args);
+      return realCallForbidden("scanSuggestOracle");
+    }
     return scanSuggestResult;
   },
 }));
@@ -179,6 +219,7 @@ function worktree(path: string, mainRepo: string): WorktreeInfo {
 
 beforeEach(() => {
   mockActive = true;
+  suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
   resetFleetDir();
   config = { githubOrgs: ["Soul-Brews-Studio"], peers: [], sessions: {} };
   envVars = {};

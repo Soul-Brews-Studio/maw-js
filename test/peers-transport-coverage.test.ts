@@ -10,6 +10,24 @@ const realConfig = await import("../src/config");
 const realCurl = await import("../src/core/transport/curl-fetch");
 
 let mockActive = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
+// `curlFetch` here makes a REAL network call when it falls through.
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] mockActive was false for "${label}" after the test suite ` +
+    `had already started — refusing to fall through to the real implementation. ` +
+    `Fix the race, don't restore the real passthrough.`,
+  );
+}
+
+function resolveMock<T>(fake: () => T, real: () => T, label: string): T {
+  if (mockActive) return fake();
+  if (!suiteStarted) return real();
+  return realCallForbidden(label);
+}
+
 let config: any;
 // `seq` lets a matched URL return a different result per call (shifted in
 // order) — used to model #1975 transient-then-recovered probes. When `seq`
@@ -23,21 +41,31 @@ const originalDateNow = Date.now;
 
 mock.module(import.meta.resolve("../src/config"), () => ({
   ...realConfig,
-  loadConfig: () => (mockActive ? config : realConfig.loadConfig()),
-  cfgTimeout: (kind: Parameters<typeof realConfig.cfgTimeout>[0]) => (
-    mockActive ? 1234 : realConfig.cfgTimeout(kind)
-  ),
+  loadConfig: () => resolveMock(() => config, () => realConfig.loadConfig(), "loadConfig"),
+  cfgTimeout: (kind: Parameters<typeof realConfig.cfgTimeout>[0]) =>
+    resolveMock(() => 1234, () => realConfig.cfgTimeout(kind), "cfgTimeout"),
   // #1975: default the peer-probe retry knobs OFF (retries 0, backoff 0) so the
   // shared suite stays single-shot + no real sleeps. The dedicated retry tests
-  // opt in via config.limits / config.intervals.
+  // opt in via config.limits / config.intervals. The non-matching-key
+  // fallback to realConfig below is a deliberate, always-active passthrough
+  // for an unrelated config key (not the mockActive race this file guards
+  // against) — same category as pty-transport's cfgTimeout non-"pty" branch.
   cfgLimit: (key: Parameters<typeof realConfig.cfgLimit>[0]) => {
-    if (!mockActive) return realConfig.cfgLimit(key);
+    if (!mockActive) {
+      if (!suiteStarted) return realConfig.cfgLimit(key);
+      return realCallForbidden("cfgLimit");
+    }
     if (config?.limits && key in config.limits) return config.limits[key];
+    // kobo-483-intentional-real-read: unrelated config key, always-active by design.
     return key === "peerProbeRetries" ? 0 : realConfig.cfgLimit(key);
   },
   cfgInterval: (key: Parameters<typeof realConfig.cfgInterval>[0]) => {
-    if (!mockActive) return realConfig.cfgInterval(key);
+    if (!mockActive) {
+      if (!suiteStarted) return realConfig.cfgInterval(key);
+      return realCallForbidden("cfgInterval");
+    }
     if (config?.intervals && key in config.intervals) return config.intervals[key];
+    // kobo-483-intentional-real-read: unrelated config key, always-active by design.
     return key === "peerRetryBackoff" ? 0 : realConfig.cfgInterval(key);
   },
 }));
@@ -45,7 +73,10 @@ mock.module(import.meta.resolve("../src/config"), () => ({
 mock.module(import.meta.resolve("../src/core/transport/curl-fetch"), () => ({
   ...realCurl,
   curlFetch: async (url: string, opts?: any) => {
-    if (!mockActive) return realCurl.curlFetch(url, opts);
+    if (!mockActive) {
+      if (!suiteStarted) return realCurl.curlFetch(url, opts);
+      return realCallForbidden("curlFetch");
+    }
     curlCalls.push({ url, opts });
     const hit = responses.find((entry) => url.includes(entry.match));
     if (hit?.advanceMs) now += hit.advanceMs;
@@ -71,6 +102,7 @@ const {
 
 beforeEach(() => {
   mockActive = true;
+  suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
   now += 31_000; // expire the module-level aggregated-session cache between tests
   Date.now = () => now;
   config = { node: "m5", port: 3456, peers: [], namedPeers: [] };

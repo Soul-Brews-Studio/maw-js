@@ -4,6 +4,20 @@ import { join } from "path";
 const realSdk = await import("../src/sdk");
 
 let active = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
+// found via searching for the actual hostExec/`real*` call target, not this
+// file's toggle name (it's `active`, not `mockActive` — the earlier grep
+// pass missed it for exactly that reason).
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] "${label}" was called with the mock inactive after the ` +
+    `test suite had already started — refusing to fall through to the real ` +
+    `implementation. Fix the race, don't restore the real passthrough.`,
+  );
+}
+
 let hostExecCalls: string[] = [];
 let probeServerUp = true;
 let listPanesResponse = "3\n";
@@ -23,7 +37,10 @@ let newWindowResponse = "";
 mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ...realSdk,
   hostExec: async (cmd: string, ...args: unknown[]) => {
-    if (!active) return realSdk.hostExec(cmd, ...(args as []));
+    if (!active) {
+      if (!suiteStarted) return realSdk.hostExec(cmd, ...(args as []));
+      return realCallForbidden("hostExec");
+    }
     hostExecCalls.push(cmd);
     if (cmd.includes("pane_current_command")) return paneCommandResponse;
     if (cmd.includes("session_name") && cmd.includes("window_name")) return paneSessionWindowResponse;
@@ -86,6 +103,7 @@ function resetEnv(attached = true) {
 describe("wake maybe split/window coverage", () => {
   beforeEach(() => {
     active = true;
+    suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
     hostExecCalls = [];
     logs = [];
     probeServerUp = true;

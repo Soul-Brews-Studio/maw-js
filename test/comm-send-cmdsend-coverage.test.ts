@@ -11,6 +11,24 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 let mockActive = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
+// see that file's header for the full rationale. `sendKeys`/tmux `run` here
+// can inject real keystrokes / arbitrary tmux subcommands on a shared machine.
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] mockActive was false for "${label}" after the test suite ` +
+    `had already started — refusing to fall through to the real implementation. ` +
+    `Fix the race, don't restore the real passthrough.`,
+  );
+}
+
+function resolveMock<T>(fake: () => T, real: () => T, label: string): T {
+  if (mockActive) return fake();
+  if (!suiteStarted) return real();
+  return realCallForbidden(label);
+}
 
 const _rSdk = await import("../src/sdk");
 const _rConfig = await import("../src/config");
@@ -117,12 +135,18 @@ function createUnreadInbox(unreadCount: number, filename: string): string {
 mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
   ..._rGhq,
   ghqFind: async (suffix: string) => {
-    if (!mockActive) return realGhq.ghqFind(suffix);
+    if (!mockActive) {
+      if (!suiteStarted) return realGhq.ghqFind(suffix);
+      return realCallForbidden("ghqFind");
+    }
     ghqFindCalls.push(suffix);
     return null;
   },
   ghqList: async () => {
-    if (!mockActive) return realGhq.ghqList();
+    if (!mockActive) {
+      if (!suiteStarted) return realGhq.ghqList();
+      return realCallForbidden("ghqList");
+    }
     ghqListCalls += 1;
     return [];
   },
@@ -131,7 +155,10 @@ mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
 mock.module(join(import.meta.dir, "../src/commands/shared/fleet-load"), () => ({
   ..._rFleetLoad,
   loadFleetEntries: () => {
-    if (!mockActive) return realFleetLoad.loadFleetEntries();
+    if (!mockActive) {
+      if (!suiteStarted) return realFleetLoad.loadFleetEntries();
+      return realCallForbidden("loadFleetEntries");
+    }
     fleetLoadCalls += 1;
     return [];
   },
@@ -140,7 +167,10 @@ mock.module(join(import.meta.dir, "../src/commands/shared/fleet-load"), () => ({
 mock.module(join(import.meta.dir, "../src/core/transport/tmux"), () => {
   class MockTmux extends _rTmux.Tmux {
     async run(...args: string[]) {
-      if (!mockActive) return super.run(...args);
+      if (!mockActive) {
+        if (!suiteStarted) return super.run(...args);
+        return realCallForbidden("tmux.run");
+      }
       tmuxRunCalls.push(args);
       if (args.join(" ") === "display-message -p #S") return "mock-session\n";
       if (args[0] === "list-panes") return "0 claude\n";
@@ -150,7 +180,10 @@ mock.module(join(import.meta.dir, "../src/core/transport/tmux"), () => {
       throw new Error(`unexpected test tmux run: ${args.join(" ")}`);
     }
     async tryRun(...args: string[]) {
-      if (!mockActive) return super.tryRun(...args);
+      if (!mockActive) {
+        if (!suiteStarted) return super.tryRun(...args);
+        return realCallForbidden("tmux.tryRun");
+      }
       tmuxRunCalls.push(args);
       return "";
     }
@@ -160,24 +193,36 @@ mock.module(join(import.meta.dir, "../src/core/transport/tmux"), () => {
 
 mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ..._rSdk,
-  listSessions: async () => mockActive ? listSessionsReturn : realSdk.listSessions(),
+  listSessions: async () => resolveMock(() => listSessionsReturn, () => realSdk.listSessions(), "listSessions"),
   capture: async (target: string, lines: number, host?: string) => {
-    if (!mockActive) return realSdk.capture(target, lines, host);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.capture(target, lines, host);
+      return realCallForbidden("capture");
+    }
     captureCalls.push({ target, lines, host });
     return captureResponses.length ? captureResponses.shift()! : "";
   },
   sendKeys: async (target: string, text: string) => {
-    if (!mockActive) return realSdk.sendKeys(target, text);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.sendKeys(target, text);
+      return realCallForbidden("sendKeys");
+    }
     sendKeysCalls.push({ target, text });
   },
-  getPaneCommand: async () => mockActive ? getPaneCommandReturn : realSdk.getPaneCommand(""),
+  getPaneCommand: async () => resolveMock(() => getPaneCommandReturn, () => realSdk.getPaneCommand(""), "getPaneCommand"),
   isAgentCommand: (cmd: string | null | undefined) => {
-    if (!mockActive) return realSdk.isAgentCommand(cmd);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.isAgentCommand(cmd);
+      return realCallForbidden("isAgentCommand");
+    }
     return ["claude", "codex", "node"].includes((cmd ?? "").trim());
   },
-  findPeerForTarget: async (...args: Parameters<typeof realSdk.findPeerForTarget>) => mockActive ? findPeerUrl : realSdk.findPeerForTarget(...args),
+  findPeerForTarget: async (...args: Parameters<typeof realSdk.findPeerForTarget>) => resolveMock(() => findPeerUrl, () => realSdk.findPeerForTarget(...args), "findPeerForTarget"),
   resolveTarget: (...args: Parameters<typeof _rSdk.resolveTarget>) => {
-    if (!mockActive) return realSdk.resolveTarget(...args);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.resolveTarget(...args);
+      return realCallForbidden("resolveTarget");
+    }
     resolveTargetCalls.push(args[0]);
     resolveTargetArgCalls.push(args);
     if (resolveTargetError) throw resolveTargetError;
@@ -185,56 +230,71 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
     return resolveTargetReturn as ReturnType<typeof _rSdk.resolveTarget>;
   },
   curlFetch: async (url: string, options: any) => {
-    if (!mockActive) return realSdk.curlFetch(url, options);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.curlFetch(url, options);
+      return realCallForbidden("curlFetch");
+    }
     curlFetchCalls.push({ url, options });
     return curlFetchHandler(url, options);
   },
   runHook: async (name: string, payload: any) => {
-    if (!mockActive) return realSdk.runHook(name, payload);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.runHook(name, payload);
+      return realCallForbidden("runHook");
+    }
     runHookCalls.push({ name, payload });
   },
 }));
 
 mock.module(join(import.meta.dir, "../src/config"), () => ({
   ..._rConfig,
-  loadConfig: () => mockActive ? config : realConfig.loadConfig(),
-  cfgLimit: (key: Parameters<typeof _rConfig.cfgLimit>[0]) => mockActive ? 100 : realConfig.cfgLimit(key),
+  loadConfig: () => resolveMock(() => config, () => realConfig.loadConfig(), "loadConfig"),
+  cfgLimit: (key: Parameters<typeof _rConfig.cfgLimit>[0]) => resolveMock(() => 100, () => realConfig.cfgLimit(key), "cfgLimit"),
 }));
 
 mock.module(join(import.meta.dir, "../src/commands/shared/comm-log-feed"), () => ({
   ..._rFeed,
   logMessage: (from: string, to: string, message: string, route: string) => {
-    if (!mockActive) return realFeed.logMessage(from, to, message, route);
+    if (!mockActive) {
+      if (!suiteStarted) return realFeed.logMessage(from, to, message, route);
+      return realCallForbidden("logMessage");
+    }
     logMessageCalls.push({ from, to, message, route });
   },
   emitFeed: (event: string, oracle: string, host: string, message: string, port: number, data: any) => {
-    if (!mockActive) return realFeed.emitFeed(event, oracle, host, message, port, data);
+    if (!mockActive) {
+      if (!suiteStarted) return realFeed.emitFeed(event, oracle, host, message, port, data);
+      return realCallForbidden("emitFeed");
+    }
     emitFeedCalls.push({ event, oracle, host, message, port, data });
   },
 }));
 
 mock.module(join(import.meta.dir, "../src/plugin/registry"), () => ({
   ..._rRegistry,
-  discoverPackages: () => mockActive ? plugins : realRegistry.discoverPackages(),
-  invokePlugin: async (...args: Parameters<typeof realRegistry.invokePlugin>) => mockActive ? invokePluginResult : realRegistry.invokePlugin(...args),
+  discoverPackages: () => resolveMock(() => plugins, () => realRegistry.discoverPackages(), "discoverPackages"),
+  invokePlugin: async (...args: Parameters<typeof realRegistry.invokePlugin>) => resolveMock(() => invokePluginResult, () => realRegistry.invokePlugin(...args), "invokePlugin"),
 }));
 
 mock.module(join(import.meta.dir, "../src/lib/oracle-members"), () => ({
   ..._rOracleMembers,
-  getOracleMembers: (...args: Parameters<typeof realOracleMembers.getOracleMembers>) => mockActive ? oracleMembers : realOracleMembers.getOracleMembers(...args),
-  loadOracleRegistry: (...args: Parameters<typeof realOracleMembers.loadOracleRegistry>) => mockActive ? oracleRegistry : realOracleMembers.loadOracleRegistry(...args),
+  getOracleMembers: (...args: Parameters<typeof realOracleMembers.getOracleMembers>) => resolveMock(() => oracleMembers, () => realOracleMembers.getOracleMembers(...args), "getOracleMembers"),
+  loadOracleRegistry: (...args: Parameters<typeof realOracleMembers.loadOracleRegistry>) => resolveMock(() => oracleRegistry, () => realOracleMembers.loadOracleRegistry(...args), "loadOracleRegistry"),
 }));
 
 mock.module(join(import.meta.dir, "../src/lib/oracle-manifest"), () => ({
   ..._rOracleManifest,
-  findOracle: (name: string) => mockActive ? findOracleResult : realOracleManifest.findOracle(name),
-  loadManifestCached: () => mockActive ? manifestEntries : realOracleManifest.loadManifestCached(),
+  findOracle: (name: string) => resolveMock(() => findOracleResult, () => realOracleManifest.findOracle(name), "findOracle"),
+  loadManifestCached: () => resolveMock(() => manifestEntries, () => realOracleManifest.loadManifestCached(), "loadManifestCached"),
 }));
 
 mock.module(join(import.meta.dir, "../src/commands/shared/wake-cmd"), () => ({
   ..._rWakeCmd,
   cmdWake: async (oracle: string, opts: any) => {
-    if (!mockActive) return realWakeCmd.cmdWake(oracle, opts);
+    if (!mockActive) {
+      if (!suiteStarted) return realWakeCmd.cmdWake(oracle, opts);
+      return realCallForbidden("cmdWake");
+    }
     cmdWakeCalls.push({ oracle, opts });
     return `${oracle}-session`;
   },
@@ -243,12 +303,18 @@ mock.module(join(import.meta.dir, "../src/commands/shared/wake-cmd"), () => ({
 mock.module(join(import.meta.dir, "../src/commands/shared/scope-acl"), () => ({
   ..._rScopeAcl,
   loadAllScopes: () => {
-    if (!mockActive) return realScopeAcl.loadAllScopes();
+    if (!mockActive) {
+      if (!suiteStarted) return realScopeAcl.loadAllScopes();
+      return realCallForbidden("loadAllScopes");
+    }
     if (aclError) throw aclError;
     return scopes;
   },
   evaluateAclFromDisk: () => {
-    if (!mockActive) return realScopeAcl.evaluateAclFromDisk("", "");
+    if (!mockActive) {
+      if (!suiteStarted) return realScopeAcl.evaluateAclFromDisk("", "");
+      return realCallForbidden("evaluateAclFromDisk");
+    }
     if (aclError) throw aclError;
     return aclDecision;
   },
@@ -257,7 +323,10 @@ mock.module(join(import.meta.dir, "../src/commands/shared/scope-acl"), () => ({
 mock.module(join(import.meta.dir, "../src/commands/shared/queue-store"), () => ({
   ..._rQueueStore,
   savePending: (record: any) => {
-    if (!mockActive) return realQueueStore.savePending(record);
+    if (!mockActive) {
+      if (!suiteStarted) return realQueueStore.savePending(record);
+      return realCallForbidden("savePending");
+    }
     savePendingCalls.push(record);
     return { id: "pending-1", ...record };
   },
@@ -266,7 +335,10 @@ mock.module(join(import.meta.dir, "../src/commands/shared/queue-store"), () => (
 mock.module(join(import.meta.dir, "../src/lib/trust-store"), () => ({
   ..._rTrustStore,
   cmdAdd: (sender: string, target: string) => {
-    if (!mockActive) return realTrustStore.cmdAdd(sender, target);
+    if (!mockActive) {
+      if (!suiteStarted) return realTrustStore.cmdAdd(sender, target);
+      return realCallForbidden("cmdAdd");
+    }
     if (trustAddError) throw trustAddError;
     trustAddCalls.push({ sender, target });
   },
@@ -274,13 +346,16 @@ mock.module(join(import.meta.dir, "../src/lib/trust-store"), () => ({
 
 mock.module(join(import.meta.dir, "../src/core/consent/gate"), () => ({
   ..._rConsentGate,
-  maybeGateConsent: async (...args: Parameters<typeof realConsentGate.maybeGateConsent>) => mockActive ? consentDecision : realConsentGate.maybeGateConsent(...args),
+  maybeGateConsent: async (...args: Parameters<typeof realConsentGate.maybeGateConsent>) => resolveMock(() => consentDecision, () => realConsentGate.maybeGateConsent(...args), "maybeGateConsent"),
 }));
 
 mock.module(join(import.meta.dir, "../src/plugin/event-hooks"), () => ({
   ..._rEventHooks,
   runPluginEventHooks: async (...args: Parameters<typeof realEventHooks.runPluginEventHooks>) => {
-    if (!mockActive) return realEventHooks.runPluginEventHooks(...args);
+    if (!mockActive) {
+      if (!suiteStarted) return realEventHooks.runPluginEventHooks(...args);
+      return realCallForbidden("runPluginEventHooks");
+    }
     const [eventName, payload] = args;
     transportEventCalls.push({ eventName, payload });
     return { eventName, matched: 0, invoked: 0, skipped: 0, failed: 0 };
@@ -340,6 +415,7 @@ async function runCmd(fn: () => Promise<unknown>) {
 
 beforeEach(() => {
   mockActive = true;
+  suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
   config = { node: "test-node", oracle: "sender", port: 3456, namedPeers: [] };
   listSessionsReturn = [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }];
   resolveTargetReturn = { type: "local", target: "session:oracle.0" };
