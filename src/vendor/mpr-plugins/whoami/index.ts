@@ -1,7 +1,7 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { cmdWhoami } from "./impl";
 
-export const command = { name: "whoami", description: "Print the current tmux session name." };
+export const command = { name: "whoami", description: "Print the current oracle identity." };
 
 export default async function handler(_ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];

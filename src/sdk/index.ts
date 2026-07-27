@@ -63,6 +63,8 @@ export type { Session, Window } from "../core/runtime/find-window";
 
 export { runHook } from "../core/runtime/hooks";
 export { getTriggers, getTriggerHistory } from "../core/runtime/triggers";
+export { resolveOracleIdentity, requireOracleIdentity, normalizeOracleName } from "../core/identity";
+export type { IdentityResult } from "../core/identity";
 
 // ─── Fleet ───────────────────────────────────────────────────────────────────
 
