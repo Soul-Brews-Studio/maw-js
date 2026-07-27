@@ -147,6 +147,126 @@ describe("ctx-span label direction (kobo-443 — same bug family as the statusli
   });
 });
 
+// kobo-510 — the board had NEVER rendered a merge-gate signature field, old
+// (327/346: who signed / pane) or new (501: evidence scope). This exercises the
+// REAL render function extracted straight out of companyHtml() with a fake $/el
+// (same extract-and-eval technique as loadCtxPct/loadCtxLabel above), not a
+// source-string `toContain` assertion — that distinction is the exact one that
+// sent kobo-501 back once (asserting data reached the view's input is not the
+// same as proving the view renders it).
+function loadRenderDetailSigns() {
+  const html = companyHtml();
+  const start = html.indexOf("function shortSha(sha)");
+  const end = html.indexOf("// kobo-62 — assignee avatar");
+  const src = html.slice(start, end);
+  return new Function("el", "$", `${src}\nreturn { renderDetailSigns, evidenceLabel, shortSha };`);
+}
+function fakeDetailEl(tag) {
+  const e = { tag, className: "", textContent: "", title: "", hidden: false, children: [] as any[] };
+  e.appendChild = (c: any) => { e.children.push(c); return c; };
+  e.replaceChildren = (...cs: any[]) => { e.children = cs; };
+  return e;
+}
+function detailEl(tag: string, cls?: string, txt?: unknown) {
+  const e = fakeDetailEl(tag);
+  if (cls) e.className = cls;
+  if (txt != null) e.textContent = String(txt);
+  return e;
+}
+function runRenderDetailSigns(task: Record<string, any>) {
+  const host = fakeDetailEl("div");
+  const $ = (id: string) => { if (id !== "detail-signs") throw new Error("unexpected id " + id); return host; };
+  const mod = loadRenderDetailSigns()(detailEl, $);
+  mod.renderDetailSigns(task);
+  return { host, mod };
+}
+
+describe("evidenceLabel (kobo-510, pure) — the 3-state rule", () => {
+  test("undefined (no key on the record) → its own distinct label, never blank and never 'undeclared'", () => {
+    const { mod } = runRenderDetailSigns({});
+    expect(mod.evidenceLabel(undefined)).toBe("signed before evidence-tracking existed");
+  });
+  test("literal 'undeclared' → the word itself, distinct from the no-key case", () => {
+    const { mod } = runRenderDetailSigns({});
+    expect(mod.evidenceLabel("undeclared")).toBe("undeclared");
+  });
+  test("a real scope value passes through literally", () => {
+    const { mod } = runRenderDetailSigns({});
+    expect(mod.evidenceLabel("diff-read")).toBe("diff-read");
+    expect(mod.evidenceLabel("test-run+mutation")).toBe("test-run+mutation");
+  });
+});
+
+describe("renderDetailSigns (kobo-510) — real render path, not source-string assertions", () => {
+  test("never-signed → section stays hidden, no children rendered at all", () => {
+    const { host } = runRenderDetailSigns({});
+    expect(host.hidden).toBe(true);
+    expect(host.children.length).toBe(0);
+  });
+
+  test("signed-pre-evidence (no evidence key at all) — the state that predates kobo-501, distinct from undeclared", () => {
+    const { host } = runRenderDetailSigns({ headSignedBy: "eq3" }); // no headSignedEvidenceScope key
+    expect(host.hidden).toBe(false);
+    const summary = host.children[0].children[0];
+    expect(summary.tag).toBe("summary");
+    expect(summary.textContent).toContain("signed before evidence-tracking existed");
+    expect(summary.textContent).not.toContain("undeclared");
+  });
+
+  test("signed-undeclared (evidence key literally the string 'undeclared') — distinct from the pre-evidence case", () => {
+    const { host } = runRenderDetailSigns({ headSignedBy: "eq3", headSignedEvidenceScope: "undeclared" });
+    const summary = host.children[0].children[0];
+    expect(summary.textContent).toContain("head: undeclared");
+    expect(summary.textContent).not.toContain("before evidence-tracking");
+  });
+
+  test("a real declared evidence scope renders literally in the summary", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedEvidenceScope: "test-run+mutation" });
+    expect(host.children[0].children[0].textContent).toBe("✍ 1 signed · crew: test-run+mutation");
+  });
+
+  test("signer + pane + short sha (full sha on hover) render per tier — all four AC fields present", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedByPane: "%12", crewSignedSha: "0843da38b89bdb98bf645fe21ec566afc8868823", crewSignedEvidenceScope: "test-run" });
+    const tierRow = host.children[0].children[1]; // [0]=summary, [1]=crew tier row
+    const who = tierRow.children.find((c: any) => c.className === "sign-who");
+    expect(who.textContent).toBe("crew: patchwork");
+    const pane = tierRow.children.find((c: any) => c.className === "sign-pane");
+    expect(pane.textContent).toBe("pane %12");
+    const sha = tierRow.children.find((c: any) => c.className === "sign-sha mono");
+    expect(sha.textContent).toBe("0843da38"); // clamped for scanning
+    expect(sha.title).toBe("0843da38b89bdb98bf645fe21ec566afc8868823"); // full sha never lost, just on hover
+  });
+
+  // kobo-510 AC#3 — the real kobo-470 shape: crew signed at an older commit than
+  // what eventually merged. Same comparison the merge-gate itself already refuses
+  // on (kobo-400), surfaced here before anyone attempts to merge.
+  test("stale-signature warning when crew and head signed DIFFERENT commits", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-OLD", headSignedBy: "eq3", headSignedSha: "sha-NEW" });
+    const stale = host.children[0].children.find((c: any) => c.className === "sign-stale");
+    expect(stale).toBeTruthy();
+    expect(stale.textContent).toContain("different commits");
+  });
+
+  test("no stale warning when both tiers signed the SAME commit (no false positive)", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-SAME", headSignedBy: "eq3", headSignedSha: "sha-SAME" });
+    const stale = host.children[0].children.find((c: any) => c.className === "sign-stale");
+    expect(stale).toBeUndefined();
+  });
+
+  test("only one tier signed (mid-flight crew-gated card) → no stale check fires, single tier row shown", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-A" });
+    const det = host.children[0];
+    expect(det.children.length).toBe(2); // summary + 1 tier row, no stale line
+    expect(det.children.find((c: any) => c.className === "sign-stale")).toBeUndefined();
+  });
+
+  test("the collapsed summary line alone states tier count + each tier's evidence label — the card's own unhappy-path bar (readable without expanding)", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedEvidenceScope: "diff-read", headSignedBy: "eq3", headSignedEvidenceScope: "test-run" });
+    const summary = host.children[0].children[0];
+    expect(summary.textContent).toBe("✍ 2 signed · crew: diff-read · head: test-run");
+  });
+});
+
 // kobo-237: the resolve concept is removed — comment-fold tests deleted.
 describe("companyHtml injection (kobo-171; kobo-237 removed resolve-fold)", () => {
   test("the served client script contains the walker fns and calls them (single source)", () => {

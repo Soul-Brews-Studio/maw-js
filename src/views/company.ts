@@ -314,6 +314,18 @@ function companyBody(): string {
     /* kobo-185 — block reason on its own full-width line (wraps, not a clamped pill)
        so a blocked card's decision context reads in full in the modal. */
     .detail-block-reason { flex-basis:100%; color:var(--bad); font-size:var(--t-sm); white-space:pre-wrap; word-break:break-word; }
+    /* kobo-510 — merge-gate signature display: signer / pane / SHA / evidence scope.
+       Collapsed <details> by default (Unhappy #1 — don't clutter); the summary line
+       alone already carries tier count + evidence label per tier. */
+    #detail-signs[hidden] { display:none; }
+    .signs-detail { border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-5); background:var(--field-bg); }
+    .signs-summary { cursor:pointer; color:var(--muted); font-size:var(--t-sm); }
+    .signs-detail[open] .signs-summary { color:var(--fg); margin-bottom:var(--s-2); }
+    .sign-tier { display:flex; gap:var(--s-3); flex-wrap:wrap; align-items:baseline; padding:2px 0; font-size:var(--t-sm); }
+    .sign-who { color:var(--fg); }
+    .sign-pane, .sign-sha { color:var(--muted); }
+    .sign-evidence { color:var(--ok); }
+    .sign-stale { color:var(--bad); font-size:var(--t-sm); margin-top:var(--s-2); }
     /* kobo-190 — approve-lane decision block (human gate, gold like the lane). */
     #detail-approve[hidden] { display:none; }
     .approve-box { border:1px solid var(--link); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-5); background:var(--field-bg); }
@@ -547,8 +559,8 @@ function companyBody(): string {
        still fall after body/comments as before); ≥768px promotes the two wrappers to real grid columns. */
     #detail-cols { display:flex; flex-direction:column; }
     #detail-left, #detail-right { display:contents; }
-    #detail-meta { order:1; } #detail-approve { order:2; } #detail-deps { order:3; } #detail-family { order:4; }
-    #detail-body { order:5; } #detail-comments { order:6; } #detail-notes { order:7; } #detail-write { order:8; }
+    #detail-meta { order:1; } #detail-signs { order:2; } #detail-approve { order:3; } #detail-deps { order:4; } #detail-family { order:5; }
+    #detail-body { order:6; } #detail-comments { order:7; } #detail-notes { order:8; } #detail-write { order:9; }
     @media (min-width:768px) {
       .modal { width:min(920px, 100%); }
       #detail-cols { display:grid; grid-template-columns:minmax(0,320px) minmax(0,1fr); gap:var(--s-7); align-items:start; }
@@ -753,6 +765,7 @@ function companyBody(): string {
       <div id="detail-cols">
         <div id="detail-left">
           <div id="detail-meta"></div>
+          <div id="detail-signs" hidden></div>
           <div id="detail-approve" hidden></div>
           <div id="detail-deps" hidden></div>
           <div id="detail-family" hidden></div>
@@ -970,6 +983,68 @@ function renderDetailMeta(task) {
     bar.appendChild(el('div', 'detail-block-reason', '⚑ ' + task.block.reason));
   }
   bar.hidden = !bar.childNodes.length;
+}
+// kobo-510 — the board never rendered ANY merge-gate signature field, old (327/346:
+// who signed / pane) or new (501: evidence scope). Given/When/Then #2 + #5 of the
+// card: a pre-501-era sign has NO evidence-scope key at all (toCard's presence
+// check on the source field is a genuine pass-through — the key is either present
+// or it never existed), while a 501-era sign that declined to state its evidence
+// ALWAYS carries the literal string "undeclared". Collapsing those two into one
+// label would silently upgrade an absence into a claim — the exact defect kobo-501
+// exists to close, just moved into this view. shortSha/evidenceLabel are the two
+// small pure formatters that keep those states visually distinct; kept outside
+// renderDetailSigns so a test can exercise them without the DOM.
+function shortSha(sha) { return sha ? sha.slice(0, 8) : ''; }
+function evidenceLabel(scope) {
+  if (scope === undefined) return 'signed before evidence-tracking existed'; // state (b) — no key on the record at all
+  if (scope === 'undeclared') return 'undeclared'; // state (c) — signed post-501, declined to state evidence
+  return scope; // 'diff-read' / 'test-run' / 'test-run+mutation' — literal, plus forward-compat for any future value
+}
+// One tier's row: who + pane (if known) + short sha with the full sha on hover +
+// the evidence label. Neutral presentation on purpose (kobo-510 Unhappy #2): no
+// checkmark/badge implying "reviewed thoroughly" — 470/482 were two REAL signatures
+// that were one eye. Showing "diff-read" plainly next to the signer already tells a
+// reader what kind of review happened, without this function editorializing on top.
+function signTierRow(label, by, pane, sha, scope) {
+  const row = el('div', 'sign-tier');
+  row.appendChild(el('span', 'sign-who', label + ': ' + by));
+  if (pane) row.appendChild(el('span', 'sign-pane', 'pane ' + pane));
+  if (sha) {
+    const s = el('span', 'sign-sha mono', shortSha(sha));
+    s.title = sha; // full sha on hover — the clamped 8 chars are for scanning, not the source of truth
+    row.appendChild(s);
+  }
+  row.appendChild(el('span', 'sign-evidence', evidenceLabel(scope)));
+  return row;
+}
+// kobo-510 — signer / pane / SHA / evidence scope for each signed tier, collapsed
+// by default (<details>, native — Unhappy #1: don't clutter the board) but the
+// SUMMARY line alone (never expanded) already answers "how many tiers, and which
+// tier is just diff-read" per the card's own AC wording, without needing to open it.
+function renderDetailSigns(task) {
+  const host = $('detail-signs');
+  const hasCrew = !!task.crewSignedBy;
+  const hasHead = !!task.headSignedBy;
+  if (!hasCrew && !hasHead) { host.replaceChildren(); host.hidden = true; return; } // never-signed (state a) — no section at all
+
+  const tierCount = (hasCrew ? 1 : 0) + (hasHead ? 1 : 0);
+  const summaryBits = [];
+  if (hasCrew) summaryBits.push('crew: ' + evidenceLabel(task.crewSignedEvidenceScope));
+  if (hasHead) summaryBits.push('head: ' + evidenceLabel(task.headSignedEvidenceScope));
+
+  const det = el('details', 'signs-detail');
+  det.appendChild(el('summary', 'signs-summary', '✍ ' + tierCount + ' signed · ' + summaryBits.join(' · ')));
+  if (hasCrew) det.appendChild(signTierRow('crew', task.crewSignedBy, task.crewSignedByPane, task.crewSignedSha, task.crewSignedEvidenceScope));
+  if (hasHead) det.appendChild(signTierRow('head', task.headSignedBy, task.headSignedByPane, task.headSignedSha, task.headSignedEvidenceScope));
+  // AC#3 — crew and head signed DIFFERENT commits: the same mismatch the merge-gate
+  // itself already refuses on (kobo-400's "different commits, only one tier actually
+  // reviewed the code being merged") — surfaced visually here BEFORE anyone attempts
+  // the merge, not a new comparison mechanism (Out-of-scope: don't touch sign/merge).
+  if (hasCrew && hasHead && task.crewSignedSha && task.headSignedSha && task.crewSignedSha !== task.headSignedSha) {
+    det.appendChild(el('div', 'sign-stale', '⚠ crew and head signed different commits — one tier reviewed stale code'));
+  }
+  host.replaceChildren(det);
+  host.hidden = false;
 }
 // kobo-62 — assignee avatar (core face). Reuses the maw-pane color hash + kobo-71
 // auto-contrast text; initials + title=full name keep it color-not-only. Unassigned
@@ -1587,6 +1662,7 @@ async function openDetail(task) {
   }
   $('detail-title').textContent = (task.id ? task.id + ' · ' : '') + (task.title || '(untitled)');
   renderDetailMeta(task); // kobo-62: dept / parent-chip / wait moved off the card face → here
+  renderDetailSigns(task); // kobo-510: signer / pane / SHA / evidence scope per merge-gate tier
   renderDetailApprove(task); // kobo-190: approve-only summary + link-out + mark-only Approve button
   renderDetailDeps(task);   // kobo-136: dependency chips (waits-on / missing / unblocks)
   renderDetailFamily(task); // kobo-136: family tree (root → descendants, current marked)
