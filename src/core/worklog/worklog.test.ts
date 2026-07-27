@@ -350,7 +350,7 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
     expect(second.map(e => e.summary)).toEqual(["git op-1"]); // not corrupted by the mutation above
   });
 
-  it("read landing mid-append: a half-written trailing line is not dropped, it's picked up whole next read (kobo-463, %11's find)", () => {
+  it("guard: an incomplete trailing line is never counted as consumed (defensive — no known writer produces one, see kobo-463 c9 measurement: 0 torn tails / 2187 real concurrent reads)", () => {
     _resetWorklogCache();
     appendWorklog(entry("c463e", 1));
     const first = readWorklog("c463e");
@@ -365,31 +365,58 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
 
     const mid = readWorklog("c463e");
     expect(mid.map(e => e.summary)).toEqual(["git op-1"]); // torn line not parsed, not dropped either
+    expect(_worklogCacheSize(p)).toBeLessThan(statSync(p).size); // cache did NOT advance past the torn tail
 
     // the rest of the line lands
     appendFileSync(p, full.slice(full.length - 5));
     const after = readWorklog("c463e");
     expect(after.map(e => e.summary)).toEqual(["git op-1", "git op-2"]); // now whole, and only once
+    expect(_worklogCacheSize(p)).toBe(statSync(p).size); // caught up to the real size once the line completed
   });
 
-  it("Thai entries: the cache's recorded offset must be a BYTE offset, not a character count (kobo-463, %11 c7)", () => {
-    // ASCII fixtures can't catch this: a character offset only equals the real byte
-    // offset when every char is 1 byte. Thai chars are 3 bytes each. A character-based
-    // offset drifts silently from the true byte position on every incremental read —
-    // whether that drift visibly duplicates or drops an entry depends on where it
-    // happens to land relative to JSON's structural characters (coincidental, not
-    // reliably reproducible from readWorklog's return value alone — verified by hand:
-    // this exact fixture's drift consistently lands mid-string and gets silently
-    // swallowed by parseWorklogLines' catch, not duplicated, even over hundreds of
-    // appends). The offset itself is the actual invariant, so assert that directly.
-    const thai = (n: number) => ({ ...entry("c463g", n), summary: `เข้าใจแล้วครับ งานที่ ${n} ทำเสร็จตามที่ตกลง` });
+  it("guard: a torn line does not withhold the COMPLETE lines appended ahead of it — all land together once the tail completes", () => {
     _resetWorklogCache();
-    for (let n = 1; n <= 5; n++) {
-      appendWorklog(thai(n));
-      readWorklog("c463g");
+    appendWorklog(entry("c463h", 1));
+    readWorklog("c463h");
+    appendWorklog(entry("c463h", 2));
+    appendWorklog(entry("c463h", 3)); // 2 complete lines now sit unread in the tail
+
+    const p = worklogPath("c463h");
+    const full = JSON.stringify(entry("c463h", 4)) + "\n";
+    appendFileSync(p, full.slice(0, full.length - 5)); // torn 4th line at the very end of the tail
+
+    const mid = readWorklog("c463h");
+    expect(mid.map(e => e.summary)).toEqual(["git op-1"]); // 2 and 3 held back too, not just 4
+
+    appendFileSync(p, full.slice(full.length - 5));
+    const after = readWorklog("c463h");
+    expect(after.map(e => e.summary)).toEqual(["git op-1", "git op-2", "git op-3", "git op-4"]); // all land together, none duplicated
+  });
+
+  it("the cache's recorded offset stays byte-exact on mixed Thai/ASCII content with varying line lengths (kobo-463, %5 c10 — a pure-Thai fixture alone would have passed the earlier char-based bug too)", () => {
+    // %5 measured: a char-based offset only visibly breaks readWorklog's RETURNED entries
+    // once the accumulated drift can swallow a WHOLE prior line — which depends on the
+    // Thai-to-ASCII byte ratio per line, and real worklog lines (mostly ASCII keys/paths,
+    // Thai only in free-text) mostly sit on the side that stayed accidentally green. Mixed,
+    // uneven-length lines are what real traffic looks like — assert the byte invariant
+    // directly rather than trust any one fixture's proportions to expose it by luck.
+    const mixed = (n: number) => ({
+      ts: n, iso: `i${n}`, oracle: `worker-${n % 3}`, company: "c463i", kind: "tool" as const,
+      summary: n % 2 === 0
+        ? `PR #${n} merged: src/core/worklog/store.ts, src/core/worklog/worklog.test.ts (${n} files)`
+        : `แก้บั๊ก offset ตัวที่ ${n} เรียบร้อยครับ รอรีวิวจาก %${n} ก่อน merge`,
+    });
+    _resetWorklogCache();
+    for (let n = 1; n <= 12; n++) {
+      appendWorklog(mixed(n));
+      readWorklog("c463i");
     }
-    const p = worklogPath("c463g");
+    const p = worklogPath("c463i");
     expect(_worklogCacheSize(p)).toBe(statSync(p).size); // cache's bookmark matches the file's real byte length
+    // cross-check against a full re-read, not just the raw offset number
+    _resetWorklogCache();
+    const viaFullReread = readWorklog("c463i");
+    expect(viaFullReread).toHaveLength(12);
   });
 });
 

@@ -8,10 +8,14 @@
  * WRITERS ARE MULTIPLE (not single): the server feed listener, the `maw company worklog
  * claim/release` CLI, and the `maw done` → PR poller all append the same
  * <company>.jsonl, across processes. Append safety = each entry is serialized to
- * a single line whose byte length is bounded < PIPE_BUF (4 KB), so the O_APPEND
- * write is atomic per POSIX → lines never interleave/corrupt. (Honours "Nothing
- * is Deleted": entries are only appended; read still skips any malformed line as
- * a last-ditch guard.)
+ * a single line whose byte length is bounded (MAX_LINE_BYTES below), keeping each
+ * append a single small write() under O_APPEND. NOTE (kobo-463, %5 c10): PIPE_BUF
+ * is a pipe/FIFO guarantee, not a regular-file one — citing it here overstated the
+ * assurance. What actually held, measured directly (kobo-463 c9: two real
+ * concurrent writer processes, 8000 appends, 0 torn tails observed across 2187
+ * reads), is a practical property of local writes this size, not a POSIX contract
+ * — a bounded negative, not a proof. (Honours "Nothing is Deleted": entries are
+ * only appended; read still skips any malformed line as a last-ditch guard.)
  *
  * The server feed listener is on the hot path, so it uses the non-blocking
  * `appendWorklogAsync` (ordered per-file queue); CLI/poller use the sync variant.
@@ -24,7 +28,7 @@ import { mawDataPath } from "../xdg";
 import type { WorklogEntry } from "./types";
 
 const DEFAULT_COMPANY = "_unscoped";
-const MAX_LINE_BYTES = 3072; // < PIPE_BUF (4096) → atomic O_APPEND, no interleave
+const MAX_LINE_BYTES = 3072; // small single write() per append (kobo-463 c10 — not a PIPE_BUF/POSIX guarantee, see file header)
 
 function safeCompany(company?: string | null): string {
   const c = (company ?? DEFAULT_COMPANY).trim() || DEFAULT_COMPANY;
@@ -145,15 +149,13 @@ function parseWorklogLines(text: string): WorklogEntry[] {
   return out;
 }
 
-/** Read exactly [start, start+length) from a file without loading the rest. Returns raw
- * bytes, NOT a string — cache offsets are byte offsets (worklog entries can be Thai,
- * 3 bytes/char, so a string index would drift from the byte position that produced it). */
-function readBytesFrom(path: string, start: number, length: number): Buffer {
+/** Read exactly [start, start+length) from a file without loading the rest. */
+function readBytesFrom(path: string, start: number, length: number): string {
   const fd = openSync(path, "r");
   try {
     const buf = Buffer.alloc(length);
     readSync(fd, buf, 0, length, start);
-    return buf;
+    return buf.toString("utf-8");
   } finally {
     closeSync(fd);
   }
@@ -182,11 +184,12 @@ export function _resetWorklogCache(): void {
   worklogCache.clear();
 }
 
-/** Test-only — the cache's recorded byte offset for a path, so a test can assert it
- * against the file's real stat size directly (kobo-463, %11 c7: a char-based offset drifts
- * from the true byte position on Thai content, silently — emergent duplication depends on
- * where the drift happens to land relative to JSON structure, so it's not reliably
- * reproducible from the outside; the offset itself is the actual invariant to check). */
+/** TEST-ONLY, READ-ONLY (kobo-463). Peeks the cache's recorded byte offset for a path so a
+ * test can assert it against the file's real stat size directly — the actual invariant a
+ * char-based offset bug (kobo-463 c7/c8) silently broke, more reliable than asserting on an
+ * emergent symptom (duplication depends on where the drift lands relative to JSON structure).
+ * DELIBERATELY has no counterpart setter: this must never become a way to mutate the cache,
+ * only to observe it, in test or otherwise. Do not add one. */
 export function _worklogCacheSize(path: string): number | undefined {
   return worklogCache.get(path)?.size;
 }
@@ -200,20 +203,25 @@ export function readWorklog(company: string | null | undefined, opts: ReadWorklo
     entries = cached.entries; // unchanged — skip the read+parse entirely
   } else if (cached && size > cached.size) {
     // grew — the log is append-only, so only the new tail needs reading.
-    // A read can land mid-append and catch a half-written trailing line
-    // (kobo-463, %11's find) — only consume up to the LAST complete
-    // newline; cache size reflects only what was actually consumed, so a
-    // partial tail is picked back up (whole) on the next call instead of
-    // being silently dropped forever.
     //
-    // BYTE offset, not character offset (%11, c7): cached.size is a byte
-    // count, and worklog entries are Thai — 3 bytes/char — so indexing a
-    // decoded string here would drift from the byte position it came from.
-    // Operate on the raw Buffer and only decode the consumed slice.
+    // ALL-OR-NOTHING (kobo-463, %11 c9 — supersedes an earlier per-line-offset
+    // version that computed a BYTE position from a CHARACTER index and drifted
+    // silently on Thai content, kobo-463 c7/c8): a read can land mid-append and
+    // catch a half-written trailing line. Rather than finding the last complete
+    // newline and consuming up to there (offset arithmetic — the exact class of
+    // bug that bit this file once already), only consume the tail AT ALL when
+    // it ends in a newline. cached.size then becomes exactly `size` — the real
+    // stat size, not a computed offset — so there is no byte/character position
+    // to get wrong. If the tail doesn't end in a newline, consume nothing this
+    // round; the whole tail (including any complete lines in front of the torn
+    // one) is picked up together once it does.
     const rawTail = readBytesFrom(path, cached.size, size - cached.size);
-    const consumed = rawTail.lastIndexOf(0x0a) + 1; // -1 (no newline) → 0
-    entries = cached.entries.concat(parseWorklogLines(rawTail.subarray(0, consumed).toString("utf-8")));
-    worklogCache.set(path, { size: cached.size + consumed, entries });
+    if (rawTail.endsWith("\n")) {
+      entries = cached.entries.concat(parseWorklogLines(rawTail));
+      worklogCache.set(path, { size, entries });
+    } else {
+      entries = cached.entries; // incomplete trailing line — consume nothing, don't advance
+    }
   } else {
     // no cache yet, OR size shrank (truncate/rotate) — the past cache can't be
     // trusted, re-read the whole file
