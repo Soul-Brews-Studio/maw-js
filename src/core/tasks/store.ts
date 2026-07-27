@@ -159,9 +159,11 @@ export interface TaskRecord {
   crewSignedBy?: string; // kobo-327: oracle that crew-signed (pre-PR gate). who+ts mirrors the reviewer field convention.
   crewSignedTs?: number; // epoch ms
   crewSignedByPane?: string; // kobo-346: the tmux %pane-id that crew-signed (pane-grain identity — a v2 crew has many panes of ONE oracle; this binds the SIGNING pane). Live-resolved in the signer's shell → agent-settable → DEFENSE-IN-DEPTH, not airtight.
+  crewSignedSha?: string; // kobo-400: the PR head SHA at crew-sign time (best-effort, `gh pr view --json headRefOid`) — binds WHAT was reviewed, not just when. Absent = a pre-kobo-400 sign (legacy, grandfathered at merge).
   headSignedBy?: string; // kobo-327: oracle that head-signed (final gate before merge)
   headSignedTs?: number; // epoch ms
   headSignedByPane?: string; // kobo-346: the tmux %pane-id that head-signed (same pane-grain binding as crewSignedByPane)
+  headSignedSha?: string; // kobo-400: the PR head SHA at head-sign time (same capture as crewSignedSha)
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -820,8 +822,14 @@ export function signPaneViolation(task: TaskRecord, role: SignTier, signerPane: 
  * Record a gate sign (crew or head). Idempotent — re-signing just refreshes who+ts
  * (no error, no duplicate). A crew sign self-marks the card `crewGate` so a card a
  * crew has touched can't skip the crew tier. Returns null if the card is absent.
+ *
+ * kobo-400: `sha` (when known — the caller's best-effort `gh pr view --json headRefOid`)
+ * binds this sign to the commit it reviewed. Re-signing always REFRESHES the field to
+ * whatever the caller passed this time (including undefined on a failed re-fetch) — a
+ * re-sign is a fresh act, so a stale SHA from an earlier attempt must not linger and
+ * imply verification that didn't happen. Absent → `merge` grandfathers this tier.
  */
-export function signTask(company: string, id: string, by: string, role: SignTier, pane?: string | null): TaskRecord | null {
+export function signTask(company: string, id: string, by: string, role: SignTier, pane?: string | null, sha?: string): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   const now = Date.now();
@@ -830,11 +838,13 @@ export function signTask(company: string, id: string, by: string, role: SignTier
     task.crewSignedBy = by;
     task.crewSignedTs = now;
     task.crewSignedByPane = signerPane; // kobo-346: bind the crew tier to its signing pane
+    task.crewSignedSha = sha; // kobo-400: bind the crew tier to its reviewed commit
     task.crewGate = true; // a crew signing declares this a crew-tier card
   } else {
     task.headSignedBy = by;
     task.headSignedTs = now;
     task.headSignedByPane = signerPane; // kobo-346: bind the head tier to its signing pane
+    task.headSignedSha = sha; // kobo-400: bind the head tier to its reviewed commit
   }
   task.updatedTs = now;
   writeTaskRecord(task);

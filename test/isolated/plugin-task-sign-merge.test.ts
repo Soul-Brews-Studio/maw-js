@@ -289,6 +289,121 @@ describe("kobo-336 distinct-signers", () => {
   });
 });
 
+// kobo-400: bind a sign to the commit it reviewed — epic-326's last hole (a sign proved
+// WHEN, not WHAT). crew/head SHAs must AGREE (a push between the two signers is a smaller
+// version of the same self-review-bypass class kobo-336 exists to close — convergent
+// discovery: found from the implementation side here, from the gate-semantics side by
+// lead, independently, minutes apart). Legacy signs (no SHA at all, pre-kobo-400) are
+// grandfathered — field-absence is the ONE trigger, no flag-day/timestamp logic.
+describe("kobo-400 signSha hard-bind", () => {
+  const origSpawnSync = Bun.spawnSync;
+  afterAll(() => { Bun.spawnSync = origSpawnSync; });
+
+  test("merge REFUSES when crew and head signed different commits", async () => {
+    // guard the real gh binary regardless of gate outcome: if this refuse ever regressed,
+    // the call would otherwise fall through to a REAL `gh pr merge` against a real repo.
+    Bun.spawnSync = (() => { throw new Error("must not reach gh — the SHA-mismatch gate should have refused first"); }) as typeof Bun.spawnSync;
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew", null, "sha-AAAA");
+    signTask("kobo", "kobo-1", "eq3", "head", null, "sha-BBBB"); // a push happened between the two signers
+    const r = await task(["merge", "kobo-1"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("sha-AAAA");
+    expect(r.error).toContain("sha-BBBB");
+    expect(r.error).toContain("different commits");
+  });
+
+  test("merge passes the SHA-bind gate when crew and head signed the SAME commit", async () => {
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew", null, "sha-SAME");
+    signTask("kobo", "kobo-1", "eq3", "head", null, "sha-SAME");
+    // --method octopus stops AFTER the SHA-bind gate, BEFORE gh is ever invoked — same trick
+    // the file already uses to prove the distinct-signer gate passed (line ~277).
+    const r = await task(["merge", "kobo-1", "--method", "octopus"]);
+    expect(r.error).toContain("--method"); // reached method check = past the SHA-bind gate
+    expect(r.error).not.toContain("different commits");
+  });
+
+  test("merge grandfathers a fully-legacy sign (neither tier has a SHA) — warns, does not refuse", async () => {
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew"); // no sha — pre-kobo-400 shape
+    signTask("kobo", "kobo-1", "eq3", "head");
+    const r = await task(["merge", "kobo-1", "--method", "octopus"]);
+    expect(r.output).toContain("pre-signSha-bind sign"); // loud warning, stated plainly
+    expect(r.output).toContain("kobo-404"); // follow-up reference (hard-enforce once legacy drains)
+    expect(r.error).toContain("--method"); // still reached method check — not refused
+  });
+
+  test("merge grandfathers a PARTIALLY-legacy sign (one tier has a SHA, the other doesn't) — same as fully-legacy, no partial enforcement", async () => {
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew", null, "sha-ONLY-CREW");
+    signTask("kobo", "kobo-1", "eq3", "head"); // legacy — no sha
+    const r = await task(["merge", "kobo-1", "--method", "octopus"]);
+    expect(r.output).toContain("pre-signSha-bind sign");
+    expect(r.error).not.toContain("different commits"); // field-absence is the ONE trigger — no partial compare
+    expect(r.error).toContain("--method");
+  });
+
+  test("single-tier (head-only) card: SHA-bind uses just the head SHA, no crew comparison needed", async () => {
+    await task(["add", "c"]); // non-crew
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "eq3", "head", null, "sha-SOLO");
+    const r = await task(["merge", "kobo-1", "--single-tier", "--method", "octopus"]);
+    expect(r.error).not.toContain("different commits");
+    expect(r.output).not.toContain("pre-signSha-bind"); // head has a sha → not legacy
+    expect(r.error).toContain("--method");
+  });
+
+  // Exploit-reality: mock `gh pr merge` to succeed, capture the argv it was actually
+  // invoked with. Reverting the `if (matchHeadCommit) mergeArgv.push(...)` line makes
+  // this assertion FAIL (the flag would never appear) — this pins the enforcement, not
+  // just the refuse-path logic above.
+  test("EXPLOIT-REALITY: a matching-SHA merge passes --match-head-commit to the real gh invocation", async () => {
+    let capturedArgv: string[] | undefined;
+    Bun.spawnSync = ((argv: string[]) => {
+      capturedArgv = argv;
+      return { exitCode: 0, stdout: Buffer.from(""), stderr: Buffer.from("") };
+    }) as typeof Bun.spawnSync;
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew", null, "sha-REAL");
+    signTask("kobo", "kobo-1", "eq3", "head", null, "sha-REAL");
+    const r = await task(["merge", "kobo-1"]);
+    expect(r.ok).toBe(true);
+    expect(capturedArgv).toContain("--match-head-commit");
+    expect(capturedArgv).toContain("sha-REAL");
+  });
+
+  test("EXPLOIT-REALITY companion: a legacy (no-SHA) merge does NOT pass --match-head-commit (nothing to bind)", async () => {
+    let capturedArgv: string[] | undefined;
+    Bun.spawnSync = ((argv: string[]) => {
+      capturedArgv = argv;
+      return { exitCode: 0, stdout: Buffer.from(""), stderr: Buffer.from("") };
+    }) as typeof Bun.spawnSync;
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew"); // legacy
+    signTask("kobo", "kobo-1", "eq3", "head"); // legacy
+    const r = await task(["merge", "kobo-1"]);
+    expect(r.ok).toBe(true);
+    expect(capturedArgv).not.toContain("--match-head-commit");
+  });
+
+  test("sign-time SHA capture is skipped under MAW_TEST_MODE (never shells to real gh in tests)", async () => {
+    // process.env.MAW_TEST_MODE is already "1" for this whole file (see beforeAll above).
+    // A real `sign` through the CLI, with a PR linked, must NOT populate *SignedSha —
+    // otherwise every sign-related test in this file would be making live gh calls.
+    await task(["add", "c"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    await signAs("eq3", "kobo-1", "head");
+    expect(readTask("kobo", "kobo-1")!.headSignedSha).toBeUndefined();
+  });
+});
+
 describe("kobo-327 merge-gate: web route exposes sign state (Board Truth #7)", () => {
   test("toCard maps crewGate + sign fields so the board UI matches the CLI", () => {
     const src = readFileSync(join(import.meta.dir, "../../src/core/tasks/route.ts"), "utf8");

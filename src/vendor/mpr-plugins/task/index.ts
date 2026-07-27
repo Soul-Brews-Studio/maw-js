@@ -789,7 +789,21 @@ export async function runTask(
       const signerPane = resolveSignerPane(); // %pane-id if in a tmux pane, else null (→ 335 fallback)
       const paneViol = before && signPaneViolation(before, role, signerPane, process.env.CREW_ROLE);
       if (paneViol) return { ok: false, error: `sign REFUSED for ${id}: ${paneViol}` };
-      const t = signTask(company, id, me, role, signerPane);
+      // kobo-400: best-effort — bind this sign to the PR's current head commit. Only when a
+      // PR is already linked (a sign before `pr` is linked has nothing to bind to yet); a gh
+      // failure (network/auth) is swallowed, NOT surfaced as a sign error — the sign itself
+      // must never be blocked by this. Either gap just means `merge` grandfathers this tier.
+      // MAW_TEST_MODE=1 skips the real subprocess entirely (same idiom as ping() above /
+      // notify.ts:23) — a test driving `sign` must not shell out to the real `gh` binary.
+      let signedSha: string | undefined;
+      if (before?.pr && before?.repo && process.env.MAW_TEST_MODE !== "1") {
+        const shaOut = Bun.spawnSync(["gh", "pr", "view", String(before.pr), "--repo", before.repo, "--json", "headRefOid", "-q", ".headRefOid"], { stdout: "pipe", stderr: "pipe" });
+        if (shaOut.exitCode === 0) {
+          const sha = shaOut.stdout.toString().trim();
+          if (sha) signedSha = sha;
+        }
+      }
+      const t = signTask(company, id, me, role, signerPane, signedSha);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       const still = missingSignTiers(t);
       console.log(`\x1b[32m✍ signed\x1b[0m ${t.id} \x1b[90m(${role})\x1b[0m: ${t.title}${still.length ? ` \x1b[90m— still needs: ${still.join(", ")}\x1b[0m` : ` \x1b[90m— all signs in (mergeable)\x1b[0m`}`);
@@ -850,9 +864,34 @@ export async function runTask(
       if (dupPane) {
         return { ok: false, error: `merge REFUSED for ${id}: pane ${dupPane} signed BOTH the crew and head tier — a distinct reviewer pane is required for each tier (kobo-346/339). Re-sign one tier from a different pane.` };
       }
+      // kobo-400: a sign proves WHAT was reviewed only if bound to a commit. Compare the
+      // REQUIRED tiers' stored *SignedSha (no live gh fetch here — nothing to compare
+      // against a moving target yet; the live-head check is delegated entirely to gh's own
+      // --match-head-commit below, atomic on the server, closing the check-then-merge race
+      // a local re-fetch here would still leave open).
+      //   both/all present + agree → pass that SHA to --match-head-commit.
+      //   present but DISAGREE → refuse (crew and head reviewed different commits — kobo-336's
+      //     two-signer rule opened this exact window; passing either SHA would trust the tier
+      //     that DIDN'T see the merged code).
+      //   any tier's SHA absent → legacy sign (pre-kobo-400, field didn't exist) — grandfather:
+      //     no flag, merge proceeds as before, loud warning only. Field-absence is the ONE
+      //     trigger (no timestamp/flag-day) so this naturally covers every pre-400 sign,
+      //     archived or not, without any special-casing.
+      const requiredTiers = requiredSignTiers(t);
+      const tierShas = requiredTiers.map((tier) => (tier === "crew" ? t.crewSignedSha : t.headSignedSha));
+      let matchHeadCommit: string | undefined;
+      if (tierShas.some((s) => !s)) {
+        console.log(`\x1b[33m⚠ merging ${id} with a pre-signSha-bind sign (no verified commit for at least one tier) — NOT cryptographically pinned to the reviewed code. Legacy grandfather (kobo-400); will hard-enforce once existing signs drain (kobo-404).\x1b[0m`);
+      } else if (new Set(tierShas).size > 1) {
+        return { ok: false, error: `merge REFUSED for ${id}: crew signed ${t.crewSignedSha}, head signed ${t.headSignedSha} — different commits, only one tier actually reviewed the code being merged. Re-sign the stale tier: \`maw company task sign ${id} --role <tier>\`.` };
+      } else {
+        matchHeadCommit = tierShas[0];
+      }
       const method = (flags["--method"] as string) || "merge";
       if (!["merge", "squash", "rebase"].includes(method)) return { ok: false, error: "--method must be merge, squash or rebase" };
-      const p = Bun.spawnSync(["gh", "pr", "merge", String(t.pr), `--${method}`, "--repo", t.repo], { stdout: "pipe", stderr: "pipe" });
+      const mergeArgv = ["gh", "pr", "merge", String(t.pr), `--${method}`, "--repo", t.repo];
+      if (matchHeadCommit) mergeArgv.push("--match-head-commit", matchHeadCommit); // kobo-400: GitHub enforces atomically server-side — no compare-then-act race
+      const p = Bun.spawnSync(mergeArgv, { stdout: "pipe", stderr: "pipe" });
       if (p.exitCode !== 0) {
         return { ok: false, error: `gh pr merge failed for ${id} (PR #${t.pr}): ${p.stderr.toString().trim() || p.stdout.toString().trim()}` };
       }
