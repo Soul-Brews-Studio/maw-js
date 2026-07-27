@@ -2380,6 +2380,13 @@ function ctxPct(p) {
   // trustworthy, so treat it the same as no data at all (never show a lying
   // number just because a number showed up).
   if (typeof p.total_input_tokens === 'number' && typeof p.context_window_size === 'number' && p.total_input_tokens > p.context_window_size) return null;
+  // kobo-443 (L2): Math.round assumes upstream only ever emits whole-number
+  // percentages. Today that holds (every observed row is an integer), but
+  // it's the presence pipe's data convention, not something this function
+  // enforces or can validate — a future fractional value like 0.4 would
+  // round down to 0 while tok is still under win, a different, uncovered
+  // cause of a lying "ctx —"-vs-0 read. Not guarded here on purpose (YAGNI):
+  // just naming the assumption so the next person doesn't have to rediscover it.
   if (typeof p.remaining_percentage === 'number') return Math.round(p.remaining_percentage);
   if (typeof p.used_percentage === 'number') return Math.round(100 - p.used_percentage);
   return null;

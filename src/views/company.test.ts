@@ -94,6 +94,17 @@ describe("ctxPct — board context% readout (kobo-443)", () => {
     expect(out).toBe(0);
   });
 
+  // kobo-443 review (eq3 L1): at exactly tok == win the pane is legitimately
+  // full — the number is not corrupt (corruption only starts once the
+  // cumulative counter goes PAST the window) — so this must render 0, the
+  // same as any other real near-full pane, not the em-dash. Pins the `>`
+  // boundary: mutating it to `>=` stayed green with no test watching this.
+  test("boundary: tok == win exactly is a legitimately full pane, renders 0 (not the em-dash)", () => {
+    const ctxPct = loadCtxPct();
+    const out = ctxPct({ total_input_tokens: 200000, context_window_size: 200000, remaining_percentage: 0, used_percentage: 100 });
+    expect(out).toBe(0);
+  });
+
   // the board shows REMAINING, not used — lock the DIRECTION explicitly (the
   // same family of bug as the statusline's inverted label, kobo-441): a
   // mostly-EMPTY pane (used_percentage low) must show a HIGH number here.
