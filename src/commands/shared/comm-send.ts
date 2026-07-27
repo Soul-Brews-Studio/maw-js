@@ -386,6 +386,60 @@ function emitMessageFeed(input: MessageLifecycleInput, port: number) {
  * Capture failure / no prompt visible (agent rendering) → idle:true, so a flaky
  * pane never blocks delivery permanently.
  */
+/**
+ * kobo-503 — drop GHOST text (dim / cursor-block) from one captured row.
+ *
+ * Replaces the old regex span-match (`ESC[2m … ESC[0m`), which required the dim
+ * opener to be IMMEDIATELY followed by plain text: Claude Code emits
+ * `ESC[2m ESC[39m Press up…` and `ESC[7m ESC[39m P ESC[0;2m ress…` for the very
+ * same hint row, so an interleaved code broke the match and the ghost text
+ * survived → read as live operator input → every pane holding a queued message
+ * was declared "typing" and locked out of delivery (a self-sustaining deadlock:
+ * the queue draws the hint, the hint blocks the drain).
+ *
+ * Attribute STATE, not span shape: walk the row, track SGR dim (2 / off 22) and
+ * reverse (7 / off 27, the cursor block that sits on the first ghost char), and
+ * keep only characters rendered plain. Immune to how many codes interleave and
+ * to the hint's wording. `0`/empty params reset both — and `ESC[0;2m` is
+ * left-to-right, so it correctly lands dim-ON.
+ */
+export function stripGhostText(line: string): string {
+  let out = "";
+  let dim = false;
+  let reverse = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === "\x1b" && line[i + 1] === "[") {
+      const end = line.indexOf("m", i);
+      const ctrl = line.slice(i + 2).search(/[A-Za-z]/);
+      const stop = ctrl === -1 ? -1 : i + 2 + ctrl;
+      if (end !== -1 && stop === end) {
+        const ps = line.slice(i + 2, end).split(";");
+        for (let k = 0; k < ps.length; k++) {
+          const n = ps[k] === "" ? 0 : Number(ps[k]);
+          // %5's request-change: 38/48 (extended fg/bg) OWN the params that
+          // follow them — `38;5;2` is palette index 2 and `38;2;r;g;b` is
+          // truecolour. Read left-to-right without consuming those, and a
+          // colour's literal `2` reads as "dim" and swallows the whole rest of
+          // the row, including text a human is actually typing. That is worse
+          // than kobo-503 itself (the guard exists to stop overtyping), and the
+          // old regex did NOT have it. Skip the sub-params so only a standalone
+          // 2 is dim.
+          if (n === 38 || n === 48 || n === 58) { k += ps[k + 1] === "5" ? 2 : ps[k + 1] === "2" ? 4 : 0; continue; }
+          if (n === 0) { dim = false; reverse = false; }
+          else if (n === 2) dim = true;
+          else if (n === 22) dim = false;
+          else if (n === 7) reverse = true;
+          else if (n === 27) reverse = false;
+        }
+        i = end;
+        continue;
+      }
+    }
+    if (!dim && !reverse) out += line[i];
+  }
+  return out;
+}
+
 export async function checkPaneIdle(
   target: string,
   host?: string,
@@ -397,23 +451,7 @@ export async function checkPaneIdle(
     const content = await capturePane(target, 12, host);
     const lines = content
       .split("\n")
-      .map(l => l
-        // eq3-003c follow-up — the cursor block sits ON the first ghost char:
-        // `ESC[7m<char>` immediately followed by a dim opener is autosuggest,
-        // not typed input; strip the char with the span. A permission menu's
-        // selected row (`❯ 1. Yes`) is 7m over PLAIN text — untouched.
-        .replace(/\x1b\[7m[^\x1b](?=\x1b\[(?:\d+;)*2(?:;\d+)*m)/g, "\x1b[7m")
-        // #eq3-003c — strip DIM spans (text + codes) FIRST. Claude Code renders
-        // ghost/queued/placeholder text on the input row as dim (`ESC[2m … ESC[0m`
-        // or `ESC[22m`, sometimes UNCLOSED to end-of-line). A plain CSI strip
-        // removes only the dim *codes*, leaving the ghost TEXT — which Pass 1
-        // then reads as live operator input → false "typing" → over-defer of
-        // every pane with a queued message. Removing the whole dim span keeps
-        // bright (real) input intact and a truly-empty `❯` empty.
-        // The opener may be COMPOUND (`ESC[0;2m` = reset+dim in one code,
-        // Claude Code ≥2026-06 autosuggest): match any param list containing
-        // a standalone 2 — `2m`, `0;2m`, `2;38m` — but never `22m`/`42m`.
-        .replace(/\x1b\[(?:\d+;)*2(?:;\d+)*m[^\x1b]*(?:\x1b\[(?:0|22)m|$)/g, "")
+      .map(l => stripGhostText(l)
         // Strip OSC sequences (e.g. OSC 8 hyperlinks the footer wraps PR links
         // in: ESC ] 8 ; … ST). ST terminator is `ESC \`, BEL is the legacy form.
         .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")

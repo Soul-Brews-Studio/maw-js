@@ -93,3 +93,87 @@ describe("detectPermissionMenu — modal recognition (eq3-004)", () => {
     expect(await probeMenu(footerOnly)).toBe(false);
   });
 });
+
+/**
+ * kobo-503 — the queued-message HINT row ("❯ Press up to edit queued messages").
+ *
+ * Claude Code draws this row whenever its client-side queue is non-empty. The
+ * eq3-003c span-regex required the dim opener to be immediately followed by the
+ * ghost text; the real emission interleaves a colour code (`ESC[2m ESC[39m …`),
+ * and with the cursor block on the first char it splits differently again
+ * (`ESC[7m ESC[39m P ESC[0;2m ress…`). Either way the ghost text survived the
+ * strip and read as live typing — so a pane holding ONE queued message was
+ * declared "operator input mid-edit" and every later message deferred, which
+ * kept the hint on screen: a queue that blocks its own drain. Measured live
+ * 2026-07-28: 20 messages pending, all attempts=0, `POST /api/flush` delivered
+ * 0 of 12.
+ */
+describe("checkPaneIdle — queued-message hint is ghost, not typing (kobo-503)", () => {
+  test("real capture: split dim opener (ESC[2m ESC[39m) reads as IDLE", async () => {
+    const r = await probe("claude-queued-hint-split-dim.txt");
+    expect(r.idle).toBe(true);
+    expect(r.lastInput).toBe("");
+  });
+
+  test("cursor-block variant (ESC[7m … ESC[0;2m) reads as IDLE", async () => {
+    // Byte-for-byte transcription of the same hint row as rendered with the
+    // cursor block on its first character (live capture, 05-eq3:eq3-oracle.2,
+    // 2026-07-28 04:57). Kept inline because the variant depends on cursor
+    // position and cannot be re-captured on demand.
+    const row = "\x1b[38;5;246m❯ \x1b[7m\x1b[39mP\x1b[0;2mress up to edit queued messages\x1b[0m";
+    const pane = `agent output\n\x1b[38;5;246m142642 tokens\x1b[39m\n----\n${row}\n--\n  \x1b[32m online\x1b[39m\n`;
+    const r = await checkPaneIdle("pane:0.0", undefined, { captureFn: async () => pane });
+    expect(r.idle).toBe(true);
+  });
+
+  test("real typing on the same row shape is still NOT idle (guard still guards)", async () => {
+    const row = "\x1b[38;5;246m❯ \x1b[39mreal operator text";
+    const pane = `agent output\n----\n${row}\n--\n  \x1b[32m online\x1b[39m\n`;
+    const r = await checkPaneIdle("pane:0.0", undefined, { captureFn: async () => pane });
+    expect(r.idle).toBe(false);
+    expect(r.lastInput).toBe("real operator text");
+  });
+});
+
+/**
+ * kobo-503 c1 — %5's request-change on the first cut of stripGhostText.
+ *
+ * SGR 38/48 (extended fg/bg) own the params that follow them: `38;5;2` is
+ * palette index 2, `38;2;r;g;b` is truecolour. Reading params left-to-right
+ * without consuming those made a colour's literal `2` set dim, which swallowed
+ * the rest of the row — including text a human was actively typing. That is a
+ * worse failure than the bug being fixed (this guard exists to stop overtyping)
+ * and the regex it replaced did not have it. Caught by an independent reviewer
+ * running the whole checkPaneIdle path, not by the author.
+ */
+describe("checkPaneIdle — colour params must not read as dim (kobo-503 c1)", () => {
+  const row = (prefix: string) => `agent output\n----\n${prefix}❯ \x1b[39mreal typed text\n--\n  online\n`;
+
+  test("256-colour foreground index 2 (38;5;2) does not hide typing", async () => {
+    const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[38;5;2m") });
+    expect(r.idle).toBe(false);
+    expect(r.lastInput).toBe("real typed text");
+  });
+
+  test("truecolour foreground with a 2 in its channels (38;2;r;g;b) does not hide typing", async () => {
+    const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[38;2;0;2;9m") });
+    expect(r.idle).toBe(false);
+  });
+
+  test("underline colour 58;5;2 does not hide typing", async () => {
+    const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[58;5;2m") });
+    expect(r.idle).toBe(false);
+  });
+
+  test("256-colour BACKGROUND index 2 (48;5;2) does not hide typing", async () => {
+    const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[48;5;2m") });
+    expect(r.idle).toBe(false);
+  });
+
+  test("a standalone 2 IS still dim — the fix must not disarm the strip", async () => {
+    const r = await checkPaneIdle("p", undefined, {
+      captureFn: async () => "agent output\n----\n\x1b[38;5;246m❯ \x1b[2m\x1b[39mghost\x1b[0m\n--\n  online\n",
+    });
+    expect(r.idle).toBe(true);
+  });
+});

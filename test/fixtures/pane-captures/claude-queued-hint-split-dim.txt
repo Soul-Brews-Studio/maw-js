@@ -1,0 +1,43 @@
+  [1mเพิ่งตัดสินก่อนล้าง[0m
+  - [1mยกคำสั่งห้ามแตะ 1.0 ให้ %9 เฉพาะ action เดียว[0m ([38;5;153m/clear[39m + [38;5;153m/seat[39m) — ไม่ใช่ผมทำ
+  เพราะ [1mคนที่กำลังจะหายไปไม่ควรถือ operation สองจังหวะ[0m. จบแล้วคำสั่งกลับมามีผลเอง
+  - เงื่อนไข: [1mอ่านกล่องใหม่ ณ วินาทีที่จะกด[0m · มีตัวอักษร = หยุด อย่า [38;5;153mC-u[39m · text+Enter แยก
+  call + หน่วง
+
+  [1mค้างใน [38;5;153mcoord.md[39m สำหรับ seat หน้า[0m
+  1. [1m503 = ด่วนสุด[0m — Tony พิมพ์เอง [3m"อยากแก้ไขเรื่อง input error แบบด่วนๆ"[0m ⇒ แซง
+  496/501. [1mdatum มีแล้วไม่ต้องสร้าง fixture[0m — ข้อความผมเด้ง [38;5;153moperator input mid-edit[39m
+  ใส่ pane ตัวเองทั้งคืนทั้งที่กล่องว่าง. เริ่มที่ [38;5;153mcheckPaneIdle[39m capture ด้วย [38;5;153m-e[39m ไหม
+  2. [1m504[0m — the pin กลายเป็นการ์ดแล้ว. [1mเป็นการ์ดเสนอทางเลือกให้ Tony ไม่ใช่การ์ดให้เราแก้[0m
+  — ห้ามให้ถูกเขียนเป็นบั๊กของเซลล์เรา
+  3. [1m502[0m ต่อสาย probe (Tony gate) · [1m495[0m รอ Tony merge · [1m498[0m เข้าคิว Tony แล้ว ·
+  [1m%10 ค้าง 468[0m
+
+  ถัดไป: [38;5;153m/clear[39m แล้ว [38;5;153m/seat[39m
+
+[38;5;246m✻[39m [38;5;246mSautéed for 1m 36s[39m
+
+[38;5;239m[48;5;237m❯ [38;5;231m⚠️ patchwork-oracle.0 ติด operator input — ข้อความคุณยัง deliver ไม่ได้ ไปดูหน่อย[39m
+[49m
+[38;5;114m⏺[39m [1mBash[0m(tmux display-message -p -t %2 'cursor_x=#{cursor_x}
+  cursor_y=#{cursor_y} in_mode=#{pane_in_mode} pane_dead=#{pane_dead}'; echo
+  "--- last 3 lines with escapes:"; tmux capture-pane -p -e -t %2 | grep -v
+  '^$' | tail -3 | cat -v)
+[38;5;246m  ⎿  [39mcursor_x=2 cursor_y=39 in_mode=0 pane_dead=0
+     --- last 3 lines with escapes:
+     ^[[38;5;244m�M-^TM-^@�M-^TM-^@^[[39m
+       ^[[33m�M-^WM-^K away^[[39m
+       ^[[38;5;211m�M-^O��M-^O� bypass permissions on^[[38;5;246m (shift+tab
+     to cycle)^[[39m
+
+[38;5;239m[48;5;237m❯ [38;5;231m⚠️ 0.0 ติด operator input — ข้อความคุณยัง deliver ไม่ได้ ไปดูหน่อย[39m [49m
+
+[38;5;174m✳[39m [38;5;174mPhotos[38;5;216mynt[38;5;174mhesizing… [38;5;246m(17s · ↓[39m [38;5;246m3.9k tokens · [38;5;249mthinking[38;5;246m)[39m
+
+  [38;5;239m[48;5;237m❯ [38;5;231m⚠️ 0.2 ติด operator input — ข้อความคุณยัง deliver ไม่ได้ ไปดูหน่อย[39m             [49m
+                                                            [38;5;246m91% context used[39m
+[38;5;244m─────────────────────────────────────────────────────────────────────────────
+[38;5;246m❯ [2m[39mPress up to edit queued messages[0m
+[38;5;244m──[39m
+  [33m○ away[39m
+  [38;5;211m⏵⏵ bypass permissions on[38;5;246m (shift+tab to cycle)[39m
