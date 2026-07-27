@@ -224,9 +224,19 @@ export function readWorklog(company: string | null | undefined, opts: ReadWorklo
     }
   } else {
     // no cache yet, OR size shrank (truncate/rotate) — the past cache can't be
-    // trusted, re-read the whole file
-    entries = size > 0 ? parseWorklogLines(readFileSync(path, "utf-8")) : [];
-    worklogCache.set(path, { size, entries });
+    // trusted, re-read the whole file.
+    //
+    // Record the ACTUAL byte length of what was read, not `size` from the
+    // earlier probe (kobo-463, %5 c13): an append landing between that probe
+    // and this readFileSync makes the probed `size` SHORTER than what actually
+    // got read, so the next round's incremental branch would re-read and
+    // re-parse the overlap — silent duplication. Same family as the two fixes
+    // above (a recorded position that doesn't match what was actually read),
+    // just in the cold-start branch instead of the incremental one — the
+    // branch nobody was looking at because both earlier bugs were incremental.
+    const raw = size > 0 ? readFileSync(path, "utf-8") : "";
+    entries = raw ? parseWorklogLines(raw) : [];
+    worklogCache.set(path, { size: Buffer.byteLength(raw, "utf-8"), entries });
   }
 
   let filtered = entries;

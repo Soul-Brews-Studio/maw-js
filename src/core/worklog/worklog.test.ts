@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync, statSync, appendFileSync } from "fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync, appendFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -426,6 +426,54 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
     const viaFullReread = readWorklog("c463i");
     expect(viaFullReread).toHaveLength(12);
   });
+
+  // kobo-463, %5 c13 — a THIRD bug in the same family (recorded position doesn't match
+  // what was actually read), this time in the cold-start branch: it recorded `size` from
+  // a stat fired BEFORE readFileSync, so an append landing between the two made the
+  // recorded position shorter than what was actually read, and the next incremental read
+  // re-consumed the overlap — silent duplication. No same-process test can see this: every
+  // append+read pair above runs sequentially in ONE process, so there is no window for a
+  // second writer to land in between. This is the only shape that can — a REAL separate OS
+  // process writing while THIS process polls, same technique as kobo-430's room tests.
+  it("cross-process: a writer appending while a SEPARATE process polls readWorklog never sees a duplicate (kobo-463 c13 — reproduced 6/6 before the cold-start fix)", async () => {
+    _resetWorklogCache();
+    const company = "c463j";
+    const count = 2000; // %5's scale — repro is timing-sensitive, not scale-linear (verified: 5000 reproduced LESS reliably than 2000)
+    const dir = mkdtempSync(join(tmpdir(), "worklog-crossproc-"));
+    const sentinel = join(dir, "writer-done");
+    const resultPath = join(dir, "result.json");
+    const writerFixture = new URL("./__fixtures__/append-worker.ts", import.meta.url).pathname;
+    const readerFixture = new URL("./__fixtures__/poll-reader.ts", import.meta.url).pathname;
+    const env = { ...process.env, MAW_TEST_MODE: "1" };
+
+    // the reader must be its OWN OS process, not an async loop in THIS process: the race
+    // is a microsecond-scale gap between two syscalls (stat, then readFileSync), and a
+    // loop bounded by JS event-loop/setTimeout granularity samples far too few times per
+    // second to reliably land in it — verified by hand: an async in-process polling
+    // version of this test could NOT reproduce the bug at all, even at this same scale.
+    //
+    // ORDER MATTERS, and it's the opposite of "make sure the reader is ready first": the
+    // cold-start bug can only fire on the reader's SINGLE FIRST call (its cache is empty
+    // only once — every later call takes the already-fixed incremental path). Starting
+    // the writer FIRST and letting it run for a moment before the reader's process even
+    // exists means the reader's one cold-start read has a real chance of landing while
+    // the writer is actively mid-append — an explicit "reader ready" handshake before the
+    // writer starts was verified BY HAND to make this NOT reproduce at all (the reader's
+    // first read then lands on a near-empty, non-growing file).
+    const writer = Bun.spawn(["bun", "run", writerFixture, company, "W", String(count), sentinel], { env, stderr: "pipe" });
+    const reader = Bun.spawn(["bun", "run", readerFixture, company, sentinel, resultPath], { env, stderr: "pipe" });
+
+    const [writerExit, readerExit] = await Promise.all([writer.exited, reader.exited]);
+    if (writerExit !== 0) throw new Error(`writer failed: ${await new Response(writer.stderr).text()}`);
+    if (readerExit !== 0) throw new Error(`reader failed: ${await new Response(reader.stderr).text()}`);
+
+    const result = JSON.parse(readFileSync(resultPath, "utf-8")) as { reads: number; maxLen: number; sawDuplicate: boolean; finalCount: number };
+    expect(result.sawDuplicate).toBe(false); // the actual bug: same summary counted twice within one read
+    expect(result.maxLen).toBeLessThanOrEqual(count); // never over-counted past what was truly written
+    expect(result.finalCount).toBe(count); // and settled on exactly the right total, no permanent gap either
+    _resetWorklogCache();
+    expect(readWorklog(company)).toHaveLength(count); // cross-check: this process's own fresh read agrees
+  }, 20_000);
 });
 
 describe("hook scripts stay in sync with embedded base64", () => {
