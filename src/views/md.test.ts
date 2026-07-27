@@ -133,6 +133,42 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
     expect(mdToHtml("just one line")).toBe('<p class="pg-0">just one line</p>');
   });
 
+  // AC5: existing, unedited messages already in the room must get coloured
+  // under the new rule with no text change. mdToHtml is a pure function of
+  // the text with no legacy-vs-new branch, so this is currently implied by
+  // every other test here — but "implied" quietly stops being true the
+  // moment someone adds a branch (e.g. a message-age check) later. Naming
+  // this explicitly is what would catch that regression.
+  test("kobo-456: pre-existing, unedited message text (nothing marked up for this feature) still gets coloured through the SAME path as new messages", () => {
+    const oldStyleMessage = "just some plain text someone wrote before this feature existed";
+    expect(mdToHtml(oldStyleMessage)).toBe('<p class="pg-0">' + oldStyleMessage + '</p>');
+  });
+
+  // front's ruling that per-line seams are the ACCEPTED look (closer to a
+  // real highlighter than a solid block) rests on the structure never
+  // collapsing multi-line paragraphs into one merged element. Pin the
+  // structure itself, not his opinion of it — a future "fix" that merges the
+  // lines to remove the banding would break this even though every
+  // colour-grouping test above would still pass (they check the CLASS, not
+  // the element count).
+  test("kobo-456: a MULTI-LINE paragraph group stays as SEPARATE <p> elements per line, never collapsed into one merged block", () => {
+    const out = mdToHtml("line one\nline two\nline three");
+    expect(out.match(/<p class="pg-0">/g)?.length).toBe(3); // 3 elements, not 1 merged <p>
+    expect(out).not.toContain("<br>"); // <br>-joining is the blockquote merge pattern (kobo-425) — paragraphs never adopt it
+  });
+
+  // unhappy path (card): a message with no clear paragraph breaks (one very
+  // long physical line) must not become one giant solid-colour block filling
+  // the screen — it's exactly ONE ordinary paragraph, same shape as a short
+  // one, just with more text. Splitting is on \n only, so length alone can
+  // never multiply it into several bands or grow it past a normal <p>.
+  test("kobo-456 unhappy: a single very long line (no paragraph breaks) does NOT become one solid colour block — it's exactly ONE normal paragraph, same shape as a short one", () => {
+    const longLine = "word ".repeat(200).trim();
+    const out = mdToHtml(longLine);
+    expect(out).toBe('<p class="pg-0">' + longLine + '</p>');
+    expect(out.match(/<p /g)?.length).toBe(1);
+  });
+
   test("kobo-456: many paragraphs cycle back to the first colour — intentional, not broken", () => {
     expect(pgClasses(mdToHtml("p1\n\np2\n\np3\n\np4\n\np5"))).toEqual(["pg-0", "pg-1", "pg-2", "pg-3", "pg-0"]);
   });
@@ -143,6 +179,14 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
 
   test("kobo-456: a list between paragraph runs starts a fresh colour group on each side", () => {
     expect(pgClasses(mdToHtml("p1\n- item\np2"))).toEqual(["pg-0", "pg-1"]);
+  });
+
+  // reviewer L1: the ol branch (md.ts) was the only list-type branch with no
+  // test watching its endParaRun() call. No blank line on either side of the
+  // list here — a blank line would mask the branch (same trap the blockquote
+  // test above caught), so this must abut directly to actually exercise it.
+  test("kobo-456: an ORDERED list between paragraph runs also starts a fresh colour group on each side", () => {
+    expect(pgClasses(mdToHtml("p1\n1. item\np2"))).toEqual(["pg-0", "pg-1"]);
   });
 
   test("kobo-456: an hr between paragraph runs starts a fresh colour group on each side", () => {

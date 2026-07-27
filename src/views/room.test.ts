@@ -88,6 +88,20 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     }
   });
 
+  // unhappy case (card): a reader who can't distinguish colours well must
+  // still be able to tell paragraphs apart — colour is additive, never a
+  // replacement for the structural spacing cue. Currently true only because
+  // the pg-N rules add background/padding and never touch margin; nothing
+  // named this until now, so a future edit that folded margin into the
+  // colour rules could remove it silently.
+  test("kobo-456: paragraph spacing survives independent of colour — paragraphs stay separable without relying on hue (colour-blind fallback)", () => {
+    expect(html).toContain(".bubble .body p { margin:4px 0; }"); // the base structural rule (kobo-396), untouched
+    for (let n = 0; n < 4; n++) {
+      const rule = html.slice(html.indexOf(`.bubble .body p.pg-${n} {`), html.indexOf("}", html.indexOf(`.bubble .body p.pg-${n} {`)) + 1);
+      expect(rule).not.toContain("margin"); // colour rules add background/padding only, never redefine spacing
+    }
+  });
+
   test("default partner = the company lead (send targets `lead`, from the /api/rooms response)", () => {
     expect(html).toContain("body.lead"); // lead resolved server-side, carried in the list response
     expect(html).toContain("to: lead"); // the send defaults to the company lead
