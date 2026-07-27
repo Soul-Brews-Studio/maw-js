@@ -66,7 +66,15 @@ export function registerRoomListener(feedListeners: Set<(event: FeedEvent) => vo
   registered = true;
   feedListeners.add((event) => {
     try { onRoomFeedEvent(event); }
-    catch { /* never break the feed pipeline because of a room write */ }
+    catch (e) {
+      // kobo-415 (lead ruling): a room write must never break the feed pipeline, so this
+      // still swallows — the throw does not escape. But silent was the exact failure mode
+      // 415 fixed on the HTTP path (fail-loud counter); this makes it AUDIBLE here too.
+      // Greppable so a lost message is findable on the first grep: token, which room, the
+      // real error.
+      const roomId = parseRoomId((event as { data?: { text?: string } }).data?.text);
+      console.error(`kobo-415 room-listener dropped a message: room=${roomId ?? "?"} error=${e}`);
+    }
   });
 }
 

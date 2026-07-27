@@ -255,6 +255,27 @@ describe("room message seq (kobo-415 — company-wide, unique by construction)",
     expect(second.messages.map((m) => m.seq)).toEqual(first.messages.map((m) => m.seq)); // no drift on repeat open
   });
 
+  // kobo-415 reopen, declared beyond lead's locked scope (see PR body): reviewer's
+  // tightest uncovered case. appendRoomMessage does TWO mints in one logical operation —
+  // readRoom's backfill mints for the legacy messages, THEN appendRoomMessage's own
+  // nextRoomSeq mints for the new one — and neither existing test hit it (one uses fresh
+  // rooms with no backfill, the other calls readRoom directly without an append after).
+  // First case a future async refactor of mintRoomSeqBatch would break.
+  test("appending to a LEGACY room does two mints in one operation (backfill, then append) without collision", () => {
+    openRoom("kobo", "legacyAppend", "topic");
+    const raw = JSON.parse(readFileSync(roomFilePath("kobo", "legacyAppend"), "utf8"));
+    raw.messages = [
+      { id: "old1", from: "a", text: "x", ts: 1 },
+      { id: "old2", from: "b", text: "y", ts: 2 },
+    ];
+    writeFileSync(roomFilePath("kobo", "legacyAppend"), JSON.stringify(raw));
+
+    const after = appendRoomMessage("kobo", "legacyAppend", { id: "new1", from: "c", text: "z", ts: 3 })!;
+    const seqs = after.messages.map((m) => m.seq);
+    expect(new Set(seqs).size).toBe(3); // backfilled old1/old2 + the new append, all distinct
+    expect(seqs[2]).toBe(Math.max(seqs[0], seqs[1]) + 1); // append's mint follows the backfill's mint, not interleaved
+  });
+
   // THE BINDING AC (eq3 ruling): the guard must CONSTRUCT the collision two
   // independently-numbered rooms would produce under a naive per-room counter, then
   // assert it can't happen — not just observe a freshly built dataset (which has no
