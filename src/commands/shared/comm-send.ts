@@ -4,7 +4,7 @@
 
 import {
   listSessions, capture, sendKeys, isAgentCommand, findPeerForTarget, resolveTarget,
-  curlFetch, runHook,
+  curlFetch, runHook, requireOracleIdentity,
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
 import { AmbiguousMatchError } from "../../core/runtime/find-window";
@@ -69,16 +69,14 @@ export async function resolveOraclePane(
   }
 }
 
-/** Resolve the current oracle name from CLAUDE_AGENT_NAME or tmux session */
+/** Resolve the current oracle name from explicit env, cwd, or tmux session. */
 /** @internal */
 export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
-  if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
-  // Try tmux session name: "08-mawjs" → "mawjs"
   try {
-    const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
-    if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
-  } catch {}
-  return config.node || "cli";
+    return requireOracleIdentity().name;
+  } catch (error: any) {
+    throw new Error(`${error.message}; config.node=${config.node || "unset"} is node identity, not a safe sender fallback`);
+  }
 }
 
 /**

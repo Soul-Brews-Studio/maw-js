@@ -1,15 +1,13 @@
-import { hostExec } from "maw-js/sdk";
+import { requireOracleIdentity } from "maw-js/sdk";
 import { UserError } from "maw-js/core/util/user-error";
 
 /**
- * maw whoami — print the current tmux session name on stdout.
- * Replaces scattered raw `tmux display-message -p '#S'` calls with one
- * canonical, testable command.
+ * maw whoami — print the current oracle identity on stdout.
  */
 export async function cmdWhoami() {
-  if (!process.env.TMUX) {
-    throw new UserError("maw whoami requires an active tmux session — run 'maw wake <oracle>' or attach to tmux first");
+  try {
+    console.log(requireOracleIdentity().name);
+  } catch (error: any) {
+    throw new UserError(error.message);
   }
-  const raw = await hostExec(`tmux display-message -p '#S'`);
-  console.log(raw.trim());
 }

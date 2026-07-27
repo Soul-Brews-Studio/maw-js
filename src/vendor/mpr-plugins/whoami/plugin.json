@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Print the current tmux session name (closes raw `tmux display-message -p '#S'` sweep).",
+  "description": "Print the current oracle identity.",
   "cli": {
     "command": "whoami",
-    "help": "maw whoami — print the current tmux session name"
+    "help": "maw whoami — print the current oracle identity"
   },
   "weight": 10,
   "license": "MIT",
