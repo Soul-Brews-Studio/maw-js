@@ -18,6 +18,7 @@ import type { Session } from "../core/runtime/find-window";
 
 const ORIGINAL_COMPANIES_DIR = COMPANIES_DIR;
 const ORIGINAL_STATE_DIR = process.env.MAW_STATE_DIR;
+const ORIGINAL_FETCH = globalThis.fetch;
 let companiesTmp: string;
 let stateTmp: string;
 
@@ -40,6 +41,15 @@ beforeEach(() => {
   saveCompany(kobo());
   stateTmp = mkdtempSync(join(tmpdir(), "kobo431-state-"));
   process.env.MAW_STATE_DIR = stateTmp; // isolates trust.json from the real one
+  // checkBusyGuard (agent-status-guard.ts) falls through to a real fetch to
+  // localhost:3456 when agentStatusStore has no entry for the target — which
+  // is every target here, since nothing in this file reports status. On a
+  // box where that port isn't answering, that's a multi-second hang per test
+  // (kobo-431/449). Stub only the TRANSPORT, same pattern as the established
+  // test/isolated/agent-status-guard.test.ts: checkBusyGuard's own decision
+  // logic still runs for real (store-miss → fetch fails fast → not busy),
+  // so this cannot mask a broken busy-guard decision, only the network wait.
+  globalThis.fetch = (async () => new Response("not found", { status: 404 })) as typeof fetch;
 });
 afterEach(() => {
   _setCompaniesDir(ORIGINAL_COMPANIES_DIR);
@@ -48,6 +58,7 @@ afterEach(() => {
   if (ORIGINAL_STATE_DIR === undefined) delete process.env.MAW_STATE_DIR;
   else process.env.MAW_STATE_DIR = ORIGINAL_STATE_DIR;
   try { rmSync(stateTmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+  globalThis.fetch = ORIGINAL_FETCH;
 });
 
 // Sessions named `<oracle>-oracle` matching the real fleet convention —

@@ -38,6 +38,7 @@ const { COMPANIES_DIR, _setCompaniesDir, saveCompany } = await import("../../ven
 const { _clearScopeCache } = await import("../../core/worklog/company-scope");
 
 const ORIGINAL_COMPANIES_DIR = COMPANIES_DIR;
+const ORIGINAL_FETCH = globalThis.fetch;
 let companiesTmp: string;
 
 const pgw = () => ({
@@ -66,12 +67,21 @@ beforeEach(() => {
   // running it before this fix: exit code 1, output just stops). Convert to
   // a throw so the test process survives and the refusal is observable.
   (process as any).exit = ((code?: number) => { throw new Error(`__PROCESS_EXIT_${code ?? 0}__`); }) as any;
+  // checkBusyGuard (agent-status-guard.ts) falls through to a real fetch to
+  // localhost:3456 when agentStatusStore has no entry — every target here.
+  // On a box where that port isn't answering, that's a multi-second hang per
+  // test (kobo-431/449). Stub only the TRANSPORT, same pattern as the
+  // established test/isolated/agent-status-guard.test.ts: checkBusyGuard's
+  // own decision logic still runs for real (store-miss → fetch fails fast →
+  // not busy), so this cannot mask a broken busy-guard decision.
+  globalThis.fetch = (async () => new Response("not found", { status: 404 })) as typeof fetch;
 });
 afterEach(() => {
   _setCompaniesDir(ORIGINAL_COMPANIES_DIR);
   _clearScopeCache();
   try { rmSync(companiesTmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   process.exit = realExit;
+  globalThis.fetch = ORIGINAL_FETCH;
 });
 
 async function trySend(from: string, target: string, message: string) {

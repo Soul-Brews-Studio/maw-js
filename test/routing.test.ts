@@ -134,6 +134,18 @@ describe("resolveTarget", () => {
     expect((r as any).hint).toContain("mars");
   });
 
+  // kobo-431/449: the existing unknown-node tests above use "neo", which has
+  // NO window in SESSIONS — that's exactly the condition where the deleted
+  // guessing fallback (resolveLocalFallbackForUnknownNode) was already
+  // harmless, so those tests are inert against it. This is eq3-006's actual
+  // bug: an unknown node PLUS a bare name that DOES match a live local pane
+  // ("mawjs" — session 08-mawjs). Must still error, not silently self-node
+  // inject the live match.
+  test("unknown node with a bare name that DOES match a live local pane still errors (eq3-006 regression guard)", () => {
+    const r = resolveTarget("mars:mawjs", BASE_CONFIG, SESSIONS);
+    expect(r).toMatchObject({ type: "error", reason: "unknown_node" });
+  });
+
   // kobo-431 Option C: a declared hostAlias resolves node:agent on THIS normal
   // self-node path — replacing the deleted guessing fallback (eq3-006's case).
   test("hostAliases entry resolves node:agent as self-node", () => {
