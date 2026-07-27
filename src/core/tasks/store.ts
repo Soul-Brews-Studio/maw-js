@@ -1621,7 +1621,7 @@ export function isStaleDecisionCard(task: TaskRecord, lastActivityTs: number | u
 export type ParentState = TaskState | "archived" | null;
 
 export interface DependencyBlock {
-  blockedBy: string[]; // parents not yet done/archived → they block the child
+  blockedBy: string[]; // parents not yet done/archived/wait-for-deploy → they block the child
   missing: string[]; // parent ids that resolve to nothing → satisfied, but surfaced faintly
 }
 
@@ -1629,7 +1629,11 @@ export interface DependencyBlock {
  * Derived blocked-by-dependency (ADR 0003 A) — computed at board read, NEVER
  * stored (same pattern as wait-for / next-action). 1 hop only: we never traverse
  * a parent's own parents, which keeps it loop-safe by construction. A parent
- * satisfies the child when it's `done` OR `archived`; a parent that can't be
+ * satisfies the child when it's `done`, `archived`, OR `wait-for-deploy` (kobo-393:
+ * merged-but-not-live — the code is done, only a manual ops step remains, and the
+ * state self-resolves via deploy-drain). `rejected` is deliberately NOT satisfied
+ * (kobo-395: a rejected parent means the dep never happened — a separate,
+ * worse "stuck forever" case, tracked on its own card). A parent that can't be
  * resolved counts as satisfied but is reported in `missing` for a faint warning.
  */
 export function dependencyBlock(
@@ -1641,7 +1645,7 @@ export function dependencyBlock(
   for (const p of task.parentIds ?? []) {
     const st = getParentState(p);
     if (st === null) { missing.push(p); continue; } // unknown id → satisfied + warn
-    if (st === "done" || st === "archived") continue; // satisfied
+    if (st === "done" || st === "archived" || st === "wait-for-deploy") continue; // satisfied
     blockedBy.push(p); // a real, not-yet-done parent → blocks
   }
   return { blockedBy, missing };
