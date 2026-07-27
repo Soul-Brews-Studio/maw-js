@@ -468,6 +468,8 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
     if (readerExit !== 0) throw new Error(`reader failed: ${await new Response(reader.stderr).text()}`);
 
     const result = JSON.parse(readFileSync(resultPath, "utf-8")) as { reads: number; maxLen: number; sawDuplicate: boolean; finalCount: number };
+    expect(result.reads).toBeGreaterThan(0); // %5 c21: without this, a smaller count can silently skip the reader's held-first-read threshold and pass for the wrong reason
+    expect(result.maxLen).toBeGreaterThan(0);
     expect(result.sawDuplicate).toBe(false); // the actual bug: same summary counted twice within one read
     expect(result.maxLen).toBeLessThanOrEqual(count); // never over-counted past what was truly written
     expect(result.finalCount).toBe(count); // and settled on exactly the right total, no permanent gap either
