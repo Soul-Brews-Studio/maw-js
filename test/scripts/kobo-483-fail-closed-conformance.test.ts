@@ -121,7 +121,29 @@ const FIXED_FILES: Array<{ path: string; kind: "toggle" | "bottleneck-override" 
   { path: "test/tmux-sendtext-submit.test.ts", kind: "bottleneck-override" },
 ];
 
+// `kobo-483-intentional-real-read` is a lock anyone can also use as a key —
+// it's a plain string in the source, easier to add than to actually make a
+// site safe. As of this test, it appears 6 times across the 12 fixed files,
+// each independently justified in-code (unrelated config-key reads, one
+// opt-in test technique). This is not a scanner for NEW misuse (a marker
+// added correctly and one added to dodge this test look identical in text) —
+// it is a tripwire against silent growth: whoever adds the Nth occurrence is
+// reading this file, the same way whoever fixes the 13th real-fallthrough
+// file reads kobo-483's own reasoning. If this budget needs raising, raise
+// it deliberately in the same PR that adds the justified use, not by editing
+// past it quietly.
+const INTENTIONAL_REAL_READ_BUDGET = 8;
+
 describe("kobo-483 — fail-closed mock harness stays fail-closed", () => {
+  test(`kobo-483-intentional-real-read stays within its budget (${INTENTIONAL_REAL_READ_BUDGET}) across all fixed files`, () => {
+    const total = FIXED_FILES.reduce((sum, { path: relPath }) => {
+      const source = readFileSync(join(REPO_ROOT, relPath), "utf-8");
+      const matches = source.match(/kobo-483-intentional-real-read/g) ?? [];
+      return sum + matches.length;
+    }, 0);
+    expect(total).toBeLessThanOrEqual(INTENTIONAL_REAL_READ_BUDGET);
+  });
+
   for (const { path: relPath, kind } of FIXED_FILES) {
     describe(relPath, () => {
       const source = readFileSync(join(REPO_ROOT, relPath), "utf-8");
