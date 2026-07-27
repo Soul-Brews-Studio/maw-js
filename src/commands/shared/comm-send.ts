@@ -24,6 +24,7 @@ import {
 import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard";
 import { runPluginEventHooks } from "../../plugin/event-hooks";
 import { notifyLiveInboxReceiver } from "./live-inbox-notify";
+import { bringCwdMetadata } from "./wake-cwd";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -77,10 +78,36 @@ export async function resolveOraclePane(
   }
 }
 
-/** Resolve the current oracle name from CLAUDE_AGENT_NAME or the attached tmux pane. */
+/** Resolve the current oracle name from CLAUDE_AGENT_NAME, the process cwd, or the attached tmux pane. */
 /** @internal */
 export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
   if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
+
+  // pulse #159 (2026-07-23): tmux `display-message` reports whichever session the
+  // human's tmux CLIENT currently has focused — not necessarily the pane this
+  // process is actually running in. That mismatch produced real mis-signed sender
+  // envelopes (both from the cc-boss-on-stop hook and from manual interactive/
+  // background-job calls with no CLAUDE_AGENT_NAME set). cwd is a property of
+  // THIS process, not of whatever the human happens to be looking at, so it goes
+  // first: any process running inside a `<name>-oracle` directory gets the right
+  // answer regardless of tmux focus state or whether tmux is even attached
+  // (headless/background-job sessions included).
+  //
+  // Deliberately `bringCwdMetadata(...).oracle`, NOT `deriveOracleFromCwd` — the
+  // latter has a permissive fallback built for `maw wake`'s zero-arg convenience
+  // (treats ANY directory's last path segment as a plausible bare oracle name,
+  // e.g. running from the maw-js repo itself would resolve to "maw-js"). That's
+  // correct for a human typing a bare `maw wake` in some directory, but wrong
+  // here: this fallback must stay silent (return undefined, fall through to
+  // tmux/config.node) unless cwd is a CONFIRMED match against the real
+  // oracle-repo convention, not just "some directory that isn't a tmux session."
+  // (Caught this by running the existing resolveMyName test suite against the
+  // permissive version before opening a PR — see comm-send-xhigh-coverage.test.ts
+  // and comm-list.test.ts, which assert config.node/"cli" fallback behavior that
+  // the permissive fallback silently broke.)
+  const cwdOracle = bringCwdMetadata(process.cwd()).oracle;
+  if (cwdOracle) return cwdOracle;
+
   // Only trust tmux when this process is actually running inside a tmux pane.
   // Outside tmux, `tmux display-message` can still succeed by reporting the
   // server's current/last-active session, which misattributes sender envelopes.
