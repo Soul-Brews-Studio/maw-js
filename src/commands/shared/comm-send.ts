@@ -1119,23 +1119,21 @@ export async function cmdSend(
       console.error("\x1b[33mhint\x1b[0m:  use `maw hey --from <node:oracle> <target> <message>` or set `MAW_SENDER=<node:oracle>`");
       process.exit(1);
     }
-    const { crossCompanyDeliveryRefusal } = await import("../../core/worklog/company-scope");
-    const { targetOracle } = await import("../../core/tasks/auto-create");
-    const senderOracle = targetOracle(aclSenderOracle(config, senderIdentity));
-    const targetOracleName = targetOracle(result.target);
-    const violation = crossCompanyDeliveryRefusal(senderOracle, targetOracleName);
-    if (violation) {
-      // Explicit pre-declared intent bypass (unhappy path 2) — the EXISTING
-      // trust-store (already used for peer ACL trust pairs below), not a new
-      // caller-settable flag/env var (kobo-335 lesson: a flag the sender can
-      // set on their own send is not a gate).
-      const { loadTrust, samePair } = await import("../../lib/trust-store");
-      const trusted = loadTrust().some((e) => samePair(e, { sender: senderOracle, target: targetOracleName }));
-      if (!trusted) {
-        console.error(`\x1b[31merror\x1b[0m: ${violation}`);
-        process.exit(1);
-      }
-    }
+    // kobo-504 — Tony, 2026-07-28, twice and explicitly ("ถอด company guard เลย",
+    // then "ยืนยัน เอาแบบ ก" when offered remove-silently vs remove-but-log):
+    // cross-company delivery is no longer consulted at all. Not a downgraded
+    // refusal, not a warning — the check is simply not on this path anymore.
+    //
+    // The sender-identity gate ABOVE stays and is the one that still matters:
+    // it refuses when it cannot say who is sending. What it no longer does is
+    // care WHICH company that sender belongs to.
+    //
+    // crossCompanyDeliveryRefusal itself is left in place (still used by
+    // nothing on the delivery path) rather than deleted: it encodes kobo-431 /
+    // kobo-474's mapping of oracle→company, this direction was reversed twice
+    // within one hour today, and re-enabling is a one-line call if it reverses
+    // again. Nothing calls it, so nobody is protected by it — do not read its
+    // presence as a live guard.
   }
 
   // --- #842 Sub-C — cross-oracle ACL gate (Phase 2 of #642) ---

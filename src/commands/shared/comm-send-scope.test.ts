@@ -148,10 +148,24 @@ async function trySendAuto(target: string, message: string) {
 }
 
 describe("cmdSend — company-scope gate on local/self-node delivery, CLI path (kobo-431)", () => {
-  it("refuses cross-company: sendKeys is NEVER called", async () => {
+  it("kobo-504: cross-company is an ORDINARY send — delivered, and nothing is said about it", async () => {
+    // Was "refuses: sendKeys is NEVER called" (kobo-431). Tony removed the gate
+    // on 2026-07-28 ("ถอด company guard เลย") and, when offered
+    // remove-silently vs remove-but-log, chose remove-silently ("ยืนยัน เอาแบบ ก").
+    // So this asserts BOTH halves of that instruction: it delivers, and it does
+    // not narrate. If a future change re-adds a warning here, that is a product
+    // decision reversing Tony's, not a cleanup — it should fail this test first.
     resolveTargetImpl = () => ({ type: "local", target: "nai-oracle:0" });
-    await trySend("m5:patchwork", "nai", "hello"); // patchwork (kobo) → nai (pgw)
-    expect(sendKeysMock).not.toHaveBeenCalled();
+    const errSpy = mock((..._args: unknown[]) => {});
+    const realConsoleError = console.error;
+    console.error = errSpy as any;
+    try {
+      await trySend("m5:patchwork", "nai", "hello"); // patchwork (kobo) → nai (pgw)
+    } finally {
+      console.error = realConsoleError;
+    }
+    expect(sendKeysMock).toHaveBeenCalledTimes(1);
+    expect(errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n")).not.toMatch(/company/i);
   });
 
   it("still delivers same-company sends — no regression on the hot path everyone uses", async () => {
@@ -218,15 +232,24 @@ describe("cmdSend — sender-identity resolution on the AUTO path, source==='aut
     expect(sendKeysMock).toHaveBeenCalledTimes(1);
   });
 
-  it("T2 (regression guard, not proof of today's bug): unambiguous cross-company send still refuses after the identity fix lands", async () => {
-    // This is expected to pass BOTH before and after the fix — its job is to
-    // catch the fix accidentally loosening the gate itself (front/%11's
-    // scope condition), not to demonstrate the bug. Real sender "nai" (pgw)
-    // is genuinely not a kobo member either way.
+  it("T2 (kobo-504): cross-company on the AUTO path delivers silently too — the identity path must not resurrect the gate", async () => {
+    // Originally "still refuses after the identity fix lands". The gate it
+    // guarded is gone by Tony's instruction (kobo-504), so the assertion flips.
+    // What it still catches is real: the AUTO identity path must not grow its
+    // own company check to compensate.
     process.env.CLAUDE_AGENT_NAME = "nai";
     resolveTargetImpl = () => ({ type: "local", target: "patchwork-oracle:0" }); // kobo target, unambiguous in THIS file's isolated fixtures
-    await trySendAuto("patchwork", "hello");
-    expect(sendKeysMock).not.toHaveBeenCalled();
+    const errSpy = mock((..._args: unknown[]) => {});
+    const realConsoleError = console.error;
+    console.error = errSpy as any;
+    try {
+      await trySendAuto("patchwork", "hello");
+    } finally {
+      console.error = realConsoleError;
+    }
+    // kobo-504, option ก — delivered, and no company talk on the way out.
+    expect(sendKeysMock).toHaveBeenCalledTimes(1);
+    expect(errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n")).not.toMatch(/company/i);
   });
 
   it("T3: sender identity that resolves to nothing registered ANYWHERE must fail with a message naming the resolved identity as the problem — not the generic cross-company string", async () => {
@@ -283,7 +306,40 @@ describe("cmdSend — sender-identity resolution on the AUTO path, source==='aut
     configOracle = "eq3"; // defence-in-depth guard, no current producer on THIS box (live config.oracle is "mawjs") — %11's correction, kobo-474 c2
     process.env.CLAUDE_AGENT_NAME = "nai"; // real sender — genuinely NOT a kobo member
     resolveTargetImpl = () => ({ type: "local", target: "patchwork-oracle:0" }); // kobo target, unambiguous
-    await trySendAuto("patchwork", "hello");
-    expect(sendKeysMock).not.toHaveBeenCalled(); // must refuse — real sender "nai" is not a kobo member
+    const errSpy = mock((..._args: unknown[]) => {});
+    const realConsoleError = console.error;
+    console.error = errSpy as any;
+    try {
+      await trySendAuto("patchwork", "hello");
+    } finally {
+      console.error = realConsoleError;
+    }
+    // 🔴 kobo-504, option ก — READ THIS BEFORE TRUSTING THIS TEST.
+    //
+    // The company gate is gone from the delivery path entirely, and with option
+    // ก there is no warning line either. That removes BOTH observable effects
+    // this test used to hang on, so it can no longer detect the thing its title
+    // describes: with no company check anywhere, substituting config.oracle for
+    // the real sender changes NOTHING about delivery, so nothing can catch it
+    // here. The test is kept, un-renamed and un-deleted, as the marker for that
+    // loss — deleting it would erase the fact that the protection lapsed.
+    //
+    // What it still asserts is thin and honest: delivery happens, silently.
+    // The real property (aclSenderOracle must resolve the env sender, never
+    // config.oracle) is now UNGUARDED at this layer. Whoever re-adds any
+    // company-scoped decision to delivery must restore a real assertion here
+    // FIRST — see kobo-471/474 for why: the "helpful" fix everyone proposes is
+    // "just set config.oracle to a real oracle name", which is the exact
+    // opposite, and this was the only test standing in its way.
+    //
+    // Superseded reasoning, kept for the record: the identity used must be the
+    // REAL env-resolved sender ("nai"), never config.oracle ("eq3"). If
+    // aclSenderOracle ever goes back to trusting config.oracle, "eq3" IS a
+    // kobo member → no mismatch → no
+    // cross-company line at all, and this test fails. That is the same
+    // silent-wrong-person failure as before, caught the same way.
+    const printed = errSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+    expect(sendKeysMock).toHaveBeenCalledTimes(1);
+    expect(printed).not.toMatch(/company/i);
   });
 });

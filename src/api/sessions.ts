@@ -18,8 +18,6 @@ import { defaultReceiverInboxWriter, type ReceiverInboxResult, type ReceiverInbo
 import { notifyLiveInboxReceiver, type LiveInboxNotifyDeps } from "../commands/shared/live-inbox-notify";
 export { formatInboxNotification, resolveLiveInboxNotificationTarget } from "../commands/shared/live-inbox-notify";
 import { checkBusyGuard, queueForDispatch } from "../core/agent-status-guard";
-import { crossCompanyDeliveryRefusal } from "../core/worklog/company-scope";
-import { targetOracle } from "../core/tasks/auto-create";
 import type { Session } from "../core/transport/ssh";
 
 type Config = ReturnType<typeof loadConfig>;
@@ -452,38 +450,11 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
 
       // Local or self-node → send via tmux
       if (resolved?.type === "local" || resolved?.type === "self-node") {
-        // kobo-431 (Defect A) — local/self-node deliveries had NO company-scope
-        // check at all (only the peer/#842 ACL gate did, and only for cross-node).
-        const senderOracle = targetOracle(messageFrom);
-        const targetOracleName = targetOracle(resolved.target);
-        const violation = crossCompanyDeliveryRefusal(senderOracle, targetOracleName);
-        if (violation) {
-          // Explicit pre-declared intent bypass (kobo-431 unhappy path 2) — reuses
-          // the EXISTING trust-store (already used for peer ACL trust pairs), not a
-          // new caller-settable flag/env var. Requires a prior, separate `maw trust
-          // add` — NOT settable inline on this send. Still worth being honest in
-          // the PR: on one shared local machine, nothing stops an ordinary sender
-          // from running `maw trust add` themselves either — this raises the bar
-          // (a durable, board-visible action) but is not adversary-proof.
-          const { loadTrust, samePair } = await import("../lib/trust-store");
-          const trusted = loadTrust().some((e) => samePair(e, { sender: senderOracle, target: targetOracleName }));
-          if (!trusted) {
-            set.status = 403;
-            emitLifecycle({
-              direction: "inbound",
-              state: "failed",
-              channel: "api-send",
-              route: resolved.type,
-              from: messageFrom,
-              to: messageTo,
-              target: resolved.target,
-              text: message,
-              error: violation,
-              signed: messageSigned,
-            });
-            return { ok: false, error: violation, target: resolved.target };
-          }
-        }
+        // kobo-504 — Tony, 2026-07-28, confirmed twice ("ถอด company guard เลย",
+        // then "ยืนยัน เอาแบบ ก" choosing remove-silently over remove-but-log):
+        // the kobo-431 company-scope check is off this path entirely. No 403,
+        // no lifecycle notice, nothing to be exempt from — so the trust-store
+        // lookup goes too. Cross-company sends are ordinary sends now.
         const live = await verifyDeliverableTarget(resolved.target);
         if (!live.ok) return queueOrFail(resolved.target, live.reason);
         // Phase 2 busy guard — queue for auto-delivery if target is actively working
