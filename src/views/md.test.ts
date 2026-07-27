@@ -106,7 +106,7 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
 
   test("kobo-425: an open blockquote closes before a plain paragraph, never swallowing it", () => {
     const out = mdToHtml("> a\nplain text");
-    expect(out).toBe('<blockquote>\na\n</blockquote>\n<p class="pg-0">plain text</p>');
+    expect(out).toBe('<blockquote>\na\n</blockquote>\n<p>plain text</p>');
   });
 
   test("XSS: a <script> payload inside a `>` line still escapes (blockquote content is not a new sink)", () => {
@@ -115,105 +115,36 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
     expect(out).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 
-  // kobo-456: 1 paragraph = 1 colour, alternating automatically — the writer
-  // marks nothing. A "paragraph" is a run of CONSECUTIVE plain-text lines;
-  // colouring per-<p> directly (as if every line were its own paragraph)
-  // would turn a long message into a rainbow, the opposite of what was asked.
-  const pgClasses = (html: string) => [...html.matchAll(/<p class="(pg-\d)">/g)].map((m) => m[1]);
-
-  test("kobo-456: consecutive lines are ONE paragraph — same colour class on every line", () => {
-    expect(pgClasses(mdToHtml("line one\nline two\nline three"))).toEqual(["pg-0", "pg-0", "pg-0"]);
+  // kobo-493 AC1: a highlighted span (**bold**) colours only ITSELF — the
+  // surrounding <p> carries no class/wrapper of its own. kobo-456 had every
+  // <p> carry a pg-N class regardless of content; Tony rejected that on
+  // sight. mdToHtml must never emit a class on <p> again.
+  test("kobo-493 AC1: a highlighted span renders as <strong> with no class on the surrounding <p>", () => {
+    const out = mdToHtml("plain text **highlighted** more plain text");
+    expect(out).toBe("<p>plain text <strong>highlighted</strong> more plain text</p>");
+    expect(out).not.toMatch(/<p class=/);
   });
 
-  test("kobo-456: a blank line between paragraphs alternates the colour", () => {
-    expect(pgClasses(mdToHtml("para a\n\npara b"))).toEqual(["pg-0", "pg-1"]);
+  // kobo-493 AC2: a paragraph with NO highlight at all gets no colour-related
+  // markup whatsoever — direct regression guard against kobo-456's "every
+  // paragraph gets a class" default.
+  test("kobo-493 AC2: a paragraph with no highlight gets a plain <p>, no class", () => {
+    const out = mdToHtml("just some ordinary text, nothing marked up");
+    expect(out).toBe("<p>just some ordinary text, nothing marked up</p>");
+    expect(out).not.toContain("<p class=");
   });
 
-  test("kobo-456: a single-paragraph message still gets a valid colour class, no crash", () => {
-    expect(mdToHtml("just one line")).toBe('<p class="pg-0">just one line</p>');
-  });
-
-  // AC5: existing, unedited messages already in the room must get coloured
-  // under the new rule with no text change. mdToHtml is a pure function of
-  // the text with no legacy-vs-new branch, so this is currently implied by
-  // every other test here — but "implied" quietly stops being true the
-  // moment someone adds a branch (e.g. a message-age check) later. Naming
-  // this explicitly is what would catch that regression.
-  test("kobo-456: pre-existing, unedited message text (nothing marked up for this feature) still gets coloured through the SAME path as new messages", () => {
-    const oldStyleMessage = "just some plain text someone wrote before this feature existed";
-    expect(mdToHtml(oldStyleMessage)).toBe('<p class="pg-0">' + oldStyleMessage + '</p>');
-  });
-
-  // front's ruling that per-line seams are the ACCEPTED look (closer to a
-  // real highlighter than a solid block) rests on the structure never
-  // collapsing multi-line paragraphs into one merged element. Pin the
-  // structure itself, not his opinion of it — a future "fix" that merges the
-  // lines to remove the banding would break this even though every
-  // colour-grouping test above would still pass (they check the CLASS, not
-  // the element count).
-  test("kobo-456: a MULTI-LINE paragraph group stays as SEPARATE <p> elements per line, never collapsed into one merged block", () => {
-    const out = mdToHtml("line one\nline two\nline three");
-    expect(out.match(/<p class="pg-0">/g)?.length).toBe(3); // 3 elements, not 1 merged <p>
-    expect(out).not.toContain("<br>"); // <br>-joining is the blockquote merge pattern (kobo-425) — paragraphs never adopt it
-  });
-
-  // unhappy path (card): a message with no clear paragraph breaks (one very
-  // long physical line) must not become one giant solid-colour block filling
-  // the screen — it's exactly ONE ordinary paragraph, same shape as a short
-  // one, just with more text. Splitting is on \n only, so length alone can
-  // never multiply it into several bands or grow it past a normal <p>.
-  test("kobo-456 unhappy: a single very long line (no paragraph breaks) does NOT become one solid colour block — it's exactly ONE normal paragraph, same shape as a short one", () => {
-    const longLine = "word ".repeat(200).trim();
-    const out = mdToHtml(longLine);
-    expect(out).toBe('<p class="pg-0">' + longLine + '</p>');
-    expect(out.match(/<p /g)?.length).toBe(1);
-  });
-
-  test("kobo-456: many paragraphs cycle back to the first colour — intentional, not broken", () => {
-    expect(pgClasses(mdToHtml("p1\n\np2\n\np3\n\np4\n\np5"))).toEqual(["pg-0", "pg-1", "pg-2", "pg-3", "pg-0"]);
-  });
-
-  test("kobo-456: a heading between paragraph runs starts a fresh colour group on each side", () => {
-    expect(pgClasses(mdToHtml("p1\n# head\np2"))).toEqual(["pg-0", "pg-1"]);
-  });
-
-  test("kobo-456: a list between paragraph runs starts a fresh colour group on each side", () => {
-    expect(pgClasses(mdToHtml("p1\n- item\np2"))).toEqual(["pg-0", "pg-1"]);
-  });
-
-  // reviewer L1: the ol branch (md.ts) was the only list-type branch with no
-  // test watching its endParaRun() call. No blank line on either side of the
-  // list here — a blank line would mask the branch (same trap the blockquote
-  // test above caught), so this must abut directly to actually exercise it.
-  test("kobo-456: an ORDERED list between paragraph runs also starts a fresh colour group on each side", () => {
-    expect(pgClasses(mdToHtml("p1\n1. item\np2"))).toEqual(["pg-0", "pg-1"]);
-  });
-
-  test("kobo-456: an hr between paragraph runs starts a fresh colour group on each side", () => {
-    expect(pgClasses(mdToHtml("p1\n---\np2"))).toEqual(["pg-0", "pg-1"]);
-  });
-
-  test("kobo-456: a fenced code block between paragraph runs starts a fresh colour group on each side", () => {
-    expect(pgClasses(mdToHtml("p1\n```\ncode\n```\np2"))).toEqual(["pg-0", "pg-1"]);
-  });
-
-  // this directly abuts a blockquote line against a paragraph line with NO
-  // blank line between them — the combined test below always has a blank
-  // line on both sides of its quote, so it never actually exercises whether
-  // entering a blockquote resets a paragraph run.
-  test("kobo-456: a blockquote directly between paragraph lines (no blank line) also starts a fresh colour group", () => {
-    expect(pgClasses(mdToHtml("p1\n> quoted\np2"))).toEqual(["pg-0", "pg-1"]);
-  });
-
-  // 🔴 AC: bold highlight + the ONE-box blockquote (kobo-425, deployed) + the
-  // new paragraph colour must all coexist in the SAME message, none swallowing
-  // the others — a single test covering all 3, not 3 separate ones.
-  test("kobo-456: bold highlight + ONE blockquote box + paragraph colours all coexist in one message", () => {
-    const out = mdToHtml("**bold** first line\nsecond line\n\n> quoted a\n> quoted b\n\nafter, plain");
-    expect(out).toContain("<strong>bold</strong>"); // bold highlight untouched
-    expect(out.match(/<blockquote>/g)?.length).toBe(1); // still ONE box, not per-line
-    expect(out.match(/<\/blockquote>/g)?.length).toBe(1);
-    expect(pgClasses(out)).toEqual(["pg-0", "pg-0", "pg-1"]); // run before the quote, fresh run after
+  // kobo-493 AC3: multiple highlighted spans (same line or across a
+  // multi-line paragraph run) each stay independently scoped — the text
+  // BETWEEN them, and any unhighlighted line in the same run, never inherits
+  // colour markup. This is what "span, not block" means structurally.
+  test("kobo-493 AC3: multiple highlights in one paragraph run each stay independently scoped, unhighlighted text between/around them is untouched", () => {
+    const out = mdToHtml("**one** middle **two**\nthird plain line, no highlight here");
+    const strongs = out.match(/<strong>[^<]*<\/strong>/g) ?? [];
+    expect(strongs).toEqual(["<strong>one</strong>", "<strong>two</strong>"]);
+    expect(out).toContain("<p><strong>one</strong> middle <strong>two</strong></p>");
+    expect(out).toContain("<p>third plain line, no highlight here</p>"); // unhighlighted line, no class, no strong
+    expect(out).not.toMatch(/<p class=/);
   });
 
   test("mdToHtml renders inline code spans via inlineMd", () => {
@@ -282,7 +213,7 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
   test("XSS: a payload disguised as markdown bold/list syntax still escapes first", () => {
     const bold = mdToHtml("**<script>alert(1)</script>**");
     expect(bold).not.toContain("<script>");
-    expect(bold).toBe('<p class="pg-0"><strong>&lt;script&gt;alert(1)&lt;/script&gt;</strong></p>');
+    expect(bold).toBe('<p><strong>&lt;script&gt;alert(1)&lt;/script&gt;</strong></p>');
 
     const list = mdToHtml("- <img src=x onerror=alert(1)>");
     expect(list).not.toContain("<img src=x onerror=");
@@ -308,7 +239,7 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
     // exact match: onmouseover= lands INSIDE the quoted href value (harmless text,
     // since &quot; is an entity not a real delimiter) — never as a second, live
     // attribute on the <a> tag (which would require a REAL unescaped " to open it).
-    expect(out).toBe('<p class="pg-0"><a href="https://a.com/&quot;onmouseover=alert(1" target="_blank" rel="noopener">click</a>)</p>');
+    expect(out).toBe('<p><a href="https://a.com/&quot;onmouseover=alert(1" target="_blank" rel="noopener">click</a>)</p>');
     expect(out).not.toContain('" onmouseover='); // the tell-tale shape of a broken-out attribute
   });
 });

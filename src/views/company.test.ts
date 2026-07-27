@@ -183,15 +183,6 @@ describe("kobo-425: board `.md` blockquote/strong stay the pre-existing thin-lin
     expect(html).toContain(".md strong { color:var(--fg); }");
   });
 
-  // kobo-456: mdToHtml (shared) now tags every <p> with a pg-N class for
-  // room's paragraph colouring. The board gets the SAME class (one renderer,
-  // kobo-396) but must render it with ZERO visual effect — a class with no
-  // matching CSS rule does nothing, same pattern as strong/blockquote above.
-  test("kobo-456: the board has NO .md p.pg-N colour rule — the class exists in shared HTML but is inert here", () => {
-    for (let n = 0; n < 4; n++) {
-      expect(html).not.toContain(`.md p.pg-${n}`);
-    }
-  });
 });
 
 describe("board-collapse v2 — parking columns hidden + reveal button (kobo-197)", () => {
