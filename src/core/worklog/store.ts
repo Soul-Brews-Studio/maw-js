@@ -145,13 +145,15 @@ function parseWorklogLines(text: string): WorklogEntry[] {
   return out;
 }
 
-/** Read exactly [start, start+length) from a file without loading the rest. */
-function readBytesFrom(path: string, start: number, length: number): string {
+/** Read exactly [start, start+length) from a file without loading the rest. Returns raw
+ * bytes, NOT a string — cache offsets are byte offsets (worklog entries can be Thai,
+ * 3 bytes/char, so a string index would drift from the byte position that produced it). */
+function readBytesFrom(path: string, start: number, length: number): Buffer {
   const fd = openSync(path, "r");
   try {
     const buf = Buffer.alloc(length);
     readSync(fd, buf, 0, length, start);
-    return buf.toString("utf-8");
+    return buf;
   } finally {
     closeSync(fd);
   }
@@ -180,6 +182,15 @@ export function _resetWorklogCache(): void {
   worklogCache.clear();
 }
 
+/** Test-only — the cache's recorded byte offset for a path, so a test can assert it
+ * against the file's real stat size directly (kobo-463, %11 c7: a char-based offset drifts
+ * from the true byte position on Thai content, silently — emergent duplication depends on
+ * where the drift happens to land relative to JSON structure, so it's not reliably
+ * reproducible from the outside; the offset itself is the actual invariant to check). */
+export function _worklogCacheSize(path: string): number | undefined {
+  return worklogCache.get(path)?.size;
+}
+
 export function readWorklog(company: string | null | undefined, opts: ReadWorklogOpts = {}): WorklogEntry[] {
   const { path, size } = worklogCacheProbe(company);
   const cached = worklogCache.get(path);
@@ -194,9 +205,14 @@ export function readWorklog(company: string | null | undefined, opts: ReadWorklo
     // newline; cache size reflects only what was actually consumed, so a
     // partial tail is picked back up (whole) on the next call instead of
     // being silently dropped forever.
+    //
+    // BYTE offset, not character offset (%11, c7): cached.size is a byte
+    // count, and worklog entries are Thai — 3 bytes/char — so indexing a
+    // decoded string here would drift from the byte position it came from.
+    // Operate on the raw Buffer and only decode the consumed slice.
     const rawTail = readBytesFrom(path, cached.size, size - cached.size);
-    const consumed = rawTail.lastIndexOf("\n") + 1; // -1 (no newline) → 0
-    entries = cached.entries.concat(parseWorklogLines(rawTail.slice(0, consumed)));
+    const consumed = rawTail.lastIndexOf(0x0a) + 1; // -1 (no newline) → 0
+    entries = cached.entries.concat(parseWorklogLines(rawTail.subarray(0, consumed).toString("utf-8")));
     worklogCache.set(path, { size: cached.size + consumed, entries });
   } else {
     // no cache yet, OR size shrank (truncate/rotate) — the past cache can't be

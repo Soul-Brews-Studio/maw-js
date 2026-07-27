@@ -6,7 +6,7 @@ import { join } from "path";
 import { toolSummary, eventToWorklog } from "./significant";
 import { renderTimeline } from "./render";
 import { pingOnMerge, pingCollision } from "./ping";
-import { appendWorklog, readWorklog, openClaims, flushWorklog, worklogPath, _resetWorklogCache } from "./store";
+import { appendWorklog, readWorklog, openClaims, flushWorklog, worklogPath, _resetWorklogCache, _worklogCacheSize } from "./store";
 import { handleWorklogRequest } from "./route";
 import { tasksOverlap, collidingClaims, addClaim, releaseClaim } from "./claim";
 import { buildInjectSlice } from "./slice";
@@ -370,6 +370,26 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
     appendFileSync(p, full.slice(full.length - 5));
     const after = readWorklog("c463e");
     expect(after.map(e => e.summary)).toEqual(["git op-1", "git op-2"]); // now whole, and only once
+  });
+
+  it("Thai entries: the cache's recorded offset must be a BYTE offset, not a character count (kobo-463, %11 c7)", () => {
+    // ASCII fixtures can't catch this: a character offset only equals the real byte
+    // offset when every char is 1 byte. Thai chars are 3 bytes each. A character-based
+    // offset drifts silently from the true byte position on every incremental read —
+    // whether that drift visibly duplicates or drops an entry depends on where it
+    // happens to land relative to JSON's structural characters (coincidental, not
+    // reliably reproducible from readWorklog's return value alone — verified by hand:
+    // this exact fixture's drift consistently lands mid-string and gets silently
+    // swallowed by parseWorklogLines' catch, not duplicated, even over hundreds of
+    // appends). The offset itself is the actual invariant, so assert that directly.
+    const thai = (n: number) => ({ ...entry("c463g", n), summary: `เข้าใจแล้วครับ งานที่ ${n} ทำเสร็จตามที่ตกลง` });
+    _resetWorklogCache();
+    for (let n = 1; n <= 5; n++) {
+      appendWorklog(thai(n));
+      readWorklog("c463g");
+    }
+    const p = worklogPath("c463g");
+    expect(_worklogCacheSize(p)).toBe(statSync(p).size); // cache's bookmark matches the file's real byte length
   });
 });
 
