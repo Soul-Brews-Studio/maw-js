@@ -351,4 +351,38 @@ describe("room message seq (kobo-415 — company-wide, unique by construction)",
     };
     expect(() => _test.mintRoomSeqBatch("kobo", 3, deps)).toThrow();
   });
+
+  // conductor's pre-empt check: can the post-write verify spuriously throw on a HEALTHY
+  // sequence — e.g. one operation backfilling several rooms, or several appends in one
+  // request? No: mintRoomSeqBatch has zero `await` from its first read to its own
+  // post-write verify, so nothing else in the same process (including a second call to
+  // this same function) can run in that window — a later call can't start until the
+  // earlier one has already returned and passed its own check. Each call's verify only
+  // ever observes its own write. Empirical, not just reasoned: real fs, no deps, multiple
+  // rooms interleaved in one synchronous sequence.
+  test("sequential mint calls across multiple rooms/appends in one operation never spuriously throw", () => {
+    openRoom("kobo", "seqA", "a");
+    openRoom("kobo", "seqB", "b");
+    openRoom("kobo", "seqC", "c");
+    expect(() => {
+      appendRoomMessage("kobo", "seqA", { id: "a1", from: "x", text: "x", ts: 1 });
+      appendRoomMessage("kobo", "seqB", { id: "b1", from: "x", text: "x", ts: 1 });
+      appendRoomMessage("kobo", "seqC", { id: "c1", from: "x", text: "x", ts: 1 });
+      appendRoomMessage("kobo", "seqA", { id: "a2", from: "x", text: "x", ts: 2 });
+    }).not.toThrow();
+  });
+
+  test("backfilling multiple legacy rooms in sequence never spuriously throws", () => {
+    for (const id of ["legA", "legB", "legC"]) {
+      openRoom("kobo", id, id);
+      const raw = JSON.parse(readFileSync(roomFilePath("kobo", id), "utf8"));
+      raw.messages = Array.from({ length: 50 }, (_, i) => ({ id: `${id}-${i}`, from: "a", text: "x", ts: i }));
+      writeFileSync(roomFilePath("kobo", id), JSON.stringify(raw));
+    }
+    expect(() => {
+      readRoom("kobo", "legA");
+      readRoom("kobo", "legB");
+      readRoom("kobo", "legC");
+    }).not.toThrow();
+  });
 });
