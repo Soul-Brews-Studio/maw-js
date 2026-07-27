@@ -15,6 +15,7 @@
 
 import { mkdirSync, writeFileSync, renameSync, readFileSync, existsSync, readdirSync } from "fs";
 import { mawDataPath } from "../xdg";
+import { withPeersLock } from "../../lib/peers/lock";
 
 export type RoomStatus = "open" | "closed" | "merged";
 
@@ -162,15 +163,39 @@ export function reopenRoom(company: string, id: string): RoomArtifact | null {
  */
 const SEND_DEDUP_WINDOW_MS = 120_000; // send-write ↔ its lagging delivery feed event (~2 min covers the measured drain)
 
+/**
+ * kobo-430: the whole read-modify-write is now a critical section, locked per-room-file
+ * (withPeersLock, src/lib/peers/lock.ts — the same fd-based O_EXCL pattern already used
+ * for peers.json). Before this, two processes appending to the SAME room concurrently
+ * both read the same pre-write state, both wrote their own full array back, and the
+ * later write silently discarded the earlier one's message (measured: 40 of 80 lost).
+ * This lock is scoped to THIS room's file ONLY — it does NOT touch kobo-415's company-wide
+ * seq counter (a separate file, separate lock scope, separate card; that race is still
+ * open and explicitly out of scope here).
+ */
+/**
+ * kobo-430: the lock KEY, factored out so a test (and the fixture it spawns) can go
+ * through the SAME function production code uses — a mutation here that broke the
+ * per-room scope (e.g. returning one constant regardless of args) is then visible to
+ * both sides of the scope test, not just the half that happens to call this directly.
+ */
+export function roomLockPath(company: string, id: string): string {
+  return roomFilePath(company, id);
+}
+
 export function appendRoomMessage(company: string, id: string, msg: RoomMessage): RoomArtifact | null {
-  const room = readRoom(company, id);
-  if (!room) return null;
-  if (room.messages.some((m) => m.id === msg.id)) return room; // dedup — same lifecycle id
-  if (msg.text && room.messages.some((m) => m.from === msg.from && m.text === msg.text && Math.abs((m.ts || 0) - (msg.ts || 0)) < SEND_DEDUP_WINDOW_MS)) return room; // dedup — same turn (send-write ↔ lagging feed event), windowed so genuine later repeats survive (kobo-249)
-  room.messages.push(msg);
-  room.updatedTs = msg.ts || Date.now();
-  writeRoom(room);
-  return room;
+  const path = roomFilePath(company, id);
+  if (!existsSync(path)) return null; // stray traffic to a never-opened room — no lock, no directory touched, same as before
+  return withPeersLock(roomLockPath(company, id), () => {
+    const room = readRoom(company, id);
+    if (!room) return null;
+    if (room.messages.some((m) => m.id === msg.id)) return room; // dedup — same lifecycle id
+    if (msg.text && room.messages.some((m) => m.from === msg.from && m.text === msg.text && Math.abs((m.ts || 0) - (msg.ts || 0)) < SEND_DEDUP_WINDOW_MS)) return room; // dedup — same turn (send-write ↔ lagging feed event), windowed so genuine later repeats survive (kobo-249)
+    room.messages.push(msg);
+    room.updatedTs = msg.ts || Date.now();
+    writeRoom(room);
+    return room;
+  });
 }
 
 /**

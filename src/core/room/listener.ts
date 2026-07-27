@@ -66,7 +66,17 @@ export function registerRoomListener(feedListeners: Set<(event: FeedEvent) => vo
   registered = true;
   feedListeners.add((event) => {
     try { onRoomFeedEvent(event); }
-    catch { /* never break the feed pipeline because of a room write */ }
+    catch (e) {
+      // kobo-430: a room write must never break the feed pipeline, so this still
+      // swallows — the throw does not escape. But this PR is what makes appendRoomMessage
+      // able to throw in the first place (lock timeout / non-EEXIST fs error), a failure
+      // mode that couldn't happen on this path before. Silent here would mean a new,
+      // untraceable message-loss channel shipped in a PR about stopping message loss.
+      // Bracketed prefix matches every other component log in this codebase ([commands],
+      // [plugin], [hub], [company], [auth], [engine-plugin]).
+      const roomId = parseRoomId((event as { data?: { text?: string } }).data?.text);
+      console.error(`[room-listener] dropped a message: room=${roomId ?? "?"} error=${e}`);
+    }
   });
 }
 

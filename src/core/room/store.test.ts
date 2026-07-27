@@ -208,3 +208,88 @@ describe("paginateRoomMessages (kobo-322 — default-cap room reads)", () => {
     });
   });
 });
+
+// kobo-430 — the card's binding AC, and the reviewer's own measurement on PR #317's sha:
+// 2 processes writing the SAME room concurrently, 40 messages each, 40/80 lost, counter
+// stalled at 66 after 80 mints. Cause: appendRoomMessage's read-modify-write was
+// last-writer-wins with no lock anywhere. Card explicitly forbids photographing today's
+// single-process behaviour and calling it a test — a same-process simulation cannot
+// reproduce this (JS run-to-completion already proven immune, see kobo-415's own
+// sequential-mint tests), so this uses REAL separate OS processes, same measurement
+// technique the reviewer used.
+describe("appendRoomMessage concurrency (kobo-430 — real cross-process writers)", () => {
+  let dir: string;
+  const prevDataDir = process.env.MAW_DATA_DIR;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-room-concurrency-")); process.env.MAW_DATA_DIR = dir; });
+  afterEach(() => { if (prevDataDir === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prevDataDir; rmSync(dir, { recursive: true, force: true }); });
+
+  test("two real OS processes appending 40 messages each to the SAME room concurrently — all 80 messages present, none lost, after both finish", async () => {
+    openRoom("kobo", "concurrent-room", "topic");
+    const fixture = new URL("./__fixtures__/append-worker.ts", import.meta.url).pathname;
+    const env = { ...process.env, MAW_TEST_MODE: "1" };
+
+    const t0 = performance.now();
+    const procA = Bun.spawn(["bun", "run", fixture, "kobo", "concurrent-room", "A", "40"], { env, stderr: "pipe" });
+    const procB = Bun.spawn(["bun", "run", fixture, "kobo", "concurrent-room", "B", "40"], { env, stderr: "pipe" });
+    const [exitA, exitB] = await Promise.all([procA.exited, procB.exited]);
+    const elapsed = performance.now() - t0;
+    if (exitA !== 0) throw new Error(`worker A failed: ${await new Response(procA.stderr).text()}`);
+    if (exitB !== 0) throw new Error(`worker B failed: ${await new Response(procB.stderr).text()}`);
+
+    const room = readRoom("kobo", "concurrent-room")!;
+    const ids = new Set(room.messages.map((m) => m.id));
+    // AC: every message from BOTH sides present — the exact clause, not a proxy for it.
+    expect(room.messages.length).toBe(80);
+    expect(ids.size).toBe(80); // no id silently overwritten either
+    for (let i = 0; i < 40; i++) { expect(ids.has(`A-${i}`)).toBe(true); expect(ids.has(`B-${i}`)).toBe(true); }
+    // ORDER: each writer's OWN sequence must survive in its own relative order (cross-writer
+    // interleaving is legitimately non-deterministic under true concurrency — that's not the
+    // invariant here; a writer's messages arriving out of order relative to ITSELF would be).
+    const aOrder = room.messages.filter((m) => m.id.startsWith("A-")).map((m) => m.id);
+    const bOrder = room.messages.filter((m) => m.id.startsWith("B-")).map((m) => m.id);
+    expect(aOrder).toEqual(Array.from({ length: 40 }, (_, i) => `A-${i}`));
+    expect(bOrder).toEqual(Array.from({ length: 40 }, (_, i) => `B-${i}`));
+    // CLEANUP: no stale .lock file left behind after a normal run — dropping the `finally`
+    // unlink would leave this behind and every SUBSEQUENT append would find a lock file that
+    // no live process holds (self-healing via the stale-pid check, but silently, not free).
+    expect(existsSync(`${roomFilePath("kobo", "concurrent-room")}.lock`)).toBe(false);
+    console.log(`kobo-430: 2 concurrent OS processes, 80 total appends, wall time ${elapsed.toFixed(0)}ms (lock-contention cost, room-file-scoped only)`);
+  }, 20_000);
+
+  // reviewer's step-1b finding: the "room-file-scoped, not global" claim (asserted in a code
+  // comment AND printed in the test above) had NO guard. He mutated the lock key to a single
+  // constant string (every room shares one lockfile) and the suite went 27/0 — nothing
+  // noticed. Structural presence/count assertions can't distinguish per-room from global (a
+  // global lock still delivers all 80 messages, just serialized) — the discriminator has to
+  // be that contention on ONE room's lock does not delay a DIFFERENT room's write. A generous
+  // but still tight timing gap (hold room A for 600ms, room B must finish in well under that)
+  // is the correct signal here, not a proxy for it: this IS what "independent lock resource"
+  // means operationally, and there's no non-timing way to observe two mutexes are unrelated.
+  test("the lock is scoped PER ROOM FILE, not global — a held lock on one room does not block a write to a DIFFERENT room", async () => {
+    openRoom("kobo", "roomA", "a");
+    openRoom("kobo", "roomB", "b");
+    const holdFixture = new URL("./__fixtures__/hold-lock-worker.ts", import.meta.url).pathname;
+    const sentinel = join(dir, "holder-acquired");
+    const env = { ...process.env, MAW_TEST_MODE: "1" };
+    const holder = Bun.spawn(["bun", "run", holdFixture, "kobo", "roomA", "600", sentinel], { env, stderr: "pipe" });
+    // wait for the holder to SIGNAL it has actually acquired the lock — not a fixed sleep
+    // guessing at subprocess startup time. A guessed delay races the guess, not the scope
+    // (caught this directly: an earlier fixed-150ms version let a real per-company-scope
+    // mutation slip through once out of several runs, because the holder hadn't acquired
+    // yet when the main test's append ran ahead of it).
+    const pollDeadline = Date.now() + 5000;
+    while (!existsSync(sentinel)) {
+      if (Date.now() > pollDeadline) throw new Error("holder never signalled lock acquisition");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    const t0 = performance.now();
+    appendRoomMessage("kobo", "roomB", { id: "b1", from: "x", text: "y", ts: 1 });
+    const elapsed = performance.now() - t0;
+
+    const holderExit = await holder.exited;
+    if (holderExit !== 0) throw new Error(`holder failed: ${await new Response(holder.stderr).text()}`);
+    expect(readRoom("kobo", "roomB")!.messages).toHaveLength(1); // the write actually happened
+    expect(elapsed).toBeLessThan(200); // a global (or per-company) lock would force this to wait out room A's 600ms hold
+  }, 10_000);
+});
