@@ -49,6 +49,13 @@ export function roomHtml(): string {
     .app { display:grid; grid-template-columns:minmax(260px,28%) 1fr; height:calc(100vh - 56px); }
     .topics { border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; background:var(--surface); }
     .topics h2 { margin:0; padding:14px 16px 8px; font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
+    /* kobo-438: closed/merged rooms hide by default (Tony reversed kobo-379's
+       "show, just gray it out" default) — this toggle is the ONLY way back to
+       them, so it must always be visible on the list, never in a menu/hover,
+       and always state its own count (even 0), never disappear. */
+    #roomFilterToggle { display:block; width:calc(100% - 16px); margin:0 8px 8px; padding:7px 10px; background:var(--muted); border:1px solid var(--border); border-radius:8px; color:var(--dim); font-size:12px; text-align:left; }
+    #roomFilterToggle:hover { filter:brightness(1.15); }
+    #roomFilterToggle.active { color:var(--lead); border-color:var(--lead); }
     #roomlist { overflow-y:auto; flex:1; padding:0 8px 12px; }
     .roomrow { display:flex; align-items:center; gap:10px; min-height:44px; padding:8px 10px; border-radius:8px;
       cursor:pointer; border-left:2px solid transparent; transition:background .15s; }
@@ -168,6 +175,7 @@ export function roomHtml(): string {
   <div class="app" id="app">
     <aside class="topics">
       <h2 id="topicsHead">Topics</h2>
+      <button id="roomFilterToggle" type="button"></button>
       <div id="roomlist"><div class="list-empty">loading…</div></div>
       <div id="mergebar" style="display:none; padding:8px 12px; border-top:1px solid var(--border);">
         <button id="mergeConfirm" class="act accent" type="button">confirm merge into this topic</button>
@@ -219,6 +227,7 @@ let roomId = q.get('room') || '';
 let lead = '';
 let rooms = [];
 let mergeMode = false;
+let showClosed = false; // kobo-438: closed/merged rooms hide by default
 let roomStatus = 'open';
 let oracles = []; // kobo-390: company roster for the @-picker
 let participants = []; // kobo-390: current room's explicit invite list
@@ -282,6 +291,16 @@ function statusDot(s) { return s === 'open' ? '●' : (s === 'merged' ? '○' : 
 
 function renderRoomList() {
   const box = $('roomlist');
+  // kobo-438: "inactive" = closed OR merged (Tony: a merged room is a
+  // signpost to another room, not a place to talk) — hidden by default,
+  // reversing kobo-379's old "show it, just gray it out". The toggle button
+  // is the only way back to them, so its count must match exactly what
+  // showClosed=true reveals (never count just closed while hiding both).
+  const hidden = rooms.filter((r) => r.status !== 'open');
+  const visible = showClosed ? rooms : rooms.filter((r) => r.status === 'open');
+  const toggle = $('roomFilterToggle');
+  toggle.textContent = (showClosed ? 'ซ่อน' : '') + 'ห้องที่ปิด/รวมแล้ว (' + hidden.length + ')';
+  toggle.classList.toggle('active', showClosed);
   box.replaceChildren();
   if (!rooms.length) {
     const e = el('div', 'list-empty');
@@ -291,7 +310,13 @@ function renderRoomList() {
     box.appendChild(e);
     return;
   }
-  for (const r of rooms) {
+  if (!visible.length) {
+    const e = el('div', 'list-empty');
+    e.appendChild(el('div', null, 'ห้องที่เปิดอยู่ไม่มี — กดปุ่มด้านบนเพื่อดูห้องที่ปิด/รวมแล้ว'));
+    box.appendChild(e);
+    return;
+  }
+  for (const r of visible) {
     const row = el('div', 'roomrow ' + statusClass(r.status) + (r.id === roomId ? ' active' : ''));
     row.tabIndex = 0;
     if (mergeMode && r.id !== roomId && r.status !== 'merged') {
@@ -781,6 +806,7 @@ function onThreadClick(ev) {
 // ── wire ────────────────────────────────────────────────────────────────
 $('company').addEventListener('change', () => { company = $('company').value; roomId = ''; $('app').classList.remove('showchat'); loadRooms().then(() => loadThread()); });
 $('newTopic').addEventListener('click', newTopic);
+$('roomFilterToggle').addEventListener('click', () => { showClosed = !showClosed; renderRoomList(); });
 $('send').addEventListener('click', send);
 $('text').addEventListener('input', onComposeInput);
 function pickActive() { const oracle = pickerItems[pickerActiveIndex]; pickTag(oracle, !participants.includes(oracle)); }
