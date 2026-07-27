@@ -160,6 +160,11 @@ describe("checkPaneIdle — colour params must not read as dim (kobo-503 c1)", (
     expect(r.idle).toBe(false);
   });
 
+  test("underline colour 58;5;2 does not hide typing", async () => {
+    const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[58;5;2m") });
+    expect(r.idle).toBe(false);
+  });
+
   test("256-colour BACKGROUND index 2 (48;5;2) does not hide typing", async () => {
     const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[48;5;2m") });
     expect(r.idle).toBe(false);

@@ -424,7 +424,7 @@ export function stripGhostText(line: string): string {
           // than kobo-503 itself (the guard exists to stop overtyping), and the
           // old regex did NOT have it. Skip the sub-params so only a standalone
           // 2 is dim.
-          if (n === 38 || n === 48) { k += ps[k + 1] === "5" ? 2 : ps[k + 1] === "2" ? 4 : 0; continue; }
+          if (n === 38 || n === 48 || n === 58) { k += ps[k + 1] === "5" ? 2 : ps[k + 1] === "2" ? 4 : 0; continue; }
           if (n === 0) { dim = false; reverse = false; }
           else if (n === 2) dim = true;
           else if (n === 22) dim = false;
