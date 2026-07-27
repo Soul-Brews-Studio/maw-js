@@ -104,7 +104,21 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
   // future edit that turned strict into an option/env would sail through green.
   // Exact-string match on the literal initialize() call closes that gap.
   test("kobo-398 check 11: securityLevel:'strict' + startOnLoad:false are hardcoded literals, no flag/env can disable them", () => {
-    expect(html).toContain("window.mermaid.initialize({ securityLevel: 'strict', startOnLoad: false })");
+    expect(html).toContain("window.mermaid.initialize({ securityLevel: 'strict', startOnLoad: false, theme: 'base', themeVariables: MERMAID_THEME_VARIABLES })");
+  });
+
+  // kobo-422 review (eq3 F1): MERMAID_ASSET_URL's ?v= was only kept in sync with
+  // package.json's mermaid pin by a code comment ("bump alongside package.json's
+  // exact pin") — nothing enforced it. assets.ts now serves this file with
+  // cache-control: immutable, max-age=1yr, so a forgotten bump strands a browser
+  // that already fetched the old asset on it for up to a year. Read the ACTUAL
+  // installed version from package.json at test time (never hardcode it on
+  // either side) so drift in EITHER direction — room.ts falling behind a
+  // mermaid bump, or a package.json edit outpacing room.ts — fails CI.
+  test("kobo-422 F1: MERMAID_ASSET_URL's ?v= is pinned to package.json's real mermaid version, not just a comment", () => {
+    const pkg = require("../../package.json");
+    const installedMermaidVersion = pkg.dependencies.mermaid;
+    expect(html).toContain(`/assets/vendor/mermaid.js?v=${installedMermaidVersion}`);
   });
 
   // kobo-398 — extract the mermaid loader/renderer straight from the served client
@@ -115,7 +129,11 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     const start = html.indexOf("const MERMAID_ASSET_URL");
     const end = html.indexOf("async function loadThread", start);
     const src = html.slice(start, end);
-    return new Function(`${src}; return { loadMermaid, renderMermaidBlocks };`)();
+    // kobo-422: setMermaidThemeIdForTest exists ONLY in this test-side return
+    // statement — mermaidThemeId is a `let` inside the extracted source purely
+    // so this harness can prove the cache key reacts to it; shipped code never
+    // reassigns it (no runtime theme switcher exists).
+    return new Function(`${src}; return { loadMermaid, renderMermaidBlocks, setMermaidThemeIdForTest: (v) => { mermaidThemeId = v; } };`)();
   }
   // kobo-398 review fix (B2): the real querySelectorAll returns a NodeList, not
   // an Array — a plain-array stub is a MORE capable fake than the real DOM (it
@@ -304,6 +322,230 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     } finally {
       (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
     }
+  });
+
+  // kobo-422 — thumbnail: a successfully-rendered block becomes clickable (the
+  // CSS turns it visually small; the class is what makes it eligible at all).
+  test("kobo-422 THUMBNAIL CLASS: a successfully rendered block gets the mermaid-thumb class", async () => {
+    const { renderMermaidBlocks } = loadMermaidRenderer();
+    const { doc, win } = stubEnv(async () => ({ svg: "<svg>ok</svg>" }));
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const added: string[] = [];
+      const block = { textContent: "graph TD; A-->B;", innerHTML: "", isConnected: true, classList: { add: (c: string) => added.push(c) } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block]) });
+      expect(added).toEqual(["mermaid-thumb"]);
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  test("kobo-422 THUMBNAIL CLASS: a FAILED render never gets the mermaid-thumb class (fallback source stays non-clickable)", async () => {
+    const { renderMermaidBlocks } = loadMermaidRenderer();
+    const { doc, win } = stubEnv(async () => { throw new Error("bad syntax"); });
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const added: string[] = [];
+      const block = { textContent: "BADSYNTAX ---", innerHTML: "", isConnected: true, classList: { add: (c: string) => added.push(c) } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block]) });
+      expect(added).toEqual([]);
+      expect(block.innerHTML).toBe("");
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  // kobo-422 — cache KEY now includes the theme id (a SEPARATE concern from the
+  // Map's unbounded size/growth, which this card explicitly does not touch).
+  // Switching theme must invalidate every cached SVG for the SAME source text.
+  test("kobo-422 CACHE KEY: switching theme invalidates the cache for the SAME source (re-renders, doesn't reuse the old-theme SVG)", async () => {
+    const { renderMermaidBlocks, setMermaidThemeIdForTest } = loadMermaidRenderer();
+    let renderCalls = 0;
+    const { doc, win, createdTags } = stubEnv(async () => { renderCalls++; return { svg: "<svg>call-" + renderCalls + "</svg>" }; });
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const src = "graph TD; A-->B;";
+      const block1 = { textContent: src, innerHTML: "", isConnected: true, classList: { add: () => {} } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block1]) });
+      expect(renderCalls).toBe(1);
+      expect(block1.innerHTML).toBe("<svg>call-1</svg>");
+
+      // same theme, same source, new node (like a normal 2.5s poll) → cache hit
+      const block2 = { textContent: src, innerHTML: "", isConnected: true, classList: { add: () => {} } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block2]) });
+      expect(renderCalls).toBe(1); // still a hit — theme unchanged
+      expect(block2.innerHTML).toBe("<svg>call-1</svg>");
+
+      // theme changes → SAME source must be a cache MISS, re-rendered
+      setMermaidThemeIdForTest("kobo-light-v1");
+      const block3 = { textContent: src, innerHTML: "", isConnected: true, classList: { add: () => {} } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block3]) });
+      expect(renderCalls).toBe(2); // re-rendered under the new theme
+      expect(block3.innerHTML).toBe("<svg>call-2</svg>"); // NOT the old-theme SVG served stale
+      expect(createdTags.length).toBe(1); // asset itself is still loaded only once — this is a key change, not a re-fetch
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  test("kobo-422: mermaid.initialize uses theme:'base' + site-matched themeVariables, not mermaid's default palette", () => {
+    expect(html).toContain("theme: 'base'");
+    expect(html).toContain("themeVariables: MERMAID_THEME_VARIABLES");
+    expect(html).toContain("background: '#0F172A'"); // --bg
+    expect(html).toContain("primaryColor: '#1E293B'"); // --surface
+    expect(html).toContain("primaryTextColor: '#F8FAFC'"); // --fg
+  });
+
+  test("kobo-422: thumbnail CSS shrinks the WHOLE diagram (max-height, no cropping) and signals it's clickable", () => {
+    expect(html).toContain(".mermaid-src.mermaid-thumb { cursor:zoom-in; }");
+    expect(html).toContain("max-height:120px");
+    expect(html).not.toContain("overflow:hidden; }\n    .bubble .body .mermaid-src.mermaid-thumb svg"); // not a crop — the svg's own aspect ratio scales down
+  });
+
+  test("kobo-422: modal markup exists (dialog role, close button, backdrop) and starts hidden", () => {
+    expect(html).toContain('id="mermaidModal"');
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
+    expect(html).toContain('id="mmdModalClose"');
+    expect(html).toContain('id="mmdModalContent"');
+    expect(html).toContain('class="mmd-modal-backdrop"');
+    const modalOpenTag = html.slice(html.indexOf('id="mermaidModal"') - 40, html.indexOf('id="mermaidModal"') + 60);
+    expect(modalOpenTag).toContain('style="display:none;"'); // starts hidden
+  });
+
+  test("kobo-422: exactly ONE delegated click listener is bound to #thread (survives loadThread's replaceChildren, never re-bound per diagram)", () => {
+    const matches = html.match(/\$\('thread'\)\.addEventListener\('click'/g) || [];
+    expect(matches.length).toBe(1);
+  });
+
+  // kobo-422 — extract the modal functions the same way loadLinkify/
+  // loadMermaidRenderer do, with a minimal injected `$` so open/close/delegation
+  // are BEHAVIORALLY proven against stub elements, not just grepped.
+  function loadMermaidModal(elements: Record<string, any>) {
+    const start = html.indexOf("function openMermaidModal");
+    const end = html.indexOf("// ── wire", start);
+    const src = html.slice(start, end);
+    return new Function("$", `${src}; return { openMermaidModal, closeMermaidModal, onThreadClick };`)((id: string) => elements[id]);
+  }
+  function modalElements() {
+    const content = { children: [] as any[], replaceChildren(...nodes: any[]) { this.children = nodes; } };
+    const modal = { style: { display: "none" } };
+    return { content, modal, mmdModalContent: content, mermaidModal: modal };
+  }
+
+  test("kobo-422: openMermaidModal replaceChildren-s the given node into modal content (no innerHTML) and shows the modal", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { openMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const fakeSvg = { tag: "svg" };
+    openMermaidModal(fakeSvg);
+    expect(content.children).toEqual([fakeSvg]);
+    expect(modal.style.display).toBe("");
+  });
+
+  test("kobo-422: closeMermaidModal hides the modal and clears its content", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    content.children = ["stale" as any];
+    modal.style.display = "";
+    const { closeMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    closeMermaidModal();
+    expect(modal.style.display).toBe("none");
+    expect(content.children).toEqual([]);
+  });
+
+  test("kobo-422: onThreadClick opens the modal with a CLONE of the clicked diagram's svg, not the live thumbnail node", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const originalSvg = { tag: "svg", cloneNode(deep: boolean) { return { tag: "svg-clone", deep }; } };
+    const thumb = { querySelector: (sel: string) => (sel === "svg" ? originalSvg : null) };
+    const target = { closest: (sel: string) => (sel === ".mermaid-thumb" ? thumb : null) };
+    onThreadClick({ target });
+    expect(content.children.length).toBe(1);
+    expect(content.children[0]).not.toBe(originalSvg); // a CLONE — the live thumbnail node is never moved into the modal
+    expect(content.children[0]).toEqual({ tag: "svg-clone", deep: true });
+    expect(modal.style.display).toBe("");
+  });
+
+  test("kobo-422: onThreadClick is a no-op when the click lands outside any .mermaid-thumb", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const target = { closest: () => null };
+    onThreadClick({ target });
+    expect(content.children).toEqual([]);
+    expect(modal.style.display).toBe("none");
+  });
+
+  test("kobo-422: onThreadClick is a no-op when the thumb has no <svg> child yet (render still pending)", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const thumb = { querySelector: () => null };
+    const target = { closest: () => thumb };
+    onThreadClick({ target });
+    expect(content.children).toEqual([]);
+  });
+
+  // kobo-422 review (eq3 L1): the markup test above only proves the close
+  // button / backdrop / dialog role EXIST — it never proved anything is
+  // actually wired to them. loadMermaidModal (above) deliberately stops
+  // BEFORE "// ── wire", so calling closeMermaidModal directly (as the two
+  // tests above do) would stay green even if all 3 real addEventListener
+  // registrations were deleted. This helper instead slices in the modal
+  // functions PLUS the exact 4 "// ── wire" lines that bind them (#thread
+  // click, #mmdModalClose click, #mermaidModal click, document keydown), then
+  // the test below fires each stub element's OWN registered handler — never
+  // calling closeMermaidModal by hand — so a removed wiring line fails here.
+  function loadMermaidWiring(elements: Record<string, any>, doc: { addEventListener(ev: string, cb: (ev: any) => void): void }) {
+    const fnStart = html.indexOf("function openMermaidModal");
+    const fnEnd = html.indexOf("// ── wire", fnStart);
+    const wireStart = html.indexOf("$('thread').addEventListener('click', onThreadClick)", fnEnd);
+    const wireEnd = html.indexOf("$('back').addEventListener", wireStart);
+    const src = html.slice(fnStart, fnEnd) + html.slice(wireStart, wireEnd);
+    new Function("$", "document", src)((id: string) => elements[id], doc);
+  }
+  function fakeTarget(extra: Record<string, any> = {}) {
+    const listeners: Record<string, ((ev: any) => void)[]> = {};
+    return {
+      ...extra,
+      addEventListener(ev: string, cb: (ev: any) => void) { (listeners[ev] ||= []).push(cb); },
+      fire(ev: string, arg: any = {}) { (listeners[ev] || []).forEach((cb) => cb(arg)); },
+    };
+  }
+
+  test("kobo-422 L1: all 4 modal-close paths (close button, self click, backdrop click, Escape keydown) are wired to the REAL listener, not just present in markup", () => {
+    const content = { children: [] as any[], replaceChildren(...nodes: any[]) { this.children = nodes; } };
+    const mermaidModal = fakeTarget({ style: { display: "none" } });
+    const mmdModalClose = fakeTarget();
+    const doc = fakeTarget();
+    loadMermaidWiring({ mmdModalContent: content, mermaidModal, mmdModalClose, thread: fakeTarget() }, doc);
+
+    const reset = () => { mermaidModal.style.display = ""; content.children = ["x" as any]; };
+    const assertClosed = () => {
+      expect(mermaidModal.style.display).toBe("none");
+      expect(content.children).toEqual([]);
+    };
+
+    reset();
+    mmdModalClose.fire("click"); // path 1: the close button
+    assertClosed();
+
+    reset();
+    mermaidModal.fire("click", { target: { id: "mermaidModal", classList: { contains: () => false } } }); // path 2: click on the modal itself (id match)
+    assertClosed();
+
+    // path 3: click on the backdrop — the real .mmd-modal-backdrop div has NO
+    // id (it's position:absolute; inset:0 over the whole overlay), so a real
+    // click here always has target.id === "" and only the classList branch
+    // saves it. A prior version of this test only ever exercised the id
+    // branch, so a deleted classList.contains(...) clause stayed green.
+    reset();
+    mermaidModal.fire("click", { target: { id: "", classList: { contains: (c: string) => c === "mmd-modal-backdrop" } } });
+    assertClosed();
+
+    reset();
+    doc.fire("keydown", { key: "Escape" }); // path 4: Escape key
+    assertClosed();
   });
 
   test("kobo-380: isSafeUrl allowlists http/https only", () => {

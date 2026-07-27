@@ -96,6 +96,20 @@ export function roomHtml(): string {
        once swapped to an <svg> child, white-space:pre only affects text nodes. */
     .bubble .body .mermaid-src { white-space:pre; background:var(--muted); border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em; }
     .bubble .body .mermaid-src svg { max-width:100%; height:auto; }
+    /* kobo-422: once rendered, a diagram becomes a THUMBNAIL — the class is only
+       added after a successful render (never on the escaped-source fallback), so
+       nothing un-renderable is clickable. max-height (not overflow:hidden) lets
+       the SVG's own viewBox scale the WHOLE diagram down, never cropping it. */
+    .bubble .body .mermaid-src.mermaid-thumb { cursor:zoom-in; }
+    .bubble .body .mermaid-src.mermaid-thumb svg { display:block; width:auto; height:auto; max-height:120px; max-width:100%; }
+    /* kobo-422: click-to-zoom modal — one instance, reused for every diagram in
+       the thread (populated via cloneNode on open, cleared on close). */
+    .mmd-modal { position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center; padding:32px; }
+    .mmd-modal-backdrop { position:absolute; inset:0; background:rgba(2,6,15,.72); }
+    .mmd-modal-body { position:relative; max-width:min(92vw,1100px); max-height:88vh; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+    .mmd-modal-body svg { display:block; max-width:100%; height:auto; }
+    .mmd-modal-close { position:absolute; top:10px; right:10px; background:var(--muted); border:1px solid var(--border); border-radius:8px; width:32px; height:32px; color:var(--fg); font-size:16px; line-height:1; }
+    .mmd-modal-close:hover { filter:brightness(1.15); }
     .bubble .body a { color:var(--human); text-decoration:underline; }
     .bubble .body .note-img-link { display:inline-block; margin:4px 0; }
     .bubble .body .note-img { display:block; max-width:100%; max-height:320px; height:auto; border:1px solid var(--border); border-radius:9px; }
@@ -177,6 +191,15 @@ export function roomHtml(): string {
         <button id="send" class="send" type="button">send ▸</button>
       </div>
     </section>
+  </div>
+  <!-- kobo-422: click-to-zoom modal for mermaid thumbnails — one shared instance,
+       content populated/cleared via cloneNode/replaceChildren (never innerHTML). -->
+  <div id="mermaidModal" class="mmd-modal" style="display:none;" role="dialog" aria-modal="true" aria-label="diagram">
+    <div class="mmd-modal-backdrop"></div>
+    <div class="mmd-modal-body">
+      <button id="mmdModalClose" class="mmd-modal-close" type="button" aria-label="close">✕</button>
+      <div id="mmdModalContent"></div>
+    </div>
   </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -370,6 +393,32 @@ function linkifyDom(root) {
 // foreignObject) — the load-bearing guard, layered on top of mdToHtml's
 // escape-first source (the div's text content is ALREADY html-escaped).
 const MERMAID_ASSET_URL = '/assets/vendor/mermaid.js?v=11.16.0'; // bump alongside package.json's exact pin
+// kobo-422: mermaid's default palette (purple/pink) doesn't match the room's
+// dark theme — theme:'base' + themeVariables lets us paint it with the SAME
+// :root custom properties this page already uses. mermaidThemeId is a plain
+// "let" (not const, and no backticks — this is ONE template literal, see file
+// header) purely so a test harness can swap it to prove the cache key
+// (below) actually invalidates on theme change — it is NEVER reassigned by
+// shipped code (no runtime theme switcher exists yet).
+let mermaidThemeId = 'kobo-dark-v1'; // bump this whenever MERMAID_THEME_VARIABLES changes — invalidates every cached SVG for free
+const MERMAID_THEME_VARIABLES = {
+  darkMode: true,
+  background: '#0F172A', // --bg
+  mainBkg: '#1E293B', // --surface — node fill
+  primaryColor: '#1E293B', // --surface
+  primaryTextColor: '#F8FAFC', // --fg
+  primaryBorderColor: '#475569', // --border
+  secondaryColor: '#334155', // --surface-2
+  tertiaryColor: '#272F42', // --muted
+  lineColor: '#94A3B8', // --dim — edges
+  textColor: '#F8FAFC', // --fg
+  nodeBorder: '#475569', // --border
+  clusterBkg: '#272F42', // --muted
+  clusterBorder: '#475569', // --border
+  edgeLabelBackground: '#272F42', // --muted
+  errorBkgColor: '#EF4444', // --danger
+  errorTextColor: '#F8FAFC', // --fg
+};
 let mermaidLoadPromise = null;
 function loadMermaid() {
   if (!mermaidLoadPromise) {
@@ -377,7 +426,10 @@ function loadMermaid() {
       const s = document.createElement('script');
       s.src = MERMAID_ASSET_URL;
       s.onload = () => {
-        try { window.mermaid.initialize({ securityLevel: 'strict', startOnLoad: false }); resolve(window.mermaid); }
+        try {
+          window.mermaid.initialize({ securityLevel: 'strict', startOnLoad: false, theme: 'base', themeVariables: MERMAID_THEME_VARIABLES });
+          resolve(window.mermaid);
+        }
         catch (e) { reject(e); }
       };
       s.onerror = () => reject(new Error('failed to load mermaid asset'));
@@ -392,7 +444,14 @@ let mermaidBlockSeq = 0;
 // Promise still re-parsed+re-laid-out every unchanged diagram every poll. Cache
 // the rendered SVG by source text instead — a poll whose diagrams are unchanged
 // never touches mermaid.render at all.
+// kobo-422: key includes the theme id too — switching theme must invalidate
+// every cached SVG (a diagram rendered under the OLD palette must never be
+// served as-is once the theme changes), not just the source text.
 const mermaidSvgCache = new Map();
+// U+0001 between them is a real separator (never appears in a mermaid source
+// string) — without one, theme "a" + src "bc" would collide in the map with
+// theme "ab" + src "c".
+function mermaidCacheKey(src) { return mermaidThemeId + '' + src; }
 async function renderMermaidBlocks(root) {
   const blocks = root.querySelectorAll('.mermaid-src');
   if (!blocks.length) return; // nothing to render — never load the asset (lazy-by-absence)
@@ -402,7 +461,7 @@ async function renderMermaidBlocks(root) {
   // querySelectorAll returns a NodeList — no .map (same idiom as the existing
   // Array.from(...).map at line ~675 for .msrc:checked).
   const pending = Array.from(blocks).map((block) => ({ block, src: block.textContent || '', svg: undefined }));
-  const misses = pending.filter((p) => { const c = mermaidSvgCache.get(p.src); if (c !== undefined) p.svg = c; return c === undefined; });
+  const misses = pending.filter((p) => { const c = mermaidSvgCache.get(mermaidCacheKey(p.src)); if (c !== undefined) p.svg = c; return c === undefined; });
   if (misses.length) {
     try {
       const mermaid = await loadMermaid();
@@ -411,7 +470,7 @@ async function renderMermaidBlocks(root) {
           // per-block isolation: ONE malformed diagram's throw is caught HERE,
           // inside the loop — it can never abort the rest of the thread's blocks.
           const { svg } = await mermaid.render('mmd-' + (mermaidBlockSeq++), p.src);
-          mermaidSvgCache.set(p.src, svg);
+          mermaidSvgCache.set(mermaidCacheKey(p.src), svg);
           p.svg = svg;
         } catch (e) { /* leave the escaped source text in place — already the fallback */ }
       }
@@ -425,7 +484,13 @@ async function renderMermaidBlocks(root) {
     if (!p.block.isConnected) continue;
     // per-block isolation applies here too — a cache-hit write is still one
     // block among siblings; one failing write must never skip the rest.
-    try { p.block.innerHTML = p.svg; } catch (e) { /* leave the fallback source text in place */ }
+    try {
+      p.block.innerHTML = p.svg;
+      // kobo-422: only a SUCCESSFULLY rendered block becomes a clickable
+      // thumbnail — the escaped-source fallback (render/load failed) never gets
+      // this class, so there's nothing to zoom into.
+      p.block.classList.add('mermaid-thumb');
+    } catch (e) { /* leave the fallback source text in place */ }
   }
 }
 
@@ -683,6 +748,30 @@ async function confirmMerge() {
   } catch (err) { setStatus('merge failed: ' + (err && err.message ? err.message : err), true); }
 }
 
+// ── mermaid click-to-zoom modal (kobo-422) ──────────────────────────────────
+// loadThread's replaceChildren() (2.5s poll) makes every diagram a NEW DOM node
+// each round — a listener bound directly to a diagram would be lost every poll.
+// Fix is event DELEGATION, not touching loadThread: bind ONE click listener to
+// #thread (never itself replaced, only its children) below, in the wire block.
+// Modal content is populated via cloneNode of the diagram's OWN already-rendered
+// <svg> (the SAME element the thumbnail shows, never re-rendered) + replaceChildren
+// — no innerHTML involved, so this adds no new innerHTML sink.
+function openMermaidModal(svgNode) {
+  $('mmdModalContent').replaceChildren(svgNode);
+  $('mermaidModal').style.display = '';
+}
+function closeMermaidModal() {
+  $('mermaidModal').style.display = 'none';
+  $('mmdModalContent').replaceChildren();
+}
+function onThreadClick(ev) {
+  const thumb = ev.target.closest('.mermaid-thumb');
+  if (!thumb) return;
+  const svgEl = thumb.querySelector('svg');
+  if (!svgEl) return;
+  openMermaidModal(svgEl.cloneNode(true));
+}
+
 // ── wire ────────────────────────────────────────────────────────────────
 $('company').addEventListener('change', () => { company = $('company').value; roomId = ''; $('app').classList.remove('showchat'); loadRooms().then(() => loadThread()); });
 $('newTopic').addEventListener('click', newTopic);
@@ -708,6 +797,10 @@ $('text').addEventListener('blur', () => setTimeout(closePicker, 150)); // 150ms
 $('text').addEventListener('paste', onComposePaste); // kobo-397: image paste
 $('text').addEventListener('dragover', (ev) => { ev.preventDefault(); }); // kobo-397: allow drop
 $('text').addEventListener('drop', onComposeDrop); // kobo-397: image drag-drop
+$('thread').addEventListener('click', onThreadClick); // kobo-422: ONE delegated listener — survives loadThread's 2.5s replaceChildren
+$('mmdModalClose').addEventListener('click', closeMermaidModal);
+$('mermaidModal').addEventListener('click', (ev) => { if (ev.target.id === 'mermaidModal' || ev.target.classList.contains('mmd-modal-backdrop')) closeMermaidModal(); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeMermaidModal(); });
 $('back').addEventListener('click', () => { $('app').classList.remove('showchat'); });
 $('distillBtn').addEventListener('click', distill);
 $('inviteBtn').addEventListener('click', invite);
