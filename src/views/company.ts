@@ -2373,6 +2373,13 @@ const ACTIVE_MS = 10 * 60 * 1000; // green dot = active within 10 min
 // is-stale dimming already signals "last known", so blanking it hid live info.
 function ctxPct(p) {
   if (!p) return null;
+  // kobo-443: a long-running pane's CUMULATIVE token counter can exceed its
+  // own context window — upstream then hands us a flat remaining_percentage
+  // 0 / used_percentage 100, which reads as "completely full" even though the
+  // pane may have just compacted and be nearly empty. That reading is not
+  // trustworthy, so treat it the same as no data at all (never show a lying
+  // number just because a number showed up).
+  if (typeof p.total_input_tokens === 'number' && typeof p.context_window_size === 'number' && p.total_input_tokens > p.context_window_size) return null;
   if (typeof p.remaining_percentage === 'number') return Math.round(p.remaining_percentage);
   if (typeof p.used_percentage === 'number') return Math.round(100 - p.used_percentage);
   return null;
@@ -2526,7 +2533,11 @@ function renderPresence(entries, roster, presence, held) {
         row.appendChild(el('span', 'p-pane-id', '.' + (p.pane || '?')));
         row.appendChild(el('span', 'p-pane-model', p.model || '—'));
         const pct = ctxPct(p);
-        const ctx = el('span', 'p-pane-ctx', pct == null ? 'ctx —' : 'ctx ' + pct + '%');
+        // kobo-443: the visible string used to read "ctx 42%" with no direction —
+        // most readers parse that as 42% USED, but ctxPct returns REMAINING. The
+        // correct direction only lived in the title attribute (hover-only). Say
+        // it in the visible label too (same bug family as the statusline inversion).
+        const ctx = el('span', 'p-pane-ctx', pct == null ? 'ctx —' : 'ctx ' + pct + '% left');
         if (pct != null && !p.stale) { ctx.title = pct + '% context remaining'; }
         row.appendChild(ctx);
         const pbTxt = pState === 'error' ? '🛑 error' : (pState === 'busy' ? '● busy' : '○ idle');
