@@ -134,3 +134,41 @@ describe("checkPaneIdle — queued-message hint is ghost, not typing (kobo-503)"
     expect(r.lastInput).toBe("real operator text");
   });
 });
+
+/**
+ * kobo-503 c1 — %5's request-change on the first cut of stripGhostText.
+ *
+ * SGR 38/48 (extended fg/bg) own the params that follow them: `38;5;2` is
+ * palette index 2, `38;2;r;g;b` is truecolour. Reading params left-to-right
+ * without consuming those made a colour's literal `2` set dim, which swallowed
+ * the rest of the row — including text a human was actively typing. That is a
+ * worse failure than the bug being fixed (this guard exists to stop overtyping)
+ * and the regex it replaced did not have it. Caught by an independent reviewer
+ * running the whole checkPaneIdle path, not by the author.
+ */
+describe("checkPaneIdle — colour params must not read as dim (kobo-503 c1)", () => {
+  const row = (prefix: string) => `agent output\n----\n${prefix}❯ \x1b[39mreal typed text\n--\n  online\n`;
+
+  test("256-colour foreground index 2 (38;5;2) does not hide typing", async () => {
+    const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[38;5;2m") });
+    expect(r.idle).toBe(false);
+    expect(r.lastInput).toBe("real typed text");
+  });
+
+  test("truecolour foreground with a 2 in its channels (38;2;r;g;b) does not hide typing", async () => {
+    const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[38;2;0;2;9m") });
+    expect(r.idle).toBe(false);
+  });
+
+  test("256-colour BACKGROUND index 2 (48;5;2) does not hide typing", async () => {
+    const r = await checkPaneIdle("p", undefined, { captureFn: async () => row("\x1b[48;5;2m") });
+    expect(r.idle).toBe(false);
+  });
+
+  test("a standalone 2 IS still dim — the fix must not disarm the strip", async () => {
+    const r = await checkPaneIdle("p", undefined, {
+      captureFn: async () => "agent output\n----\n\x1b[38;5;246m❯ \x1b[2m\x1b[39mghost\x1b[0m\n--\n  online\n",
+    });
+    expect(r.idle).toBe(true);
+  });
+});

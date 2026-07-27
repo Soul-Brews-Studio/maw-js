@@ -413,8 +413,18 @@ export function stripGhostText(line: string): string {
       const ctrl = line.slice(i + 2).search(/[A-Za-z]/);
       const stop = ctrl === -1 ? -1 : i + 2 + ctrl;
       if (end !== -1 && stop === end) {
-        for (const p of line.slice(i + 2, end).split(";")) {
-          const n = p === "" ? 0 : Number(p);
+        const ps = line.slice(i + 2, end).split(";");
+        for (let k = 0; k < ps.length; k++) {
+          const n = ps[k] === "" ? 0 : Number(ps[k]);
+          // %5's request-change: 38/48 (extended fg/bg) OWN the params that
+          // follow them — `38;5;2` is palette index 2 and `38;2;r;g;b` is
+          // truecolour. Read left-to-right without consuming those, and a
+          // colour's literal `2` reads as "dim" and swallows the whole rest of
+          // the row, including text a human is actually typing. That is worse
+          // than kobo-503 itself (the guard exists to stop overtyping), and the
+          // old regex did NOT have it. Skip the sub-params so only a standalone
+          // 2 is dim.
+          if (n === 38 || n === 48) { k += ps[k + 1] === "5" ? 2 : ps[k + 1] === "2" ? 4 : 0; continue; }
           if (n === 0) { dim = false; reverse = false; }
           else if (n === 2) dim = true;
           else if (n === 22) dim = false;
