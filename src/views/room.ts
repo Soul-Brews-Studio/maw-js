@@ -246,6 +246,9 @@ let roomStatus = 'open';
 let oracles = []; // kobo-390: company roster for the @-picker
 let participants = []; // kobo-390: current room's explicit invite list
 let scrolledToHash = null; // kobo-415: only auto-scroll to a #msg-N target once per hash, not every 2.5s poll
+// kobo-486: (room, message count, last seq) we last actually rebuilt the
+// thread DOM for — see the dirty-check in loadThread below.
+let lastThreadRenderKey = null;
 
 function syncUrl() {
   const u = new URL(location.href);
@@ -558,6 +561,29 @@ async function loadThread() {
   else banner.style.display = 'none';
 
   const msgs = room.messages.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  // kobo-486: loadThread rebuilt the whole thread DOM every 2.5s poll even
+  // when nothing changed (ForcedReflow/DOMSize hot path — ~535 elements per
+  // rebuild on a typical room). kobo-415's per-message seq is already a
+  // stable, monotonic counter; (room, message count, last seq) tells us
+  // whether a rebuild could produce anything different from what's already
+  // on screen. Equal to what we last rendered ⇒ skip the rebuild below
+  // (metadata above — topic/banner/participants — already refreshed
+  // regardless; loadActivity() below still always runs, since presence can
+  // change with zero new messages). Different (including first render, or a
+  // room switch, since roomKey is part of the comparison) ⇒ always rebuild —
+  // per this card's AC, a false "unchanged" here would hide a real message,
+  // which is worse than an unnecessary rebuild, so this must err toward
+  // rebuilding whenever it isn't certain nothing changed.
+  const lastMsg = msgs[msgs.length - 1];
+  // kobo-472 scar: the quotes below aren't empty — each holds a real U+0001
+  // separator (invisible in most editors/terminals). Without one, company
+  // "a" + room "bc" and company "ab" + room "c" collide into the same key.
+  const threadRenderKey = company + '' + roomId + '' + msgs.length + '' + (lastMsg ? lastMsg.seq : '');
+  if (threadRenderKey === lastThreadRenderKey) {
+    loadActivity();
+    return;
+  }
+  lastThreadRenderKey = threadRenderKey;
   // kobo-293: stick-to-bottom only when the user is already near the bottom, so
   // scrolling up to read history isn't yanked back down every 2.5s poll. Capture
   // BEFORE the rebuild while the old scroll metrics are still valid. First render
