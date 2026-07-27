@@ -141,13 +141,13 @@ mock.module(join(srcRoot, "src/commands/shared/should-auto-wake"), () => ({
 
 mock.module(join(srcRoot, "src/core/worklog/presence-away"), () => ({
   ..._rAway,
-  // note: falls through to the real reader whenever paneAway is false — that
-  // is a deliberate, ALWAYS-active passthrough for a pure local read (not
-  // gated by the mockActive race at all), same category as pty-transport's
-  // cfgTimeout non-"pty" branch. Left untouched: not the write/exec hazard
-  // this file is being fixed for.
-  // kobo-483-intentional-real-read: unrelated to the mockActive race.
-  isPaneAway: (...args: Parameters<typeof realAway.isPaneAway>) => (mockActive && paneAway) ? true : realAway.isPaneAway(...args),
+  // kobo-483: made deterministic instead of exempted from the guard —
+  // paneAway itself is already the fake's whole truth table (true/false), so
+  // returning it directly covers both cases without ever needing a real
+  // passthrough while mockActive is true. Standard resolveMock shape now,
+  // same as every other site in this file.
+  isPaneAway: (...args: Parameters<typeof realAway.isPaneAway>) =>
+    resolveMock(() => paneAway, () => realAway.isPaneAway(...args), "isPaneAway"),
 }));
 
 const origExit = process.exit;

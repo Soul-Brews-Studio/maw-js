@@ -34,6 +34,17 @@
  * to a per-line scan (the helper's own params are named `real`/`fake`,
  * lowercase — REAL_FALLTHROUGH_LINE doesn't match them). resolveMockBodyIsIntact()
  * checks the helper's own definition, not just its call sites.
+ *
+ * KNOWN LIMIT of this guard, not yet closed (kobo-490): it catches
+ * UNINTENTIONAL regression, keyed on the naming CONVENTION (`real[A-Z]`/
+ * `_r[A-Z]`). It does not resist DELIBERATE evasion — renaming a handle
+ * (`realSdk` -> `origSdk`) and removing its guard entirely passes this test
+ * with zero complaint (proven by eq3 on SHA affec00e). The correct fix is to
+ * key on the BIND SITE instead of the name (`const X = await import(...)`,
+ * then require every use of X to be guarded) — that is kobo-490, a separate
+ * card, not folded in here. Evasion of this shape shows up in code review
+ * as a renamed identifier with a deleted guard; catching it there is a
+ * property of review, not of this test, until kobo-490 lands.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
@@ -123,16 +134,18 @@ const FIXED_FILES: Array<{ path: string; kind: "toggle" | "bottleneck-override" 
 
 // `kobo-483-intentional-real-read` is a lock anyone can also use as a key —
 // it's a plain string in the source, easier to add than to actually make a
-// site safe. As of this test, it appears 6 times across the 12 fixed files,
-// each independently justified in-code (unrelated config-key reads, one
-// opt-in test technique). This is not a scanner for NEW misuse (a marker
+// site safe. As of this test, it appears exactly 5 times across the 12
+// fixed files, each independently justified in-code (unrelated config-key
+// reads, one opt-in test technique) — no buffer added on top of that real
+// count on purpose: a buffer just delays the moment someone notices growth,
+// it doesn't prevent it. This is not a scanner for NEW misuse (a marker
 // added correctly and one added to dodge this test look identical in text) —
 // it is a tripwire against silent growth: whoever adds the Nth occurrence is
 // reading this file, the same way whoever fixes the 13th real-fallthrough
 // file reads kobo-483's own reasoning. If this budget needs raising, raise
 // it deliberately in the same PR that adds the justified use, not by editing
 // past it quietly.
-const INTENTIONAL_REAL_READ_BUDGET = 8;
+const INTENTIONAL_REAL_READ_BUDGET = 5;
 
 describe("kobo-483 — fail-closed mock harness stays fail-closed", () => {
   test(`kobo-483-intentional-real-read stays within its budget (${INTENTIONAL_REAL_READ_BUDGET}) across all fixed files`, () => {
