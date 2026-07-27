@@ -26,6 +26,14 @@
  * NOT under test: the exact wording of any thrown error, or line numbers —
  * kobo-426's `room.test.ts:98` scar (locking a literal string, going red on
  * a capability-preserving change) applies here too.
+ *
+ * 3rd tightening round (reviewer): a per-site scan still can't see a revert
+ * INSIDE the shared resolveMock() helper itself — collapsing its body from
+ * "real only during module-load, else throw" down to "always real" un-fails-
+ * closes every call site in a file at once, in 2 lines, and stays invisible
+ * to a per-line scan (the helper's own params are named `real`/`fake`,
+ * lowercase — REAL_FALLTHROUGH_LINE doesn't match them). resolveMockBodyIsIntact()
+ * checks the helper's own definition, not just its call sites.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
@@ -64,6 +72,32 @@ function findUnguardedRealFallthroughs(source: string): string[] {
   return unguarded;
 }
 
+// Reviewer's 2nd finding: a per-site check still can't see a revert INSIDE
+// the shared resolveMock() helper itself — changing its body from
+// `if (!suiteStarted) return real(); return realCallForbidden(label);` down
+// to just `return real();` un-fails-closes every call site in the file at
+// once, in 2 lines, and the per-site scan above never notices (the helper's
+// own parameters are named `real`/`fake`, lowercase, so REAL_FALLTHROUGH_LINE
+// doesn't even match them). If a file defines resolveMock, that definition's
+// body must itself still call realCallForbidden.
+function resolveMockBodyIsIntact(source: string): boolean {
+  const defIndex = source.indexOf("function resolveMock");
+  if (defIndex === -1) return true; // file doesn't define it — nothing to check here
+  const braceStart = source.indexOf("{", defIndex);
+  if (braceStart === -1) return false;
+  let depth = 0;
+  let i = braceStart;
+  for (; i < source.length; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") {
+      depth--;
+      if (depth === 0) break;
+    }
+  }
+  const body = source.slice(braceStart, i + 1);
+  return body.includes("realCallForbidden");
+}
+
 // The 12 files kobo-483 made fail-closed. If a future PR adds another file
 // with a real-fallthrough shape (toggle-based or otherwise), it belongs on
 // this list too — that's a deliberate, visible list to edit, not something
@@ -100,6 +134,10 @@ describe("kobo-483 — fail-closed mock harness stays fail-closed", () => {
         test("every real*/_r* fallthrough site is suiteStarted-guarded (not just present somewhere)", () => {
           const unguarded = findUnguardedRealFallthroughs(source);
           expect(unguarded).toEqual([]);
+        });
+
+        test("if this file defines resolveMock(), its body still calls realCallForbidden (not just its call sites)", () => {
+          expect(resolveMockBodyIsIntact(source)).toBe(true);
         });
       } else {
         test("overrides the run() bottleneck, not just the individual primitives", () => {
