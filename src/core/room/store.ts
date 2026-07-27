@@ -16,6 +16,17 @@
 import { mkdirSync, writeFileSync, renameSync, readFileSync, existsSync, readdirSync } from "fs";
 import { mawDataPath } from "../xdg";
 
+// kobo-415 item 5 — injection seam for mintRoomSeqBatch, same shape as
+// src/commands/shared/fleet-ensure.ts (deps.fn ?? fn), so a test can assert the
+// real invariant (one write regardless of message count) instead of a timing proxy.
+interface MintRoomSeqDeps {
+  existsSync?: typeof existsSync;
+  readFileSync?: typeof readFileSync;
+  writeFileSync?: typeof writeFileSync;
+  renameSync?: typeof renameSync;
+  mkdirSync?: typeof mkdirSync;
+}
+
 export type RoomStatus = "open" | "closed" | "merged";
 
 export interface RoomMessage {
@@ -78,29 +89,59 @@ function roomSeqCounterPath(company: string): string {
  * NOT cross-process safe: this is an unguarded read-increment-write, no lock. It is only
  * correct because every call today funnels through the single maw-server pm2 process (fork
  * mode, one instance) — appendRoomMessage is reached from route.ts/listener.ts only, never
- * from a CLI verb, and the MCP server talks to it over HTTP (mcp/room-client.ts), not
- * in-process. If a second writer to this data dir is ever added — e.g. a CLI verb calling
- * appendRoomMessage directly, or the server running as more than one instance — this WILL
- * mint duplicate seq. A real cross-process guard (see src/lib/peers/lock.ts withPeersLock
- * for the fd-based O_EXCL pattern already used elsewhere) is a follow-up, not fixed here
- * (kobo-415 reviewer verdict, 2026-07-27).
+ * from a CLI verb, and the MCP server talks to it over HTTP
+ * (src/vendor/mpr-plugins/mcp/room-client.ts), not in-process. If a second writer to this
+ * data dir is ever added — e.g. a CLI verb calling appendRoomMessage directly, or the server
+ * running as more than one instance — this WILL mint duplicate seq. A real cross-process
+ * guard (see src/lib/peers/lock.ts withPeersLock for the fd-based O_EXCL pattern already
+ * used elsewhere) is a follow-up, not fixed here (kobo-415 reviewer verdict, 2026-07-27).
+ *
+ * FAIL LOUD on the two cases this CAN actually catch without that lock (kobo-415 lead
+ * ruling — cannot resolve correctness → throw, never guess and continue, same principle as
+ * kobo-431 item b):
+ *   1. Unresolvable input — a corrupt/truncated counter file, or one missing its `seq`
+ *      field. The old code silently treated both as "start over at 0", which re-mints every
+ *      number already in use. Now it throws instead.
+ *   2. A read-back mismatch right after this call's own write — if the counter doesn't read
+ *      back as exactly what we just persisted, another writer's rename landed inside our own
+ *      write window, or something rolled the file back underneath us.
+ * WHAT THIS DOES NOT AND CANNOT CATCH: two processes reading the SAME starting count before
+ * either has written (the classic lost-update race). Each computes a range that looks
+ * perfectly valid from where it stands, and each one's own read-back matches its own write —
+ * there is nothing here for either process to notice. A per-room or per-company scan for
+ * "is this number already used" would not close that gap either: the measured collisions
+ * were CROSS-room, and a scan checking only the room being written would pass every time —
+ * decorative, not a guard. Closing the real race needs the company-wide lock this design
+ * deliberately avoided for cost (eq3 follow-up card).
  */
-function mintRoomSeqBatch(company: string, count: number): number[] {
+function mintRoomSeqBatch(company: string, count: number, deps: MintRoomSeqDeps = {}): number[] {
   if (count <= 0) return [];
   const path = roomSeqCounterPath(company);
-  let n = 0;
-  if (existsSync(path)) {
+  const readCounter = (): number => {
+    if (!(deps.existsSync ?? existsSync)(path)) return 0; // no counter file yet — legitimate first mint
+    const raw = (deps.readFileSync ?? readFileSync)(path, "utf8");
+    let parsed: unknown;
     try {
-      n = (JSON.parse(readFileSync(path, "utf8")) as { seq: number }).seq ?? 0;
-    } catch {
-      n = 0;
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`kobo-415: room-seq counter for company "${company}" at ${path} is corrupt — refusing to silently reset to 0, which would re-mint every seq already in use: ${e}`);
     }
-  }
+    const seq = (parsed as { seq?: unknown })?.seq;
+    if (typeof seq !== "number" || !Number.isFinite(seq)) {
+      throw new Error(`kobo-415: room-seq counter for company "${company}" at ${path} has no valid seq field (got ${JSON.stringify(seq)}) — refusing to silently reset to 0`);
+    }
+    return seq;
+  };
+  const n = readCounter();
   const nums = Array.from({ length: count }, (_, i) => n + i + 1);
-  mkdirSync(mawDataPath("companies", safeSegment(company)), { recursive: true });
+  (deps.mkdirSync ?? mkdirSync)(mawDataPath("companies", safeSegment(company)), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ seq: n + count }) + "\n");
-  renameSync(tmp, path);
+  (deps.writeFileSync ?? writeFileSync)(tmp, JSON.stringify({ seq: n + count }) + "\n");
+  (deps.renameSync ?? renameSync)(tmp, path);
+  const persisted = readCounter();
+  if (persisted !== n + count) {
+    throw new Error(`kobo-415: room-seq counter for company "${company}" reads back as ${persisted} right after minting ${count}, expected ${n + count} — another writer or a rollback landed in the write window; refusing to trust seq ${nums[0]}-${nums[nums.length - 1]}`);
+  }
   return nums;
 }
 
@@ -342,3 +383,8 @@ export function findRoomCompany(id: string): string | null {
   }
   return null;
 }
+
+// kobo-415 item 5 — same shape as src/commands/shared/fleet-ensure.ts's `_test` export;
+// lets a test assert mintRoomSeqBatch's real invariants (one write, throw-on-race)
+// directly instead of through a timing proxy.
+export const _test = { mintRoomSeqBatch };

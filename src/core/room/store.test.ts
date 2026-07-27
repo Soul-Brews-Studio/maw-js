@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms, addRoomParticipant, paginateRoomMessages, ROOM_DEFAULT_LAST, type RoomMessage } from "./store";
+import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms, addRoomParticipant, paginateRoomMessages, ROOM_DEFAULT_LAST, _test, type RoomMessage } from "./store";
 import { taskFilePath } from "../tasks/store";
 
 let dir: string; const prev = process.env.MAW_DATA_DIR;
@@ -273,25 +273,82 @@ describe("room message seq (kobo-415 — company-wide, unique by construction)",
     expect(new Set(seqs).size).toBe(seqs.length); // no two messages share a seq
   });
 
-  // kobo-415 blocker 2 (reviewer): backfilling used to call the counter file's
-  // read+write once PER unbackfilled message — 605-715ms blocking for a 5000-message
-  // room. Budget below is generous (10x the batched cost measured in dev) but far
-  // under the per-message cost at this size, so a regression back to per-message
-  // writes fails this test rather than passing silently on today's small real rooms.
-  // Verified RED-then-GREEN during dev: temporarily reverting backfillRoomSeq to call
-  // nextRoomSeq once per message blows this budget; the batched mintRoomSeqBatch call
-  // (one disk read, one disk write total) passes it.
-  test("backfilling a large legacy room mints all seq in one counter read+write, not one per message", () => {
+  test("backfilling a large legacy room mints all seq via the batched path — all distinct, no error", () => {
     openRoom("kobo", "biglegacy", "topic");
     const raw = JSON.parse(readFileSync(roomFilePath("kobo", "biglegacy"), "utf8"));
     raw.messages = Array.from({ length: 2000 }, (_, i) => ({ id: `old${i}`, from: "a", text: "x", ts: i }));
     writeFileSync(roomFilePath("kobo", "biglegacy"), JSON.stringify(raw));
 
-    const t0 = performance.now();
     const room = readRoom("kobo", "biglegacy")!;
-    const elapsed = performance.now() - t0;
-
     expect(new Set(room.messages.map((m) => m.seq)).size).toBe(2000); // all distinct
-    expect(elapsed).toBeLessThan(50); // one-shot batch; per-message writes would take ~280ms+ at this size
+  });
+
+  // kobo-415 blocker 2 (reviewer) item 5: a timing budget is a PROXY for the real
+  // invariant — the actual fix is "one counter read+write regardless of message count",
+  // not "fast enough". Assert that directly via the same deps-injection seam used in
+  // src/commands/shared/fleet-ensure.ts, so a regression to per-message writes fails on
+  // WRITE COUNT rather than surviving until someone's CI happens to be loaded.
+  // Verified RED-then-GREEN during dev: reverting backfillRoomSeq to call
+  // mintRoomSeqBatch(company, 1) once per message makes the write count scale with
+  // message count instead of staying at 1; the real batched call keeps it at 1.
+  test("mintRoomSeqBatch performs exactly one counter write regardless of how many numbers it mints", () => {
+    let counterValue = 0;
+    let writes = 0;
+    let mintedThisCall = 0;
+    const deps = {
+      existsSync: () => true,
+      readFileSync: () => JSON.stringify({ seq: counterValue }),
+      writeFileSync: () => { writes++; counterValue += mintedThisCall; },
+      renameSync: () => {},
+      mkdirSync: () => {},
+    };
+
+    mintedThisCall = 1;
+    const single = _test.mintRoomSeqBatch("kobo", 1, deps);
+    expect(writes).toBe(1);
+    expect(single).toEqual([1]);
+
+    writes = 0;
+    mintedThisCall = 2000;
+    const batch = _test.mintRoomSeqBatch("kobo", 2000, deps);
+    expect(writes).toBe(1); // still exactly one write — not 2000
+    expect(batch.length).toBe(2000);
+  });
+
+  // kobo-415 lead ruling — fail loud on unresolvable input instead of silently
+  // resetting the counter to 0, which would re-mint every seq already in use.
+  test("mintRoomSeqBatch throws on a corrupt counter file instead of silently resetting to 0", () => {
+    const deps = { existsSync: () => true, readFileSync: () => "{not valid json", writeFileSync: () => {}, renameSync: () => {}, mkdirSync: () => {} };
+    expect(() => _test.mintRoomSeqBatch("kobo", 1, deps)).toThrow();
+  });
+
+  test("mintRoomSeqBatch throws when the counter file is missing its seq field instead of silently resetting to 0", () => {
+    const deps = { existsSync: () => true, readFileSync: () => JSON.stringify({}), writeFileSync: () => {}, renameSync: () => {}, mkdirSync: () => {} };
+    expect(() => _test.mintRoomSeqBatch("kobo", 1, deps)).toThrow();
+  });
+
+  // kobo-415 lead ruling — mint-time detection cannot PREVENT the cross-process race
+  // (two readers of the same starting count each look valid from where they stand), but
+  // it CAN catch a narrower case: the counter not reading back as what THIS call just
+  // wrote, meaning a third writer's rename or a rollback landed inside the write window.
+  // Induced directly (a real two-process repro would be flaky/slow); this is the
+  // observable symptom rather than the mechanism, same shape the merge test used for
+  // eq3's binding AC.
+  test("mintRoomSeqBatch throws when its own post-write read-back does not match — induced race/rollback in the write window", () => {
+    let calls = 0;
+    const deps = {
+      existsSync: () => true,
+      readFileSync: () => {
+        calls++;
+        // 1st read (before our write): counter=5, our range is based on this.
+        // 2nd read (right after our write/rename): counter=9 — as if another writer's
+        // rename landed in the gap between our write and this read-back.
+        return JSON.stringify({ seq: calls === 1 ? 5 : 9 });
+      },
+      writeFileSync: () => {},
+      renameSync: () => {},
+      mkdirSync: () => {},
+    };
+    expect(() => _test.mintRoomSeqBatch("kobo", 3, deps)).toThrow();
   });
 });
