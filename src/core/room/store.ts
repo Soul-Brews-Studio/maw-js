@@ -165,8 +165,12 @@ export function readRoom(company: string, id: string): RoomArtifact | null {
   try {
     room = JSON.parse(readFileSync(path, "utf8")) as RoomArtifact;
   } catch {
-    return null; // corrupt/partial → treat as absent (never throw on read)
+    return null; // THIS room file corrupt/partial → treat as absent, never throw on its own parse
   }
+  // NOTE: readRoom as a whole is NOT throw-free — backfillRoomSeq below mints via the
+  // SEPARATE company-wide seq counter file, and that counter fails loud (kobo-415 lead
+  // ruling) on its own corruption/missing-seq instead of silently resetting to 0. A
+  // corrupt room file above returns null; a corrupt counter file here throws.
   if (backfillRoomSeq(room)) writeRoom(room); // kobo-415: legacy room, minted once, then never again
   return room;
 }
