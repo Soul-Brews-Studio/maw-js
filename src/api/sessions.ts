@@ -458,31 +458,23 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
         const targetOracleName = targetOracle(resolved.target);
         const violation = crossCompanyDeliveryRefusal(senderOracle, targetOracleName);
         if (violation) {
-          // Explicit pre-declared intent bypass (kobo-431 unhappy path 2) — reuses
-          // the EXISTING trust-store (already used for peer ACL trust pairs), not a
-          // new caller-settable flag/env var. Requires a prior, separate `maw trust
-          // add` — NOT settable inline on this send. Still worth being honest in
-          // the PR: on one shared local machine, nothing stops an ordinary sender
-          // from running `maw trust add` themselves either — this raises the bar
-          // (a durable, board-visible action) but is not adversary-proof.
-          const { loadTrust, samePair } = await import("../lib/trust-store");
-          const trusted = loadTrust().some((e) => samePair(e, { sender: senderOracle, target: targetOracleName }));
-          if (!trusted) {
-            set.status = 403;
-            emitLifecycle({
-              direction: "inbound",
-              state: "failed",
-              channel: "api-send",
-              route: resolved.type,
-              from: messageFrom,
-              to: messageTo,
-              target: resolved.target,
-              text: message,
-              error: violation,
-              signed: messageSigned,
-            });
-            return { ok: false, error: violation, target: resolved.target };
-          }
+          // kobo-504 — Tony, 2026-07-28: "ข้ามบริษัทไม่เป็นไร ให้คุยกันได้ ไม่ต้อง guard".
+          // No longer a 403. The mismatch is still computed and still emitted as a
+          // lifecycle event so a message that lands in the wrong cell stays
+          // traceable after the fact — that trail is what replaces the block.
+          // Delivery continues; the trust-store bypass is gone with the refusal.
+          emitLifecycle({
+            direction: "inbound",
+            state: "queued",
+            channel: "api-send",
+            route: resolved.type,
+            from: messageFrom,
+            to: messageTo,
+            target: resolved.target,
+            text: message,
+            error: `cross-company (allowed, kobo-504): ${violation}`,
+            signed: messageSigned,
+          });
         }
         const live = await verifyDeliverableTarget(resolved.target);
         if (!live.ok) return queueOrFail(resolved.target, live.reason);

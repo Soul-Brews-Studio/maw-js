@@ -1087,16 +1087,14 @@ export async function cmdSend(
     const targetOracleName = targetOracle(result.target);
     const violation = crossCompanyDeliveryRefusal(senderOracle, targetOracleName);
     if (violation) {
-      // Explicit pre-declared intent bypass (unhappy path 2) — the EXISTING
-      // trust-store (already used for peer ACL trust pairs below), not a new
-      // caller-settable flag/env var (kobo-335 lesson: a flag the sender can
-      // set on their own send is not a gate).
-      const { loadTrust, samePair } = await import("../../lib/trust-store");
-      const trusted = loadTrust().some((e) => samePair(e, { sender: senderOracle, target: targetOracleName }));
-      if (!trusted) {
-        console.error(`\x1b[31merror\x1b[0m: ${violation}`);
-        process.exit(1);
-      }
+      // kobo-504 — Tony, 2026-07-28: "ข้ามบริษัทไม่เป็นไร ให้คุยกันได้ ไม่ต้อง guard".
+      // Cross-company delivery no longer REFUSES. The mismatch is still computed
+      // and still SAID: the failure this guard existed for (a message landing in
+      // the wrong cell and being acted on) is now caught by reading the trail
+      // instead of by blocking the send, and a silent removal would leave no
+      // trail to read. The trust-store bypass goes with the refusal — there is
+      // nothing left to be exempt from.
+      console.error(`\x1b[33mcross-company\x1b[0m: ${violation} — delivering anyway (guard removed, kobo-504)`);
     }
   }
 
