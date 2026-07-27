@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms, addRoomParticipant, paginateRoomMessages, ROOM_DEFAULT_LAST, type RoomMessage } from "./store";
+import { openRoom, closeRoom, reopenRoom, appendRoomMessage, readRoom, listRooms, findRoomCompany, roomFilePath, linkRoomCard, mergeRooms, addRoomParticipant, paginateRoomMessages, ROOM_DEFAULT_LAST, _test, type RoomMessage } from "./store";
 import { taskFilePath } from "../tasks/store";
 
 let dir: string; const prev = process.env.MAW_DATA_DIR;
@@ -136,7 +136,7 @@ describe("mergeRooms (kobo-243 — lead-driven consolidation, Nothing Deleted)",
 
 describe("paginateRoomMessages (kobo-322 — default-cap room reads)", () => {
   const msgs = (n: number): RoomMessage[] =>
-    Array.from({ length: n }, (_, i) => ({ id: `m${i}`, from: "a", text: "x", ts: i + 1 }));
+    Array.from({ length: n }, (_, i) => ({ id: `m${i}`, from: "a", text: "x", ts: i + 1, seq: i + 1 }));
 
   test("no params → the last ROOM_DEFAULT_LAST turns (footgun guard, not full dump)", () => {
     const out = paginateRoomMessages(msgs(50));
@@ -209,6 +209,239 @@ describe("paginateRoomMessages (kobo-322 — default-cap room reads)", () => {
   });
 });
 
+describe("room message seq (kobo-415 — company-wide, single-writer operational invariant)", () => {
+  test("appendRoomMessage mints an increasing seq, stable across repeat reads", () => {
+    openRoom("kobo", "r1", "topic");
+    appendRoomMessage("kobo", "r1", { id: "m1", from: "a", text: "hi", ts: 1 });
+    const after = appendRoomMessage("kobo", "r1", { id: "m2", from: "b", text: "yo", ts: 2 })!;
+    const [m1, m2] = after.messages;
+    expect(m1.seq).toBeGreaterThan(0);
+    expect(m2.seq).toBe(m1.seq + 1);
+    expect(readRoom("kobo", "r1")!.messages.map((m) => m.seq)).toEqual([m1.seq, m2.seq]); // no drift
+    expect(readRoom("kobo", "r1")!.messages.map((m) => m.seq)).toEqual([m1.seq, m2.seq]); // repeat read, still stable
+  });
+
+  test("seq is company-wide, not per-room — a second room does NOT restart at 1", () => {
+    openRoom("kobo", "a", "a");
+    openRoom("kobo", "b", "b");
+    const a = appendRoomMessage("kobo", "a", { id: "a1", from: "x", text: "x", ts: 1 })!;
+    const b = appendRoomMessage("kobo", "b", { id: "b1", from: "x", text: "x", ts: 1 })!;
+    expect(b.messages[0].seq).toBe(a.messages[0].seq + 1);
+  });
+
+  test("seq is not derived from ts — identical-ts appends still get distinct seq (sequential, single-process; NOT a concurrency test)", () => {
+    openRoom("kobo", "r1", "topic");
+    appendRoomMessage("kobo", "r1", { id: "m1", from: "a", text: "x", ts: 100 });
+    appendRoomMessage("kobo", "r1", { id: "m2", from: "b", text: "y", ts: 100 });
+    const seqs = readRoom("kobo", "r1")!.messages.map((m) => m.seq);
+    expect(new Set(seqs).size).toBe(2);
+  });
+
+  test("readRoom backfills a legacy message with no seq — idempotent across re-reads", () => {
+    openRoom("kobo", "legacy", "topic");
+    // bypass the store to simulate a room persisted BEFORE this feature shipped (no seq field)
+    const raw = JSON.parse(readFileSync(roomFilePath("kobo", "legacy"), "utf8"));
+    raw.messages = [
+      { id: "old1", from: "a", text: "x", ts: 1 },
+      { id: "old2", from: "b", text: "y", ts: 2 },
+    ];
+    writeFileSync(roomFilePath("kobo", "legacy"), JSON.stringify(raw));
+
+    const first = readRoom("kobo", "legacy")!;
+    expect(first.messages.every((m) => typeof m.seq === "number")).toBe(true); // no error, not empty
+    expect(new Set(first.messages.map((m) => m.seq)).size).toBe(2); // distinct
+
+    const second = readRoom("kobo", "legacy")!;
+    expect(second.messages.map((m) => m.seq)).toEqual(first.messages.map((m) => m.seq)); // no drift on repeat open
+  });
+
+  // kobo-415 reopen, declared beyond lead's locked scope (see PR body): reviewer's
+  // tightest uncovered case. appendRoomMessage does TWO mints in one logical operation —
+  // readRoom's backfill mints for the legacy messages, THEN appendRoomMessage's own
+  // nextRoomSeq mints for the new one — and neither existing test hit it (one uses fresh
+  // rooms with no backfill, the other calls readRoom directly without an append after).
+  // First case a future async refactor of mintRoomSeqBatch would break.
+  test("appending to a LEGACY room does two mints in one operation (backfill, then append) without collision", () => {
+    openRoom("kobo", "legacyAppend", "topic");
+    const raw = JSON.parse(readFileSync(roomFilePath("kobo", "legacyAppend"), "utf8"));
+    raw.messages = [
+      { id: "old1", from: "a", text: "x", ts: 1 },
+      { id: "old2", from: "b", text: "y", ts: 2 },
+    ];
+    writeFileSync(roomFilePath("kobo", "legacyAppend"), JSON.stringify(raw));
+
+    const after = appendRoomMessage("kobo", "legacyAppend", { id: "new1", from: "c", text: "z", ts: 3 })!;
+    const seqs = after.messages.map((m) => m.seq);
+    expect(new Set(seqs).size).toBe(3); // backfilled old1/old2 + the new append, all distinct
+    expect(seqs[2]).toBe(Math.max(seqs[0], seqs[1]) + 1); // append's mint follows the backfill's mint, not interleaved
+  });
+
+  // THE BINDING AC (eq3 ruling): the guard must CONSTRUCT the collision two
+  // independently-numbered rooms would produce under a naive per-room counter, then
+  // assert it can't happen — not just observe a freshly built dataset (which has no
+  // collision to find). Verified RED-then-GREEN during dev: temporarily keying
+  // nextRoomSeq per-room (the rejected/naive design) makes this test fail with two
+  // duplicate seq after merge; the shipped company-wide counter makes it pass.
+  test("mergeRooms: two independently-numbered rooms merge with NO duplicate seq", () => {
+    openRoom("kobo", "t", "target");
+    appendRoomMessage("kobo", "t", { id: "t1", from: "a", text: "x", ts: 10 });
+    openRoom("kobo", "s", "source");
+    appendRoomMessage("kobo", "s", { id: "s1", from: "b", text: "y", ts: 5 });
+    appendRoomMessage("kobo", "s", { id: "s2", from: "c", text: "z", ts: 20 });
+
+    const merged = mergeRooms("kobo", "t", ["s"])!;
+    const seqs = merged.messages.map((m) => m.seq);
+    expect(new Set(seqs).size).toBe(seqs.length); // no two messages share a seq
+  });
+
+  // eq3 found: uniqueness alone doesn't guard STABILITY. A renumber-the-whole-room merge
+  // keeps every seq unique (this test's sibling above stays green) while moving every
+  // number that was already handed out — exactly the silent-shift Tony picked option (b)
+  // to prevent, and now a permanent LINK TARGET via the #msg-N anchor, so a shift breaks
+  // every previously shared link rather than just mislabeling a banner. "Doesn't shift"
+  // and "isn't duplicated" are the two separate ACs the card named from the start; this
+  // is the one that had no test. Verified RED-then-GREEN during dev: temporarily
+  // renumbering target.messages sequentially (1..N) after a merge — unique, but every
+  // seq moves — fails this test; the shipped mergeRooms (seq untouched, only reordered)
+  // passes it.
+  // The property under test is "no message's number changes as a result of a merge,
+  // WHICHEVER SIDE it came from" — not just "the target room is untouched". Capturing
+  // only the target's before-snapshot missed exactly half of that (eq3 found: a mutation
+  // renumbering only the ABSORBED source messages passed everything else, 40/0 green).
+  // Per-id lookup (not a set/count comparison) on BOTH sides, so a permutation that swaps
+  // which message holds which number — same values, wrong owners — still fails: each id's
+  // OWN captured value is checked against that same id after merge, nothing else.
+  test("mergeRooms does NOT shift the seq of any message — target's own AND the absorbed source's", () => {
+    openRoom("kobo", "t2", "target");
+    appendRoomMessage("kobo", "t2", { id: "t2a", from: "a", text: "x", ts: 10 });
+    appendRoomMessage("kobo", "t2", { id: "t2b", from: "a", text: "y", ts: 15 });
+    openRoom("kobo", "s2", "source");
+    appendRoomMessage("kobo", "s2", { id: "s2a", from: "b", text: "z", ts: 5 });
+    appendRoomMessage("kobo", "s2", { id: "s2b", from: "b", text: "w", ts: 20 });
+
+    const beforeTarget = readRoom("kobo", "t2")!.messages.map((m) => ({ id: m.id, seq: m.seq }));
+    const beforeSource = readRoom("kobo", "s2")!.messages.map((m) => ({ id: m.id, seq: m.seq }));
+    const merged = mergeRooms("kobo", "t2", ["s2"])!;
+    for (const b of [...beforeTarget, ...beforeSource]) {
+      const after = merged.messages.find((m) => m.id === b.id)!;
+      expect(after.seq).toBe(b.seq); // that SPECIFIC message keeps its OWN number, whichever room it started in
+    }
+  });
+
+  test("backfilling a large legacy room mints all seq via the batched path — all distinct, no error", () => {
+    openRoom("kobo", "biglegacy", "topic");
+    const raw = JSON.parse(readFileSync(roomFilePath("kobo", "biglegacy"), "utf8"));
+    raw.messages = Array.from({ length: 2000 }, (_, i) => ({ id: `old${i}`, from: "a", text: "x", ts: i }));
+    writeFileSync(roomFilePath("kobo", "biglegacy"), JSON.stringify(raw));
+
+    const room = readRoom("kobo", "biglegacy")!;
+    expect(new Set(room.messages.map((m) => m.seq)).size).toBe(2000); // all distinct
+  });
+
+  // kobo-415 blocker 2 (reviewer) item 5: a timing budget is a PROXY for the real
+  // invariant — the actual fix is "one counter read+write regardless of message count",
+  // not "fast enough". Assert that directly via the same deps-injection seam used in
+  // src/commands/shared/fleet-ensure.ts, so a regression to per-message writes fails on
+  // WRITE COUNT rather than surviving until someone's CI happens to be loaded.
+  // Verified RED-then-GREEN during dev: reverting backfillRoomSeq to call
+  // mintRoomSeqBatch(company, 1) once per message makes the write count scale with
+  // message count instead of staying at 1; the real batched call keeps it at 1.
+  test("mintRoomSeqBatch performs exactly one counter write regardless of how many numbers it mints", () => {
+    let counterValue = 0;
+    let writes = 0;
+    let mintedThisCall = 0;
+    const deps = {
+      existsSync: () => true,
+      readFileSync: () => JSON.stringify({ seq: counterValue }),
+      writeFileSync: () => { writes++; counterValue += mintedThisCall; },
+      renameSync: () => {},
+      mkdirSync: () => {},
+    };
+
+    mintedThisCall = 1;
+    const single = _test.mintRoomSeqBatch("kobo", 1, deps);
+    expect(writes).toBe(1);
+    expect(single).toEqual([1]);
+
+    writes = 0;
+    mintedThisCall = 2000;
+    const batch = _test.mintRoomSeqBatch("kobo", 2000, deps);
+    expect(writes).toBe(1); // still exactly one write — not 2000
+    expect(batch.length).toBe(2000);
+  });
+
+  // kobo-415 lead ruling — fail loud on unresolvable input instead of silently
+  // resetting the counter to 0, which would re-mint every seq already in use.
+  test("mintRoomSeqBatch throws on a corrupt counter file instead of silently resetting to 0", () => {
+    const deps = { existsSync: () => true, readFileSync: () => "{not valid json", writeFileSync: () => {}, renameSync: () => {}, mkdirSync: () => {} };
+    expect(() => _test.mintRoomSeqBatch("kobo", 1, deps)).toThrow();
+  });
+
+  test("mintRoomSeqBatch throws when the counter file is missing its seq field instead of silently resetting to 0", () => {
+    const deps = { existsSync: () => true, readFileSync: () => JSON.stringify({}), writeFileSync: () => {}, renameSync: () => {}, mkdirSync: () => {} };
+    expect(() => _test.mintRoomSeqBatch("kobo", 1, deps)).toThrow();
+  });
+
+  // kobo-415 lead ruling — mint-time detection cannot PREVENT the cross-process race
+  // (two readers of the same starting count each look valid from where they stand), but
+  // it CAN catch a narrower case: the counter not reading back as what THIS call just
+  // wrote, meaning a third writer's rename or a rollback landed inside the write window.
+  // Induced directly (a real two-process repro would be flaky/slow); this is the
+  // observable symptom rather than the mechanism, same shape the merge test used for
+  // eq3's binding AC.
+  test("mintRoomSeqBatch throws when its own post-write read-back does not match — induced race/rollback in the write window", () => {
+    let calls = 0;
+    const deps = {
+      existsSync: () => true,
+      readFileSync: () => {
+        calls++;
+        // 1st read (before our write): counter=5, our range is based on this.
+        // 2nd read (right after our write/rename): counter=9 — as if another writer's
+        // rename landed in the gap between our write and this read-back.
+        return JSON.stringify({ seq: calls === 1 ? 5 : 9 });
+      },
+      writeFileSync: () => {},
+      renameSync: () => {},
+      mkdirSync: () => {},
+    };
+    expect(() => _test.mintRoomSeqBatch("kobo", 3, deps)).toThrow();
+  });
+
+  // conductor's pre-empt check: can the post-write verify spuriously throw on a HEALTHY
+  // sequence — e.g. one operation backfilling several rooms, or several appends in one
+  // request? No: mintRoomSeqBatch has zero `await` from its first read to its own
+  // post-write verify, so nothing else in the same process (including a second call to
+  // this same function) can run in that window — a later call can't start until the
+  // earlier one has already returned and passed its own check. Each call's verify only
+  // ever observes its own write. Empirical, not just reasoned: real fs, no deps, multiple
+  // rooms interleaved in one synchronous sequence.
+  test("sequential mint calls across multiple rooms/appends in one operation never spuriously throw", () => {
+    openRoom("kobo", "seqA", "a");
+    openRoom("kobo", "seqB", "b");
+    openRoom("kobo", "seqC", "c");
+    expect(() => {
+      appendRoomMessage("kobo", "seqA", { id: "a1", from: "x", text: "x", ts: 1 });
+      appendRoomMessage("kobo", "seqB", { id: "b1", from: "x", text: "x", ts: 1 });
+      appendRoomMessage("kobo", "seqC", { id: "c1", from: "x", text: "x", ts: 1 });
+      appendRoomMessage("kobo", "seqA", { id: "a2", from: "x", text: "x", ts: 2 });
+    }).not.toThrow();
+  });
+
+  test("backfilling multiple legacy rooms in sequence never spuriously throws", () => {
+    for (const id of ["legA", "legB", "legC"]) {
+      openRoom("kobo", id, id);
+      const raw = JSON.parse(readFileSync(roomFilePath("kobo", id), "utf8"));
+      raw.messages = Array.from({ length: 50 }, (_, i) => ({ id: `${id}-${i}`, from: "a", text: "x", ts: i }));
+      writeFileSync(roomFilePath("kobo", id), JSON.stringify(raw));
+    }
+    expect(() => {
+      readRoom("kobo", "legA");
+      readRoom("kobo", "legB");
+      readRoom("kobo", "legC");
+    }).not.toThrow();
+  });
+});
+
 // kobo-430 — the card's binding AC, and the reviewer's own measurement on PR #317's sha:
 // 2 processes writing the SAME room concurrently, 40 messages each, 40/80 lost, counter
 // stalled at 66 after 80 mints. Cause: appendRoomMessage's read-modify-write was
@@ -249,6 +482,7 @@ describe("appendRoomMessage concurrency (kobo-430 — real cross-process writers
     const bOrder = room.messages.filter((m) => m.id.startsWith("B-")).map((m) => m.id);
     expect(aOrder).toEqual(Array.from({ length: 40 }, (_, i) => `A-${i}`));
     expect(bOrder).toEqual(Array.from({ length: 40 }, (_, i) => `B-${i}`));
+    expect(new Set(room.messages.map((m) => m.seq)).size).toBe(80); // seq unique under true concurrency (kobo-415 × kobo-430 merge)
     // CLEANUP: no stale .lock file left behind after a normal run — dropping the `finally`
     // unlink would leave this behind and every SUBSEQUENT append would find a lock file that
     // no live process holds (self-healing via the stale-pid check, but silently, not free).

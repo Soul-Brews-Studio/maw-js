@@ -90,6 +90,7 @@ export function roomHtml(): string {
     .bubble .nm { font-weight:600; }
     .bubble .pill { font-size:11px; padding:1px 8px; border-radius:var(--r-pill); background:var(--muted); color:var(--dim); }
     .bubble .ts { margin-left:auto; color:var(--dim); font-size:11px; }
+    .bubble .seqno { color:var(--dim); font-size:11px; }
     /* kobo-396: body now renders as markdown (mdToHtml) — structure (p/ul/li/h*)
        comes from real HTML, not pre-wrap; tighten prose rhythm like company.ts's .md. */
     .bubble .body { word-break:break-word; }
@@ -231,6 +232,7 @@ let showClosed = false; // kobo-438: closed/merged rooms hide by default
 let roomStatus = 'open';
 let oracles = []; // kobo-390: company roster for the @-picker
 let participants = []; // kobo-390: current room's explicit invite list
+let scrolledToHash = null; // kobo-415: only auto-scroll to a #msg-N target once per hash, not every 2.5s poll
 
 function syncUrl() {
   const u = new URL(location.href);
@@ -553,9 +555,11 @@ async function loadThread() {
   for (const m of msgs) {
     const role = roleOf(m.from);
     const b = el('div', 'bubble ' + role);
+    b.id = 'msg-' + m.seq; // kobo-415: stable anchor id; see the hash-scroll block below loadThread's render loop for the actual #N navigation
     const head = el('div', 'head');
     head.appendChild(el('span', 'nm', m.from || '?'));
     head.appendChild(el('span', 'pill', pillText(role)));
+    head.appendChild(el('span', 'seqno mono', '#' + m.seq));
     head.appendChild(el('span', 'ts mono', fmtTs(m.ts)));
     b.appendChild(head);
     if (role === 'teammate') b.appendChild(el('div', 'tag', '🔎 pulled in'));
@@ -570,6 +574,15 @@ async function loadThread() {
     thread.appendChild(b);
   }
   if (stick) thread.scrollTop = thread.scrollHeight;
+  // kobo-415: thread.replaceChildren() above just destroyed and rebuilt every #msg-N node,
+  // so a hash present at page-load (or a hand-typed link) resolves against nodes that did
+  // not exist yet — the browser's native same-page jump silently no-ops. Redo it ourselves
+  // now that the target exists. Scroll once per hash value, not on every 2.5s poll, so it
+  // doesn't fight a reader who has since scrolled elsewhere in the thread.
+  if (location.hash && location.hash !== scrolledToHash) {
+    const anchorTarget = document.getElementById(location.hash.slice(1));
+    if (anchorTarget) { anchorTarget.scrollIntoView({ block: 'center' }); scrolledToHash = location.hash; }
+  }
   renderMermaidBlocks(thread); // kobo-398 — async, fire-and-forget; leaves source text until it resolves
   loadActivity();
 }
