@@ -4,6 +4,23 @@ import { join } from "path";
 import { tmpdir } from "os";
 
 let mockActive = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
+// see that file's header for the full rationale.
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] mockActive was false for "${label}" after the test suite ` +
+    `had already started — refusing to fall through to the real implementation. ` +
+    `Fix the race, don't restore the real passthrough.`,
+  );
+}
+
+function resolveMock<T>(fake: () => T, real: () => T, label: string): T {
+  if (mockActive) return fake();
+  if (!suiteStarted) return real();
+  return realCallForbidden(label);
+}
 
 const _rSdk = await import("../../src/sdk");
 const _rConfig = await import("../../src/config");
@@ -122,81 +139,140 @@ async function captureLogs<T>(fn: () => Promise<T>): Promise<{ result: T; logs: 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   ..._rSdk,
   hostExec: async (cmd: string) => {
-    if (!mockActive) return realSdk.hostExec(cmd);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.hostExec(cmd);
+      return realCallForbidden("hostExec");
+    }
     if (cmd.includes("list-panes")) return "";
     if (cmd.includes("branch --show-current")) return "main\n";
     return "";
   },
-  restoreTabOrder: async (session: string) => mockActive ? 0 : realSdk.restoreTabOrder(session),
+  restoreTabOrder: async (session: string) => resolveMock(() => 0, () => realSdk.restoreTabOrder(session), "restoreTabOrder"),
   takeSnapshot: async (trigger: string) => {
-    if (!mockActive) return realSdk.takeSnapshot(trigger);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.takeSnapshot(trigger);
+      return realCallForbidden("takeSnapshot");
+    }
     snapshotCalls.push(trigger);
     return join(tempRoot, `${trigger}.json`);
   },
-  getPaneInfos: async (targets: string[]) => mockActive
-    ? Object.fromEntries(targets.map(target => [target, { command: paneCommand, cwd: repoPath }]))
-    : realSdk.getPaneInfos(targets),
-  isAgentCommand: (cmd: string | null | undefined) => mockActive ? ["claude", "codex", "node"].includes((cmd ?? "").trim()) : realSdk.isAgentCommand(cmd),
+  getPaneInfos: async (targets: string[]) => resolveMock(
+    () => Object.fromEntries(targets.map(target => [target, { command: paneCommand, cwd: repoPath }])),
+    () => realSdk.getPaneInfos(targets),
+    "getPaneInfos",
+  ),
+  isAgentCommand: (cmd: string | null | undefined) => resolveMock(
+    () => ["claude", "codex", "node"].includes((cmd ?? "").trim()),
+    () => realSdk.isAgentCommand(cmd),
+    "isAgentCommand",
+  ),
   tmux: {
     ..._rSdk.tmux,
-    hasSession: async (name: string) => mockActive ? hasSessions.has(name) : realSdk.tmux.hasSession(name),
-    listSessions: async () => mockActive ? sessions : realSdk.tmux.listSessions(),
+    hasSession: async (name: string) => resolveMock(() => hasSessions.has(name), () => realSdk.tmux.hasSession(name), "tmux.hasSession"),
+    listSessions: async () => resolveMock(() => sessions, () => realSdk.tmux.listSessions(), "tmux.listSessions"),
     listWindows: async (session: string) => {
-      if (!mockActive) return realSdk.tmux.listWindows(session);
+      if (!mockActive) {
+        if (!suiteStarted) return realSdk.tmux.listWindows(session);
+        return realCallForbidden("tmux.listWindows");
+      }
       if (listWindowsThrows) throw new Error("tmux unavailable");
       return windowsBySession[session] ?? [];
     },
     newSession: async (name: string, opts: any = {}) => {
-      if (!mockActive) return realSdk.tmux.newSession(name, opts);
+      if (!mockActive) {
+        if (!suiteStarted) return realSdk.tmux.newSession(name, opts);
+        return realCallForbidden("tmux.newSession");
+      }
       sessions.push({ name });
       hasSessions.add(name);
       windowsBySession[name] = opts.window ? [{ name: opts.window, cwd: opts.cwd }] : [];
     },
     newWindow: async (session: string, name: string, opts: any = {}) => {
-      if (!mockActive) return realSdk.tmux.newWindow(session, name, opts);
+      if (!mockActive) {
+        if (!suiteStarted) return realSdk.tmux.newWindow(session, name, opts);
+        return realCallForbidden("tmux.newWindow");
+      }
       newWindowCalls.push({ session, name, opts });
       (windowsBySession[session] ??= []).push({ name, cwd: opts.cwd });
     },
     sendText: async (target: string, text: string) => {
-      if (!mockActive) return realSdk.tmux.sendText(target, text);
+      if (!mockActive) {
+        if (!suiteStarted) return realSdk.tmux.sendText(target, text);
+        return realCallForbidden("tmux.sendText");
+      }
       sendTextCalls.push({ target, text });
     },
     selectWindow: async (target: string) => {
-      if (!mockActive) return realSdk.tmux.selectWindow(target);
+      if (!mockActive) {
+        if (!suiteStarted) return realSdk.tmux.selectWindow(target);
+        return realCallForbidden("tmux.selectWindow");
+      }
       selectWindowCalls.push(target);
     },
     setEnvironment: async (...args: any[]) => {
-      if (!mockActive) return (realSdk.tmux.setEnvironment as any)(...args);
+      if (!mockActive) {
+        if (!suiteStarted) return (realSdk.tmux.setEnvironment as any)(...args);
+        return realCallForbidden("tmux.setEnvironment");
+      }
     },
   },
 }));
 
 mock.module(join(import.meta.dir, "../../src/config"), () => ({
   ..._rConfig,
-  buildCommandInDir: (windowName: string, cwd: string, engine?: string) => mockActive ? `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}` : realConfig.buildCommandInDir(windowName, cwd, engine),
-  cfgTimeout: (key: any) => mockActive ? 0 : realConfig.cfgTimeout(key),
-  loadConfig: () => mockActive ? { node: "m5", agents: { mawjs: "m5" }, commands: { default: "claude" } } : realConfig.loadConfig(),
-  saveConfig: (patch: any) => mockActive ? undefined : realConfig.saveConfig(patch),
+  buildCommandInDir: (windowName: string, cwd: string, engine?: string) => resolveMock(
+    () => `cd ${cwd} && ${engine ?? "codex"} --agent ${windowName}`,
+    () => realConfig.buildCommandInDir(windowName, cwd, engine),
+    "buildCommandInDir",
+  ),
+  cfgTimeout: (key: any) => resolveMock(() => 0, () => realConfig.cfgTimeout(key), "cfgTimeout"),
+  loadConfig: () => resolveMock(
+    () => ({ node: "m5", agents: { mawjs: "m5" }, commands: { default: "claude" } }),
+    () => realConfig.loadConfig(),
+    "loadConfig",
+  ),
+  saveConfig: (patch: any) => resolveMock(() => undefined, () => realConfig.saveConfig(patch), "saveConfig"),
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-resolve"), () => ({
   ..._rWakeResolve,
-  resolveOracle: async (...args: any[]) => mockActive ? { repoPath, repoName, parentDir } : (realWakeResolve.resolveOracle as any)(...args),
-  findWorktrees: async (...args: any[]) => mockActive ? worktrees : (realWakeResolve.findWorktrees as any)(...args),
-  findReusableWorktreeBySlug: (...args: any[]) => mockActive ? null : (realWakeResolve.findReusableWorktreeBySlug as any)(...args),
-  getSessionMap: () => mockActive ? {} : realWakeResolve.getSessionMap(),
-  resolveFleetSession: (oracle: string) => mockActive ? null : realWakeResolve.resolveFleetSession(oracle),
-  detectSession: async (oracle: string) => mockActive ? detectSessionResult : realWakeResolve.detectSession(oracle),
-  setSessionEnv: async (session: string) => mockActive ? undefined : realWakeResolve.setSessionEnv(session),
-  sanitizeBranchName: (value: string) => mockActive ? value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._-]/g, "").slice(0, 50) : realWakeResolve.sanitizeBranchName(value),
+  resolveOracle: async (...args: any[]) => resolveMock(
+    () => ({ repoPath, repoName, parentDir }),
+    () => (realWakeResolve.resolveOracle as any)(...args),
+    "resolveOracle",
+  ),
+  findWorktrees: async (...args: any[]) => resolveMock(() => worktrees, () => (realWakeResolve.findWorktrees as any)(...args), "findWorktrees"),
+  findReusableWorktreeBySlug: (...args: any[]) => resolveMock(
+    () => null,
+    () => (realWakeResolve.findReusableWorktreeBySlug as any)(...args),
+    "findReusableWorktreeBySlug",
+  ),
+  getSessionMap: () => resolveMock(() => ({}), () => realWakeResolve.getSessionMap(), "getSessionMap"),
+  resolveFleetSession: (oracle: string) => resolveMock(() => null, () => realWakeResolve.resolveFleetSession(oracle), "resolveFleetSession"),
+  detectSession: async (oracle: string) => resolveMock(() => detectSessionResult, () => realWakeResolve.detectSession(oracle), "detectSession"),
+  setSessionEnv: async (session: string) => resolveMock(() => undefined, () => realWakeResolve.setSessionEnv(session), "setSessionEnv"),
+  sanitizeBranchName: (value: string) => resolveMock(
+    () => value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._-]/g, "").slice(0, 50),
+    () => realWakeResolve.sanitizeBranchName(value),
+    "sanitizeBranchName",
+  ),
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-session"), () => ({
   ..._rWakeSession,
-  attachToSession: async (session: string) => { if (!mockActive) return realWakeSession.attachToSession(session); attachCalls.push(session); },
-  ensureSessionRunning: async (...args: any[]) => mockActive ? 0 : (realWakeSession.ensureSessionRunning as any)(...args),
+  attachToSession: async (session: string) => {
+    if (!mockActive) {
+      if (!suiteStarted) return realWakeSession.attachToSession(session);
+      return realCallForbidden("attachToSession");
+    }
+    attachCalls.push(session);
+  },
+  ensureSessionRunning: async (...args: any[]) => resolveMock(() => 0, () => (realWakeSession.ensureSessionRunning as any)(...args), "ensureSessionRunning"),
   createWorktree: async (repoPathArg: string, parentDirArg: string, repoNameArg: string, oracle: string, name: string) => {
-    if (!mockActive) return (realWakeSession.createWorktree as any)(repoPathArg, parentDirArg, repoNameArg, oracle, name);
+    if (!mockActive) {
+      if (!suiteStarted) return (realWakeSession.createWorktree as any)(repoPathArg, parentDirArg, repoNameArg, oracle, name);
+      return realCallForbidden("createWorktree");
+    }
     const wtPath = join(parentDirArg, `${repoNameArg}.wt-${name}`);
     return { wtPath, windowName: `${oracle}-${name}` };
   },
@@ -204,37 +280,71 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-session"), () 
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-maybe-split"), () => ({
   ..._rWakeMaybeSplit,
-  maybeSplit: async (target: string, opts: any) => { if (!mockActive) return realWakeMaybeSplit.maybeSplit(target, opts); splitCalls.push(target); },
-  maybeOpenWindow: async (target: string, opts: any) => { if (!mockActive) return realWakeMaybeSplit.maybeOpenWindow(target, opts); openWindowCalls.push(target); },
+  maybeSplit: async (target: string, opts: any) => {
+    if (!mockActive) {
+      if (!suiteStarted) return realWakeMaybeSplit.maybeSplit(target, opts);
+      return realCallForbidden("maybeSplit");
+    }
+    splitCalls.push(target);
+  },
+  maybeOpenWindow: async (target: string, opts: any) => {
+    if (!mockActive) {
+      if (!suiteStarted) return realWakeMaybeSplit.maybeOpenWindow(target, opts);
+      return realCallForbidden("maybeOpenWindow");
+    }
+    openWindowCalls.push(target);
+  },
 }));
 
 mock.module(join(import.meta.dir, "../../src/plugin/lifecycle"), () => ({
   ..._rLifecycle,
-  runWakeLifecycleHooks: async (...args: any[]) => mockActive ? { phase: "wake", ran: 0, skipped: 0, failed: 0 } : (realLifecycle.runWakeLifecycleHooks as any)(...args),
+  runWakeLifecycleHooks: async (...args: any[]) => resolveMock(
+    () => ({ phase: "wake", ran: 0, skipped: 0, failed: 0 }),
+    () => (realLifecycle.runWakeLifecycleHooks as any)(...args),
+    "runWakeLifecycleHooks",
+  ),
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-target"), () => ({
   ..._rWakeTarget,
-  parseWakeTarget: (target: string) => mockActive ? null : realWakeTarget.parseWakeTarget(target),
-  ensureCloned: async (slug: string) => { if (!mockActive) return realWakeTarget.ensureCloned(slug); },
+  parseWakeTarget: (target: string) => resolveMock(() => null, () => realWakeTarget.parseWakeTarget(target), "parseWakeTarget"),
+  ensureCloned: async (slug: string) => {
+    if (!mockActive) {
+      if (!suiteStarted) return realWakeTarget.ensureCloned(slug);
+      return realCallForbidden("ensureCloned");
+    }
+  },
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake-concurrency"), () => ({
   ..._rConcurrency,
-  assertAgentCapacity: async (oracle: string) => { if (!mockActive) return realConcurrency.assertAgentCapacity(oracle); capacityCalls.push(oracle); },
+  assertAgentCapacity: async (oracle: string) => {
+    if (!mockActive) {
+      if (!suiteStarted) return realConcurrency.assertAgentCapacity(oracle);
+      return realCallForbidden("assertAgentCapacity");
+    }
+    capacityCalls.push(oracle);
+  },
 }));
 
 mock.module(join(import.meta.dir, "../../src/core/fleet/snapshot"), () => ({
   ..._rSnapshot,
-  latestSnapshot: () => mockActive ? snapshot : realSnapshot.latestSnapshot(),
-  listSnapshots: () => mockActive ? (snapshot ? [{ file: "latest.json", timestamp: snapshot.timestamp ?? "latest" }] : []) : realSnapshot.listSnapshots(),
-  loadSnapshot: (id: string) => mockActive ? snapshot : realSnapshot.loadSnapshot(id),
+  latestSnapshot: () => resolveMock(() => snapshot, () => realSnapshot.latestSnapshot(), "latestSnapshot"),
+  listSnapshots: () => resolveMock(
+    () => (snapshot ? [{ file: "latest.json", timestamp: snapshot.timestamp ?? "latest" }] : []),
+    () => realSnapshot.listSnapshots(),
+    "listSnapshots",
+  ),
+  loadSnapshot: (id: string) => resolveMock(() => snapshot, () => realSnapshot.loadSnapshot(id), "loadSnapshot"),
 }));
 
 mock.module(join(import.meta.dir, "../../src/core/fleet/claude-sessions"), () => ({
   ..._rClaudeSessions,
   listClaudeSessions: async () => {
-    if (!mockActive) return realClaudeSessions.listClaudeSessions();
+    if (!mockActive) {
+      if (!suiteStarted) return realClaudeSessions.listClaudeSessions();
+      return realCallForbidden("listClaudeSessions");
+    }
     if (listClaudeSessionsThrows) throw new Error("session scan failed");
     return [];
   },
@@ -242,23 +352,24 @@ mock.module(join(import.meta.dir, "../../src/core/fleet/claude-sessions"), () =>
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/should-auto-wake"), () => ({
   ..._rShouldAutoWake,
-  shouldAutoWake: (...args: any[]) => mockActive ? shouldWakeDecision : (realShouldAutoWake.shouldAutoWake as any)(...args),
+  shouldAutoWake: (...args: any[]) => resolveMock(() => shouldWakeDecision, () => (realShouldAutoWake.shouldAutoWake as any)(...args), "shouldAutoWake"),
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/plugins/team/ensure-config"), () => ({
   ..._rTeamEnsure,
-  ensureTeamConfig: (name: string) => mockActive ? false : realTeamEnsure.ensureTeamConfig(name),
+  ensureTeamConfig: (name: string) => resolveMock(() => false, () => realTeamEnsure.ensureTeamConfig(name), "ensureTeamConfig"),
 }));
 
 mock.module(join(import.meta.dir, "../../src/core/ghq"), () => ({
   ..._rGhq,
-  ghqFind: async (...args: any[]) => mockActive ? null : (realGhq.ghqFind as any)(...args),
+  ghqFind: async (...args: any[]) => resolveMock(() => null, () => (realGhq.ghqFind as any)(...args), "ghqFind"),
 }));
 
 const { cmdWake, _wtPicker } = await import("../../src/commands/shared/wake-cmd");
 
 beforeEach(() => {
   mockActive = true;
+  suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
   resetState();
 });
 

@@ -30,6 +30,25 @@ const realAutoWake = { shouldAutoWake: _rAutoWake.shouldAutoWake };
 const realAway = { isPaneAway: _rAway.isPaneAway };
 
 let mockActive = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
+// see that file's header for the full rationale. `sendKeys` here injects
+// real keystrokes into a real pane when it falls through.
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] mockActive was false for "${label}" after the test suite ` +
+    `had already started — refusing to fall through to the real implementation. ` +
+    `Fix the race, don't restore the real passthrough.`,
+  );
+}
+
+function resolveMock<T>(fake: () => T, real: () => T, label: string): T {
+  if (mockActive) return fake();
+  if (!suiteStarted) return real();
+  return realCallForbidden(label);
+}
+
 let paneAway = false;
 let sendKeysShouldThrow = false;
 let order: string[];
@@ -42,54 +61,91 @@ let emitFeedCalls: unknown[];
 
 mock.module(join(srcRoot, "src/sdk"), () => ({
   ..._rSdk,
-  listSessions: async () => mockActive ? [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }] : realSdk.listSessions(),
-  capture: async (target: string, lines: number, host?: string) => mockActive ? "" : realSdk.capture(target, lines, host),
+  listSessions: async () => resolveMock(
+    () => [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }],
+    () => realSdk.listSessions(),
+    "listSessions",
+  ),
+  capture: async (target: string, lines: number, host?: string) => resolveMock(() => "", () => realSdk.capture(target, lines, host), "capture"),
   sendKeys: async (target: string, text: string) => {
-    if (!mockActive) return realSdk.sendKeys(target, text);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.sendKeys(target, text);
+      return realCallForbidden("sendKeys");
+    }
     order.push("sendKeys");
     if (sendKeysShouldThrow) throw new Error("pane vanished");
   },
-  isAgentCommand: (cmd: string | null | undefined) => mockActive ? true : realSdk.isAgentCommand(cmd),
-  findPeerForTarget: async (...args: Parameters<typeof realSdk.findPeerForTarget>) => mockActive ? null : realSdk.findPeerForTarget(...args),
-  resolveTarget: (...args: Parameters<typeof realSdk.resolveTarget>) => mockActive ? ({ type: "local" as const, target: "session:oracle.0" }) : realSdk.resolveTarget(...args),
-  curlFetch: async (...args: Parameters<typeof realSdk.curlFetch>) => mockActive ? ({ ok: true, data: { ok: true } }) : realSdk.curlFetch(...args),
+  isAgentCommand: (cmd: string | null | undefined) => resolveMock(() => true, () => realSdk.isAgentCommand(cmd), "isAgentCommand"),
+  findPeerForTarget: async (...args: Parameters<typeof realSdk.findPeerForTarget>) => resolveMock(() => null, () => realSdk.findPeerForTarget(...args), "findPeerForTarget"),
+  resolveTarget: (...args: Parameters<typeof realSdk.resolveTarget>) => resolveMock(
+    () => ({ type: "local" as const, target: "session:oracle.0" }),
+    () => realSdk.resolveTarget(...args),
+    "resolveTarget",
+  ),
+  curlFetch: async (...args: Parameters<typeof realSdk.curlFetch>) => resolveMock(
+    () => ({ ok: true, data: { ok: true } }),
+    () => realSdk.curlFetch(...args),
+    "curlFetch",
+  ),
   runHook: async (...args: unknown[]) => {
-    if (!mockActive) return realSdk.runHook("" as any, {} as any);
+    if (!mockActive) {
+      if (!suiteStarted) return realSdk.runHook("" as any, {} as any);
+      return realCallForbidden("runHook");
+    }
     runHookCalls.push(args);
   },
 }));
 
 mock.module(join(srcRoot, "src/config"), () => ({
   ..._rConfig,
-  loadConfig: () => mockActive ? ({ node: "test-node", oracle: "sender", port: 3456, namedPeers: [], commands: { default: "claude" } }) : realConfig.loadConfig(),
-  cfgLimit: (...args: Parameters<typeof realConfig.cfgLimit>) => mockActive ? 120 : realConfig.cfgLimit(...args),
+  loadConfig: () => resolveMock(
+    () => ({ node: "test-node", oracle: "sender", port: 3456, namedPeers: [], commands: { default: "claude" } }),
+    () => realConfig.loadConfig(),
+    "loadConfig",
+  ),
+  cfgLimit: (...args: Parameters<typeof realConfig.cfgLimit>) => resolveMock(() => 120, () => realConfig.cfgLimit(...args), "cfgLimit"),
 }));
 
 mock.module(join(srcRoot, "src/commands/shared/comm-log-feed"), () => ({
   ..._rFeed,
   logMessage: (...args: unknown[]) => {
-    if (!mockActive) return realFeed.logMessage("" as any, "" as any, "" as any, "" as any);
+    if (!mockActive) {
+      if (!suiteStarted) return realFeed.logMessage("" as any, "" as any, "" as any, "" as any);
+      return realCallForbidden("logMessage");
+    }
     logMessageCalls.push(args);
   },
   emitFeed: (...args: unknown[]) => {
-    if (!mockActive) return realFeed.emitFeed("" as any, "" as any, "" as any, "" as any, 0, {} as any);
+    if (!mockActive) {
+      if (!suiteStarted) return realFeed.emitFeed("" as any, "" as any, "" as any, "" as any, 0, {} as any);
+      return realCallForbidden("emitFeed");
+    }
     emitFeedCalls.push(args);
   },
 }));
 
 mock.module(join(srcRoot, "src/lib/oracle-manifest"), () => ({
   ..._rOracle,
-  findOracle: (name: string) => mockActive ? ({ name: "oracle", node: "test-node" }) : realOracle.findOracle(name),
-  loadManifestCached: () => mockActive ? [] : realOracle.loadManifestCached(),
+  findOracle: (name: string) => resolveMock(() => ({ name: "oracle", node: "test-node" }), () => realOracle.findOracle(name), "findOracle"),
+  loadManifestCached: () => resolveMock(() => [], () => realOracle.loadManifestCached(), "loadManifestCached"),
 }));
 
 mock.module(join(srcRoot, "src/commands/shared/should-auto-wake"), () => ({
   ..._rAutoWake,
-  shouldAutoWake: (...args: Parameters<typeof realAutoWake.shouldAutoWake>) => mockActive ? ({ wake: false }) : realAutoWake.shouldAutoWake(...args),
+  shouldAutoWake: (...args: Parameters<typeof realAutoWake.shouldAutoWake>) => resolveMock(
+    () => ({ wake: false }),
+    () => realAutoWake.shouldAutoWake(...args),
+    "shouldAutoWake",
+  ),
 }));
 
 mock.module(join(srcRoot, "src/core/worklog/presence-away"), () => ({
   ..._rAway,
+  // note: falls through to the real reader whenever paneAway is false — that
+  // is a deliberate, ALWAYS-active passthrough for a pure local read (not
+  // gated by the mockActive race at all), same category as pty-transport's
+  // cfgTimeout non-"pty" branch. Left untouched: not the write/exec hazard
+  // this file is being fixed for.
   isPaneAway: (...args: Parameters<typeof realAway.isPaneAway>) => (mockActive && paneAway) ? true : realAway.isPaneAway(...args),
 }));
 
@@ -131,6 +187,7 @@ async function runCmd(inbox?: () => ReceiverInboxResult, extraOpts: Partial<Para
 
 beforeEach(() => {
   mockActive = true;
+  suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
   paneAway = false;
   process.env.CLAUDE_AGENT_NAME = "sender";
   delete process.env.SSH_CLIENT;

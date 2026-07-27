@@ -16,6 +16,23 @@ import { join } from "path";
 import { tmpdir } from "os";
 
 let mockActive = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
+// `execSync`/`Bun.spawn` here run REAL commands when they fall through.
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] mockActive was false for "${label}" after the test suite ` +
+    `had already started — refusing to fall through to the real implementation. ` +
+    `Fix the race, don't restore the real passthrough.`,
+  );
+}
+
+function resolveMock<T>(fake: () => T, real: () => T, label: string): T {
+  if (mockActive) return fake();
+  if (!suiteStarted) return real();
+  return realCallForbidden(label);
+}
 
 const _rChild = await import("child_process");
 const _rOs = await import("os");
@@ -138,7 +155,10 @@ async function captureRun(
 mock.module("child_process", () => ({
   ..._rChild,
   execSync: (cmd: string, opts?: any) => {
-    if (!mockActive) return realChild.execSync(cmd, opts);
+    if (!mockActive) {
+      if (!suiteStarted) return realChild.execSync(cmd, opts);
+      return realCallForbidden("execSync");
+    }
     execSyncCalls.push(cmd);
     if (execThrow) throw execThrow;
     if (cmd.includes("git ls-remote")) return lsRemoteOutput;
@@ -150,24 +170,27 @@ mock.module("child_process", () => ({
 
 mock.module("os", () => ({
   ..._rOs,
-  homedir: () => (mockActive ? homeDir : realOs.homedir()),
+  homedir: () => resolveMock(() => homeDir, () => realOs.homedir(), "homedir"),
 }));
 
 mock.module(join(import.meta.dir, "../src/cli/cmd-version"), () => ({
   ..._rVersion,
-  getVersionString: () => (mockActive ? currentVersion : realVersion.getVersionString()),
+  getVersionString: () => resolveMock(() => currentVersion, () => realVersion.getVersionString(), "getVersionString"),
 }));
 
 mock.module(join(import.meta.dir, "../src/core/ghq"), () => ({
   ..._rGhq,
   ghqFindSync: (suffix: string) =>
-    mockActive ? ghqFindReturn : realGhq.ghqFindSync(suffix),
+    resolveMock(() => ghqFindReturn, () => realGhq.ghqFindSync(suffix), "ghqFindSync"),
 }));
 
 mock.module(join(import.meta.dir, "../src/cli/update-lock"), () => ({
   ..._rUpdateLock,
   withUpdateLock: async <T,>(fn: () => Promise<T>): Promise<T> => {
-    if (!mockActive) return realUpdateLock.withUpdateLock(fn);
+    if (!mockActive) {
+      if (!suiteStarted) return realUpdateLock.withUpdateLock(fn);
+      return realCallForbidden("withUpdateLock");
+    }
     lockCalls += 1;
     return await fn();
   },
@@ -175,6 +198,7 @@ mock.module(join(import.meta.dir, "../src/cli/update-lock"), () => ({
 
 beforeEach(() => {
   mockActive = true;
+  suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
   tempRoot = mkdtempSync(join(tmpdir(), "maw-update-runtime-"));
   homeDir = join(tempRoot, "home");
   mawBin = join(homeDir, ".bun", "bin", "maw");
@@ -195,7 +219,10 @@ beforeEach(() => {
   lockCalls = 0;
 
   (Bun as any).spawn = (cmd: string[]) => {
-    if (!mockActive) return original.spawn(cmd as any);
+    if (!mockActive) {
+      if (!suiteStarted) return original.spawn(cmd as any);
+      return realCallForbidden("Bun.spawn");
+    }
     spawnCalls.push([...cmd]);
     const code = spawnExitQueue.length ? spawnExitQueue.shift()! : 0;
     return { exited: Promise.resolve(code) };

@@ -10,6 +10,17 @@ import { join } from "path";
 const realArtifacts = await import("../src/lib/artifacts");
 
 let mockActive = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts.
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] mockActive was false for "${label}" after the test suite ` +
+    `had already started — refusing to fall through to the real implementation. ` +
+    `Fix the race, don't restore the real passthrough.`,
+  );
+}
+
 let summaries: realArtifacts.ArtifactSummary[] = [];
 let artifact: ReturnType<typeof realArtifacts.getArtifact> = null;
 let listCalls: Array<string | undefined> = [];
@@ -18,12 +29,18 @@ let getCalls: Array<{ team: string; taskId: string }> = [];
 mock.module(join(import.meta.dir, "../src/lib/artifacts"), () => ({
   ...realArtifacts,
   listArtifacts: (team?: string) => {
-    if (!mockActive) return realArtifacts.listArtifacts(team);
+    if (!mockActive) {
+      if (!suiteStarted) return realArtifacts.listArtifacts(team);
+      return realCallForbidden("listArtifacts");
+    }
     listCalls.push(team);
     return summaries;
   },
   getArtifact: (team: string, taskId: string) => {
-    if (!mockActive) return realArtifacts.getArtifact(team, taskId);
+    if (!mockActive) {
+      if (!suiteStarted) return realArtifacts.getArtifact(team, taskId);
+      return realCallForbidden("getArtifact");
+    }
     getCalls.push({ team, taskId });
     return artifact;
   },
@@ -67,6 +84,7 @@ async function runArtifacts(sub: string, args: string[] = [], flags: Record<stri
 
 beforeEach(() => {
   mockActive = true;
+  suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
   summaries = [];
   artifact = null;
   listCalls = [];

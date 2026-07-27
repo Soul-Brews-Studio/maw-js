@@ -41,6 +41,25 @@ interface MockWs {
 }
 
 let mockActive = false;
+// kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
+// see that file's header for the full rationale. `killSession`/
+// `newGroupedSession` here touch a REAL tmux server when the toggle misfires.
+let suiteStarted = false;
+
+function realCallForbidden(label: string): never {
+  throw new Error(
+    `[kobo-483 fail-closed] mockActive was false for "${label}" after the test suite ` +
+    `had already started — refusing to fall through to the real implementation. ` +
+    `Fix the race, don't restore the real passthrough.`,
+  );
+}
+
+function resolveMock<T>(fake: () => T, real: () => T, label: string): T {
+  if (mockActive) return fake();
+  if (!suiteStarted) return real();
+  return realCallForbidden(label);
+}
+
 let config: any;
 let timeout = 10;
 let colsLimit = 200;
@@ -65,7 +84,11 @@ const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "pla
 
 mock.module(import.meta.resolve("../../src/config"), () => ({
   ...realConfig,
-  loadConfig: () => (mockActive ? config : realConfig.loadConfig()),
+  // note: the non-"pty" branch of cfgTimeout, and cfgLimit's non-pty keys,
+  // call the real config reader unconditionally BY DESIGN (a pure local
+  // config-value read, not gated by mockActive at all) — untouched here,
+  // that's not the mockActive-misfire hazard this file is being fixed for.
+  loadConfig: () => resolveMock(() => config, () => realConfig.loadConfig(), "loadConfig"),
   cfgTimeout: (key: Parameters<typeof realConfig.cfgTimeout>[0]) => (
     mockActive && key === "pty" ? timeout : realConfig.cfgTimeout(key)
   ),
@@ -79,21 +102,30 @@ mock.module(import.meta.resolve("../../src/config"), () => ({
 
 mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => ({
   ...realTmux,
-  tmuxCmd: () => (mockActive ? "tmux-mock" : realTmux.tmuxCmd()),
+  tmuxCmd: () => resolveMock(() => "tmux-mock", () => realTmux.tmuxCmd(), "tmuxCmd"),
   tmux: {
     ...realTmux.tmux,
     newGroupedSession: async (sessionName: string, ptySessionName: string, opts: any) => {
-      if (!mockActive) return realTmux.tmux.newGroupedSession(sessionName, ptySessionName, opts);
+      if (!mockActive) {
+        if (!suiteStarted) return realTmux.tmux.newGroupedSession(sessionName, ptySessionName, opts);
+        return realCallForbidden("newGroupedSession");
+      }
       groupedCalls.push({ sessionName, ptySessionName, opts });
       return groupedImpl(sessionName, ptySessionName, opts);
     },
     setOption: async (session: string, option: string, value: string) => {
-      if (!mockActive) return realTmux.tmux.setOption(session, option, value);
+      if (!mockActive) {
+        if (!suiteStarted) return realTmux.tmux.setOption(session, option, value);
+        return realCallForbidden("setOption");
+      }
       setOptionCalls.push({ session, option, value });
       return setOptionImpl(session, option, value);
     },
     killSession: async (session: string) => {
-      if (!mockActive) return realTmux.tmux.killSession(session);
+      if (!mockActive) {
+        if (!suiteStarted) return realTmux.tmux.killSession(session);
+        return realCallForbidden("killSession");
+      }
       killSessionCalls.push(session);
     },
   },
@@ -151,6 +183,7 @@ async function eventually(predicate: () => boolean, label: string) {
 
 beforeEach(() => {
   mockActive = true;
+  suiteStarted = true; // kobo-483: never reset — marks "past the safe module-load window"
   config = { host: "local" };
   timeout = 10;
   colsLimit = 200;
