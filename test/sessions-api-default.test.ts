@@ -316,7 +316,7 @@ describe("POST /send", () => {
     const inboxCalls: any[] = [];
     const h = makeHarness({
       // unknown for both "mba:nai" and the stripped bare "nai" → no live local pane
-      resolveTarget: (() => ({ type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers or peers" })) as any,
+      resolveTarget: (() => ({ type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers, peers, or hostAliases" })) as any,
       listSessions: async () => [] as any,
       findPeerForTarget: async () => null,
       writeReceiverInbox: (input) => {
