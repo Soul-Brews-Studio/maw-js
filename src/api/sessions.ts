@@ -5,7 +5,7 @@ import { findWindow } from "../core/runtime/find-window";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer, sendKeysToPeerDetailed } from "../core/transport/peers";
 import { loadConfig } from "../config";
 import { curlFetch } from "../core/transport/curl-fetch";
-import { resolveTarget, detectWindowMismatch, resolveLocalFallbackForUnknownNode } from "../core/routing";
+import { resolveTarget, detectWindowMismatch } from "../core/routing";
 import { processMirror } from "../lib/process-mirror";
 import { cmdWake as defaultCmdWake, resolveFleetSession } from "../commands/shared/wake";
 import { shouldAutoWake as defaultShouldAutoWake } from "../commands/shared/should-auto-wake";
@@ -18,6 +18,8 @@ import { defaultReceiverInboxWriter, type ReceiverInboxResult, type ReceiverInbo
 import { notifyLiveInboxReceiver, type LiveInboxNotifyDeps } from "../commands/shared/live-inbox-notify";
 export { formatInboxNotification, resolveLiveInboxNotificationTarget } from "../commands/shared/live-inbox-notify";
 import { checkBusyGuard, queueForDispatch } from "../core/agent-status-guard";
+import { crossCompanyDeliveryRefusal } from "../core/worklog/company-scope";
+import { targetOracle } from "../core/tasks/auto-create";
 import type { Session } from "../core/transport/ssh";
 
 type Config = ReturnType<typeof loadConfig>;
@@ -441,17 +443,47 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       const isResolved = result && result.type !== "error";
       const altResult = !isResolved ? d.resolveTarget(target.replace(/-oracle$/, ""), config, local) : null;
       const altResolved = altResult && altResult.type !== "error";
-      // eq3-006 — node prefix named an unknown node, but the bare oracle name may
-      // be a LIVE local session (e.g. `mba:nai` where `mba` is this host's tag,
-      // not the configured node). Strip the prefix and re-resolve locally so we
-      // inject the live pane instead of dropping to inbox. Never routes cross-node.
-      const localFallback = !isResolved && !altResolved
-        ? resolveLocalFallbackForUnknownNode(target, result, (bare) => d.resolveTarget(bare, config, local))
-        : null;
-      const resolved = isResolved ? result : altResolved ? altResult : localFallback ?? (result || altResult);
+      // kobo-431 Option C: the guessing fallback (resolveLocalFallbackForUnknownNode)
+      // is gone. eq3-006's case (a node:name whose node is this host's federation
+      // tag, not its configured `node`) now resolves inside resolveTarget itself
+      // via a declared `hostAliases` entry — an unknown node that isn't declared
+      // stays an error and drops to inbox-persist, on purpose (Defect B).
+      const resolved = isResolved ? result : altResolved ? altResult : (result || altResult);
 
       // Local or self-node → send via tmux
       if (resolved?.type === "local" || resolved?.type === "self-node") {
+        // kobo-431 (Defect A) — local/self-node deliveries had NO company-scope
+        // check at all (only the peer/#842 ACL gate did, and only for cross-node).
+        const senderOracle = targetOracle(messageFrom);
+        const targetOracleName = targetOracle(resolved.target);
+        const violation = crossCompanyDeliveryRefusal(senderOracle, targetOracleName);
+        if (violation) {
+          // Explicit pre-declared intent bypass (kobo-431 unhappy path 2) — reuses
+          // the EXISTING trust-store (already used for peer ACL trust pairs), not a
+          // new caller-settable flag/env var. Requires a prior, separate `maw trust
+          // add` — NOT settable inline on this send. Still worth being honest in
+          // the PR: on one shared local machine, nothing stops an ordinary sender
+          // from running `maw trust add` themselves either — this raises the bar
+          // (a durable, board-visible action) but is not adversary-proof.
+          const { loadTrust, samePair } = await import("../lib/trust-store");
+          const trusted = loadTrust().some((e) => samePair(e, { sender: senderOracle, target: targetOracleName }));
+          if (!trusted) {
+            set.status = 403;
+            emitLifecycle({
+              direction: "inbound",
+              state: "failed",
+              channel: "api-send",
+              route: resolved.type,
+              from: messageFrom,
+              to: messageTo,
+              target: resolved.target,
+              text: message,
+              error: violation,
+              signed: messageSigned,
+            });
+            return { ok: false, error: violation, target: resolved.target };
+          }
+        }
         const live = await verifyDeliverableTarget(resolved.target);
         if (!live.ok) return queueOrFail(resolved.target, live.reason);
         // Phase 2 busy guard — queue for auto-delivery if target is actively working

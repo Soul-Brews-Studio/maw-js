@@ -175,6 +175,23 @@ export interface MawConfig {
   /** Node identity (e.g. "white", "mba") */
   node?: string;
   /**
+   * Other names this host also answers to for `node:agent` routing
+   * (kobo-431 Option C). Optional, defaults to none.
+   *
+   * Before this field existed, a `node:agent` query whose node didn't match
+   * `node` or a `namedPeers` entry would fall through to a blind fallback
+   * that re-resolved the bare agent name locally and delivered if it found a
+   * live session — silently guessing that the unrecognized node meant "this
+   * host" (eq3-006). That guess is not declared anywhere and can misfire —
+   * a genuinely different, unrelated node can coincidentally share a bare
+   * agent name. This field replaces the guess with a declaration: list every
+   * additional name this host is reachable as, and `node:agent` resolves on
+   * the normal self-node path (routing.ts Step 2) instead of guessing. An
+   * undeclared unknown node now fails loud instead of silently delivering
+   * to a possibly-wrong pane. See docs/federation/getting-started.md.
+   */
+  hostAliases?: string[];
+  /**
    * Optional service user for multi-user hosts (#1814).
    *
    * When set, federation-visible identity becomes `<nodeUser>@<node>` while

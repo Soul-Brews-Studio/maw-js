@@ -34,6 +34,14 @@ describe("company command plugin standalone boundary", () => {
         /^(?:\.\.\/){3}core\/util\//,    // fuzzy matcher for attach resolution
         /^(?:\.\.\/){3}core\/worklog\//, // hook-setup (provision) + company-scope (#2 re-home)
         /^(?:\.\.\/){3}core\/tasks\/hey-spawn$/, // kobo-405: shared fail-closed-under-test hey spawn seam
+        // kobo-449/453: company-helpers.ts sources these 4 symbols from their
+        // true leaf modules instead of the "maw-js/sdk" barrel (isolated
+        // comm-send-*.test.ts partially mock.module() that barrel and don't
+        // provide them) — same direct-leaf-import convention several other
+        // files in this codebase already use for these exact symbols.
+        /^(?:\.\.\/){3}config\/ghq-root$/,
+        /^(?:\.\.\/){3}core\/xdg$/,
+        /^(?:\.\.\/){3}core\/fleet\/fleet-load-core$/,
       ],
     }).map((record) => record.spec);
 
