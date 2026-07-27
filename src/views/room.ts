@@ -102,6 +102,19 @@ export function roomHtml(): string {
        box with a left border (Tony: the box IS the signal, never nested). */
     .bubble .body strong { background:rgba(250,204,21,.28); padding:0 2px; border-radius:2px; color:var(--fg); }
     .bubble .body blockquote { border-left:4px solid var(--danger); background:rgba(239,68,68,.12); color:var(--fg); margin:6px 0; padding:6px 12px; border-radius:0 6px 6px 0; }
+    /* kobo-456 — room-only (never .md): a run of consecutive plain-text lines
+       is ONE paragraph for colouring, cycling through 4 colours so long
+       messages scan at a glance without re-reading every line. The writer
+       marks nothing (unlike kobo-425's bold/quote markers) — md.ts groups lines
+       itself. All 4 are dark, high-contrast backgrounds (see room.test.ts's
+       WCAG contrast check, computed from these exact values — never
+       hand-verified "looks fine") so <strong>'s highlight and this bubble's
+       own --fg text both stay legible on every one. */
+    .bubble .body p.pg-0, .bubble .body p.pg-1, .bubble .body p.pg-2, .bubble .body p.pg-3 { padding:3px 8px; border-radius:5px; }
+    .bubble .body p.pg-0 { background:#1E3A5F; }
+    .bubble .body p.pg-1 { background:#3F2E5B; }
+    .bubble .body p.pg-2 { background:#1F4030; }
+    .bubble .body p.pg-3 { background:#4A3410; }
     .bubble .body code { background:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:.9em; }
     .bubble .body pre { background:var(--muted); border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; }
     .bubble .body pre code { background:none; border:0; padding:0; }

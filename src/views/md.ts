@@ -21,6 +21,15 @@ export function mdToHtml(src) {
   const lines = escapeHtml(src).split(/\r?\n/);
   const out = [];
   let i = 0, inCode = false, codeLang = '', listType = null, inBQ = false;
+  // kobo-456: a run of CONSECUTIVE plain-text lines (no blank/heading/list/
+  // quote/fence between them) is one "paragraph" for colouring purposes —
+  // paraGroup increments only when a NEW run starts, so 3 lines in a row
+  // share one colour while a blank line in between starts the next colour.
+  // The <p>-per-line output shape is unchanged (kobo-396); only a class name
+  // is added, so line-breaking for every existing message stays identical.
+  let paraGroup = -1, inParaRun = false;
+  const PARA_COLORS = 4;
+  const endParaRun = () => { inParaRun = false; };
   const closeList = () => { if (listType) { out.push('</' + listType + '>'); listType = null; } };
   // kobo-425: consecutive `>` lines merge into ONE <blockquote> (Tony's "no
   // nested/stacked boxes" rule) — a blank line (closeBQ below, same call site
@@ -39,7 +48,7 @@ export function mdToHtml(src) {
     const fence = line.match(/^\s*```(\w*)/);
     if (fence) {
       if (!inCode) {
-        closeList(); closeBQ();
+        closeList(); closeBQ(); endParaRun();
         codeLang = fence[1] || '';
         out.push(codeLang === 'mermaid' ? '<pre class="mermaid-src">' : '<pre><code>');
         inCode = true;
@@ -50,24 +59,27 @@ export function mdToHtml(src) {
       i++; continue;
     }
     if (inCode) { out.push(line); i++; continue; }
-    if (/^\s*$/.test(line)) { closeList(); closeBQ(); i++; continue; }
+    if (/^\s*$/.test(line)) { closeList(); closeBQ(); endParaRun(); i++; continue; }
     let m;
-    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { closeList(); closeBQ(); const lv = m[1].length; out.push('<h' + lv + '>' + inlineMd(m[2]) + '</h' + lv + '>'); i++; continue; }
-    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { closeList(); closeBQ(); out.push('<hr/>'); i++; continue; }
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { closeList(); closeBQ(); endParaRun(); const lv = m[1].length; out.push('<h' + lv + '>' + inlineMd(m[2]) + '</h' + lv + '>'); i++; continue; }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { closeList(); closeBQ(); endParaRun(); out.push('<hr/>'); i++; continue; }
     // kobo-425: `escapeHtml` above already turned a real `>` into `&gt;` — this
     // must match the ESCAPED form (never move escapeHtml after the split, that
     // would reopen the kobo-396 XSS hole). A line like `>> foo` matches ONCE
     // (leaving a literal `&gt;` in the captured text, rendered as plain ">"),
     // so nested `>>` still yields exactly one box, never a stacked one.
     if ((m = line.match(/^\s*&gt;\s?(.*)$/))) {
-      closeList();
+      closeList(); endParaRun();
       if (inBQ) { out.push('<br>'); } else { out.push('<blockquote>'); inBQ = true; }
       out.push(inlineMd(m[1]));
       i++; continue;
     }
-    if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) { closeBQ(); if (listType !== 'ul') { closeList(); out.push('<ul>'); listType = 'ul'; } const cb = m[1].match(/^\[([ xX])\]\s+(.*)$/); if (cb) { const done = cb[1] !== ' '; out.push('<li class="chk"><input type="checkbox" disabled' + (done ? ' checked' : '') + '/>' + (done ? '<span class="done">' + inlineMd(cb[2]) + '</span>' : inlineMd(cb[2])) + '</li>'); } else { out.push('<li>' + inlineMd(m[1]) + '</li>'); } i++; continue; }
-    if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) { closeBQ(); if (listType !== 'ol') { closeList(); out.push('<ol>'); listType = 'ol'; } out.push('<li>' + inlineMd(m[1]) + '</li>'); i++; continue; }
-    closeList(); closeBQ(); out.push('<p>' + inlineMd(line) + '</p>'); i++;
+    if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) { closeBQ(); endParaRun(); if (listType !== 'ul') { closeList(); out.push('<ul>'); listType = 'ul'; } const cb = m[1].match(/^\[([ xX])\]\s+(.*)$/); if (cb) { const done = cb[1] !== ' '; out.push('<li class="chk"><input type="checkbox" disabled' + (done ? ' checked' : '') + '/>' + (done ? '<span class="done">' + inlineMd(cb[2]) + '</span>' : inlineMd(cb[2])) + '</li>'); } else { out.push('<li>' + inlineMd(m[1]) + '</li>'); } i++; continue; }
+    if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) { closeBQ(); endParaRun(); if (listType !== 'ol') { closeList(); out.push('<ol>'); listType = 'ol'; } out.push('<li>' + inlineMd(m[1]) + '</li>'); i++; continue; }
+    closeList(); closeBQ();
+    if (!inParaRun) { paraGroup++; inParaRun = true; }
+    out.push('<p class="pg-' + (paraGroup % PARA_COLORS) + '">' + inlineMd(line) + '</p>');
+    i++;
   }
   if (inCode) out.push(codeLang === 'mermaid' ? '</pre>' : '</code></pre>');
   closeList(); closeBQ();

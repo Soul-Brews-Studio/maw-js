@@ -51,6 +51,43 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(bqRule).toContain("background:"); // a filled BOX, not just a border/line
   });
 
+  // kobo-456: 1 paragraph = 1 colour, cycling automatically, ROOM ONLY (never
+  // .md — see company.test.ts for the board-side pin that it stays untouched).
+  // Contrast is computed from the ACTUAL shipped hex values below, never a
+  // hand-verified "looks fine" — a colour that reads badly on THIS text must
+  // fail the test the moment it's introduced, not wait for Tony to notice.
+  function relLum(hex: string): number {
+    const lin = (c: number) => { const cs = c / 255; return cs <= 0.03928 ? cs / 12.92 : ((cs + 0.055) / 1.055) ** 2.4; };
+    const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+  function contrastRatio(hexA: string, hexB: string): number {
+    const l1 = relLum(hexA), l2 = relLum(hexB);
+    const [light, dark] = l1 > l2 ? [l1, l2] : [l2, l1];
+    return (light + 0.05) / (dark + 0.05);
+  }
+  function extractHex(pattern: RegExp): string {
+    const m = html.match(pattern);
+    if (!m) throw new Error("pattern not found in shipped CSS: " + pattern);
+    return m[1];
+  }
+
+  test("kobo-456: room-only CSS — 4 alternating paragraph-highlight colours exist, scoped to .bubble .body p.pg-N", () => {
+    for (let n = 0; n < 4; n++) {
+      expect(html).toContain(`.bubble .body p.pg-${n} { background:#`);
+    }
+    expect(html).not.toContain(".md p.pg-0"); // room never edits the board's selector
+  });
+
+  test("kobo-456: every paragraph-highlight colour meets WCAG AA contrast (>= 4.5:1) against the room's text colour — a checkable number, computed from the real shipped hex, not a look", () => {
+    const fg = extractHex(/--fg:#([0-9A-Fa-f]{6})/);
+    for (let n = 0; n < 4; n++) {
+      const bg = extractHex(new RegExp(`\\.bubble \\.body p\\.pg-${n} \\{ background:#([0-9A-Fa-f]{6})`));
+      const ratio = contrastRatio(fg, bg);
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   test("default partner = the company lead (send targets `lead`, from the /api/rooms response)", () => {
     expect(html).toContain("body.lead"); // lead resolved server-side, carried in the list response
     expect(html).toContain("to: lead"); // the send defaults to the company lead
