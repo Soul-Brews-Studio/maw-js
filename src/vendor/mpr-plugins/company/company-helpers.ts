@@ -1,6 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import { mawDataPath, loadFleetEntries, fleetLoadDirForWrite, getGhqRoot } from "maw-js/sdk";
+// kobo-449: import these 4 from their true leaf source modules, not the
+// "maw-js/sdk" barrel — several isolated comm-send-*.test.ts partially
+// mock.module() that barrel for unrelated reasons, and this file is now
+// reachable from cmdSend's company-scope gate. Several other files already
+// import getGhqRoot/xdg/fleet-load-core directly this same way.
+import { getGhqRoot } from "../../../config/ghq-root";
+import { mawDataPath } from "../../../core/xdg";
+import { loadFleetEntries, fleetDirForWrite as fleetLoadDirForWrite } from "../../../core/fleet/fleet-load-core";
 import { removeDeptBlockFromRepo } from "./company-claudemd";
 
 /**

@@ -23,5 +23,11 @@ export const assetsView = new Hono();
 
 assetsView.get("/vendor/mermaid.js", (c) => {
   if (!existsSync(MERMAID_JS_PATH)) return c.text("mermaid asset not installed", 404);
-  return new Response(Bun.file(MERMAID_JS_PATH), { headers: { "content-type": "application/javascript" } });
+  // kobo-422 (N1): the URL is already version-pinned via `?v=` (room.ts's
+  // MERMAID_ASSET_URL, bumped alongside package.json's exact pin) — a cache
+  // hit under one version can never serve stale bytes for another, so this
+  // 3.4MB file is safe to cache for a full year.
+  return new Response(Bun.file(MERMAID_JS_PATH), {
+    headers: { "content-type": "application/javascript", "cache-control": "public, max-age=31536000, immutable" },
+  });
 });

@@ -283,26 +283,40 @@ describe("POST /send", () => {
     expect(h.lifecycle[0]).toMatchObject({ state: "queued", signed: false });
   });
 
-  test("eq3-006: node:name with unknown node but bare name live local → injects the live pane, not inbox", async () => {
+  test("kobo-431 Option C: unknown node with a live bare-name match no longer auto-injects — the guessing fallback is deleted", async () => {
+    // Before kobo-431, an unrecognized node prefix ("mba") whose bare agent
+    // name ("nai") happened to be live locally would guess "mba" means this
+    // host and inject anyway (eq3-006's fallback). That guess is gone: an
+    // undeclared node now stays an error and drops to inbox-persist even
+    // when the bare name IS live — same shape as the "not live" case below.
+    // The legitimate eq3-006 case is now `hostAliases` (test/routing.test.ts),
+    // not a bare-name coincidence at this wrapper layer.
+    const inboxCalls: any[] = [];
     const h = makeHarness({
       resolveTarget: ((q: string) =>
         q === "nai"
           ? { type: "local", target: "24-nai:nai-oracle" }
-          : { type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers or peers" }) as any,
+          : { type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers, peers, or hostAliases" }) as any,
       listSessions: async () => [session("24-nai", [{ index: 0, name: "nai-oracle", active: true }])] as any,
+      findPeerForTarget: async () => null,
+      writeReceiverInbox: (input) => {
+        inboxCalls.push(input);
+        return { ok: true, oracle: "nai", inboxDir: "/repo/ψ/inbox", path: "/repo/ψ/inbox/m.md", filename: "m.md" };
+      },
     });
 
     const res = await readJson(await h.app.handle(jsonRequest("/send", { target: "mba:nai", text: "hi nai" })));
 
-    expect(res).toMatchObject({ ok: true, target: "24-nai:nai-oracle", source: "local", state: "delivered" });
-    expect(h.calls).toContainEqual(["sendKeys", "24-nai:nai-oracle", "hi nai"]);
+    expect(h.calls.some((c) => c[0] === "sendKeys")).toBe(false);
+    expect(inboxCalls.length).toBe(1);
+    expect(res).toMatchObject({ target: "mba:nai" });
   });
 
   test("eq3-006: node:name unknown + bare name NOT live → still persists to inbox (no inject)", async () => {
     const inboxCalls: any[] = [];
     const h = makeHarness({
       // unknown for both "mba:nai" and the stripped bare "nai" → no live local pane
-      resolveTarget: (() => ({ type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers or peers" })) as any,
+      resolveTarget: (() => ({ type: "error", reason: "unknown_node", detail: "node 'mba' not in namedPeers, peers, or hostAliases" })) as any,
       listSessions: async () => [] as any,
       findPeerForTarget: async () => null,
       writeReceiverInbox: (input) => {

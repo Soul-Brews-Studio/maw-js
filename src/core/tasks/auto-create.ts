@@ -13,8 +13,8 @@
  * The cheap regex gate runs first so non-request sends pay ~nothing.
  */
 
-import { addTask, listTasks, noteTask, readTask, type TaskRecord } from "./store";
-import { companyOfOracleStrict } from "../worklog/company-scope";
+import { addTask, isTerminalState, listTasks, noteTask, readTask, type TaskRecord } from "./store";
+import { companyOfOracleStrict, companyScopeViolation } from "../worklog/company-scope";
 
 // `[request:<id>]` must lead the message (after optional whitespace). The id is
 // the correlation id (e.g. eq3-company-ui-01).
@@ -136,6 +136,8 @@ export interface AutoCaptureDeps {
   readCard?: (company: string, id: string) => TaskRecord | null;
   /** append a note — defaults to the real store writer. */
   note?: (company: string, id: string, by: string, text: string, opts?: { captured?: boolean }) => TaskRecord | null;
+  /** kobo-424 (D) — non-null return = sender isn't a member of `company`, refuse. Defaults to the real membership check. */
+  scopeViolation?: (company: string, sender: string) => string | null;
 }
 
 /**
@@ -169,12 +171,21 @@ export function autoCaptureCardMentions(
 
   const readCard = deps.readCard ?? readTask;
   const note = deps.note ?? noteTask;
+  const scopeViolation = deps.scopeViolation ?? companyScopeViolation;
   const captured: string[] = [];
   let sender: string | null | undefined; // resolve lazily + once, only if a ref actually exists
   for (const [id, company] of refs) {
-    if (!readCard(company, id)) continue; // unknown card → skip silently
+    const card = readCard(company, id);
+    if (!card) continue; // unknown card → skip silently
+    // kobo-424 (A) — a closed card doesn't collect auto-notes; not a permanent
+    // stamp, a reopened card (state flipped off-terminal) accepts notes again.
+    if (isTerminalState(card.state)) continue;
     if (sender === undefined) sender = resolveSender();
     if (!sender) break; // can't attribute the note (same reason for every ref) → stop
+    // kobo-424 (D) — sender must be a member of the MENTIONED card's own company,
+    // not just resolve to *a* company; a bare regex match on the message text is
+    // not a membership check.
+    if (scopeViolation(company, sender)) continue;
     // kobo-229: tag as `captured` so noteTask stores it (audit trail) but never
     // auto-advances the card — a hey mention is chatter, not work (mention ≠ work).
     if (note(company, id, sender, `${VIA_HEY}→${targetOracle(target)}] ${message}`, { captured: true })) captured.push(id);

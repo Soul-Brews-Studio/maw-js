@@ -140,6 +140,7 @@ const origAgentName = process.env.CLAUDE_AGENT_NAME;
 const origSshClient = process.env.SSH_CLIENT;
 const origSshConnection = process.env.SSH_CONNECTION;
 const origSshTty = process.env.SSH_TTY;
+const origFetch = globalThis.fetch;
 
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   sleepCalls.push(ms);
@@ -200,6 +201,18 @@ beforeEach(() => {
   delete process.env.SSH_CLIENT;
   delete process.env.SSH_CONNECTION;
   delete process.env.SSH_TTY;
+  // kobo-453: the kobo-431 company-scope gate makes cmdSend's local/self-node
+  // path reach checkBusyGuard (agent-status-guard.ts), which does a real
+  // unmocked fetch to localhost:3456 whenever agentStatusStore has no entry
+  // for the target — every target in this file. On this box that port is an
+  // intermittently-unresponsive live maw-serve process (kobo-453, open,
+  // NOT this card's defect), so two tests below hang for up to 5s and fail
+  // non-deterministically. Stubbed here because the REAL PATH HANGS ON AN
+  // UNRESPONSIVE SERVER — not because the transport itself is uninteresting.
+  // TRANSPORT only: checkBusyGuard's own decision logic still runs for real
+  // (store-miss → fetch fails fast → not busy) — mutation-verified in the
+  // sibling fix (kobo-431 PR body). Revert when kobo-453 is resolved.
+  globalThis.fetch = (async () => new Response("not found", { status: 404 })) as typeof fetch;
 });
 
 afterEach(() => {
@@ -211,6 +224,7 @@ afterEach(() => {
   else process.env.SSH_CONNECTION = origSshConnection;
   if (origSshTty === undefined) delete process.env.SSH_TTY;
   else process.env.SSH_TTY = origSshTty;
+  globalThis.fetch = origFetch;
 });
 
 afterAll(() => {

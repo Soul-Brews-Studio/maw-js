@@ -136,6 +136,16 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("resolveSignerPane"); // live tmux pane-id at sign-time (Option B)
     expect(src).toContain("signPaneViolation"); // item-4 reviewer-role + item-3 distinct-pane guard
     expect(src).toContain("samePaneBothTiers"); // merge pane-distinct backstop
+    // kobo-400: bind a sign to the commit it reviewed (epic-326's last hole — a sign only
+    // proved WHEN, not WHAT). Capture at sign-time, enforce at merge-time via gh's own
+    // atomic --match-head-commit (no compare-then-act race in our own code).
+    expect(src).toContain('"--json", "headRefOid"'); // sign-time SHA capture (best-effort, never blocks the sign itself)
+    expect(src).toContain("signedSha"); // captured SHA passed into signTask
+    expect(src).toContain("crewSignedSha"); // task field: crew tier's reviewed commit
+    expect(src).toContain("headSignedSha"); // task field: head tier's reviewed commit
+    expect(src).toContain("--match-head-commit"); // GitHub enforces atomically server-side at merge
+    expect(src).toContain("different commits, only one tier actually reviewed"); // crew≠head refuse — the hole convergent-discovered from two angles (kobo-336's own distinct-signer rule opened this window)
+    expect(src).toContain("pre-signSha-bind sign"); // legacy grandfather warning (field-absence trigger, no flag-day — kobo-404 tightens later)
     expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
     expect(src).toContain("parsePrRepo"); // kobo-80: stamp card.repo from the PR url on pr-link
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given

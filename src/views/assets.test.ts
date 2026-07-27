@@ -18,4 +18,12 @@ describe("assetsView — same-origin static asset surface (kobo-398)", () => {
     const res = await assetsView.request("/vendor/mermaid.js?v=11.16.0");
     expect(res.status).toBe(200);
   });
+
+  // kobo-422 (N1) — 3.4MB served on every fresh room load without this; the URL
+  // is already version-pinned via room.ts's `?v=`, so a year-long cache can
+  // never serve stale bytes across a version bump (the URL itself changes).
+  test("kobo-422 N1: GET /vendor/mermaid.js sets a long-lived immutable cache-control header", async () => {
+    const res = await assetsView.request("/vendor/mermaid.js?v=11.16.0");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  });
 });

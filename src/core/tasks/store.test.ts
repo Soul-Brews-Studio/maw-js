@@ -708,6 +708,76 @@ describe("dependency graph (ADR 0003 A — derived blocked-by-dependency, 1 hop)
   });
 });
 
+describe("kobo-393 — wait-for-deploy counts as a satisfied parent state (kobo-377 root fix)", () => {
+  const child = (parentIds: string[]): TaskRecord => ({
+    id: "c", title: "t", company: "pgw", state: "todo", by: "x", assignee: null, ts: 1, parentIds,
+  });
+
+  test("dependencyBlock: wait-for-deploy parent satisfies (alongside done/archived)", () => {
+    const states: Record<string, ParentState> = { p1: "wait-for-deploy", p2: "done", p3: "archived" };
+    const resolve = (id: string) => states[id] ?? null;
+    const r = dependencyBlock(child(["p1", "p2", "p3"]), resolve);
+    expect(r.blockedBy).toEqual([]); // wait-for-deploy joins done/archived as satisfied
+  });
+
+  // kobo-395 follow-up (separate card): rejected is deliberately EXCLUDED from the
+  // satisfied set — a rejected parent means the dep never happened, not "close enough".
+  // Pinned here as a negative so 395 has a documented baseline to change on purpose.
+  test("dependencyBlock: rejected parent does NOT satisfy — still blocks (kobo-395 baseline, not this card's scope)", () => {
+    const resolve = (): ParentState => "rejected";
+    expect(dependencyBlock(child(["p1"]), resolve).blockedBy).toEqual(["p1"]);
+  });
+
+  test("377 clobber repro: parent in wait-for-deploy → child's setTaskPr lands in review, NOT clobbered to blocked", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    setTaskPr("pgw", parent.id, 200, "x"); // parent has a PR → deploy-required by default
+    const child = addTask({ company: "pgw", title: "child", by: "x", assignee: "p", parentIds: [parent.id] });
+    completeOrParkMergedTask("pgw", parent.id, "pr-watch"); // parent merges → parks in wait-for-deploy
+    expect(readTask("pgw", parent.id)!.state).toBe("wait-for-deploy");
+    const result = setTaskPr("pgw", child.id, 123, "x");
+    expect(result!.state).toBe("review"); // NOT clobbered back to blocked (the 377 bug)
+  });
+
+  test("no-regression: parent still in-progress → setTaskPr on child DOES clobber to blocked (unchanged behavior)", () => {
+    const parent = addTask({ company: "pgw", title: "parent", by: "x" });
+    const child = addTask({ company: "pgw", title: "child", by: "x", assignee: "p", parentIds: [parent.id] });
+    const result = setTaskPr("pgw", child.id, 124, "x");
+    expect(result!.state).toBe("blocked"); // parent still pending → blocked wins, same as before this fix
+    expect(result!.block?.kind).toBe("dependency");
+  });
+
+  // Design-blessed side-effect (eq3, kobo-393 note): promoteReadyChildren shares the
+  // same dependencyBlock check, so a multi-parent child with one done + one merely
+  // wait-for-deploy parent now ALSO promotes. Flagged, not silently absorbed — pinned
+  // here so any future change to this behavior is a deliberate, visible diff.
+  test("multi-parent side-effect: child with one done + one wait-for-deploy parent promotes todo→ready", () => {
+    const doneParent = addTask({ company: "pgw", title: "done-parent", by: "x" });
+    const wfdParent = addTask({ company: "pgw", title: "wfd-parent", by: "x" });
+    setTaskPr("pgw", wfdParent.id, 201, "x"); // has a PR → deploy-required by default
+    const child = addTask({ company: "pgw", title: "child", by: "x", parentIds: [doneParent.id, wfdParent.id] });
+    expect(readTask("pgw", child.id)!.state).toBe("blocked"); // both parents pending → blocked at birth
+    completeOrParkMergedTask("pgw", wfdParent.id, "pr-watch"); // → wait-for-deploy (not yet satisfied-triggering on its own)
+    completeTask("pgw", doneParent.id, "x"); // → done, triggers promoteReadyChildren
+    expect(readTask("pgw", child.id)!.state).toBe("ready"); // both parents now count satisfied
+  });
+
+  // Mixed case (kobo-394 coexistence guard): a wait-for-deploy parent must NOT hide
+  // a genuinely still-pending parent — the card stays blocked, and the reason names
+  // ONLY the real blocker. If the wfd parent leaked into the reason, that would be a
+  // fresh 394-class board-lie (reason claiming something not actually blocking).
+  test("mixed parents: wait-for-deploy parent satisfied + still-pending parent blocks — reason names ONLY the real blocker", () => {
+    const wfdParent = addTask({ company: "pgw", title: "wfd-parent", by: "x" });
+    setTaskPr("pgw", wfdParent.id, 300, "x");
+    completeOrParkMergedTask("pgw", wfdParent.id, "pr-watch"); // → wait-for-deploy, satisfied
+    const pendingParent = addTask({ company: "pgw", title: "pending-parent", by: "x" }); // stays todo, NOT satisfied
+    const child = addTask({ company: "pgw", title: "child", by: "x", assignee: "p", parentIds: [wfdParent.id, pendingParent.id] });
+    const result = setTaskPr("pgw", child.id, 301, "x");
+    expect(result!.state).toBe("blocked"); // still blocked — pendingParent alone is enough
+    expect(result!.block?.reason).toContain(pendingParent.id);
+    expect(result!.block?.reason).not.toContain(wfdParent.id); // wfd parent correctly excluded — no coexistence lie with kobo-394's reason
+  });
+});
+
 describe("ready state + auto-promote (kobo-133 — Hermes-style: state machine, not view)", () => {
   test("completeTask promotes a dependent todo card to ready + emits task-updated", () => {
     const parent = addTask({ company: "pgw", title: "parent", by: "x" });

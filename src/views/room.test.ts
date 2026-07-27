@@ -35,6 +35,22 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("class=\"app\""); // the 2-pane grid
   });
 
+  // kobo-425: **bold** → highlighter-pen look, `>` → one solid red box, ROOM
+  // ONLY. The board (company.ts) shares md.ts's renderer but scopes its CSS
+  // under `.md` — room scopes under `.bubble .body`, a different selector
+  // namespace, so the two surfaces can't collide (see company.test.ts for
+  // the board-side half of this pin — its .md rules stay untouched).
+  test("kobo-425: room-only CSS — **bold** highlights and `>` renders a red box with a left border, scoped to .bubble .body", () => {
+    expect(html).toContain(".bubble .body strong {");
+    expect(html).toContain(".bubble .body blockquote {");
+    const strongRule = html.slice(html.indexOf(".bubble .body strong {"), html.indexOf("}", html.indexOf(".bubble .body strong {")) + 1);
+    expect(strongRule).toContain("background:"); // a highlighter fill, not just bold text
+    const bqRule = html.slice(html.indexOf(".bubble .body blockquote {"), html.indexOf("}", html.indexOf(".bubble .body blockquote {")) + 1);
+    expect(bqRule).toContain("border-left:"); // left border, per spec
+    expect(bqRule).toContain("var(--danger)"); // red, not the board's thin gray line
+    expect(bqRule).toContain("background:"); // a filled BOX, not just a border/line
+  });
+
   test("default partner = the company lead (send targets `lead`, from the /api/rooms response)", () => {
     expect(html).toContain("body.lead"); // lead resolved server-side, carried in the list response
     expect(html).toContain("to: lead"); // the send defaults to the company lead
@@ -104,7 +120,21 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
   // future edit that turned strict into an option/env would sail through green.
   // Exact-string match on the literal initialize() call closes that gap.
   test("kobo-398 check 11: securityLevel:'strict' + startOnLoad:false are hardcoded literals, no flag/env can disable them", () => {
-    expect(html).toContain("window.mermaid.initialize({ securityLevel: 'strict', startOnLoad: false })");
+    expect(html).toContain("window.mermaid.initialize({ securityLevel: 'strict', startOnLoad: false, theme: 'base', themeVariables: MERMAID_THEME_VARIABLES })");
+  });
+
+  // kobo-422 review (eq3 F1): MERMAID_ASSET_URL's ?v= was only kept in sync with
+  // package.json's mermaid pin by a code comment ("bump alongside package.json's
+  // exact pin") — nothing enforced it. assets.ts now serves this file with
+  // cache-control: immutable, max-age=1yr, so a forgotten bump strands a browser
+  // that already fetched the old asset on it for up to a year. Read the ACTUAL
+  // installed version from package.json at test time (never hardcode it on
+  // either side) so drift in EITHER direction — room.ts falling behind a
+  // mermaid bump, or a package.json edit outpacing room.ts — fails CI.
+  test("kobo-422 F1: MERMAID_ASSET_URL's ?v= is pinned to package.json's real mermaid version, not just a comment", () => {
+    const pkg = require("../../package.json");
+    const installedMermaidVersion = pkg.dependencies.mermaid;
+    expect(html).toContain(`/assets/vendor/mermaid.js?v=${installedMermaidVersion}`);
   });
 
   // kobo-398 — extract the mermaid loader/renderer straight from the served client
@@ -115,7 +145,11 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     const start = html.indexOf("const MERMAID_ASSET_URL");
     const end = html.indexOf("async function loadThread", start);
     const src = html.slice(start, end);
-    return new Function(`${src}; return { loadMermaid, renderMermaidBlocks };`)();
+    // kobo-422: setMermaidThemeIdForTest exists ONLY in this test-side return
+    // statement — mermaidThemeId is a `let` inside the extracted source purely
+    // so this harness can prove the cache key reacts to it; shipped code never
+    // reassigns it (no runtime theme switcher exists).
+    return new Function(`${src}; return { loadMermaid, renderMermaidBlocks, setMermaidThemeIdForTest: (v) => { mermaidThemeId = v; } };`)();
   }
   // kobo-398 review fix (B2): the real querySelectorAll returns a NodeList, not
   // an Array — a plain-array stub is a MORE capable fake than the real DOM (it
@@ -304,6 +338,376 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     } finally {
       (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
     }
+  });
+
+  // kobo-422 — thumbnail: a successfully-rendered block becomes clickable (the
+  // CSS turns it visually small; the class is what makes it eligible at all).
+  test("kobo-422 THUMBNAIL CLASS: a successfully rendered block gets the mermaid-thumb class", async () => {
+    const { renderMermaidBlocks } = loadMermaidRenderer();
+    const { doc, win } = stubEnv(async () => ({ svg: "<svg>ok</svg>" }));
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const added: string[] = [];
+      const block = { textContent: "graph TD; A-->B;", innerHTML: "", isConnected: true, classList: { add: (c: string) => added.push(c) } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block]) });
+      expect(added).toEqual(["mermaid-thumb"]);
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  test("kobo-422 THUMBNAIL CLASS: a FAILED render never gets the mermaid-thumb class (fallback source stays non-clickable)", async () => {
+    const { renderMermaidBlocks } = loadMermaidRenderer();
+    const { doc, win } = stubEnv(async () => { throw new Error("bad syntax"); });
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const added: string[] = [];
+      const block = { textContent: "BADSYNTAX ---", innerHTML: "", isConnected: true, classList: { add: (c: string) => added.push(c) } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block]) });
+      expect(added).toEqual([]);
+      expect(block.innerHTML).toBe("");
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  // kobo-422 — cache KEY now includes the theme id (a SEPARATE concern from the
+  // Map's unbounded size/growth, which this card explicitly does not touch).
+  // Switching theme must invalidate every cached SVG for the SAME source text.
+  test("kobo-422 CACHE KEY: switching theme invalidates the cache for the SAME source (re-renders, doesn't reuse the old-theme SVG)", async () => {
+    const { renderMermaidBlocks, setMermaidThemeIdForTest } = loadMermaidRenderer();
+    let renderCalls = 0;
+    const { doc, win, createdTags } = stubEnv(async () => { renderCalls++; return { svg: "<svg>call-" + renderCalls + "</svg>" }; });
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const src = "graph TD; A-->B;";
+      const block1 = { textContent: src, innerHTML: "", isConnected: true, classList: { add: () => {} } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block1]) });
+      expect(renderCalls).toBe(1);
+      expect(block1.innerHTML).toBe("<svg>call-1</svg>");
+
+      // same theme, same source, new node (like a normal 2.5s poll) → cache hit
+      const block2 = { textContent: src, innerHTML: "", isConnected: true, classList: { add: () => {} } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block2]) });
+      expect(renderCalls).toBe(1); // still a hit — theme unchanged
+      expect(block2.innerHTML).toBe("<svg>call-1</svg>");
+
+      // theme changes → SAME source must be a cache MISS, re-rendered
+      setMermaidThemeIdForTest("kobo-light-v1");
+      const block3 = { textContent: src, innerHTML: "", isConnected: true, classList: { add: () => {} } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block3]) });
+      expect(renderCalls).toBe(2); // re-rendered under the new theme
+      expect(block3.innerHTML).toBe("<svg>call-2</svg>"); // NOT the old-theme SVG served stale
+      expect(createdTags.length).toBe(1); // asset itself is still loaded only once — this is a key change, not a re-fetch
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
+  test("kobo-422: mermaid.initialize uses theme:'base' + site-matched themeVariables, not mermaid's default palette", () => {
+    expect(html).toContain("theme: 'base'");
+    expect(html).toContain("themeVariables: MERMAID_THEME_VARIABLES");
+    expect(html).toContain("background: '#0F172A'"); // --bg
+    expect(html).toContain("primaryColor: '#1E293B'"); // --surface
+    expect(html).toContain("primaryTextColor: '#F8FAFC'"); // --fg
+  });
+
+  test("kobo-422: thumbnail CSS shrinks the WHOLE diagram (max-height, no cropping) and signals it's clickable", () => {
+    expect(html).toContain(".mermaid-src.mermaid-thumb { cursor:zoom-in; }");
+    expect(html).toContain("max-height:120px");
+    expect(html).not.toContain("overflow:hidden; }\n    .bubble .body .mermaid-src.mermaid-thumb svg"); // not a crop — the svg's own aspect ratio scales down
+  });
+
+  test("kobo-422: modal markup exists (dialog role, close button, backdrop) and starts hidden", () => {
+    expect(html).toContain('id="mermaidModal"');
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
+    expect(html).toContain('id="mmdModalClose"');
+    expect(html).toContain('id="mmdModalContent"');
+    expect(html).toContain('class="mmd-modal-backdrop"');
+    const modalOpenTag = html.slice(html.indexOf('id="mermaidModal"') - 40, html.indexOf('id="mermaidModal"') + 60);
+    expect(modalOpenTag).toContain('style="display:none;"'); // starts hidden
+  });
+
+  test("kobo-422: exactly ONE delegated click listener is bound to #thread (survives loadThread's replaceChildren, never re-bound per diagram)", () => {
+    const matches = html.match(/\$\('thread'\)\.addEventListener\('click'/g) || [];
+    expect(matches.length).toBe(1);
+  });
+
+  // kobo-422 — extract the modal functions the same way loadLinkify/
+  // loadMermaidRenderer do, with a minimal injected `$` so open/close/delegation
+  // are BEHAVIORALLY proven against stub elements, not just grepped.
+  function loadMermaidModal(elements: Record<string, any>) {
+    const start = html.indexOf("function openMermaidModal");
+    const end = html.indexOf("// ── wire", start);
+    const src = html.slice(start, end);
+    return new Function("$", `${src}; return { openMermaidModal, closeMermaidModal, onThreadClick };`)((id: string) => elements[id]);
+  }
+  function modalElements() {
+    const content = { children: [] as any[], replaceChildren(...nodes: any[]) { this.children = nodes; } };
+    const modal = { style: { display: "none" } };
+    return { content, modal, mmdModalContent: content, mermaidModal: modal };
+  }
+
+  test("kobo-422: openMermaidModal replaceChildren-s the given node into modal content (no innerHTML) and shows the modal", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { openMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const fakeSvg = { tag: "svg" };
+    openMermaidModal(fakeSvg);
+    expect(content.children).toEqual([fakeSvg]);
+    expect(modal.style.display).toBe("");
+  });
+
+  test("kobo-422: closeMermaidModal hides the modal and clears its content", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    content.children = ["stale" as any];
+    modal.style.display = "";
+    const { closeMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    closeMermaidModal();
+    expect(modal.style.display).toBe("none");
+    expect(content.children).toEqual([]);
+  });
+
+  test("kobo-422: onThreadClick opens the modal with a CLONE of the clicked diagram's svg, not the live thumbnail node", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const originalSvg = { tag: "svg", cloneNode(deep: boolean) { return { tag: "svg-clone", deep }; } };
+    const thumb = { querySelector: (sel: string) => (sel === "svg" ? originalSvg : null) };
+    const target = { closest: (sel: string) => (sel === ".mermaid-thumb" ? thumb : null) };
+    onThreadClick({ target });
+    expect(content.children.length).toBe(1);
+    expect(content.children[0]).not.toBe(originalSvg); // a CLONE — the live thumbnail node is never moved into the modal
+    expect(content.children[0]).toEqual({ tag: "svg-clone", deep: true });
+    expect(modal.style.display).toBe("");
+  });
+
+  test("kobo-422: onThreadClick is a no-op when the click lands outside any .mermaid-thumb", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const target = { closest: () => null };
+    onThreadClick({ target });
+    expect(content.children).toEqual([]);
+    expect(modal.style.display).toBe("none");
+  });
+
+  test("kobo-422: onThreadClick is a no-op when the thumb has no <svg> child yet (render still pending)", () => {
+    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const thumb = { querySelector: () => null };
+    const target = { closest: () => thumb };
+    onThreadClick({ target });
+    expect(content.children).toEqual([]);
+  });
+
+  // kobo-422 review (eq3 L1): the markup test above only proves the close
+  // button / backdrop / dialog role EXIST — it never proved anything is
+  // actually wired to them. loadMermaidModal (above) deliberately stops
+  // BEFORE "// ── wire", so calling closeMermaidModal directly (as the two
+  // tests above do) would stay green even if all 3 real addEventListener
+  // registrations were deleted. This helper instead slices in the modal
+  // functions PLUS the exact 4 "// ── wire" lines that bind them (#thread
+  // click, #mmdModalClose click, #mermaidModal click, document keydown), then
+  // the test below fires each stub element's OWN registered handler — never
+  // calling closeMermaidModal by hand — so a removed wiring line fails here.
+  function loadMermaidWiring(elements: Record<string, any>, doc: { addEventListener(ev: string, cb: (ev: any) => void): void }) {
+    const fnStart = html.indexOf("function openMermaidModal");
+    const fnEnd = html.indexOf("// ── wire", fnStart);
+    const wireStart = html.indexOf("$('thread').addEventListener('click', onThreadClick)", fnEnd);
+    const wireEnd = html.indexOf("$('back').addEventListener", wireStart);
+    const src = html.slice(fnStart, fnEnd) + html.slice(wireStart, wireEnd);
+    new Function("$", "document", src)((id: string) => elements[id], doc);
+  }
+  function fakeTarget(extra: Record<string, any> = {}) {
+    const listeners: Record<string, ((ev: any) => void)[]> = {};
+    return {
+      ...extra,
+      addEventListener(ev: string, cb: (ev: any) => void) { (listeners[ev] ||= []).push(cb); },
+      fire(ev: string, arg: any = {}) { (listeners[ev] || []).forEach((cb) => cb(arg)); },
+    };
+  }
+
+  test("kobo-422 L1: all 4 modal-close paths (close button, self click, backdrop click, Escape keydown) are wired to the REAL listener, not just present in markup", () => {
+    const content = { children: [] as any[], replaceChildren(...nodes: any[]) { this.children = nodes; } };
+    const mermaidModal = fakeTarget({ style: { display: "none" } });
+    const mmdModalClose = fakeTarget();
+    const doc = fakeTarget();
+    loadMermaidWiring({ mmdModalContent: content, mermaidModal, mmdModalClose, thread: fakeTarget() }, doc);
+
+    const reset = () => { mermaidModal.style.display = ""; content.children = ["x" as any]; };
+    const assertClosed = () => {
+      expect(mermaidModal.style.display).toBe("none");
+      expect(content.children).toEqual([]);
+    };
+
+    reset();
+    mmdModalClose.fire("click"); // path 1: the close button
+    assertClosed();
+
+    reset();
+    mermaidModal.fire("click", { target: { id: "mermaidModal", classList: { contains: () => false } } }); // path 2: click on the modal itself (id match)
+    assertClosed();
+
+    // path 3: click on the backdrop — the real .mmd-modal-backdrop div has NO
+    // id (it's position:absolute; inset:0 over the whole overlay), so a real
+    // click here always has target.id === "" and only the classList branch
+    // saves it. A prior version of this test only ever exercised the id
+    // branch, so a deleted classList.contains(...) clause stayed green.
+    reset();
+    mermaidModal.fire("click", { target: { id: "", classList: { contains: (c: string) => c === "mmd-modal-backdrop" } } });
+    assertClosed();
+
+    reset();
+    doc.fire("keydown", { key: "Escape" }); // path 4: Escape key
+    assertClosed();
+  });
+
+  // kobo-438: closed/merged rooms hide by default (Tony reversed kobo-379's
+  // "show it, just gray it out"); a toggle button is the only way back. Extract
+  // the real client-side state + renderRoomList/statusClass/statusDot the same
+  // way loadMermaidModal does above — a fake `document` backs `el()`/`$()` (both
+  // called by the real source), and a fake `location` covers the module-scope
+  // `new URLSearchParams(location.search)` read at load time (unused here —
+  // setRooms/setShowClosed below override the initial state directly).
+  function fakeRoomListEl() {
+    return {
+      className: "", textContent: "", tabIndex: 0,
+      children: [] as any[],
+      classList: { toggle(_cls: string, _on: boolean) {} },
+      appendChild(child: any) { this.children.push(child); },
+      addEventListener() {},
+    };
+  }
+  // kobo-438 review (eq3 M6): the toggle stub also captures addEventListener,
+  // and the extracted source is concatenated with the REAL "// ── wire" line
+  // that binds it — so a test can fire toggle.fire('click') and prove the
+  // actual wiring works, the same way kobo-422's L1 fires a stub instead of
+  // calling closeMermaidModal directly (calling the handler by hand would
+  // stay green even if the addEventListener call itself were deleted).
+  function loadRoomList() {
+    const box = { children: [] as any[], replaceChildren(...nodes: any[]) { this.children = nodes; }, appendChild(n: any) { this.children.push(n); } };
+    const toggleListeners: Record<string, ((ev: any) => void)[]> = {};
+    const toggle = {
+      textContent: "", classList: { active: false, toggle(cls: string, on: boolean) { if (cls === "active") this.active = on; } },
+      addEventListener(ev: string, cb: (ev: any) => void) { (toggleListeners[ev] ||= []).push(cb); },
+      fire(ev: string, arg: any = {}) { (toggleListeners[ev] || []).forEach((cb) => cb(arg)); },
+    };
+    const doc = {
+      getElementById: (id: string) => (id === "roomlist" ? box : id === "roomFilterToggle" ? toggle : fakeRoomListEl()),
+      createElement: (tag: string) => ({ tag, className: "", textContent: "", children: [] as any[], appendChild(c: any) { this.children.push(c); }, addEventListener() {} }),
+    };
+    const fnStart = html.indexOf("const $ = (id) =>");
+    const fnEnd = html.indexOf("function selectRoom");
+    const wireStart = html.indexOf("$('roomFilterToggle').addEventListener('click'", fnEnd);
+    const wireEnd = html.indexOf("$('send').addEventListener", wireStart);
+    const src = html.slice(fnStart, fnEnd) + html.slice(wireStart, wireEnd);
+    const api = new Function(
+      "document", "location", "newTopic",
+      `${src}
+      return {
+        renderRoomList, statusClass, statusDot,
+        setRooms: (v) => { rooms = v; },
+        setShowClosed: (v) => { showClosed = v; },
+      };`,
+    )(doc, { search: "" }, () => {});
+    return { ...api, box, toggle };
+  }
+  const room = (id: string, status: string) => ({ id, topic: id, status });
+
+  test("kobo-438: the room list shows ONLY open rooms by default (closed/merged hidden)", () => {
+    const { renderRoomList, setRooms, box } = loadRoomList();
+    setRooms([room("a", "open"), room("b", "closed"), room("c", "merged"), room("d", "open")]);
+    renderRoomList();
+    expect(box.children.length).toBe(2);
+  });
+
+  test("kobo-438: toggling reveals BOTH closed and merged rooms, and toggling back hides them again", () => {
+    const { renderRoomList, setRooms, setShowClosed, box } = loadRoomList();
+    setRooms([room("a", "open"), room("b", "closed"), room("c", "merged")]);
+    renderRoomList();
+    expect(box.children.length).toBe(1);
+    setShowClosed(true);
+    renderRoomList();
+    expect(box.children.length).toBe(3);
+    setShowClosed(false);
+    renderRoomList();
+    expect(box.children.length).toBe(1);
+  });
+
+  test("kobo-438: the toggle button's count is closed+merged together and EXACTLY matches how many rows toggling reveals — never just `closed`", () => {
+    const { renderRoomList, setRooms, setShowClosed, box, toggle } = loadRoomList();
+    setRooms([room("a", "open"), room("b", "closed"), room("c", "closed"), room("d", "merged")]);
+    renderRoomList();
+    expect(toggle.textContent).toContain("(3)"); // 2 closed + 1 merged, not just the 2 closed
+    const hiddenCountShown = Number(toggle.textContent.match(/\((\d+)\)/)![1]);
+    setShowClosed(true);
+    renderRoomList();
+    const revealedCount = box.children.length - 1; // minus the 1 open room
+    expect(revealedCount).toBe(hiddenCountShown);
+  });
+
+  test("kobo-438: the toggle label names BOTH states it hides, never just \"closed\" (a merged-room hunter won't click a button that says only closed)", () => {
+    const { renderRoomList, setRooms, toggle } = loadRoomList();
+    setRooms([room("a", "open"), room("b", "merged")]);
+    renderRoomList();
+    expect(toggle.textContent).toContain("ปิด");
+    expect(toggle.textContent).toContain("รวมแล้ว");
+  });
+
+  test("kobo-438: with zero closed/merged rooms, the toggle still states its count (0) — it never disappears or goes blank", () => {
+    const { renderRoomList, setRooms, toggle } = loadRoomList();
+    setRooms([room("a", "open")]);
+    renderRoomList();
+    expect(toggle.textContent.length).toBeGreaterThan(0);
+    expect(toggle.textContent).toContain("(0)");
+  });
+
+  test("kobo-438: a room that gets closed re-renders out of the open list on the very next render — no manual refresh needed", () => {
+    const { renderRoomList, setRooms, box } = loadRoomList();
+    setRooms([room("a", "open"), room("b", "open")]);
+    renderRoomList();
+    expect(box.children.length).toBe(2);
+    setRooms([room("a", "open"), room("b", "closed")]); // "b" just got closed
+    renderRoomList();
+    expect(box.children.length).toBe(1);
+  });
+
+  test("kobo-438: all rooms hidden by the filter (rooms exist, none open) shows a distinct message — never the \"no rooms yet, start one\" empty state", () => {
+    const { renderRoomList, setRooms, box } = loadRoomList();
+    setRooms([room("a", "closed")]);
+    renderRoomList();
+    expect(box.children.length).toBe(1);
+    const emptyText = box.children[0].children.map((c: any) => c.textContent).join("");
+    expect(emptyText).toContain("กดปุ่มด้านบน"); // the guiding message must actually be there, not just "not the other one"
+    expect(emptyText).not.toContain("เปิดหัวข้อแรก"); // the truly-empty-company message
+  });
+
+  // kobo-438 review (eq3 M6): calling setShowClosed/renderRoomList directly (as
+  // the tests above do) proves the FILTER logic but never proves the button is
+  // actually wired to it — a deleted "// ── wire" addEventListener call would
+  // leave every test above green. Firing the stub's own registered handler
+  // (never touching setShowClosed) closes that gap.
+  test("kobo-438 M6: clicking the toggle button (the REAL wire, never the setShowClosed helper) reveals then re-hides closed/merged rooms", () => {
+    const { renderRoomList, setRooms, box, toggle } = loadRoomList();
+    setRooms([room("a", "open"), room("b", "closed"), room("c", "merged")]);
+    renderRoomList();
+    expect(box.children.length).toBe(1); // default: open only
+    toggle.fire("click");
+    expect(box.children.length).toBe(3); // click revealed closed + merged
+    toggle.fire("click");
+    expect(box.children.length).toBe(1); // click again hides them
+  });
+
+  test("kobo-438: the toggle button sits directly between the topics header and the room list — never nested in a menu/dropdown a user has to open first", () => {
+    const headIdx = html.indexOf('id="topicsHead"');
+    const toggleIdx = html.indexOf('id="roomFilterToggle"');
+    const listIdx = html.indexOf('id="roomlist"');
+    expect(headIdx).toBeGreaterThan(-1);
+    expect(toggleIdx).toBeGreaterThan(headIdx);
+    expect(listIdx).toBeGreaterThan(toggleIdx);
+    expect(html).toContain("#roomFilterToggle { display:block"); // always rendered, never display:none by default
   });
 
   test("kobo-380: isSafeUrl allowlists http/https only", () => {

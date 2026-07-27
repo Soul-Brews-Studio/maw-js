@@ -34,6 +34,87 @@ describe("md.ts — shared escape-first markdown renderer (kobo-396)", () => {
     expect(out).toContain("</code></pre>");
   });
 
+  // kobo-425: blockquote never actually worked — `escapeHtml` (line 12) runs
+  // BEFORE the line-split, turning a real `>` into `&gt;`, so the old regex
+  // (which looked for a literal `>`) could never match. Fixed to match the
+  // escaped form; these tests pin the fix AND the merge/split/no-nest rules
+  // Tony required alongside it.
+  test("kobo-425: mdToHtml renders a single `>` line as a <blockquote>", () => {
+    expect(mdToHtml("> hello")).toBe("<blockquote>\nhello\n</blockquote>");
+  });
+
+  test("kobo-425: consecutive `>` lines merge into exactly ONE <blockquote> box", () => {
+    const out = mdToHtml("> one\n> two\n> three");
+    expect(out.match(/<blockquote>/g)?.length).toBe(1);
+    expect(out.match(/<\/blockquote>/g)?.length).toBe(1);
+    expect(out).toContain("one");
+    expect(out).toContain("two");
+    expect(out).toContain("three");
+    expect(out).toContain("<br>"); // merged lines are separated, not silently run together
+  });
+
+  test("kobo-425: a blank line between `>` groups starts a NEW box — 2 boxes, not 1", () => {
+    const out = mdToHtml("> one\n\n> two");
+    expect(out.match(/<blockquote>/g)?.length).toBe(2);
+    expect(out.match(/<\/blockquote>/g)?.length).toBe(2);
+  });
+
+  test("kobo-425: `>>` (a nested marker on one line) still yields exactly ONE box, never a stacked/nested blockquote", () => {
+    const out = mdToHtml(">> foo");
+    expect(out.match(/<blockquote>/g)?.length).toBe(1);
+    // the second `>` was only escaped to `&gt;`, never re-parsed as markdown —
+    // it survives as inert text inside the single box, not a nested tag.
+    expect(out).toContain("&gt; foo");
+  });
+
+  test("kobo-425: a `>` inside a fenced code block stays raw text, never becomes a blockquote", () => {
+    const out = mdToHtml("```\n> not a quote\n```");
+    expect(out).not.toContain("<blockquote>");
+    expect(out).toContain("&gt; not a quote");
+  });
+
+  test("kobo-425: a non-blockquote line (heading) closes an open blockquote instead of absorbing into it", () => {
+    const out = mdToHtml("> quoted\n# heading");
+    expect(out).toBe("<blockquote>\nquoted\n</blockquote>\n<h1>heading</h1>");
+  });
+
+  // kobo-425 review (eq3 c-follow-up): closeBQ() is called at 8 separate exit
+  // points (blank line, heading, and — the 5 below — fence/hr/ul/ol/paragraph,
+  // plus end-of-input). Only blank-line and heading had a test; the other 5
+  // could each silently lose their closeBQ() call and every test still passed
+  // — the open box would swallow the rest of the message (and on the board,
+  // the rest of the CARD, since md.ts is the shared renderer).
+  test("kobo-425: an open blockquote closes before a FENCE starts, never swallowing the code block", () => {
+    const out = mdToHtml("> a\n```\ncode\n```");
+    expect(out).toBe("<blockquote>\na\n</blockquote>\n<pre><code>\ncode\n</code></pre>");
+  });
+
+  test("kobo-425: an open blockquote closes before an HR, never swallowing it", () => {
+    const out = mdToHtml("> a\n---");
+    expect(out).toBe("<blockquote>\na\n</blockquote>\n<hr/>");
+  });
+
+  test("kobo-425: an open blockquote closes before a UL starts, never swallowing the list", () => {
+    const out = mdToHtml("> a\n- item");
+    expect(out).toBe("<blockquote>\na\n</blockquote>\n<ul>\n<li>item</li>\n</ul>");
+  });
+
+  test("kobo-425: an open blockquote closes before an OL starts, never swallowing the list", () => {
+    const out = mdToHtml("> a\n1. item");
+    expect(out).toBe("<blockquote>\na\n</blockquote>\n<ol>\n<li>item</li>\n</ol>");
+  });
+
+  test("kobo-425: an open blockquote closes before a plain paragraph, never swallowing it", () => {
+    const out = mdToHtml("> a\nplain text");
+    expect(out).toBe("<blockquote>\na\n</blockquote>\n<p>plain text</p>");
+  });
+
+  test("XSS: a <script> payload inside a `>` line still escapes (blockquote content is not a new sink)", () => {
+    const out = mdToHtml("> <script>alert(1)</script>");
+    expect(out).not.toContain("<script>alert(1)</script>");
+    expect(out).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
   test("mdToHtml renders inline code spans via inlineMd", () => {
     expect(inlineMd("run `npm test`")).toBe("run <code>npm test</code>");
   });
