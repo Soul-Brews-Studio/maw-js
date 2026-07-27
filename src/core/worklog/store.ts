@@ -205,7 +205,10 @@ export function readWorklog(company: string | null | undefined, opts: ReadWorklo
   if (opts.kinds) filtered = filtered.filter(e => opts.kinds!.includes(e.kind));
   if (opts.excludeKinds) filtered = filtered.filter(e => !opts.excludeKinds!.includes(e.kind));
   if (opts.limit != null && filtered.length > opts.limit) filtered = filtered.slice(-opts.limit);
-  return filtered;
+  // filter()/slice() above already copy — but when no opts match, filtered
+  // still aliases the cached array; a caller mutating the result would
+  // corrupt every future reader (kobo-463, %5's find).
+  return filtered === entries ? filtered.slice() : filtered;
 }
 
 /**

@@ -339,6 +339,16 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
     const kobo2 = readWorklog("kobo463");
     expect(kobo2.map(e => e.summary)).toEqual(["git op-1"]); // still kobo's own cached entry, untouched by the pgw read in between
   });
+
+  it("does not return the cache's own array — mutating a caller's result must not leak into the next read (kobo-463 c5)", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463d", 1));
+    const first = readWorklog("c463d");
+    first.push(entry("c463d", 999)); // simulate a caller mutating its result (sort/push)
+
+    const second = readWorklog("c463d");
+    expect(second.map(e => e.summary)).toEqual(["git op-1"]); // not corrupted by the mutation above
+  });
 });
 
 describe("hook scripts stay in sync with embedded base64", () => {
