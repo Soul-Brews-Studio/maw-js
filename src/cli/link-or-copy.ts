@@ -15,7 +15,12 @@ function linkOrCopy(src: string, dest: string): "symlink" | "copy" | "exists" {
     symlinkSync(src, dest);
     return "symlink";
   } catch (err: any) {
-    if (err?.code === "EPERM" || err?.code === "ENOSYS" || err?.code === "ENOTSUP" || err?.code === "EACCES") {
+    // EPERM/ENOSYS/ENOTSUP/EACCES → filesystem refuses symlinks (Windows non-admin).
+    // ENOENT → parent dir of dest is missing (e.g. fresh plugin dir before mkdir).
+    // `cpSync({ recursive: true })` creates missing parents and copies content,
+    // so routing ENOENT here is safe and lets callers skip mkdir before bootstrap.
+    const code = err?.code;
+    if (code === "EPERM" || code === "ENOSYS" || code === "ENOTSUP" || code === "EACCES" || code === "ENOENT") {
       cpSync(src, dest, { recursive: true });
       return "copy";
     }
