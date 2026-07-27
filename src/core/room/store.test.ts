@@ -229,7 +229,7 @@ describe("room message seq (kobo-415 — company-wide, unique by construction)",
     expect(b.messages[0].seq).toBe(a.messages[0].seq + 1);
   });
 
-  test("concurrent-tick appends (identical ts) still get distinct seq", () => {
+  test("seq is not derived from ts — identical-ts appends still get distinct seq (sequential, single-process; NOT a concurrency test)", () => {
     openRoom("kobo", "r1", "topic");
     appendRoomMessage("kobo", "r1", { id: "m1", from: "a", text: "x", ts: 100 });
     appendRoomMessage("kobo", "r1", { id: "m2", from: "b", text: "y", ts: 100 });
@@ -271,5 +271,27 @@ describe("room message seq (kobo-415 — company-wide, unique by construction)",
     const merged = mergeRooms("kobo", "t", ["s"])!;
     const seqs = merged.messages.map((m) => m.seq);
     expect(new Set(seqs).size).toBe(seqs.length); // no two messages share a seq
+  });
+
+  // kobo-415 blocker 2 (reviewer): backfilling used to call the counter file's
+  // read+write once PER unbackfilled message — 605-715ms blocking for a 5000-message
+  // room. Budget below is generous (10x the batched cost measured in dev) but far
+  // under the per-message cost at this size, so a regression back to per-message
+  // writes fails this test rather than passing silently on today's small real rooms.
+  // Verified RED-then-GREEN during dev: temporarily reverting backfillRoomSeq to call
+  // nextRoomSeq once per message blows this budget; the batched mintRoomSeqBatch call
+  // (one disk read, one disk write total) passes it.
+  test("backfilling a large legacy room mints all seq in one counter read+write, not one per message", () => {
+    openRoom("kobo", "biglegacy", "topic");
+    const raw = JSON.parse(readFileSync(roomFilePath("kobo", "biglegacy"), "utf8"));
+    raw.messages = Array.from({ length: 2000 }, (_, i) => ({ id: `old${i}`, from: "a", text: "x", ts: i }));
+    writeFileSync(roomFilePath("kobo", "biglegacy"), JSON.stringify(raw));
+
+    const t0 = performance.now();
+    const room = readRoom("kobo", "biglegacy")!;
+    const elapsed = performance.now() - t0;
+
+    expect(new Set(room.messages.map((m) => m.seq)).size).toBe(2000); // all distinct
+    expect(elapsed).toBeLessThan(50); // one-shot batch; per-message writes would take ~280ms+ at this size
   });
 });

@@ -24,9 +24,14 @@ export interface RoomMessage {
   text: string; // the message with its [room:<id>] tag already stripped
   ts: number;
   // kobo-415: company-wide (not per-room) — minted once at append, never re-derived, so
-  // mergeRooms unions two rooms' messages without ever colliding (unique by construction).
-  // Non-contiguous within a room after a merge (3, then 9, then 14) — never compute a
-  // "messages missed" count by subtracting seq; count actual messages instead.
+  // mergeRooms unions two rooms' messages without colliding TODAY. Non-contiguous within a
+  // room after a merge (3, then 9, then 14) — never compute a "messages missed" count by
+  // subtracting seq; count actual messages instead.
+  // UNIQUENESS IS AN OPERATIONAL INVARIANT, NOT A CODE GUARANTEE (kobo-415 reviewer verdict,
+  // 2026-07-27): it holds only because exactly one maw-server process writes this data dir
+  // today (see nextRoomSeq below). A second writer — e.g. a future CLI verb that calls
+  // appendRoomMessage directly instead of going through the server's HTTP route — WILL mint
+  // duplicate seq, with nothing here to catch it.
   seq: number;
 }
 
@@ -63,13 +68,25 @@ function roomSeqCounterPath(company: string): string {
 }
 
 /**
- * Mint the next company-wide message seq (kobo-415). A persisted counter, not a scan —
- * so backfilling one legacy room's messages never has to re-derive the company max from
- * every other room (which would recurse back through readRoom's own backfill below).
- * Synchronous read-increment-write, no `await` in between, so same-process concurrent
- * appends can't observe a stale value (matches nextTaskId's single-writer assumption).
+ * Mint `count` sequential company-wide seq numbers in ONE read+write (kobo-415 blocker 2 —
+ * backfilling a legacy room used to call this once PER message, each a separate sync disk
+ * write; a 5000-message room measured ~700ms blocking the event loop on that one readRoom).
+ * A persisted counter, not a scan — so backfilling one legacy room's messages never has to
+ * re-derive the company max from every other room (which would recurse back through
+ * readRoom's own backfill below).
+ *
+ * NOT cross-process safe: this is an unguarded read-increment-write, no lock. It is only
+ * correct because every call today funnels through the single maw-server pm2 process (fork
+ * mode, one instance) — appendRoomMessage is reached from route.ts/listener.ts only, never
+ * from a CLI verb, and the MCP server talks to it over HTTP (mcp/room-client.ts), not
+ * in-process. If a second writer to this data dir is ever added — e.g. a CLI verb calling
+ * appendRoomMessage directly, or the server running as more than one instance — this WILL
+ * mint duplicate seq. A real cross-process guard (see src/lib/peers/lock.ts withPeersLock
+ * for the fd-based O_EXCL pattern already used elsewhere) is a follow-up, not fixed here
+ * (kobo-415 reviewer verdict, 2026-07-27).
  */
-function nextRoomSeq(company: string): number {
+function mintRoomSeqBatch(company: string, count: number): number[] {
+  if (count <= 0) return [];
   const path = roomSeqCounterPath(company);
   let n = 0;
   if (existsSync(path)) {
@@ -79,12 +96,16 @@ function nextRoomSeq(company: string): number {
       n = 0;
     }
   }
-  n += 1;
+  const nums = Array.from({ length: count }, (_, i) => n + i + 1);
   mkdirSync(mawDataPath("companies", safeSegment(company)), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ seq: n }) + "\n");
+  writeFileSync(tmp, JSON.stringify({ seq: n + count }) + "\n");
   renameSync(tmp, path);
-  return n;
+  return nums;
+}
+
+function nextRoomSeq(company: string): number {
+  return mintRoomSeqBatch(company, 1)[0];
 }
 
 /** Atomic overwrite — temp file in the same dir, then rename (mirrors the task store). */
@@ -110,19 +131,17 @@ export function readRoom(company: string, id: string): RoomArtifact | null {
 }
 
 /**
- * kobo-415: a room persisted before this feature has messages with no `seq` — mint one
- * for each, in existing (already time-ordered) array order. Idempotent: a room with every
- * message already numbered is untouched (no write, no seq churn on repeat reads).
+ * kobo-415: a room persisted before this feature has messages with no `seq` — mint numbers
+ * for all of them in ONE mintRoomSeqBatch call (one disk read, one disk write total), in
+ * existing (already time-ordered) array order. Idempotent: a room with every message
+ * already numbered is untouched (no write, no seq churn on repeat reads).
  */
 function backfillRoomSeq(room: RoomArtifact): boolean {
-  let changed = false;
-  for (const m of room.messages) {
-    if (m.seq === undefined) {
-      m.seq = nextRoomSeq(room.company);
-      changed = true;
-    }
-  }
-  return changed;
+  const unnumbered = room.messages.filter((m) => m.seq === undefined);
+  if (!unnumbered.length) return false;
+  const nums = mintRoomSeqBatch(room.company, unnumbered.length);
+  unnumbered.forEach((m, i) => { m.seq = nums[i]; });
+  return true;
 }
 
 /**

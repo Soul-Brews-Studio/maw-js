@@ -194,6 +194,7 @@ let mergeMode = false;
 let roomStatus = 'open';
 let oracles = []; // kobo-390: company roster for the @-picker
 let participants = []; // kobo-390: current room's explicit invite list
+let scrolledToHash = null; // kobo-415: only auto-scroll to a #msg-N target once per hash, not every 2.5s poll
 
 function syncUrl() {
   const u = new URL(location.href);
@@ -458,7 +459,7 @@ async function loadThread() {
   for (const m of msgs) {
     const role = roleOf(m.from);
     const b = el('div', 'bubble ' + role);
-    b.id = 'msg-' + m.seq; // kobo-415: stable anchor — a banner's #N always scrolls to the same message
+    b.id = 'msg-' + m.seq; // kobo-415: stable anchor id; see the hash-scroll block below loadThread's render loop for the actual #N navigation
     const head = el('div', 'head');
     head.appendChild(el('span', 'nm', m.from || '?'));
     head.appendChild(el('span', 'pill', pillText(role)));
@@ -477,6 +478,15 @@ async function loadThread() {
     thread.appendChild(b);
   }
   if (stick) thread.scrollTop = thread.scrollHeight;
+  // kobo-415: thread.replaceChildren() above just destroyed and rebuilt every #msg-N node,
+  // so a hash present at page-load (or a hand-typed link) resolves against nodes that did
+  // not exist yet — the browser's native same-page jump silently no-ops. Redo it ourselves
+  // now that the target exists. Scroll once per hash value, not on every 2.5s poll, so it
+  // doesn't fight a reader who has since scrolled elsewhere in the thread.
+  if (location.hash && location.hash !== scrolledToHash) {
+    const anchorTarget = document.getElementById(location.hash.slice(1));
+    if (anchorTarget) { anchorTarget.scrollIntoView({ block: 'center' }); scrolledToHash = location.hash; }
+  }
   renderMermaidBlocks(thread); // kobo-398 — async, fire-and-forget; leaves source text until it resolves
   loadActivity();
 }
