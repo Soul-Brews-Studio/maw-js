@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { mkdtempSync, readFileSync } from "fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync, appendFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { toolSummary, eventToWorklog } from "./significant";
 import { renderTimeline } from "./render";
 import { pingOnMerge, pingCollision } from "./ping";
-import { appendWorklog, readWorklog, openClaims, flushWorklog } from "./store";
+import { appendWorklog, readWorklog, openClaims, flushWorklog, worklogPath, _resetWorklogCache, _worklogCacheSize } from "./store";
 import { handleWorklogRequest } from "./route";
 import { tasksOverlap, collidingClaims, addClaim, releaseClaim } from "./claim";
 import { buildInjectSlice } from "./slice";
@@ -272,6 +272,210 @@ describe("append safety + route", () => {
     const injectRes = handleWorklogRequest(new Request("http://x/api/worklog?oracle=rr"));
     expect((await injectRes.json())).toHaveProperty("inject");
   });
+});
+
+describe("readWorklog incremental cache (kobo-463 — full-file read+parse on every call)", () => {
+  const entry = (company: string, n: number) =>
+    ({ ts: n, iso: `i${n}`, oracle: "o", company, kind: "tool" as const, summary: `git op-${n}` });
+
+  it("append then re-read: sees the new line without losing the old ones", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463a", 1));
+    const first = readWorklog("c463a");
+    expect(first.map(e => e.summary)).toEqual(["git op-1"]);
+
+    appendWorklog(entry("c463a", 2));
+    const second = readWorklog("c463a");
+    expect(second.map(e => e.summary)).toEqual(["git op-1", "git op-2"]); // old line survived the cache, new one was picked up
+  });
+
+  it("shrink (truncate/rotate): drops the stale cache and re-reads the whole file", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463b", 1));
+    appendWorklog(entry("c463b", 2));
+    const before = readWorklog("c463b");
+    expect(before.length).toBe(2);
+
+    // simulate rotation: a shorter file with entirely different content at the same path
+    writeFileSync(worklogPath("c463b"), JSON.stringify({ ...entry("c463b", 9), summary: "git rotated" }) + "\n");
+    const after = readWorklog("c463b");
+    expect(after.map(e => e.summary)).toEqual(["git rotated"]); // not a leftover union with the old 2 — a real re-read
+  });
+
+  it("no change: does not re-read the file (proven by corrupting it in place at the same byte size)", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463c", 1));
+    const first = readWorklog("c463c");
+    expect(first.map(e => e.summary)).toEqual(["git op-1"]);
+
+    // overwrite with garbage of the EXACT same byte length: a real re-read would either
+    // throw or silently drop the malformed line (empty result) — a skipped read can't
+    // observe the corruption at all, so the cached value is the only way to stay correct
+    const p = worklogPath("c463c");
+    const size = statSync(p).size;
+    writeFileSync(p, "x".repeat(size));
+    const second = readWorklog("c463c");
+    expect(second.map(e => e.summary)).toEqual(["git op-1"]); // unchanged — proves the file was never touched again
+  });
+
+  it("switching companies kobo→pgw→kobo: each read is scoped to its own company, and the 3rd read doesn't re-read kobo's file", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("kobo463", 1));
+    appendWorklog(entry("pgw463", 100));
+
+    const kobo1 = readWorklog("kobo463");
+    expect(kobo1.map(e => e.summary)).toEqual(["git op-1"]); // not mixed with pgw
+
+    const pgw1 = readWorklog("pgw463");
+    expect(pgw1.map(e => e.summary)).toEqual(["git op-100"]); // not mixed with kobo — proves per-path Map, not one shared slot
+
+    // corrupt kobo's file at the same byte size between the 1st and 3rd kobo read —
+    // if a single-slot cache got clobbered by reading pgw in between, this 3rd call
+    // would either re-read (and see the corruption) or return pgw's data (wrong company)
+    const p = worklogPath("kobo463");
+    const size = statSync(p).size;
+    writeFileSync(p, "y".repeat(size));
+
+    const kobo2 = readWorklog("kobo463");
+    expect(kobo2.map(e => e.summary)).toEqual(["git op-1"]); // still kobo's own cached entry, untouched by the pgw read in between
+  });
+
+  it("does not return the cache's own array — mutating a caller's result must not leak into the next read (kobo-463 c5)", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463d", 1));
+    const first = readWorklog("c463d");
+    first.push(entry("c463d", 999)); // simulate a caller mutating its result (sort/push)
+
+    const second = readWorklog("c463d");
+    expect(second.map(e => e.summary)).toEqual(["git op-1"]); // not corrupted by the mutation above
+  });
+
+  // PAIRED WITH the mixed Thai/ASCII byte-offset test below — they guard DIFFERENT
+  // directions of the same read (this one: don't advance past an incomplete tail; that
+  // one: DO advance exactly to the true size on a complete tail) and neither implies the
+  // other passes. Do not delete either thinking it's redundant with the other (%5, c9).
+  it("guard: an incomplete trailing line is never counted as consumed — a torn read is possible on a regular file (no PIPE_BUF-style guarantee applies, kobo-463 c9/%4), and the old full-re-read design used to self-heal it every call", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463e", 1));
+    const first = readWorklog("c463e");
+    expect(first.map(e => e.summary)).toEqual(["git op-1"]);
+
+    // simulate a write landing mid-flush: append the line's bytes WITHOUT the
+    // trailing newline yet — a read right now would see this as a torn tail
+    const p = worklogPath("c463e");
+    const full = JSON.stringify(entry("c463e", 2)) + "\n";
+    const torn = full.slice(0, full.length - 5); // cut before the closing brace+newline
+    appendFileSync(p, torn);
+
+    const mid = readWorklog("c463e");
+    expect(mid.map(e => e.summary)).toEqual(["git op-1"]); // torn line not parsed, not dropped either
+    expect(_worklogCacheSize(p)).toBeLessThan(statSync(p).size); // cache did NOT advance past the torn tail
+
+    // the rest of the line lands
+    appendFileSync(p, full.slice(full.length - 5));
+    const after = readWorklog("c463e");
+    expect(after.map(e => e.summary)).toEqual(["git op-1", "git op-2"]); // now whole, and only once
+    expect(_worklogCacheSize(p)).toBe(statSync(p).size); // caught up to the real size once the line completed
+  });
+
+  it("guard: a torn line does not withhold the COMPLETE lines appended ahead of it — all land together once the tail completes", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463h", 1));
+    readWorklog("c463h");
+    appendWorklog(entry("c463h", 2));
+    appendWorklog(entry("c463h", 3)); // 2 complete lines now sit unread in the tail
+
+    const p = worklogPath("c463h");
+    const full = JSON.stringify(entry("c463h", 4)) + "\n";
+    appendFileSync(p, full.slice(0, full.length - 5)); // torn 4th line at the very end of the tail
+
+    const mid = readWorklog("c463h");
+    expect(mid.map(e => e.summary)).toEqual(["git op-1"]); // 2 and 3 held back too, not just 4
+
+    appendFileSync(p, full.slice(full.length - 5));
+    const after = readWorklog("c463h");
+    expect(after.map(e => e.summary)).toEqual(["git op-1", "git op-2", "git op-3", "git op-4"]); // all land together, none duplicated
+  });
+
+  // PAIRED WITH the two "guard" tests above — this one guards advancing correctly on a
+  // COMPLETE tail; those guard NOT advancing on an incomplete one. Neither implies the
+  // other (%5 verified this by mutation: dropping this fix while trusting stat size
+  // directly leaves this test green but the torn-line guard red, and vice versa).
+  it("the cache's recorded offset stays byte-exact on mixed Thai/ASCII content with varying line lengths (kobo-463, %5 c10 — a pure-Thai fixture alone would have passed the earlier char-based bug too)", () => {
+    // %5 measured: a char-based offset only visibly breaks readWorklog's RETURNED entries
+    // once the accumulated drift can swallow a WHOLE prior line — which depends on the
+    // Thai-to-ASCII byte ratio per line, and real worklog lines (mostly ASCII keys/paths,
+    // Thai only in free-text) mostly sit on the side that stayed accidentally green. Mixed,
+    // uneven-length lines are what real traffic looks like — assert the byte invariant
+    // directly rather than trust any one fixture's proportions to expose it by luck.
+    const mixed = (n: number) => ({
+      ts: n, iso: `i${n}`, oracle: `worker-${n % 3}`, company: "c463i", kind: "tool" as const,
+      summary: n % 2 === 0
+        ? `PR #${n} merged: src/core/worklog/store.ts, src/core/worklog/worklog.test.ts (${n} files)`
+        : `แก้บั๊ก offset ตัวที่ ${n} เรียบร้อยครับ รอรีวิวจาก %${n} ก่อน merge`,
+    });
+    _resetWorklogCache();
+    for (let n = 1; n <= 12; n++) {
+      appendWorklog(mixed(n));
+      readWorklog("c463i");
+    }
+    const p = worklogPath("c463i");
+    expect(_worklogCacheSize(p)).toBe(statSync(p).size); // cache's bookmark matches the file's real byte length
+    // cross-check against a full re-read, not just the raw offset number
+    _resetWorklogCache();
+    const viaFullReread = readWorklog("c463i");
+    expect(viaFullReread).toHaveLength(12);
+  });
+
+  // kobo-463, %5 c13 — a THIRD bug in the same family (recorded position doesn't match
+  // what was actually read), this time in the cold-start branch: it recorded `size` from
+  // a stat fired BEFORE readFileSync, so an append landing between the two made the
+  // recorded position shorter than what was actually read, and the next incremental read
+  // re-consumed the overlap — silent duplication. No same-process test can see this: every
+  // append+read pair above runs sequentially in ONE process, so there is no window for a
+  // second writer to land in between. This is the only shape that can — a REAL separate OS
+  // process writing while THIS process polls, same technique as kobo-430's room tests.
+  it("cross-process: a writer appending while a SEPARATE process polls readWorklog never sees a duplicate (kobo-463 c13 — reproduced 6/6 before the cold-start fix)", async () => {
+    _resetWorklogCache();
+    const company = "c463j";
+    const count = 2000; // %5's scale — repro is timing-sensitive, not scale-linear (verified: 5000 reproduced LESS reliably than 2000)
+    const dir = mkdtempSync(join(tmpdir(), "worklog-crossproc-"));
+    const sentinel = join(dir, "writer-done");
+    const resultPath = join(dir, "result.json");
+    const writerFixture = new URL("./__fixtures__/append-worker.ts", import.meta.url).pathname;
+    const readerFixture = new URL("./__fixtures__/poll-reader.ts", import.meta.url).pathname;
+    const env = { ...process.env, MAW_TEST_MODE: "1" };
+
+    // the reader must be its OWN OS process, not an async loop in THIS process: the race
+    // is a microsecond-scale gap between two syscalls (stat, then readFileSync), and a
+    // loop bounded by JS event-loop/setTimeout granularity samples far too few times per
+    // second to reliably land in it — verified by hand: an async in-process polling
+    // version of this test could NOT reproduce the bug at all, even at this same scale.
+    //
+    // ORDER MATTERS, and it's the opposite of "make sure the reader is ready first": the
+    // cold-start bug can only fire on the reader's SINGLE FIRST call (its cache is empty
+    // only once — every later call takes the already-fixed incremental path). Starting
+    // the writer FIRST and letting it run for a moment before the reader's process even
+    // exists means the reader's one cold-start read has a real chance of landing while
+    // the writer is actively mid-append — an explicit "reader ready" handshake before the
+    // writer starts was verified BY HAND to make this NOT reproduce at all (the reader's
+    // first read then lands on a near-empty, non-growing file).
+    const writer = Bun.spawn(["bun", "run", writerFixture, company, "W", String(count), sentinel], { env, stderr: "pipe" });
+    const reader = Bun.spawn(["bun", "run", readerFixture, company, sentinel, resultPath], { env, stderr: "pipe" });
+
+    const [writerExit, readerExit] = await Promise.all([writer.exited, reader.exited]);
+    if (writerExit !== 0) throw new Error(`writer failed: ${await new Response(writer.stderr).text()}`);
+    if (readerExit !== 0) throw new Error(`reader failed: ${await new Response(reader.stderr).text()}`);
+
+    const result = JSON.parse(readFileSync(resultPath, "utf-8")) as { reads: number; maxLen: number; sawDuplicate: boolean; finalCount: number };
+    expect(result.reads).toBeGreaterThan(0); // %5 c21: without this, a smaller count can silently skip the reader's held-first-read threshold and pass for the wrong reason
+    expect(result.maxLen).toBeGreaterThan(0);
+    expect(result.sawDuplicate).toBe(false); // the actual bug: same summary counted twice within one read
+    expect(result.maxLen).toBeLessThanOrEqual(count); // never over-counted past what was truly written
+    expect(result.finalCount).toBe(count); // and settled on exactly the right total, no permanent gap either
+    _resetWorklogCache();
+    expect(readWorklog(company)).toHaveLength(count); // cross-check: this process's own fresh read agrees
+  }, 20_000);
 });
 
 describe("hook scripts stay in sync with embedded base64", () => {

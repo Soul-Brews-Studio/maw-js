@@ -8,23 +8,27 @@
  * WRITERS ARE MULTIPLE (not single): the server feed listener, the `maw company worklog
  * claim/release` CLI, and the `maw done` → PR poller all append the same
  * <company>.jsonl, across processes. Append safety = each entry is serialized to
- * a single line whose byte length is bounded < PIPE_BUF (4 KB), so the O_APPEND
- * write is atomic per POSIX → lines never interleave/corrupt. (Honours "Nothing
- * is Deleted": entries are only appended; read still skips any malformed line as
- * a last-ditch guard.)
+ * a single line whose byte length is bounded (MAX_LINE_BYTES below), keeping each
+ * append a single small write() under O_APPEND. NOTE (kobo-463, %5 c10): PIPE_BUF
+ * is a pipe/FIFO guarantee, not a regular-file one — citing it here overstated the
+ * assurance. What actually held, measured directly (kobo-463 c9: two real
+ * concurrent writer processes, 8000 appends, 0 torn tails observed across 2187
+ * reads), is a practical property of local writes this size, not a POSIX contract
+ * — a bounded negative, not a proof. (Honours "Nothing is Deleted": entries are
+ * only appended; read still skips any malformed line as a last-ditch guard.)
  *
  * The server feed listener is on the hot path, so it uses the non-blocking
  * `appendWorklogAsync` (ordered per-file queue); CLI/poller use the sync variant.
  */
 
-import { appendFileSync, readFileSync, existsSync, mkdirSync, renameSync, statSync } from "fs";
+import { appendFileSync, readFileSync, existsSync, mkdirSync, renameSync, statSync, openSync, readSync, closeSync } from "fs";
 import { appendFile as appendFileP, mkdir as mkdirP } from "fs/promises";
 import { dirname } from "path";
 import { mawDataPath } from "../xdg";
 import type { WorklogEntry } from "./types";
 
 const DEFAULT_COMPANY = "_unscoped";
-const MAX_LINE_BYTES = 3072; // < PIPE_BUF (4096) → atomic O_APPEND, no interleave
+const MAX_LINE_BYTES = 3072; // small single write() per append (kobo-463 c10 — not a PIPE_BUF/POSIX guarantee, see file header)
 
 function safeCompany(company?: string | null): string {
   const c = (company ?? DEFAULT_COMPANY).trim() || DEFAULT_COMPANY;
@@ -132,30 +136,119 @@ export interface ReadWorklogOpts {
   //                                        of the inject window so real events aren't starved)
 }
 
-export function readWorklog(company: string | null | undefined, opts: ReadWorklogOpts = {}): WorklogEntry[] {
-  ensureWorklogMigrated(company);
-  let p = worklogPath(company);
-  if (!existsSync(p)) {
-    // read-fallback — covers the transition window / a migration that couldn't write
-    const legacy = legacyWorklogPath(company);
-    if (!existsSync(legacy)) return [];
-    p = legacy;
-  }
-  let entries: WorklogEntry[] = [];
-  for (const line of readFileSync(p, "utf-8").split("\n")) {
+function parseWorklogLines(text: string): WorklogEntry[] {
+  const out: WorklogEntry[] = [];
+  for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
-      entries.push(JSON.parse(line) as WorklogEntry);
+      out.push(JSON.parse(line) as WorklogEntry);
     } catch {
       /* last-ditch guard — bounded atomic appends should prevent this */
     }
   }
-  if (opts.since != null) entries = entries.filter(e => e.ts >= opts.since!);
-  if (opts.oracle) entries = entries.filter(e => e.oracle === opts.oracle);
-  if (opts.kinds) entries = entries.filter(e => opts.kinds!.includes(e.kind));
-  if (opts.excludeKinds) entries = entries.filter(e => !opts.excludeKinds!.includes(e.kind));
-  if (opts.limit != null && entries.length > opts.limit) entries = entries.slice(-opts.limit);
-  return entries;
+  return out;
+}
+
+/** Read exactly [start, start+length) from a file without loading the rest. */
+function readBytesFrom(path: string, start: number, length: number): string {
+  const fd = openSync(path, "r");
+  try {
+    const buf = Buffer.alloc(length);
+    readSync(fd, buf, 0, length, start);
+    return buf.toString("utf-8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+interface WorklogCacheEntry {
+  size: number;
+  entries: WorklogEntry[]; // raw, unfiltered — every caller filters its own opts after
+}
+
+// Keyed by resolved path (kobo-463): one slot per company's worklog file, not
+// one slot shared across companies. Append-only file ⇒ size only grows unless
+// truncated/rotated, so an unchanged size proves unchanged content (kobo-402
+// worklogCacheProbe's premise) and a shrunk size means don't trust the cache.
+//
+// Freshness is judged by SIZE ALONE, not mtime/hash/content — deliberate, not
+// an oversight. That's only safe because this file is append-only (see file
+// header: writers only ever appendFileSync/appendFile, never rewrite in
+// place). An in-place edit that kept the byte count identical would be served
+// stale forever; there is no such writer today, but if one is ever added,
+// this cache breaks silently.
+const worklogCache = new Map<string, WorklogCacheEntry>();
+
+/** Test-only — clear the read cache (kobo-463, data dir varies in tests). */
+export function _resetWorklogCache(): void {
+  worklogCache.clear();
+}
+
+/** TEST-ONLY, READ-ONLY (kobo-463). Peeks the cache's recorded byte offset for a path so a
+ * test can assert it against the file's real stat size directly — the actual invariant a
+ * char-based offset bug (kobo-463 c7/c8) silently broke, more reliable than asserting on an
+ * emergent symptom (duplication depends on where the drift lands relative to JSON structure).
+ * DELIBERATELY has no counterpart setter: this must never become a way to mutate the cache,
+ * only to observe it, in test or otherwise. Do not add one. */
+export function _worklogCacheSize(path: string): number | undefined {
+  return worklogCache.get(path)?.size;
+}
+
+export function readWorklog(company: string | null | undefined, opts: ReadWorklogOpts = {}): WorklogEntry[] {
+  const { path, size } = worklogCacheProbe(company);
+  const cached = worklogCache.get(path);
+
+  let entries: WorklogEntry[];
+  if (cached && size === cached.size) {
+    entries = cached.entries; // unchanged — skip the read+parse entirely
+  } else if (cached && size > cached.size) {
+    // grew — the log is append-only, so only the new tail needs reading.
+    //
+    // ALL-OR-NOTHING (kobo-463, %11 c9 — supersedes an earlier per-line-offset
+    // version that computed a BYTE position from a CHARACTER index and drifted
+    // silently on Thai content, kobo-463 c7/c8): a read can land mid-append and
+    // catch a half-written trailing line. Rather than finding the last complete
+    // newline and consuming up to there (offset arithmetic — the exact class of
+    // bug that bit this file once already), only consume the tail AT ALL when
+    // it ends in a newline. cached.size then becomes exactly `size` — the real
+    // stat size, not a computed offset — so there is no byte/character position
+    // to get wrong. If the tail doesn't end in a newline, consume nothing this
+    // round; the whole tail (including any complete lines in front of the torn
+    // one) is picked up together once it does.
+    const rawTail = readBytesFrom(path, cached.size, size - cached.size);
+    if (rawTail.endsWith("\n")) {
+      entries = cached.entries.concat(parseWorklogLines(rawTail));
+      worklogCache.set(path, { size, entries });
+    } else {
+      entries = cached.entries; // incomplete trailing line — consume nothing, don't advance
+    }
+  } else {
+    // no cache yet, OR size shrank (truncate/rotate) — the past cache can't be
+    // trusted, re-read the whole file.
+    //
+    // Record the ACTUAL byte length of what was read, not `size` from the
+    // earlier probe (kobo-463, %5 c13): an append landing between that probe
+    // and this readFileSync makes the probed `size` SHORTER than what actually
+    // got read, so the next round's incremental branch would re-read and
+    // re-parse the overlap — silent duplication. Same family as the two fixes
+    // above (a recorded position that doesn't match what was actually read),
+    // just in the cold-start branch instead of the incremental one — the
+    // branch nobody was looking at because both earlier bugs were incremental.
+    const raw = size > 0 ? readFileSync(path, "utf-8") : "";
+    entries = raw ? parseWorklogLines(raw) : [];
+    worklogCache.set(path, { size: Buffer.byteLength(raw, "utf-8"), entries });
+  }
+
+  let filtered = entries;
+  if (opts.since != null) filtered = filtered.filter(e => e.ts >= opts.since!);
+  if (opts.oracle) filtered = filtered.filter(e => e.oracle === opts.oracle);
+  if (opts.kinds) filtered = filtered.filter(e => opts.kinds!.includes(e.kind));
+  if (opts.excludeKinds) filtered = filtered.filter(e => !opts.excludeKinds!.includes(e.kind));
+  if (opts.limit != null && filtered.length > opts.limit) filtered = filtered.slice(-opts.limit);
+  // filter()/slice() above already copy — but when no opts match, filtered
+  // still aliases the cached array; a caller mutating the result would
+  // corrupt every future reader (kobo-463, %5's find).
+  return filtered === entries ? filtered.slice() : filtered;
 }
 
 /**
