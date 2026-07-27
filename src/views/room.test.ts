@@ -936,4 +936,53 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
       expect(doc.getElementById("thread")._children.length).toBe(1); // the empty-state placeholder, nothing else
     });
   });
+
+  // kobo-486 — loadThread rebuilt the whole thread DOM every 2.5s poll even
+  // when nothing had changed (measured live: 9 rebuilds in ~15.5s on an idle
+  // room, ForcedReflow/DOMSize hot path). The fix must call
+  // thread.replaceChildren() at most once per genuine change — but per the
+  // card's own AC ordering, "a new message must still show up" beats "avoid
+  // an unnecessary rebuild": these two tests assert the capability in both
+  // directions, not a timing number (kobo-476's own lesson: measure
+  // behavior, not ms).
+  test("kobo-486: an unchanged room (same message count + last seq) skips the rebuild on the next poll", async () => {
+    const room = { id: "r1", topic: "r1", status: "open", participants: [], messages: [
+      { id: "m1", from: "a", text: "first", ts: 1, seq: 7 },
+    ] };
+    const doc = fakeRoomDoc();
+    await withRoomGlobals(doc, "?company=kobo&room=r1", "", room, async () => {
+      const { loadThread } = loadThreadEnv();
+      await loadThread();
+      await new Promise((r) => setTimeout(r, 0));
+      const thread = doc.getElementById("thread");
+      let replaceCount = 0;
+      const origReplaceChildren = thread.replaceChildren.bind(thread);
+      thread.replaceChildren = (...cs: any[]) => { replaceCount++; origReplaceChildren(...cs); };
+
+      await loadThread(); // same room object, nothing mutated — simulates the next 2.5s poll
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(replaceCount).toBe(0); // no-op poll must not touch the DOM at all
+      expect(thread._children.map((b: any) => b.id)).toEqual(["msg-7"]); // and the existing render is untouched, not lost
+    });
+  });
+
+  test("kobo-486: a new message still forces the rebuild on the very next poll (AC: never hide a real message)", async () => {
+    const room: any = { id: "r1", topic: "r1", status: "open", participants: [], messages: [
+      { id: "m1", from: "a", text: "first", ts: 1, seq: 7 },
+    ] };
+    const doc = fakeRoomDoc();
+    await withRoomGlobals(doc, "?company=kobo&room=r1", "", room, async () => {
+      const { loadThread } = loadThreadEnv();
+      await loadThread();
+      await new Promise((r) => setTimeout(r, 0));
+
+      room.messages = [...room.messages, { id: "m2", from: "b", text: "second", ts: 2, seq: 8 }];
+      await loadThread(); // next poll — a real new message arrived
+      await new Promise((r) => setTimeout(r, 0));
+
+      const thread = doc.getElementById("thread");
+      expect(thread._children.map((b: any) => b.id)).toEqual(["msg-7", "msg-8"]); // the new message is on screen
+    });
+  });
 });
