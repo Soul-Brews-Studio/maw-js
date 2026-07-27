@@ -17,7 +17,7 @@
  * `appendWorklogAsync` (ordered per-file queue); CLI/poller use the sync variant.
  */
 
-import { appendFileSync, readFileSync, existsSync, mkdirSync, renameSync, statSync } from "fs";
+import { appendFileSync, readFileSync, existsSync, mkdirSync, renameSync, statSync, openSync, readSync, closeSync } from "fs";
 import { appendFile as appendFileP, mkdir as mkdirP } from "fs/promises";
 import { dirname } from "path";
 import { mawDataPath } from "../xdg";
@@ -132,30 +132,80 @@ export interface ReadWorklogOpts {
   //                                        of the inject window so real events aren't starved)
 }
 
-export function readWorklog(company: string | null | undefined, opts: ReadWorklogOpts = {}): WorklogEntry[] {
-  ensureWorklogMigrated(company);
-  let p = worklogPath(company);
-  if (!existsSync(p)) {
-    // read-fallback — covers the transition window / a migration that couldn't write
-    const legacy = legacyWorklogPath(company);
-    if (!existsSync(legacy)) return [];
-    p = legacy;
-  }
-  let entries: WorklogEntry[] = [];
-  for (const line of readFileSync(p, "utf-8").split("\n")) {
+function parseWorklogLines(text: string): WorklogEntry[] {
+  const out: WorklogEntry[] = [];
+  for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
-      entries.push(JSON.parse(line) as WorklogEntry);
+      out.push(JSON.parse(line) as WorklogEntry);
     } catch {
       /* last-ditch guard — bounded atomic appends should prevent this */
     }
   }
-  if (opts.since != null) entries = entries.filter(e => e.ts >= opts.since!);
-  if (opts.oracle) entries = entries.filter(e => e.oracle === opts.oracle);
-  if (opts.kinds) entries = entries.filter(e => opts.kinds!.includes(e.kind));
-  if (opts.excludeKinds) entries = entries.filter(e => !opts.excludeKinds!.includes(e.kind));
-  if (opts.limit != null && entries.length > opts.limit) entries = entries.slice(-opts.limit);
-  return entries;
+  return out;
+}
+
+/** Read exactly [start, start+length) from a file without loading the rest. */
+function readBytesFrom(path: string, start: number, length: number): string {
+  const fd = openSync(path, "r");
+  try {
+    const buf = Buffer.alloc(length);
+    readSync(fd, buf, 0, length, start);
+    return buf.toString("utf-8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+interface WorklogCacheEntry {
+  size: number;
+  entries: WorklogEntry[]; // raw, unfiltered — every caller filters its own opts after
+}
+
+// Keyed by resolved path (kobo-463): one slot per company's worklog file, not
+// one slot shared across companies. Append-only file ⇒ size only grows unless
+// truncated/rotated, so an unchanged size proves unchanged content (kobo-402
+// worklogCacheProbe's premise) and a shrunk size means don't trust the cache.
+//
+// Freshness is judged by SIZE ALONE, not mtime/hash/content — deliberate, not
+// an oversight. That's only safe because this file is append-only (see file
+// header: writers only ever appendFileSync/appendFile, never rewrite in
+// place). An in-place edit that kept the byte count identical would be served
+// stale forever; there is no such writer today, but if one is ever added,
+// this cache breaks silently.
+const worklogCache = new Map<string, WorklogCacheEntry>();
+
+/** Test-only — clear the read cache (kobo-463, data dir varies in tests). */
+export function _resetWorklogCache(): void {
+  worklogCache.clear();
+}
+
+export function readWorklog(company: string | null | undefined, opts: ReadWorklogOpts = {}): WorklogEntry[] {
+  const { path, size } = worklogCacheProbe(company);
+  const cached = worklogCache.get(path);
+
+  let entries: WorklogEntry[];
+  if (cached && size === cached.size) {
+    entries = cached.entries; // unchanged — skip the read+parse entirely
+  } else if (cached && size > cached.size) {
+    // grew — the log is append-only, so only the new tail needs reading
+    const tail = readBytesFrom(path, cached.size, size - cached.size);
+    entries = cached.entries.concat(parseWorklogLines(tail));
+    worklogCache.set(path, { size, entries });
+  } else {
+    // no cache yet, OR size shrank (truncate/rotate) — the past cache can't be
+    // trusted, re-read the whole file
+    entries = size > 0 ? parseWorklogLines(readFileSync(path, "utf-8")) : [];
+    worklogCache.set(path, { size, entries });
+  }
+
+  let filtered = entries;
+  if (opts.since != null) filtered = filtered.filter(e => e.ts >= opts.since!);
+  if (opts.oracle) filtered = filtered.filter(e => e.oracle === opts.oracle);
+  if (opts.kinds) filtered = filtered.filter(e => opts.kinds!.includes(e.kind));
+  if (opts.excludeKinds) filtered = filtered.filter(e => !opts.excludeKinds!.includes(e.kind));
+  if (opts.limit != null && filtered.length > opts.limit) filtered = filtered.slice(-opts.limit);
+  return filtered;
 }
 
 /**

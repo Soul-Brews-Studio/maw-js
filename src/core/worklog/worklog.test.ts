@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { mkdtempSync, readFileSync } from "fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { toolSummary, eventToWorklog } from "./significant";
 import { renderTimeline } from "./render";
 import { pingOnMerge, pingCollision } from "./ping";
-import { appendWorklog, readWorklog, openClaims, flushWorklog } from "./store";
+import { appendWorklog, readWorklog, openClaims, flushWorklog, worklogPath, _resetWorklogCache } from "./store";
 import { handleWorklogRequest } from "./route";
 import { tasksOverlap, collidingClaims, addClaim, releaseClaim } from "./claim";
 import { buildInjectSlice } from "./slice";
@@ -271,6 +271,73 @@ describe("append safety + route", () => {
     expect(await entriesRes.json()).toEqual({ entries: expect.arrayContaining([expect.objectContaining({ summary: "git route-marker" })]) });
     const injectRes = handleWorklogRequest(new Request("http://x/api/worklog?oracle=rr"));
     expect((await injectRes.json())).toHaveProperty("inject");
+  });
+});
+
+describe("readWorklog incremental cache (kobo-463 — full-file read+parse on every call)", () => {
+  const entry = (company: string, n: number) =>
+    ({ ts: n, iso: `i${n}`, oracle: "o", company, kind: "tool" as const, summary: `git op-${n}` });
+
+  it("append then re-read: sees the new line without losing the old ones", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463a", 1));
+    const first = readWorklog("c463a");
+    expect(first.map(e => e.summary)).toEqual(["git op-1"]);
+
+    appendWorklog(entry("c463a", 2));
+    const second = readWorklog("c463a");
+    expect(second.map(e => e.summary)).toEqual(["git op-1", "git op-2"]); // old line survived the cache, new one was picked up
+  });
+
+  it("shrink (truncate/rotate): drops the stale cache and re-reads the whole file", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463b", 1));
+    appendWorklog(entry("c463b", 2));
+    const before = readWorklog("c463b");
+    expect(before.length).toBe(2);
+
+    // simulate rotation: a shorter file with entirely different content at the same path
+    writeFileSync(worklogPath("c463b"), JSON.stringify({ ...entry("c463b", 9), summary: "git rotated" }) + "\n");
+    const after = readWorklog("c463b");
+    expect(after.map(e => e.summary)).toEqual(["git rotated"]); // not a leftover union with the old 2 — a real re-read
+  });
+
+  it("no change: does not re-read the file (proven by corrupting it in place at the same byte size)", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463c", 1));
+    const first = readWorklog("c463c");
+    expect(first.map(e => e.summary)).toEqual(["git op-1"]);
+
+    // overwrite with garbage of the EXACT same byte length: a real re-read would either
+    // throw or silently drop the malformed line (empty result) — a skipped read can't
+    // observe the corruption at all, so the cached value is the only way to stay correct
+    const p = worklogPath("c463c");
+    const size = statSync(p).size;
+    writeFileSync(p, "x".repeat(size));
+    const second = readWorklog("c463c");
+    expect(second.map(e => e.summary)).toEqual(["git op-1"]); // unchanged — proves the file was never touched again
+  });
+
+  it("switching companies kobo→pgw→kobo: each read is scoped to its own company, and the 3rd read doesn't re-read kobo's file", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("kobo463", 1));
+    appendWorklog(entry("pgw463", 100));
+
+    const kobo1 = readWorklog("kobo463");
+    expect(kobo1.map(e => e.summary)).toEqual(["git op-1"]); // not mixed with pgw
+
+    const pgw1 = readWorklog("pgw463");
+    expect(pgw1.map(e => e.summary)).toEqual(["git op-100"]); // not mixed with kobo — proves per-path Map, not one shared slot
+
+    // corrupt kobo's file at the same byte size between the 1st and 3rd kobo read —
+    // if a single-slot cache got clobbered by reading pgw in between, this 3rd call
+    // would either re-read (and see the corruption) or return pgw's data (wrong company)
+    const p = worklogPath("kobo463");
+    const size = statSync(p).size;
+    writeFileSync(p, "y".repeat(size));
+
+    const kobo2 = readWorklog("kobo463");
+    expect(kobo2.map(e => e.summary)).toEqual(["git op-1"]); // still kobo's own cached entry, untouched by the pgw read in between
   });
 });
 
