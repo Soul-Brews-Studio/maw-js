@@ -363,4 +363,122 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("try cropping or resizing the image first"); // 413 → a concrete way out
     expect(html).toContain("can't upload this file type"); // 415 → names what's wrong, server names what IS accepted
   });
+
+  // kobo-415 AC8 — the card's OWN user story ("banner says decided at #12, reader
+  // scrolls to #12, finds it") had nothing guarding it. Everything else on this card
+  // (counter, fail-loud, batching) is machinery in service of this one clause.
+  // Same extract-and-eval technique as loadMermaidRenderer/loadLinkify above, extended
+  // to loadThread itself: a fake document/location/fetch on globalThis (restored in
+  // finally, same pattern as the mermaid stubEnv tests), because this template has no
+  // real DOM available in this test runner.
+  function loadThreadEnv() {
+    const start = html.indexOf("const $ = (id) => document.getElementById(id);");
+    const end = html.indexOf("// ── compose / send", start);
+    const src = html.slice(start, end);
+    // updateRoomControls lives past the slice end (it's compose-area logic, not part of
+    // the rendering/anchor path this test cares about) — a no-op stub satisfies the
+    // reference without pulling in the compose section's own DOM dependencies.
+    return new Function(`${src}\nfunction updateRoomControls(){}\nreturn { loadThread };`)();
+  }
+  function fakeRoomDoc() {
+    const registry: Record<string, any> = {};
+    function makeEl(tag: string) {
+      const e: any = {
+        tag, className: "", textContent: "", style: {}, disabled: false, value: "",
+        scrollTop: 0, scrollHeight: 0, clientHeight: 0,
+        _children: [] as any[], _scrolledIntoView: false,
+        appendChild(c: any) { e._children.push(c); return c; },
+        replaceChildren(...cs: any[]) { e._children = cs; },
+        scrollIntoView() { e._scrolledIntoView = true; },
+        querySelectorAll: () => nodeList([]), // no mermaid blocks in these fixtures
+      };
+      Object.defineProperty(e, "id", {
+        get() { return e._id || ""; },
+        set(v: string) { e._id = v; if (v) registry[v] = e; }, // registers so getElementById(hash) can find a just-rendered anchor
+      });
+      return e;
+    }
+    // Static template ids — these exist in the real served page's HTML shell, not created
+    // dynamically, so they're pre-seeded. Anything ELSE must come from a real createElement
+    // + .id assignment (via `registry`) or getElementById must return null/undefined, same
+    // as a real DOM — otherwise a lookup for a NON-existent anchor silently auto-vivifies a
+    // placeholder that "finds" and "scrolls" successfully, which is a test that cannot fail.
+    const known: Record<string, any> = {};
+    for (const staticId of ["thread", "banner", "hTopic", "hSub", "activity", "closeBtn", "text", "send"]) {
+      known[staticId] = makeEl("div");
+      known[staticId].id = staticId;
+    }
+    const doc = {
+      createElement: makeEl,
+      createDocumentFragment: () => makeEl("#fragment"),
+      // linkifyDom walks real text nodes via TreeWalker — these fixtures never build real
+      // text nodes (textContent is a plain string), so nextNode:null is a no-op walk. This
+      // test isn't about linkify; it just needs loadThread to run to completion.
+      createTreeWalker: () => ({ nextNode: () => null }),
+      getElementById(id: string) {
+        return registry[id] ?? known[id] ?? null;
+      },
+    };
+    return doc;
+  }
+  function fakeFetchFor(room: any) {
+    return async (url: string) => {
+      if (url.includes("/api/room/thread")) return { status: 200, json: async () => ({ ok: true, room }) };
+      if (url.includes("/api/room/activity")) return { status: 200, json: async () => ({ ok: true, participants: [] }) };
+      return { status: 404, json: async () => ({}) };
+    };
+  }
+  function withRoomGlobals(doc: any, search: string, hash: string, room: any, fn: () => Promise<void>) {
+    const prevDoc = (globalThis as any).document, prevLoc = (globalThis as any).location, prevFetch = (globalThis as any).fetch, prevNF = (globalThis as any).NodeFilter;
+    (globalThis as any).document = doc;
+    (globalThis as any).location = { search, hash };
+    (globalThis as any).fetch = fakeFetchFor(room);
+    (globalThis as any).NodeFilter = { SHOW_TEXT: 4 };
+    return fn().finally(() => {
+      (globalThis as any).document = prevDoc; (globalThis as any).location = prevLoc; (globalThis as any).fetch = prevFetch; (globalThis as any).NodeFilter = prevNF;
+    });
+  }
+
+  test("kobo-415 AC8: #N renders + msg-N anchor id lands on the RIGHT message (not array position)", async () => {
+    const room = { id: "r1", topic: "r1", status: "open", participants: [], messages: [
+      { id: "m1", from: "a", text: "first", ts: 1, seq: 7 },
+      { id: "m2", from: "b", text: "second", ts: 2, seq: 12 },
+    ] };
+    const doc = fakeRoomDoc();
+    await withRoomGlobals(doc, "?company=kobo&room=r1", "", room, async () => {
+      const { loadThread } = loadThreadEnv();
+      await loadThread();
+      await new Promise((r) => setTimeout(r, 0)); // let the fire-and-forget loadActivity() call settle before cleanup restores document
+      const thread = doc.getElementById("thread");
+      expect(thread._children.map((b: any) => b.id)).toEqual(["msg-7", "msg-12"]); // the actual seq, not 0/1
+      const seqTexts = thread._children.map((b: any) => b._children[0]._children[2].textContent); // bubble > head > 3rd span (seqno)
+      expect(seqTexts).toEqual(["#7", "#12"]);
+    });
+  });
+
+  test("kobo-415 AC8: a #msg-N hash scrolls to that anchor once the render lands (native jump can't — node didn't exist yet)", async () => {
+    const room = { id: "r1", topic: "r1", status: "open", participants: [], messages: [
+      { id: "m1", from: "a", text: "x", ts: 1, seq: 3 },
+      { id: "m2", from: "b", text: "y", ts: 2, seq: 9 },
+    ] };
+    const doc = fakeRoomDoc();
+    await withRoomGlobals(doc, "?company=kobo&room=r1", "#msg-9", room, async () => {
+      const { loadThread } = loadThreadEnv();
+      await loadThread();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(doc.getElementById("msg-9")._scrolledIntoView).toBe(true);
+      expect(doc.getElementById("msg-3")._scrolledIntoView).toBe(false); // only the targeted message, not every message
+    });
+  });
+
+  test("kobo-415: an empty room renders its empty state without throwing (backfill/view both no-op on zero messages)", async () => {
+    const room = { id: "r1", topic: "r1", status: "open", participants: [], messages: [] };
+    const doc = fakeRoomDoc();
+    await withRoomGlobals(doc, "?company=kobo&room=r1", "", room, async () => {
+      const { loadThread } = loadThreadEnv();
+      await expect(loadThread()).resolves.toBeUndefined(); // no throw
+      await new Promise((r) => setTimeout(r, 0));
+      expect(doc.getElementById("thread")._children.length).toBe(1); // the empty-state placeholder, nothing else
+    });
+  });
 });

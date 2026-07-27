@@ -304,18 +304,27 @@ describe("room message seq (kobo-415 — company-wide, single-writer operational
   // renumbering target.messages sequentially (1..N) after a merge — unique, but every
   // seq moves — fails this test; the shipped mergeRooms (seq untouched, only reordered)
   // passes it.
-  test("mergeRooms does NOT shift the seq of messages that already had one", () => {
+  // The property under test is "no message's number changes as a result of a merge,
+  // WHICHEVER SIDE it came from" — not just "the target room is untouched". Capturing
+  // only the target's before-snapshot missed exactly half of that (eq3 found: a mutation
+  // renumbering only the ABSORBED source messages passed everything else, 40/0 green).
+  // Per-id lookup (not a set/count comparison) on BOTH sides, so a permutation that swaps
+  // which message holds which number — same values, wrong owners — still fails: each id's
+  // OWN captured value is checked against that same id after merge, nothing else.
+  test("mergeRooms does NOT shift the seq of any message — target's own AND the absorbed source's", () => {
     openRoom("kobo", "t2", "target");
     appendRoomMessage("kobo", "t2", { id: "t2a", from: "a", text: "x", ts: 10 });
     appendRoomMessage("kobo", "t2", { id: "t2b", from: "a", text: "y", ts: 15 });
     openRoom("kobo", "s2", "source");
     appendRoomMessage("kobo", "s2", { id: "s2a", from: "b", text: "z", ts: 5 });
+    appendRoomMessage("kobo", "s2", { id: "s2b", from: "b", text: "w", ts: 20 });
 
-    const before = readRoom("kobo", "t2")!.messages.map((m) => ({ id: m.id, seq: m.seq }));
+    const beforeTarget = readRoom("kobo", "t2")!.messages.map((m) => ({ id: m.id, seq: m.seq }));
+    const beforeSource = readRoom("kobo", "s2")!.messages.map((m) => ({ id: m.id, seq: m.seq }));
     const merged = mergeRooms("kobo", "t2", ["s2"])!;
-    for (const b of before) {
+    for (const b of [...beforeTarget, ...beforeSource]) {
       const after = merged.messages.find((m) => m.id === b.id)!;
-      expect(after.seq).toBe(b.seq); // same message keeps the same number after merge
+      expect(after.seq).toBe(b.seq); // that SPECIFIC message keeps its OWN number, whichever room it started in
     }
   });
 
