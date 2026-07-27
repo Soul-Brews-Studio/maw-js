@@ -188,10 +188,16 @@ export function readWorklog(company: string | null | undefined, opts: ReadWorklo
   if (cached && size === cached.size) {
     entries = cached.entries; // unchanged — skip the read+parse entirely
   } else if (cached && size > cached.size) {
-    // grew — the log is append-only, so only the new tail needs reading
-    const tail = readBytesFrom(path, cached.size, size - cached.size);
-    entries = cached.entries.concat(parseWorklogLines(tail));
-    worklogCache.set(path, { size, entries });
+    // grew — the log is append-only, so only the new tail needs reading.
+    // A read can land mid-append and catch a half-written trailing line
+    // (kobo-463, %11's find) — only consume up to the LAST complete
+    // newline; cache size reflects only what was actually consumed, so a
+    // partial tail is picked back up (whole) on the next call instead of
+    // being silently dropped forever.
+    const rawTail = readBytesFrom(path, cached.size, size - cached.size);
+    const consumed = rawTail.lastIndexOf("\n") + 1; // -1 (no newline) → 0
+    entries = cached.entries.concat(parseWorklogLines(rawTail.slice(0, consumed)));
+    worklogCache.set(path, { size: cached.size + consumed, entries });
   } else {
     // no cache yet, OR size shrank (truncate/rotate) — the past cache can't be
     // trusted, re-read the whole file

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync, statSync } from "fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync, appendFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -348,6 +348,28 @@ describe("readWorklog incremental cache (kobo-463 — full-file read+parse on ev
 
     const second = readWorklog("c463d");
     expect(second.map(e => e.summary)).toEqual(["git op-1"]); // not corrupted by the mutation above
+  });
+
+  it("read landing mid-append: a half-written trailing line is not dropped, it's picked up whole next read (kobo-463, %11's find)", () => {
+    _resetWorklogCache();
+    appendWorklog(entry("c463e", 1));
+    const first = readWorklog("c463e");
+    expect(first.map(e => e.summary)).toEqual(["git op-1"]);
+
+    // simulate a write landing mid-flush: append the line's bytes WITHOUT the
+    // trailing newline yet — a read right now would see this as a torn tail
+    const p = worklogPath("c463e");
+    const full = JSON.stringify(entry("c463e", 2)) + "\n";
+    const torn = full.slice(0, full.length - 5); // cut before the closing brace+newline
+    appendFileSync(p, torn);
+
+    const mid = readWorklog("c463e");
+    expect(mid.map(e => e.summary)).toEqual(["git op-1"]); // torn line not parsed, not dropped either
+
+    // the rest of the line lands
+    appendFileSync(p, full.slice(full.length - 5));
+    const after = readWorklog("c463e");
+    expect(after.map(e => e.summary)).toEqual(["git op-1", "git op-2"]); // now whole, and only once
   });
 });
 
