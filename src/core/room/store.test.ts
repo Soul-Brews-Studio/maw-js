@@ -209,7 +209,7 @@ describe("paginateRoomMessages (kobo-322 — default-cap room reads)", () => {
   });
 });
 
-describe("room message seq (kobo-415 — company-wide, unique by construction)", () => {
+describe("room message seq (kobo-415 — company-wide, single-writer operational invariant)", () => {
   test("appendRoomMessage mints an increasing seq, stable across repeat reads", () => {
     openRoom("kobo", "r1", "topic");
     appendRoomMessage("kobo", "r1", { id: "m1", from: "a", text: "hi", ts: 1 });
@@ -292,6 +292,31 @@ describe("room message seq (kobo-415 — company-wide, unique by construction)",
     const merged = mergeRooms("kobo", "t", ["s"])!;
     const seqs = merged.messages.map((m) => m.seq);
     expect(new Set(seqs).size).toBe(seqs.length); // no two messages share a seq
+  });
+
+  // eq3 found: uniqueness alone doesn't guard STABILITY. A renumber-the-whole-room merge
+  // keeps every seq unique (this test's sibling above stays green) while moving every
+  // number that was already handed out — exactly the silent-shift Tony picked option (b)
+  // to prevent, and now a permanent LINK TARGET via the #msg-N anchor, so a shift breaks
+  // every previously shared link rather than just mislabeling a banner. "Doesn't shift"
+  // and "isn't duplicated" are the two separate ACs the card named from the start; this
+  // is the one that had no test. Verified RED-then-GREEN during dev: temporarily
+  // renumbering target.messages sequentially (1..N) after a merge — unique, but every
+  // seq moves — fails this test; the shipped mergeRooms (seq untouched, only reordered)
+  // passes it.
+  test("mergeRooms does NOT shift the seq of messages that already had one", () => {
+    openRoom("kobo", "t2", "target");
+    appendRoomMessage("kobo", "t2", { id: "t2a", from: "a", text: "x", ts: 10 });
+    appendRoomMessage("kobo", "t2", { id: "t2b", from: "a", text: "y", ts: 15 });
+    openRoom("kobo", "s2", "source");
+    appendRoomMessage("kobo", "s2", { id: "s2a", from: "b", text: "z", ts: 5 });
+
+    const before = readRoom("kobo", "t2")!.messages.map((m) => ({ id: m.id, seq: m.seq }));
+    const merged = mergeRooms("kobo", "t2", ["s2"])!;
+    for (const b of before) {
+      const after = merged.messages.find((m) => m.id === b.id)!;
+      expect(after.seq).toBe(b.seq); // same message keeps the same number after merge
+    }
   });
 
   test("backfilling a large legacy room mints all seq via the batched path — all distinct, no error", () => {
