@@ -212,7 +212,37 @@ for f in "${ALL_TEST_FILES[@]}"; do
   SAFE_FILES+=("$f")
 done
 
+# kobo-476 — `set -e` means any run_bun_case call below that fails exits the
+# script immediately, right there. Everything still queued after that point
+# (the rest of the shared sweep's siblings don't exist as separate cases, but
+# every mock-module file still waiting its turn does) used to vanish with no
+# trace: no skip line, no name, no count — silence read as "the rest passed".
+# CASE_NAMES is the full run order decided up front; CASE_POS tracks how many
+# cases have been (or are being) attempted. One EXIT trap covers every exit
+# point at once — the shared sweep failing, any mock file failing mid-loop,
+# or any future case this script doesn't have yet — instead of duplicating
+# the same "what's left" logic at every call site.
+CASE_NAMES=("shared sweep (${#SAFE_FILES[@]} file(s))")
+for f in "${MOCK_FILES[@]}"; do
+  CASE_NAMES+=("mock-isolated: $f")
+done
+CASE_POS=0
+report_unattempted_cases() {
+  local exit_code=$?
+  if [[ "$exit_code" -ne 0 && "$CASE_POS" -lt "${#CASE_NAMES[@]}" ]]; then
+    local remaining=$(( ${#CASE_NAMES[@]} - CASE_POS ))
+    echo "" >&2
+    echo "=== test-default-safe.sh: exited early (code $exit_code) — ${#CASE_NAMES[@]} case(s) total, ${CASE_POS} attempted, ${remaining} NEVER RAN: ===" >&2
+    local i
+    for (( i = CASE_POS; i < ${#CASE_NAMES[@]}; i++ )); do
+      echo "  - ${CASE_NAMES[$i]}" >&2
+    done
+  fi
+}
+trap report_unattempted_cases EXIT
+
 echo "=== test-default-safe.sh: shared default sweep ==="
+CASE_POS=1
 if [[ "${#SAFE_FILES[@]}" -gt 0 ]]; then
   run_bun_case "shared" "$REPO_ROOT" "${SAFE_FILES[@]}"
 else
@@ -231,6 +261,7 @@ mock_index=0
 for f in "${MOCK_FILES[@]}"; do
   printf -- "--- %s ---\n" "$f"
   mock_index=$((mock_index + 1))
+  CASE_POS=$((mock_index + 1))
   run_cwd="$REPO_ROOT"
   test_path="$f"
   path_ignore_args=(--path-ignore-patterns '**/agents/**')
