@@ -121,7 +121,9 @@ fi
 # maw default line — only reached when no prior statusline was wrapped.
 if command -v jq >/dev/null 2>&1; then
   MODEL="$(printf '%s' "$INPUT" | jq -r '.model.display_name // .model.id // "?"' 2>/dev/null)"
-  PCT="$(printf '%s' "$INPUT" | jq -r '(.context_window.remaining_percentage // .remaining_percentage) as $p | if $p == null then "—" else "\($p | floor)%" end' 2>/dev/null)"
+  # kobo-441: ctx must show USED%, not remaining% — remaining_percentage is a real
+  # field but labeling it "ctx X%" inverted the reading (a full pane showed "ctx 0%").
+  PCT="$(printf '%s' "$INPUT" | jq -r '(.context_window.used_percentage // .used_percentage) as $p | if $p == null then "—" else "\($p | floor)%" end' 2>/dev/null)"
 else
   MODEL="?"; PCT="—"
 fi

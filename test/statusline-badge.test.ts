@@ -109,3 +109,49 @@ describe("maw-statusline.sh badge registry-fallback when MAW_ROOM_COMPANY is emp
     expect(out).not.toContain("○ away");
   });
 });
+
+// kobo-441 — the ctx% figure was reading context_window.remaining_percentage but
+// printing it under a "ctx X%" label, so a nearly-full pane showed "ctx 0%" (read as
+// empty, the most dangerous misreading possible). Fix: read used_percentage instead
+// (Claude's own precomputed, per-invocation figure) so the label direction is correct.
+// No worklog/company setup needed here — only stdin JSON shape is under test.
+describe("maw-statusline.sh ctx% direction+source fix (kobo-441)", () => {
+  function ctxLine(input: unknown): string {
+    const res = spawnSync("bash", [SCRIPT], {
+      input: JSON.stringify(input),
+      env: { ...process.env, MAW_DATA_DIR: dataDir, TMUX_PANE: PANE, CLAUDE_AGENT_NAME: "patchwork" },
+      encoding: "utf-8",
+    });
+    return res.stdout;
+  }
+
+  test("used_percentage near 100 → ctx shows a HIGH number, not near-zero", () => {
+    const out = ctxLine({ model: { display_name: "Opus" }, context_window: { used_percentage: 97, remaining_percentage: 3 } });
+    expect(out).toContain("ctx 97%");
+    expect(out).not.toContain("ctx 0%");
+    expect(out).not.toContain("ctx 3%");
+  });
+
+  test("used_percentage near 0 → ctx shows a LOW number (paired with the above to lock direction)", () => {
+    const out = ctxLine({ model: { display_name: "Opus" }, context_window: { used_percentage: 2, remaining_percentage: 98 } });
+    expect(out).toContain("ctx 2%");
+    expect(out).not.toContain("ctx 98%");
+  });
+
+  test("used_percentage null → ctx shows the unknown marker, never 0%", () => {
+    const out = ctxLine({ model: { display_name: "Opus" }, context_window: { used_percentage: null } });
+    expect(out).toContain("ctx —");
+    expect(out).not.toContain("ctx 0%");
+  });
+
+  test("used_percentage absent entirely → ctx shows the unknown marker, never 0%", () => {
+    const out = ctxLine({ model: { display_name: "Opus" } });
+    expect(out).toContain("ctx —");
+    expect(out).not.toContain("ctx 0%");
+  });
+
+  test("used_percentage at flat top-level (no context_window nesting) → still read correctly", () => {
+    const out = ctxLine({ model: { display_name: "Opus" }, used_percentage: 55 });
+    expect(out).toContain("ctx 55%");
+  });
+});
