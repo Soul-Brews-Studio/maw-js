@@ -1149,4 +1149,76 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
       expect(thread._children.map((b: any) => b.id)).toEqual(["msg-7", "msg-8"]); // the new message is on screen
     });
   });
+
+  // kobo-506 — the client half of "a failed nudge must be visible to the caller": the
+  // server route (route.ts) now returns notified:false + notifyError instead of
+  // unconditional ok:true; this proves the compose box actually SHOWS that, not just
+  // that the field exists somewhere. Same extract-and-eval technique as loadThreadEnv
+  // above, extended to cover the compose/send section (autogrow + send), stopping
+  // before the @-tag picker (kobo-397/kobo-390 sections aren't needed here).
+  function loadSendEnv() {
+    const start = html.indexOf("const $ = (id) => document.getElementById(id);");
+    const end = html.indexOf("// kobo-397 — paste (Ctrl+V)", start);
+    const src = html.slice(start, end);
+    // `lead` is normally set by loadRooms() (a separate fetch this test doesn't need to
+    // drive) — a tiny setter closes over the same `let lead` binding without pulling in
+    // the whole company/room-list section.
+    return new Function(`${src}\nfunction setLead(v){ lead = v; }\nreturn { send, setLead };`)();
+  }
+
+  function withSendGlobals(doc: any, sendResponse: any, fn: () => Promise<void>) {
+    const prevDoc = (globalThis as any).document, prevLoc = (globalThis as any).location, prevFetch = (globalThis as any).fetch;
+    const realSetTimeout = (globalThis as any).setTimeout;
+    // send() fires `setTimeout(loadThread, 500)` fire-and-forget on success (pre-existing
+    // behavior, not new to kobo-506) — left alone, that timer outlives this test's awaited
+    // scope and fires 500ms later with globals already restored, hitting a REAL fetch with
+    // a relative URL ("fetch() URL is invalid") in whatever test happens to be running by
+    // then. Capture every timer scheduled during fn() and clear it before restoring, so
+    // nothing from this test's send() call survives past this function's return.
+    const timers: unknown[] = [];
+    (globalThis as any).setTimeout = (cb: unknown, ms: unknown, ...rest: unknown[]) => {
+      const id = realSetTimeout(cb, ms, ...rest);
+      timers.push(id);
+      return id;
+    };
+    (globalThis as any).document = doc;
+    (globalThis as any).location = { search: "?company=kobo&room=r1", hash: "" };
+    (globalThis as any).fetch = async (url: string) => {
+      if (url.includes("/api/room/send")) return { status: 200, json: async () => sendResponse };
+      return { status: 404, json: async () => ({}) };
+    };
+    return fn().finally(() => {
+      for (const id of timers) clearTimeout(id as number);
+      (globalThis as any).setTimeout = realSetTimeout;
+      (globalThis as any).document = prevDoc; (globalThis as any).location = prevLoc; (globalThis as any).fetch = prevFetch;
+    });
+  }
+
+  test("kobo-506: notified:false shows a DISTINCT status naming the failure, not the normal 'waiting' message", async () => {
+    const doc = fakeRoomDoc();
+    const statusEl = doc.createElement("div"); statusEl.id = "status";
+    await withSendGlobals(doc, { ok: true, room: "r1", to: "eq3", notified: false, notifyError: "nudge exited 1" }, async () => {
+      const { send, setLead } = loadSendEnv();
+      setLead("eq3");
+      doc.getElementById("text").value = "urgent turn";
+      await send();
+      expect(statusEl.textContent).toContain("NOT notified");
+      expect(statusEl.textContent).toContain("nudge exited 1"); // names the actual failure, not a generic message
+      expect(statusEl.className).toContain("err"); // visually distinct too (setStatus's error styling)
+      expect(doc.getElementById("text").value).toBe(""); // the turn WAS sent — composer still clears
+    });
+  });
+
+  test("kobo-506: no notified field (happy path) → unchanged 'sent — waiting…' status, no regression", async () => {
+    const doc = fakeRoomDoc();
+    const statusEl = doc.createElement("div"); statusEl.id = "status";
+    await withSendGlobals(doc, { ok: true, room: "r1", to: "eq3" }, async () => {
+      const { send, setLead } = loadSendEnv();
+      setLead("eq3");
+      doc.getElementById("text").value = "fine turn";
+      await send();
+      expect(statusEl.textContent).toBe("sent to eq3 — waiting…");
+      expect(statusEl.className).not.toContain("err");
+    });
+  });
 });

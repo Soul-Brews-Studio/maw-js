@@ -650,8 +650,16 @@ async function send() {
   if (!text) return;
   $('send').disabled = true;
   try {
-    await post('/api/room/send', { room: roomId, to: lead, text: text, from: 'web' }); // web turn tagged human (kobo-248)
-    $('text').value = ''; autogrow(); setStatus('sent to ' + lead + ' — waiting…');
+    const res = await post('/api/room/send', { room: roomId, to: lead, text: text, from: 'web' }); // web turn tagged human (kobo-248)
+    $('text').value = ''; autogrow();
+    // kobo-506: the turn is saved either way (persist is decoupled from the nudge,
+    // kobo-249) — but a failed nudge means the lead was never told, so say so distinctly
+    // from the normal "waiting" status instead of silently claiming success.
+    if (res && res.notified === false) {
+      setStatus('sent, saved — but the lead was NOT notified (' + (res.notifyError || 'nudge failed') + ') — they may not see this until they check the room', true);
+    } else {
+      setStatus('sent to ' + lead + ' — waiting…');
+    }
     setTimeout(loadThread, 500);
   } catch (err) { setStatus('ส่งไม่สำเร็จ — retry: ' + (err && err.message ? err.message : err), true); }
   finally { $('send').disabled = false; }

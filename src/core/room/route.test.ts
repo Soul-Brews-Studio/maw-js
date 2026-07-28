@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { roomTag, messageInRoom, roomNudgeArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest, handleRoomsListRequest, handleRoomReplyRequest, handleRoomInviteRequest } from "./route";
+import { roomTag, messageInRoom, roomNudgeArgs, handleRoomSendRequest, handleRoomOpenRequest, handleRoomCloseRequest, handleRoomReopenRequest, handleRoomThreadRequest, handleRoomDistillRequest, handleRoomMergeRequest, handleRoomActivityRequest, handleRoomsListRequest, handleRoomReplyRequest, handleRoomInviteRequest, defaultSpawn } from "./route";
 import { appendRoomMessage, readRoom } from "./store";
 import { readTask } from "../tasks/store";
 import { _setCompaniesDir, saveCompany, COMPANIES_DIR } from "../../vendor/mpr-plugins/company/company-helpers";
@@ -641,5 +641,135 @@ describe("kobo-390: narrow @tag scope to room participants + idempotent invite �
     expect(((await r3.json()) as { to: string | null }).to).toBeNull();
     expect(v3.calls).toHaveLength(0);
     expect(v3.calls.flat()).not.toContain("tony");
+  });
+});
+
+// kobo-495 — defaultSpawn (the real `maw` subprocess path every test above bypasses
+// via an injected fake) must surface a real failure, not swallow it. Exercised with a
+// REAL local `maw` subprocess and a REAL non-zero exit (an unrecognized verb — this
+// never reaches delivery/dispatch, no fleet traffic, safe) rather than asserting on
+// source text or "the option was passed" (front's explicit acceptance bar for this card).
+//
+// Lifted verbatim from %10's closed PR #334 (fix/kobo-495-cross-company-head-lane) —
+// credited in kobo-506's PR body. That branch was closed for reasons unrelated to this
+// half's quality (it bundled an unrelated cross-company fix now split into kobo-504);
+// this test and the defaultSpawn rewrite above it are his work, reused rather than
+// reimplemented per kobo-481's "one place" rule.
+describe("defaultSpawn surfaces a real subprocess failure (kobo-495, sibling of kobo-481)", () => {
+  let errSpy: { calls: unknown[][]; restore: () => void };
+  function spyConsoleError() {
+    const calls: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { calls.push(args); };
+    return { calls, restore: () => { console.error = original; } };
+  }
+  beforeEach(() => { errSpy = spyConsoleError(); });
+  afterEach(() => { errSpy.restore(); });
+
+  test("a real failing `maw` invocation gets logged with real captured stderr", async () => {
+    const proc = defaultSpawn(["nonexistent-verb-kobo-495"]);
+    const code = await proc.exited;
+    expect(code).not.toBe(0);
+    // watchHeySpawnForFailure is fire-and-forget (`void`) — give its own await-chain
+    // a tick to finish logging after the same exit the test just observed.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(errSpy.calls).toHaveLength(1);
+    const printed = String(errSpy.calls[0][0]);
+    expect(printed).toContain("nonexistent-verb-kobo-495");
+    expect(printed).toContain("unknown command");
+  });
+
+  test("a real successful `maw` invocation adds no noise", async () => {
+    const proc = defaultSpawn(["--version"]);
+    const code = await proc.exited;
+    expect(code).toBe(0);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(errSpy.calls).toHaveLength(0);
+  });
+});
+
+// kobo-506 — the gap %10's fix (above) didn't close: even with the failure now LOGGED
+// server-side, handleRoomSendRequest itself still discarded the exit code (`void
+// proc.exited`) and told the HTTP caller ok:true unconditionally. This is the half that
+// makes the failure reach the person who actually needs to know — the human at the web
+// room — not just a server console. NOT a fix for the room being silent (that was the
+// cross-company gate, kobo-504/#337, unrelated) — this only makes a failed nudge LOUD.
+describe("kobo-506: a failed nudge reaches the HTTP caller, not just the server log", () => {
+  let dir: string; const prev = process.env.MAW_DATA_DIR;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "maw-roomnudge-")); process.env.MAW_DATA_DIR = dir; seedCompanies(dir, { kobo: "eq3" }); });
+  afterEach(() => { if (prev === undefined) delete process.env.MAW_DATA_DIR; else process.env.MAW_DATA_DIR = prev; _setCompaniesDir(origCompaniesDir); rmSync(dir, { recursive: true, force: true }); });
+
+  const openR = (b: unknown) => handleRoomOpenRequest(new Request("http://x/api/room/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }));
+  const send = (b: unknown, spawn: (a: string[]) => { exited: Promise<number> }, nudgeTimeoutMs?: number) =>
+    handleRoomSendRequest(new Request("http://x/api/room/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }), spawn, nudgeTimeoutMs);
+
+  test("nudge exits non-zero → response carries notified:false + the exit code, ok stays true", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const spawn = () => ({ exited: Promise.resolve(1) });
+    const res = await send({ room: "r", to: "eq3", text: "urgent turn", from: "web" }, spawn);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; notified?: boolean; notifyError?: string };
+    expect(body.ok).toBe(true); // NOT flipped — the turn IS saved, see next assertion
+    expect(body.notified).toBe(false);
+    expect(body.notifyError).toContain("1");
+  });
+
+  test("nudge exits non-zero → the turn is STILL persisted (not lost, kobo-249 decoupled-persist)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const spawn = () => ({ exited: Promise.resolve(1) });
+    await send({ room: "r", to: "eq3", text: "must survive a failed nudge", from: "web" }, spawn);
+    const room = readRoom("kobo", "r")!;
+    expect(room.messages).toHaveLength(1);
+    expect(room.messages[0]).toMatchObject({ from: "web", text: "must survive a failed nudge" });
+  });
+
+  test("nudge exits 0 → unchanged happy path, no notified field at all (no regression)", async () => {
+    const spawn = () => ({ exited: Promise.resolve(0) });
+    const res = await send({ room: "r", to: "eq3", text: "fine turn", from: "web" }, spawn);
+    const body = (await res.json()) as { ok: boolean; notified?: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.notified).toBeUndefined();
+  });
+
+  test("spawn() itself throwing synchronously still hits the pre-existing catch — ok:false 500, untouched by this fix", async () => {
+    // A synchronous throw from spawn(...) (still inside the try) is the shape the
+    // pre-existing `catch (e)` at the bottom of the function exists for — this fix only
+    // touches the AFTER-spawn-resolves path (await proc.exited), so this must still land
+    // exactly where it always did, not get swallowed into the new notified:false shape.
+    const throwingSpawn = () => { throw new Error("spawn itself failed"); };
+    const res = await send({ room: "r", to: "eq3", text: "hi", from: "web" }, throwingSpawn);
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { ok: boolean; error?: string; notified?: boolean };
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain("spawn itself failed");
+    expect(body.notified).toBeUndefined(); // the new field never appears on this path
+  });
+
+  // kobo-506 request-change (%11, verified real hands-on: a real never-exiting spawn
+  // left the response PENDING at 1500ms, disabled 'send' with no error on screen — the
+  // exact silent-failure shape this card exists to kill, arriving through the new door
+  // this fix itself opened). A hung spawn must not drag the HTTP response with it —
+  // race against a ceiling and answer notified:false rather than hang forever.
+  test("nudge that NEVER exits → response returns within the ceiling with notified:false, not a hang", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const hangingSpawn = () => ({ exited: new Promise<number>(() => { /* never resolves */ }) });
+    const start = Date.now();
+    const res = await send({ room: "r", to: "eq3", text: "hangs forever", from: "web" }, hangingSpawn, 20); // 20ms ceiling — real default is 5000ms, injected small so this test stays fast
+    const elapsedMs = Date.now() - start;
+    expect(elapsedMs).toBeLessThan(500); // returned promptly, not hung on the never-resolving promise
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; notified?: boolean; notifyError?: string };
+    expect(body.ok).toBe(true); // turn still saved
+    expect(body.notified).toBe(false);
+    expect(body.notifyError).toContain("20ms");
+  });
+
+  test("nudge that NEVER exits → the turn is STILL persisted (same guarantee as the exit-1 case)", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const hangingSpawn = () => ({ exited: new Promise<number>(() => { /* never resolves */ }) });
+    await send({ room: "r", to: "eq3", text: "hangs but saved", from: "web" }, hangingSpawn, 20);
+    const room = readRoom("kobo", "r")!;
+    expect(room.messages).toHaveLength(1);
+    expect(room.messages[0]).toMatchObject({ from: "web", text: "hangs but saved" });
   });
 });
