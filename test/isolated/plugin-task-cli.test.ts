@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { runTask, compareReadyOrder } from "../../src/vendor/mpr-plugins/task/index";
-import { listArchivedTasks, listTasks, readTask, type TaskRecord } from "../../src/core/tasks/store";
+import { runTask, compareReadyOrder, STATE_LABEL } from "../../src/vendor/mpr-plugins/task/index";
+import { listArchivedTasks, listTasks, readTask, taskFilePath, tasksDir, TASK_STATES, type TaskRecord } from "../../src/core/tasks/store";
 import { COMPANIES_DIR, _setCompaniesDir } from "../../src/vendor/mpr-plugins/company/company-helpers";
 
 // Behavioural test for the task-board runner `runTask` — the shared engine that
@@ -575,6 +575,61 @@ describe("maw company task runner (runTask)", () => {
     const board = (await run(["ls", "--company", "pgw", "--full"])).output;
     expect(board).toContain("WAIT-DEPLOY"); // the lane renders
     expect(board).toContain("ship the lane"); // the parked card is visible, not dropped
+  });
+
+  // kobo-569 — need-answer (kobo-218, Tony's decision queue) was missing from BOTH
+  // renderBoard's per-lane loop AND renderBoardCompact's laneOrder: a card parked
+  // there never showed on the CLI board or its summary line, even though the data
+  // was there. Same class of bug kobo-273 pinned for wait-for-deploy above.
+  test("move → need-answer shows the card on the CLI board (full + compact) under NEED-ANSWER (kobo-569)", async () => {
+    await run(["add", "which way", "--company", "pgw"]); // pgw-1
+    const r = await run(["move", "pgw-1", "need-answer", "--reason", "A or B?", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.state).toBe("need-answer");
+
+    const full = (await run(["ls", "--company", "pgw", "--full"])).output;
+    expect(full).toContain("NEED-ANSWER"); // the lane renders
+    expect(full).toContain("which way"); // the parked card is visible, not dropped
+
+    const compact = (await run(["ls", "--company", "pgw"])).output;
+    expect(compact).toContain("NEED-ANSWER(1)"); // summary line carries it too
+  });
+
+  // kobo-569 AC2 — the heart of the card: this bug happened because a state was
+  // added to TASK_STATES (kobo-218) without a matching render branch, and nothing
+  // caught it. Guard the CLASS, not just need-answer: every declared TASK_STATES
+  // entry must reach a label on BOTH board views, so a future state added the same
+  // way (declared but never wired into render) fails this test by name instead of
+  // silently vanishing from the board again.
+  test("every TASK_STATES entry renders a label on the board (full + compact) — exhaustiveness guard against a repeat of kobo-569", async () => {
+    const company = "kobo569board";
+    writeFileSync(join(dir, "companies", `${company}.json`), JSON.stringify({
+      name: company,
+      departments: { core: { members: [{ oracle: "patchwork" }], lead: "patchwork" } },
+    }));
+    mkdirSync(tasksDir(company), { recursive: true });
+    const now = Date.now();
+    TASK_STATES.forEach((state, i) => {
+      const id = `${company}-${i + 1}`;
+      const task: TaskRecord = {
+        id,
+        title: `card in ${state}`,
+        company,
+        state,
+        by: "patchwork",
+        assignee: "patchwork",
+        ts: now,
+        ...(state === "blocked" ? { block: { kind: "dependency" as const } } : {}),
+      };
+      writeFileSync(taskFilePath(company, id), JSON.stringify(task));
+    });
+
+    const full = (await run(["ls", "--company", company, "--full"])).output;
+    const compact = (await run(["ls", "--company", company])).output;
+    for (const state of TASK_STATES) {
+      expect(full).toContain(STATE_LABEL[state]);
+      expect(compact).toContain(STATE_LABEL[state]);
+    }
   });
 
   // kobo-274 — the deploy-required override flags on add/edit set the field the merge

@@ -253,7 +253,11 @@ function resolveSignerPane(): string | null {
   }
 }
 
-const STATE_LABEL: Record<TaskState, string> = {
+// exported for the kobo-569 render-exhaustiveness test — Record<TaskState, string>
+// already forces the compiler to keep this map exhaustive over TaskState; the test
+// verifies the SEPARATE, non-compiler-checked claim that every entry actually
+// reaches a render branch (renderBoard / renderBoardCompact), not just this map.
+export const STATE_LABEL: Record<TaskState, string> = {
   "backlog": "BACKLOG",
   "todo": "TODO",
   "ready": "READY",
@@ -310,6 +314,20 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, 
     }
   }
 
+  // Need-answer lane (kobo-218) — Tony's decision queue, off the linear flow like
+  // rejected/blocked below. kobo-569: this lane was missing here entirely — a card
+  // parked in need-answer never appeared on the CLI board, exactly the trap the
+  // rejected-lane comment below warns about (added to TASK_STATES but never given
+  // its own render branch, so the TASK_FLOW loop above silently drops it).
+  const needAnswer = flow.filter((t) => t.state === "need-answer");
+  if (needAnswer.length) {
+    lines.push(`\n\x1b[1m\x1b[36m${STATE_LABEL["need-answer"]}\x1b[0m \x1b[90m(${needAnswer.length})\x1b[0m`);
+    for (const t of needAnswer) {
+      lines.push(cardHead(t));
+      lines.push(`    \x1b[90m↳\x1b[0m \x1b[36m${taskNextAction(t)}\x1b[0m`);
+    }
+  }
+
   // Rejected lane (kobo-101) — terminal "not accepted", parallel to DONE. Not in
   // TASK_FLOW (it's off the linear flow), so surface it in its own lane or the
   // flow loop above drops it silently.
@@ -347,7 +365,10 @@ function renderBoardCompact(tasks: TaskRecord[], company: string, mine: string |
   if (!tasks.length) return header;
   const counts = new Map<string, number>();
   for (const t of tasks) counts.set(t.state, (counts.get(t.state) ?? 0) + 1);
-  const laneOrder: TaskState[] = [...TASK_FLOW, "rejected", "blocked"];
+  // kobo-569: need-answer (kobo-218, Tony's decision queue) is off-flow like
+  // rejected/blocked and was missing from this list entirely — see AC2 test
+  // ("every TASK_STATES entry renders") for the exhaustiveness guard.
+  const laneOrder: TaskState[] = [...TASK_FLOW, "need-answer", "rejected", "blocked"];
   const laneStr = laneOrder
     .filter((s) => counts.get(s))
     .map((s) => `${STATE_LABEL[s]}(${counts.get(s)})`)

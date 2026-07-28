@@ -277,4 +277,24 @@ describe("task command plugin standalone boundary", () => {
     expect(lsBlock).toContain("renderBoard(tasks"); // --full path
     expect(lsBlock).toContain("renderBoardCompact(tasks"); // default path
   });
+
+  // kobo-569 — need-answer (kobo-218) was missing from BOTH renderBoard's per-lane
+  // loop and renderBoardCompact's laneOrder; a card parked there never rendered.
+  // Behavioral coverage (real board output) lives in plugin-task-cli.test.ts; this
+  // is the content-assert companion this standalone file's own convention expects.
+  test("renderBoard has a dedicated need-answer branch, renderBoardCompact's laneOrder carries it (kobo-569)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    const boardStart = src.indexOf("function renderBoard(");
+    const compactStart = src.indexOf("function renderBoardCompact(");
+    const boardBlock = src.slice(boardStart, compactStart);
+    expect(boardBlock).toContain('t.state === "need-answer"');
+    const compactBlock = src.slice(compactStart);
+    expect(compactBlock).toContain('"need-answer"');
+    const laneOrderLine = compactBlock.split("\n").find((l) => l.includes("laneOrder"))!;
+    expect(laneOrderLine).toContain("TASK_FLOW");
+    expect(laneOrderLine).toContain('"need-answer"');
+  });
 });
