@@ -1,6 +1,5 @@
 import { cmdPeek, cmdSend, cmdFlush } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
-import { CHANNEL_TASK_EVENTS } from "../core/pane-routes";
 
 function printCommUsage(cmd: "hey" | "send" | "notify", write: (line: string) => void = console.log): void {
   if (cmd === "notify") {
@@ -197,38 +196,6 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
         }
       } catch {
         /* request-convention hooks are best-effort — never break hey/send delivery */
-      }
-    }
-
-    // kobo-165 — auto-capture: a hey that references an EXISTING card id (`kobo-42`)
-    // appends the message to that card as a note, so coordination said over hey lands
-    // on the board instead of only in a hey log. Same best-effort shape as the
-    // `[request:]` hook above (cheap gate → dynamic import → try/catch, before cmdSend
-    // which may process.exit). Excludes the CHANNEL_TASK_EVENTS channel: notify pings
-    // ride it carrying card-ids, so capturing them would loop. The cheap gate MIRRORS
-    // CARD_ID_RE (letter, then any letters/digits/hyphens, then `-<digit>`) so a company
-    // whose name ends in a digit (`eq3-11`, `s3-2`) isn't dropped before the fn re-checks.
-    if (!isNotify && channel !== CHANNEL_TASK_EVENTS && !message.includes("[via hey") && /[a-z][a-z0-9-]*-\d/.test(message)) {
-      try {
-        const [{ autoCaptureCardMentions }, { authenticateActor }] = await Promise.all([
-          import("../core/tasks/auto-create"),
-          import("../commands/shared/comm-send"),
-        ]);
-        // kobo-338: the captured mention-note's author is a security-relevant actor —
-        // authenticate the --from/MAW_SENDER claim against the local self (kobo-335), the
-        // SAME guard the auto-create by-field uses. Before this, capture resolved the
-        // author via trust-any resolveSenderIdentity, so a forged `maw hey --from x:tony
-        // "look at <card>"` wrote a note authored by tony (the residual 335 flagged
-        // out-of-scope). A forged/unbacked claim throws → null → no note captured.
-        autoCaptureCardMentions(message, target, () => {
-          try {
-            return authenticateActor(from);
-          } catch {
-            return null; // forged/unbacked claim, or no author → skip capture
-          }
-        });
-      } catch {
-        /* auto-capture is best-effort — never break hey/send delivery */
       }
     }
 

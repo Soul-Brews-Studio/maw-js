@@ -415,32 +415,14 @@ describe("task store (file-per-card under Company Home)", () => {
     expect(openClaims("pgw").some((c) => c.oracle === "patchwork" && c.task === "pgw-1")).toBe(true);
   });
 
-  // kobo-229 — a CAPTURED note (auto-captured from a hey card-id mention) must NOT
-  // auto-advance, even when the author is the assignee: mention ≠ work (fixes the
-  // kobo-221 board-lie where a self-mention flipped an own todo/ready card).
-  test("noteTask captured=true by the assignee on a todo card does NOT auto-advance (mention ≠ work, kobo-229)", () => {
-    addTask({ company: "pgw", title: "t", by: "eq3", assignee: "patchwork" });
-    const n = noteTask("pgw", "pgw-1", "patchwork", "[via hey→eq3] kobo-... halt", { captured: true });
-    expect(n?.state).toBe("todo"); // NOT flipped
-    expect(readTask("pgw", "pgw-1")?.state).toBe("todo"); // persisted
-    expect(openClaims("pgw").some((c) => c.task === "pgw-1")).toBe(false); // no fake "started" claim
-    // the note IS stored (append-only audit) and flagged captured
-    expect(n?.notes?.at(-1)?.captured).toBe(true);
-    expect(n?.notes?.length).toBe(1);
-  });
+  // kobo-555: the two kobo-229 CAPTURED-note tests that lived here were removed
+  // along with the opts.captured mechanism itself (kobo-229's only producer,
+  // hey auto-capture kobo-165, is gone) — see plugin-task-*/auto-create removal.
 
-  test("noteTask captured=true on a ready card also does NOT advance (kobo-229, kobo-220 scenario)", () => {
-    addTask({ company: "pgw", title: "t", by: "eq3", assignee: "patchwork", state: "ready" });
-    const n = noteTask("pgw", "pgw-1", "patchwork", "[via hey→eq3] about pgw-1", { captured: true });
-    expect(n?.state).toBe("ready");
-  });
-
-  // A DELIBERATE note (real `note` verb, captured falsy) still advances — no regress on kobo-54.
-  test("noteTask without captured still auto-advances (deliberate note = work, no kobo-54 regress)", () => {
+  test("noteTask still auto-advances a deliberate note (kobo-54, no regress after kobo-555's captured-opt removal)", () => {
     addTask({ company: "pgw", title: "t", by: "eq3", assignee: "patchwork" });
     const n = noteTask("pgw", "pgw-1", "patchwork", "diagnosing the repro");
     expect(n?.state).toBe("in-progress");
-    expect(n?.notes?.at(-1)?.captured).toBeUndefined(); // not flagged
   });
 
   test("noteTask by a NON-assignee on a todo card keeps it todo (no lying)", () => {

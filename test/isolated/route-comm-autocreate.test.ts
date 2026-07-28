@@ -100,47 +100,46 @@ describe("routeComm hey → auto-create board card (Track 3 integration)", () =>
     expect(listTasks("kobo")).toEqual([]);
     expect(calls.length).toBe(1);
   });
+
+  // kobo-555 follow-up (eq3 head review, crew reviewer independently raised the same
+  // gap): the auto-capture removal made this file's coverage of route-comm.ts:185's
+  // authenticateActor call site MORE VISIBLE, not less real — it was already the only
+  // gate standing between a forged --from and an auto-created card's `by` field
+  // (kobo-335). Nothing here previously pinned the CALL SITE directly; the harness
+  // agent-self is "eq3" (beforeAll), so a claim of "patchwork" is a forgery.
+  test("a FORGED --from on a [request:] dispatch creates NO card (authenticateActor refuses, kobo-335)", async () => {
+    const handled = await routeComm("hey", ["hey", "--from", "local:patchwork", "patchwork", "[request:forge-2] forged dispatch"]);
+    expect(handled).toBe(true);
+    expect(calls.length).toBe(1); // delivery itself is unaffected — auth only gates the auto-create
+    expect(listTasks("kobo").filter((t) => t.requestId === "forge-2")).toEqual([]);
+  });
 });
 
-describe("routeComm hey → auto-capture card mention as note (kobo-165)", () => {
-  test("a hey referencing an existing card appends a [via hey] note; delivery still happens", async () => {
+// kobo-555: kobo-165's auto-capture (a hey mentioning an existing card id wrote
+// the message onto it as a note) is REMOVED — dispatch no longer travels by hey
+// (Board Truth rule 2, "dispatch = card"), so the net this feature caught was
+// only ever chatter. These tests are FLIPPED from "a note appears" to "no note
+// appears" (not deleted) per the card's own instruction: deleting them outright
+// would silently drop coverage of the new behavior. The forged-actor and
+// task-events-channel edge cases from the old suite tested GATES on the capture
+// mechanism itself; with the mechanism gone there is no gate left to test, so
+// they are not carried forward (kept: the general "no note ever" case and the
+// digit-suffix-company case, both still meaningful as regression guards).
+describe("routeComm hey → NO auto-capture note (kobo-555, kobo-165 removed)", () => {
+  test("a hey referencing an existing card does NOT append a note; delivery still happens", async () => {
     const card = addTask({ company: "kobo", title: "seed", by: "eq3", assignee: "patchwork", state: "todo" });
     await routeComm("hey", ["hey", "--from", "local:eq3", "patchwork", `ping about ${card.id} — รอ review`]);
-    expect(calls.length).toBe(1); // delivery not blocked by capture
+    expect(calls.length).toBe(1); // delivery still happens
     const after = readTask("kobo", card.id)!;
-    expect(after.notes?.length).toBe(1);
-    expect(after.notes![0].by).toBe("eq3");
-    expect(after.notes![0].text).toContain("[via hey→patchwork]");
-    expect(after.notes![0].text).toContain(card.id);
+    expect(after.notes ?? []).toEqual([]); // no auto-capture note
   });
 
-  test("kobo-338: a FORGED --from (claim ≠ agent self) does NOT author a captured note", async () => {
-    // the harness agent self is eq3 (CLAUDE_AGENT_NAME); a --from claiming patchwork ≠ self →
-    // authenticateActor refuses → resolveSender returns null → autoCaptureCardMentions writes NO
-    // note. Pre-338 this path used trust-any resolveSenderIdentity, so the forge stamped a note
-    // authored by the claimed oracle (the residual the kobo-335 PR flagged out-of-scope).
-    const card = addTask({ company: "kobo", title: "seed-forge", by: "eq3", assignee: "patchwork", state: "todo" });
-    await routeComm("hey", ["hey", "--from", "local:patchwork", "patchwork", `look at ${card.id} — forged mention`]);
-    expect(readTask("kobo", card.id)!.notes ?? []).toEqual([]); // forge refused → no forged-author note
-    expect(calls.length).toBe(1); // delivery itself is unaffected — auth only gates the note author
-  });
-
-  test("anti-loop: a task-events channel ping is NOT captured", async () => {
-    const card = addTask({ company: "kobo", title: "seed2", by: "eq3", assignee: "patchwork", state: "todo" });
-    await routeComm("hey", [
-      "hey", "--from", "local:eq3", "--channel", "task-events", "patchwork",
-      `[task] eq3 commented on ${card.id}: hi`,
-    ]);
-    expect(readTask("kobo", card.id)!.notes ?? []).toEqual([]);
-  });
-
-  test("gate does not drop a digit-suffix company (web3-1 captured, regression)", async () => {
+  test("digit-suffix company card mention also creates no note (web3-1, kobo-555)", async () => {
     const card = addTask({ company: "web3", title: "seed3", by: "eq3", assignee: "patchwork", state: "todo" });
-    expect(card.id).toBe("web3-1"); // company name ends in a digit — old gate /[a-z]-\d/ would skip
+    expect(card.id).toBe("web3-1");
     await routeComm("hey", ["hey", "--from", "local:eq3", "patchwork", `heads up on ${card.id}`]);
-    const after = readTask("web3", card.id)!;
-    expect(after.notes?.length).toBe(1);
-    expect(after.notes![0].text).toContain("[via hey→patchwork]");
+    expect(calls.length).toBe(1); // delivery still happens
+    expect(readTask("web3", card.id)!.notes ?? []).toEqual([]);
   });
 
   test("references an unknown card → no note, delivery still happens", async () => {

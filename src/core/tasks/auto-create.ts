@@ -13,8 +13,8 @@
  * The cheap regex gate runs first so non-request sends pay ~nothing.
  */
 
-import { addTask, isTerminalState, listTasks, noteTask, readTask, type TaskRecord } from "./store";
-import { companyOfOracleStrict, companyScopeViolation } from "../worklog/company-scope";
+import { addTask, listTasks, type TaskRecord } from "./store";
+import { companyOfOracleStrict } from "../worklog/company-scope";
 
 // `[request:<id>]` must lead the message (after optional whitespace). The id is
 // the correlation id (e.g. eq3-company-ui-01).
@@ -122,73 +122,4 @@ export function autoCreateFromDispatch(
     requestId: parsed.requestId,
     ...(repo ? { repo } : {}),
   });
-}
-
-// A card-id reference like `kobo-165`. The whole token is the card id
-// (`<company>-<n>`, the store convention — nextTaskId); the prefix (which may
-// itself contain hyphens, e.g. `kob-payment-5`) IS the company. Greedy prefix so
-// multi-hyphen companies resolve to the full name, not just the last segment.
-const CARD_ID_RE = /\b([a-z][a-z0-9-]*)-(\d+)\b/g;
-const VIA_HEY = "[via hey"; // provenance tag prefix (also the echo guard token)
-
-export interface AutoCaptureDeps {
-  /** existence check — defaults to the real store reader. */
-  readCard?: (company: string, id: string) => TaskRecord | null;
-  /** append a note — defaults to the real store writer. */
-  note?: (company: string, id: string, by: string, text: string, opts?: { captured?: boolean }) => TaskRecord | null;
-  /** kobo-424 (D) — non-null return = sender isn't a member of `company`, refuse. Defaults to the real membership check. */
-  scopeViolation?: (company: string, sender: string) => string | null;
-}
-
-/**
- * Auto-capture (kobo-165): when a `maw hey` message references EXISTING card
- * id(s) like `kobo-165`, append the message to each as a NOTE — so coordination
- * said over hey (dispatch / "รอใคร" / breakdown) lands on the board as durable
- * evidence instead of living only in a hey log. A note, not a comment: a note is
- * the append-only evidence channel (Board Truth rule 10), never a thread awaiting
- * a reply, so it is the right home for an auto-captured line.
- *
- * Best-effort + narrow, mirroring autoCreateFromDispatch:
- *   - the card must ALREADY exist (readCard by <prefix=company, id>); an unknown
- *     ref is skipped silently (never conjure a card — that's autoCreateFromDispatch).
- *   - sender must resolve (the note author); unresolved → capture nothing.
- *   - each note is tagged `[via hey→<target>]` for legible provenance AND as the
- *     echo guard: a captured note can't itself re-trigger capture. The structural
- *     anti-loop guard (excluding the `task-events` channel, on which notify pings
- *     ride carrying card-ids) lives at the call site.
- * Returns the ids captured (for tests/telemetry); [] when nothing matched.
- */
-export function autoCaptureCardMentions(
-  message: string,
-  target: string,
-  resolveSender: () => string | null,
-  deps: AutoCaptureDeps = {},
-): string[] {
-  if (message.includes(VIA_HEY)) return []; // echo guard — never re-capture a captured note
-  const refs = new Map<string, string>(); // id → company (dedups repeated ids)
-  for (const m of message.matchAll(CARD_ID_RE)) refs.set(m[0], m[1]);
-  if (refs.size === 0) return []; // no card ref — cheapest exit, before resolving sender
-
-  const readCard = deps.readCard ?? readTask;
-  const note = deps.note ?? noteTask;
-  const scopeViolation = deps.scopeViolation ?? companyScopeViolation;
-  const captured: string[] = [];
-  let sender: string | null | undefined; // resolve lazily + once, only if a ref actually exists
-  for (const [id, company] of refs) {
-    const card = readCard(company, id);
-    if (!card) continue; // unknown card → skip silently
-    // kobo-424 (A) — a closed card doesn't collect auto-notes; not a permanent
-    // stamp, a reopened card (state flipped off-terminal) accepts notes again.
-    if (isTerminalState(card.state)) continue;
-    if (sender === undefined) sender = resolveSender();
-    if (!sender) break; // can't attribute the note (same reason for every ref) → stop
-    // kobo-424 (D) — sender must be a member of the MENTIONED card's own company,
-    // not just resolve to *a* company; a bare regex match on the message text is
-    // not a membership check.
-    if (scopeViolation(company, sender)) continue;
-    // kobo-229: tag as `captured` so noteTask stores it (audit trail) but never
-    // auto-advances the card — a hey mention is chatter, not work (mention ≠ work).
-    if (note(company, id, sender, `${VIA_HEY}→${targetOracle(target)}] ${message}`, { captured: true })) captured.push(id);
-  }
-  return captured;
 }
