@@ -85,6 +85,9 @@ import {
   formatSignEvidenceScope,
   requiredSignTiers,
   reclassifyAndEscalate,
+  EVIDENCE_SCOPES,
+  priorSignFor,
+  isSignDowngrade,
   type SignTier,
   type SignEvidenceScope,
   moveTask,
@@ -432,6 +435,32 @@ export function compareReadyOrder(a: TaskRecord, b: TaskRecord): number {
   const bn = Number(b.id.match(/-(\d+)$/)?.[1] ?? 0);
   return an - bn;
 }
+
+/**
+ * kobo-578: the PR diff's OWN hash, for sign-time downgrade detection
+ * (isSignDowngrade in store.ts). `gh pr diff` fetches the unified diff (works
+ * without a local checkout of the commit); `git patch-id --stable` hashes it in
+ * a form that's stable across rebase/merge — the same diff re-attached to a new
+ * commit id (ancestry moving because a sibling PR merged) hashes identically.
+ * No MAW_TEST_MODE branch wrapping the call itself (kobo-546's lesson — an env
+ * check around a gate's CALL means the code that reads the result never runs
+ * under test). Tests inject a stub via __setPatchIdFetcherForTest instead.
+ * Best-effort: any failure (network/auth/no gh/no git) returns undefined — a
+ * sign must never be blocked by this, same contract as the SHA fetch above it.
+ */
+function realFetchPatchId(pr: number, repo: string): string | undefined {
+  const diffOut = Bun.spawnSync(["gh", "pr", "diff", String(pr), "--repo", repo], { stdout: "pipe", stderr: "pipe" });
+  if (diffOut.exitCode !== 0 || !diffOut.stdout || diffOut.stdout.length === 0) return undefined;
+  const idOut = Bun.spawnSync(["git", "patch-id", "--stable"], { stdin: diffOut.stdout, stdout: "pipe", stderr: "pipe" });
+  if (idOut.exitCode !== 0) return undefined;
+  const hash = idOut.stdout.toString().trim().split(/\s+/)[0];
+  return hash || undefined;
+}
+let patchIdFetcher: (pr: number, repo: string) => string | undefined = realFetchPatchId;
+/** @internal test-only override — never called from a normal code path. */
+export function __setPatchIdFetcherForTest(fn: (pr: number, repo: string) => string | undefined): void { patchIdFetcher = fn; }
+/** @internal test-only reset — restores the real `gh`/`git` fetcher. */
+export function __resetPatchIdFetcherForTest(): void { patchIdFetcher = realFetchPatchId; }
 
 /**
  * Shared task-board CLI runner — the single source of truth for the task verbs.
@@ -945,7 +974,6 @@ export async function runTask(
       // kobo-501: what JUSTIFIED this sign — a diff-read, a real test run, or a
       // mutation-verified run. Omitting --evidence is NOT the same as claiming diff-read;
       // it records "undeclared" (the honest unknown), never silently upgraded.
-      const EVIDENCE_SCOPES: SignEvidenceScope[] = ["undeclared", "diff-read", "test-run", "test-run+mutation"];
       const rawEvidence = flags["--evidence"];
       if (rawEvidence && !EVIDENCE_SCOPES.includes(rawEvidence as SignEvidenceScope)) {
         return { ok: false, error: `--evidence must be one of: ${EVIDENCE_SCOPES.join(", ")}` };
@@ -998,7 +1026,19 @@ export async function runTask(
       if (readSha && signedSha && readSha !== signedSha) {
         return { ok: false, error: `sign REFUSED for ${id}: you read ${readSha} but the PR's head is now ${signedSha} — someone pushed since you read it. Pull the latest diff, re-review it, then re-run sign with --sha ${signedSha}.` };
       }
-      const t = signTask(company, id, me, role, signerPane, signedSha, evidenceScope, evidenceLocus);
+      // kobo-578: best-effort diff-hash — no MAW_TEST_MODE branch around the CALL
+      // (kobo-546's lesson), a test injects a stub fetcher instead.
+      const signedPatchId = before?.pr && before?.repo ? patchIdFetcher(before.pr, before.repo) : undefined;
+      // kobo-578: this tier's CURRENT sign, before signTask overwrites it — the only
+      // point where the "old" values are still reachable, so warn HERE, not after.
+      const prior = priorSignFor(before, role);
+      if (prior) {
+        console.log(`\x1b[33m⚠ overwriting existing ${role} sign\x1b[0m — was: ${prior.by} \x1b[90m[${formatSignEvidenceScope(prior.evidenceScope)}]\x1b[0m sha=${prior.sha ?? "none"} locus=${prior.evidenceLocus ?? "none"}`);
+        if (isSignDowngrade(prior, evidenceScope, signedPatchId)) {
+          console.log(`\x1b[41m\x1b[97m🔻 DOWNGRADE\x1b[0m same reviewed content (patch-id unchanged), weaker evidence: ${formatSignEvidenceScope(prior.evidenceScope)} → ${formatSignEvidenceScope(evidenceScope)} — this REPLACES stronger evidence with weaker at the SAME diff, not a fresh review of new code. See \`sign-history ${id}\` for what was here.`);
+        }
+      }
+      const t = signTask(company, id, me, role, signerPane, signedSha, evidenceScope, evidenceLocus, signedPatchId);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       const still = missingSignTiers(t);
       // kobo-557 (AC8): (C) allows the sign through with an unbound SHA (Tony's
@@ -1041,6 +1081,29 @@ export async function runTask(
           : ` \x1b[90m— all tiers signed the same commit — head freshness is checked by GitHub at merge time\x1b[0m`;
       }
       console.log(`\x1b[32m✍ signed\x1b[0m ${t.id} \x1b[90m(${role})\x1b[0m: ${t.title} \x1b[90m[${formatSignEvidenceScope(evidenceScope)}]\x1b[0m${shaLabel}${statusSuffix}`);
+    } else if (subcmd === "sign-history") {
+      // kobo-578: read-only — every sign a tier EVER had, oldest first. Nothing is
+      // Deleted: overwriting a sign moves the current-pointer forward, it never
+      // destroys what was there. This is the answer to "where do I look" for a
+      // sign that just got replaced (loudly, per the warning above, but still —
+      // the current fields alone don't show what used to be there).
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: "usage: maw company task sign-history <id>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = readTask(company, id);
+      if (!t) return { ok: false, error: `task not found: ${id}` };
+      const history = t.signHistory ?? [];
+      if (!history.length) {
+        console.log(`\x1b[90m○ no sign history\x1b[0m for ${id} — every sign on this card (if any) is still the current one`);
+      } else {
+        console.log(`\x1b[1msign history\x1b[0m \x1b[90m(${id}, ${history.length})\x1b[0m`);
+        for (const h of history) {
+          console.log(`  \x1b[90m${h.role}\x1b[0m by ${h.by} \x1b[90m[${formatSignEvidenceScope(h.evidenceScope)}]\x1b[0m sha=${h.sha ?? "none"} patchId=${h.patchId ?? "unknown"} \x1b[90m— superseded ${new Date(h.supersededTs).toISOString()}\x1b[0m`);
+        }
+      }
     } else if (subcmd === "merge") {
       // kobo-327: the ONE path that merges a gated card. REFUSES until every required
       // sign tier (requiredSignTiers) is present, then runs `gh pr merge`. Removes merge
@@ -1493,7 +1556,13 @@ export async function runTask(
         console.log(`  \x1b[90m${o.company}/${o.id}\x1b[0m ${o.from}→${o.to} \x1b[90m(${o.action})\x1b[0m`);
       }
     } else {
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|migrate-comments|migrate-lanes|review|hold|pr|done|note|edit|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
+      // kobo-581: this list must match every dispatch branch above — pinned by
+      // test/isolated/plugin-task-standalone.test.ts, which derives the real
+      // verb list from THIS source file rather than hardcoding a second copy.
+      // kobo-578 (merged into alpha after this branch forked): added the
+      // `sign-history` read verb right after `pr`, matching where 578's own
+      // usage string placed it — combined here on reconcile, not duplicated.
+      return { ok: false, error: "usage: maw company task <add|ls|next-ready|start|move|claim|assign|done|deployed|reject|review|hold|approve|need-answer|pr|sign-history|sign|merge|archive|block|unblock|note|edit|epic|dep|decompose|ask|mentions|comment|comments|migrate-comments|migrate-lanes> — see maw task for flags" };
     }
 
     return { ok: true };

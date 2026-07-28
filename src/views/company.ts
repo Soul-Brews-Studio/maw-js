@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { createHash } from "crypto";
 import { escapeHtml, inlineMd, mdToHtml, NOTE_IMG_EXT, renderNoteBody } from "./md";
+import { visible as worklogVisible } from "../core/worklog/render";
 
 // kobo-57 cache-bust — the served board is a static HTML/CSS/JS blob. A deploy
 // changes it, but a viewer with an open tab keeps the OLD copy (the 5s poll only
@@ -2404,10 +2405,16 @@ function localTs(iso) {
     ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
 
+// kobo-591 — this web client filtered ONLY 'idle' (kobo-109), while the CLI's
+// renderTimeline (src/core/worklog/render.ts) filters 'idle'/'away'/'back'
+// (mawjs-3, kobo-120) — a silent second drift point, same failure class as
+// kobo-580 (CLI fixed, web still answered differently). Injected verbatim via
+// toString() here — same single-source pattern as escapeHtml/mdToHtml above
+// (kobo-396) — so this file can never hand-copy a stale filter list again.
+${worklogVisible.toString()}
+
 function renderTimeline(entries) {
-  // kobo-109 — 'idle' events (CC Stop) are a per-pane state signal for the Presence tab,
-  // not timeline activity. Drop them here so the Worklog feed stays real work only.
-  entries = (entries || []).filter(e => e.kind !== 'idle');
+  entries = visible(entries || []);
   const tl = $('timeline');
   tl.replaceChildren();
   if (!entries.length) { tl.appendChild(el('div', 'empty', 'no worklog entries')); return; }

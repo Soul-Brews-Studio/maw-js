@@ -90,7 +90,11 @@ function line(e: WorklogEntry): string {
 
 // 'idle' (kobo-109) + 'away' (mawjs-3) + 'back' (kobo-120) are per-pane state signals
 // for the board, never a timeline/inject line — drop them from every text render.
-function visible(entries: WorklogEntry[]): WorklogEntry[] {
+// kobo-591: exported so src/views/company.ts's client-side renderTimeline can
+// import + `.toString()`-inject this SAME function body (same single-source
+// pattern as escapeHtml/mdToHtml, kobo-396) instead of hand-copying the filter
+// — the web board's own filter (idle-only) had silently drifted from this one.
+export function visible(entries: WorklogEntry[]): WorklogEntry[] {
   return entries.filter(e => e.kind !== "idle" && e.kind !== "away" && e.kind !== "back");
 }
 
