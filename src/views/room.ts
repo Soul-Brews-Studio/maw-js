@@ -101,7 +101,7 @@ export function roomHtml(): string {
        ONE renderer, but scoping the CSS keeps the two surfaces' looks separate):
        bold = highlighter pen, not just bold; a quoted block = one solid red
        box with a left border (Tony: the box IS the signal, never nested). */
-    .bubble .body strong { background:rgba(250,204,21,.28); padding:0 2px; border-radius:2px; color:var(--fg); }
+    .bubble .body strong { background:rgba(250,204,21,.45); padding:0 2px; border-radius:2px; color:var(--fg); }
     .bubble .body blockquote { border-left:4px solid var(--danger); background:rgba(239,68,68,.12); color:var(--fg); margin:6px 0; padding:6px 12px; border-radius:0 6px 6px 0; }
     /* kobo-493: kobo-456's per-paragraph auto-colour (background on EVERY
        plain-text <p>, no marking required) shipped, went live, and Tony
