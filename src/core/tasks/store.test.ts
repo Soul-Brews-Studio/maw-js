@@ -81,7 +81,7 @@ import {
   type ParentState,
   type TaskRecord,
 } from "./store";
-import { openClaims, readWorklog } from "../worklog/store";
+import { openClaims, readWorklog, _resetWorklogCache } from "../worklog/store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -92,7 +92,7 @@ afterAll(() => {
   else process.env.MAW_DATA_DIR = prev;
   rmSync(dir, { recursive: true, force: true });
 });
-beforeEach(() => { rmSync(join(dir, "companies"), { recursive: true, force: true }); });
+beforeEach(() => { rmSync(join(dir, "companies"), { recursive: true, force: true }); _resetWorklogCache(); });
 
 describe("task store (file-per-card under Company Home)", () => {
   test("addTask writes a card under companies/<c>/tasks/ + emits task-created", () => {
