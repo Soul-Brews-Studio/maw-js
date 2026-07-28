@@ -526,14 +526,31 @@ async function openCardModal(id) {
     // SCREEN by construction. Every openCardModal call builds its OWN box above
     // and hands it to openMermaidModal, which replaceChildren()s it into the
     // single content slot, so a superseded call's box is already detached.
-    // It does NOT follow that the line does nothing. Below it we set
-    // bodyDiv.innerHTML: a detached node still parses that HTML, and any
-    // note-img it contains still issues its image request. So this guard also
-    // suppresses network fetches nobody will ever see — invisible is not free.
-    // (Caught by patchwork reviewer %6, who was right that "unobservable" reads
-    // as a licence to delete this line.) It is additionally a structural guard
-    // for the day someone makes the modal reuse one box, at which point the
-    // screen effect becomes real and testable too. Not a tested guarantee today.
+    // That is inferred from the control flow (an early return before ANY DOM
+    // write, no branches to miss), not measured — nothing to dynamically test.
+    //
+    // CORRECTED (kobo-588, superseding an earlier claim in this comment that
+    // removing this line would leak an image request): stitch measured it
+    // (kobo-585) — a detached note-img (loading=lazy, md.ts) did NOT issue
+    // its /api/files/... request in EITHER of 2 rounds, with a positive
+    // control (an attached image DID request) passing every round. Measured
+    // on Chrome 150.0.7871.187, headed, no throttling, via a standalone
+    // harness (not the live company board) — bounded to that config.
+    // loading=lazy is a browser HINT, not a contract, so this is NOT "a
+    // detached lazy image never fetches" as a general rule — a different
+    // browser/version/network condition could measure differently. Read it
+    // as "measured, not found on this config," never as "impossible."
+    // (patchwork reviewer registered a falsifiable prediction BEFORE the
+    // measurement — "if no request shows up, I'm clearly wrong" — which is
+    // what makes this result decisive rather than just another guess landing
+    // where the first one did. kobo-585, credit: stitch.)
+    //
+    // This guard is kept anyway, for a reason that doesn't depend on the
+    // measurement above: it's a structural guard for the day someone makes
+    // the modal reuse one box instead of building a fresh one per open — at
+    // that point a superseded response CAN reach the screen, and this line
+    // is what stops it. Not a tested guarantee today; a guarantee for a
+    // shape the code doesn't have yet.
     if (!cardModalInFlight || cardModalInFlight.token !== token) return;
     box.replaceChildren();
     const t = body && body.ok ? body.task : null;
