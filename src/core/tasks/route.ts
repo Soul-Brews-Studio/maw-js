@@ -74,7 +74,7 @@ export interface TaskCard {
 
 const LAST_NOTE_TEXT_MAX_CHARS = 200;
 
-function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards: TaskRecord[], stale = false, detail = false): TaskCard {
+function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards: TaskRecord[], stale = false, detail = false, includeNotes = true): TaskCard {
   const card: TaskCard = {
     id: t.id,
     title: t.title,
@@ -128,8 +128,16 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
     // Single-card detail fetch (card-open) — full passthrough, same shape the list
     // endpoint used to ship on every card (kobo-401).
     if (t.body) card.body = t.body;
-    if (t.notes?.length) card.notes = t.notes;
-    if (t.comments?.length) card.comments = t.comments;
+    // kobo-538: notes/comments scale with a card's whole history (kobo-446 has 434
+    // notes → 1.5MB) — the room's lightweight card-ref preview (openCardModal in
+    // room.ts) only ever renders id/title/state/assignee/body, never notes/comments,
+    // so it opts OUT via includeNotes=false (?notes=0). The board's own detail modal
+    // (company.ts) still needs the full thread — unset/any-other-value keeps the
+    // original always-include behavior, so that caller needs no change.
+    if (includeNotes) {
+      if (t.notes?.length) card.notes = t.notes;
+      if (t.comments?.length) card.comments = t.comments;
+    }
   } else {
     // Bulk list fetch — slim derived fields only (kobo-401).
     if (t.notes?.length) {
@@ -191,14 +199,20 @@ export function handleTaskDetailRequest(request: Request): Response {
   const company = url.searchParams.get("company");
   const id = url.searchParams.get("id");
   if (!company || !id) return Response.json({ ok: false, error: "company and id are required" }, { status: 400 });
+  // kobo-538: ?notes=0 opts OUT of notes/comments/childNotes — the room's card-ref
+  // preview modal (openCardModal) never renders them. Any other value (including
+  // absent, the default) keeps the original always-include behavior unchanged —
+  // the board's own detail modal (company.ts) needs the full thread and doesn't
+  // pass this param.
+  const includeNotes = url.searchParams.get("notes") !== "0";
   const resolveParent = parentStateResolver(company);
   const cards = listTasks(company);
   const t = cards.find((c) => c.id === id);
   if (!t) return Response.json({ ok: false, error: "not found" }, { status: 404 });
   const activity = lastActivityByOracle(company);
   const now = Date.now();
-  const card = toCard(t, resolveParent, cards, isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now), true) as TaskCard & { childNotes?: FamilyNote[] };
-  if (t.kind === "epic") {
+  const card = toCard(t, resolveParent, cards, isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now), true, includeNotes) as TaskCard & { childNotes?: FamilyNote[] };
+  if (includeNotes && t.kind === "epic") {
     const fam = familyNotes(t.id, cards);
     if (fam.length) card.childNotes = fam;
   }

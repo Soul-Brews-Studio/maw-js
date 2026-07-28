@@ -136,6 +136,48 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     expect(detail.task.body).toBe("# why\n- [ ] step a");
   });
 
+  test("kobo-538: ?notes=0 drops notes+comments (and epic childNotes) — the room's lightweight card-ref preview never renders them", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    const t = addTask({ company: "slim", title: "chatty card", by: "eq3", body: "the part the preview shows" });
+    claimTask("slim", t.id, "patchwork"); // → in-progress, assignee=patchwork
+    for (let i = 0; i < 5; i++) noteTask("slim", t.id, "eq3", "note " + i);
+    commentTask("slim", t.id, "eq3", "a comment");
+
+    const full = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=slim&id=" + t.id)).json()) as {
+      task: { body?: string; state?: string; assignee?: string; notes?: unknown[]; comments?: unknown[] };
+    };
+    expect(full.task.notes?.length).toBe(5); // default (no param) — unchanged, board's own modal still gets the full thread
+    expect(full.task.comments?.length).toBe(1);
+
+    const slim = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=slim&id=" + t.id + "&notes=0")).json()) as {
+      task: { body?: string; state?: string; assignee?: string; notes?: unknown[]; comments?: unknown[] };
+    };
+    // what the room's modal actually renders — must survive
+    expect(slim.task.body).toBe("the part the preview shows");
+    expect(slim.task.state).toBe("in-progress");
+    expect(slim.task.assignee).toBe("patchwork");
+    // what it never reads — must be gone, not just unused
+    expect("notes" in slim.task).toBe(false);
+    expect("comments" in slim.task).toBe(false);
+  });
+
+  test("kobo-538: ?notes=0 also drops the epic childNotes block (same over-fetch class)", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    const epic = addTask({ company: "slimepic", title: "parent", by: "eq3", kind: "epic" });
+    const child = addTask({ company: "slimepic", title: "kid", by: "eq3", epic: epic.id });
+    noteTask("slimepic", child.id, "eq3", "a child note");
+
+    const full = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=slimepic&id=" + epic.id)).json()) as {
+      task: { childNotes?: unknown[] };
+    };
+    expect(full.task.childNotes?.length).toBe(1);
+
+    const slim = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=slimepic&id=" + epic.id + "&notes=0")).json()) as {
+      task: { childNotes?: unknown[] };
+    };
+    expect("childNotes" in slim.task).toBe(false);
+  });
+
   // kobo-501 — front (%2) verified hands-on at 9259b61b that these two fields were
   // recorded by signTask but NEVER copied into toCard: `git grep -c
   // "EvidenceScope|SignedLocus" src/core/tasks/route.ts` was 0 hits. The card's own
