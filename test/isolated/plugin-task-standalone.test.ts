@@ -338,6 +338,36 @@ describe("task command plugin standalone boundary", () => {
     expect(lsBlock).toContain("renderBoardCompact(tasks, company, mine, hiddenDone, hiddenRejected)");
   });
 
+  // kobo-578 — overwriting an existing sign never refuses, but never happens
+  // silently either: signHistory (store.ts) preserves the prior sign, and a
+  // same-patch-id/weaker-evidence resign gets a louder DOWNGRADE banner.
+  // Behavioral coverage lives in plugin-task-sign-merge.test.ts (fully
+  // testable there via direct signTask() calls, no gh dependency); this pins
+  // that the CLI `sign` handler actually WIRES priorSignFor/isSignDowngrade in
+  // rather than silently overwriting, and that patchIdFetcher is injectable
+  // (kobo-546 lesson — no MAW_TEST_MODE branch around the fetch call itself).
+  test("sign always warns on an existing-tier overwrite, and injects a testable patch-id fetcher (kobo-578)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    const signStart = src.indexOf('subcmd === "sign"');
+    const signHistoryStart = src.indexOf('subcmd === "sign-history"');
+    expect(signHistoryStart).toBeGreaterThan(signStart); // the new read verb exists, right after sign
+    const signBlock = src.slice(signStart, signHistoryStart);
+    expect(signBlock).toContain("priorSignFor(before, role)");
+    expect(signBlock).toContain("overwriting existing");
+    expect(signBlock).toContain("isSignDowngrade(prior, evidenceScope, signedPatchId)");
+    expect(signBlock).toContain("DOWNGRADE");
+    expect(signBlock).toContain("signTask(company, id, me, role, signerPane, signedSha, evidenceScope, evidenceLocus, signedPatchId)");
+    // no MAW_TEST_MODE branch wraps the patch-id fetch itself (kobo-546) —
+    // tests must inject a stub instead, same contract as headShaFetcher (557)
+    expect(src).toContain("export function __setPatchIdFetcherForTest");
+    expect(src).toContain("export function __resetPatchIdFetcherForTest");
+    const fetcherBody = src.slice(src.indexOf("function realFetchPatchId"), src.indexOf("let patchIdFetcher"));
+    expect(fetcherBody).not.toContain("MAW_TEST_MODE");
+  });
+
   // kobo-576 — the `sign` command's own status message used to derive
   // "(mergeable)" from missingSignTiers alone (does a BY field exist), never
   // checking whether the tiers that signed agree on which commit they

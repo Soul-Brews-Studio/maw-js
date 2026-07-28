@@ -28,6 +28,7 @@ export type WorklogKind =
   | "claim-release"
   | "task-created"
   | "task-review"
+  | "task-sign-downgrade" // kobo-578: a re-sign at the SAME reviewed content (patch-id unchanged) with WEAKER evidence than what it replaced — split from task-review so it's greppable/alertable on its own
   | "task-done"
   | "task-rejected"
   | "task-archived"

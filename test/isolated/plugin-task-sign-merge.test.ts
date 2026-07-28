@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { runTask, __setHeadShaFetcherForTest, __resetHeadShaFetcherForTest, __setPrDiffFetcherForTest, __resetPrDiffFetcherForTest } from "../../src/vendor/mpr-plugins/task/index";
+import { runTask, __setHeadShaFetcherForTest, __resetHeadShaFetcherForTest, __setPrDiffFetcherForTest, __resetPrDiffFetcherForTest, __setPatchIdFetcherForTest, __resetPatchIdFetcherForTest } from "../../src/vendor/mpr-plugins/task/index";
 import {
   addTask,
   readTask,
@@ -14,6 +14,7 @@ import {
   formatSignEvidenceScope,
   signTask,
 } from "../../src/core/tasks/store";
+import { readWorklog, worklogPath, _resetWorklogCache } from "../../src/core/worklog/store";
 
 // kobo-327: merge-gate — the 2-sign anti-race funnel enforced in software.
 // In-process against runTask (the `maw company task` engine) + the store fns
@@ -56,6 +57,19 @@ beforeAll(() => {
   // stub here would silently crew-gate every card in this suite. Do not "tidy"
   // this back to an empty array — that's the gate quietly dying, not a cleanup.
   __setPrDiffFetcherForTest(() => [{ path: "docs/README.md", additions: 1, deletions: 0 }]);
+  // kobo-578 review round 1: same reasoning as the prDiffFetcher stub above —
+  // ~22 calls in this file link a PR then sign via the CLI, so without an
+  // injected stub `sign`'s `signedPatchId = before?.pr && before?.repo ?
+  // patchIdFetcher(...) : undefined` shells to a REAL `gh pr diff` + `git
+  // patch-id` every time (measured: +~13s on a 3-file run). Worse than slow:
+  // if `gh` fails/rate-limits on a runner with no auth, the fetcher returns
+  // undefined → isSignDowngrade always false → the feature silently no-ops
+  // while tests stay green (the exact kobo-546 shape this file's own other
+  // stub exists to avoid). Fixed non-varying value — the dedicated kobo-578
+  // downgrade-detection tests call signTask() directly with explicit patchId
+  // args, bypassing this fetcher entirely, so no test here needs the stub to
+  // vary its return value.
+  __setPatchIdFetcherForTest(() => "test-patch-id-stub");
 });
 afterAll(() => {
   if (prev === undefined) delete process.env.MAW_DATA_DIR;
@@ -67,6 +81,7 @@ afterAll(() => {
   if (prevTmux === undefined) delete process.env.TMUX; else process.env.TMUX = prevTmux;
   __resetHeadShaFetcherForTest(); // kobo-557: undo the injected stub — never leak into another test file
   __resetPrDiffFetcherForTest(); // kobo-546: undo the injected stub — never leak into another test file
+  __resetPatchIdFetcherForTest(); // kobo-578: same — never leak into another test file
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => { rmSync(join(dir, "companies", "kobo", "tasks"), { recursive: true, force: true }); });
@@ -785,5 +800,143 @@ describe("kobo-327 merge-gate: web route exposes sign state (Board Truth #7)", (
     expect(src).toContain("card.crewGate = true");
     expect(src).toContain("card.crewSignedBy");
     expect(src).toContain("card.headSignedBy");
+  });
+});
+
+// kobo-578 — overwriting an existing sign never refuses (4 legit re-signs
+// happened tonight already: 508/538/546/557), but it never happens silently
+// either. Two mechanisms: (1) signHistory — Nothing is Deleted, the sign about
+// to be replaced is snapshotted first (2) isSignDowngrade — a re-sign at the
+// SAME reviewed content (patch-id unchanged) with WEAKER evidence than what it
+// replaced gets flagged loudly. The unit is patch-id, NOT sha — corrected
+// mid-design because SHA moves when a sibling PR merges underneath with ZERO
+// diff change, which is exactly what happened to kobo-557 tonight
+// (ae80e699 → 36d7e5aa → 4a3548fb, same content, twice) — a sha-keyed
+// mechanism would have flagged both of THOSE re-signs as false-positive
+// downgrades, training everyone to ignore the real warning when it fires.
+describe("kobo-578 signHistory + patch-id downgrade detection", () => {
+  // the outer beforeEach only clears companies/kobo/tasks — worklog.jsonl is a
+  // sibling file it never touches, and several tests here assert EXACT
+  // task-sign-downgrade counts, so leftover events from an earlier test in
+  // this block (same kobo-1 id, reused every test) would false-positive.
+  // readWorklog caches by file size — a plain rmSync alone isn't enough if a
+  // deleted-then-rewritten file happens to land back on the SAME size, so
+  // reset the cache too (store.test.ts's own established pattern).
+  beforeEach(() => {
+    rmSync(worklogPath("kobo"), { force: true });
+    _resetWorklogCache();
+  });
+
+  test("re-signing a tier snapshots the PRIOR sign into signHistory before overwriting — nothing lost", () => {
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    signTask("kobo", "kobo-1", "patchwork", "head", null, "sha-1", "test-run", "loc-1", "patch-1");
+    const t = signTask("kobo", "kobo-1", "eq3", "head", null, "sha-2", "diff-read", undefined, "patch-2")!;
+    // current fields reflect the SECOND sign
+    expect(t.headSignedBy).toBe("eq3");
+    expect(t.headSignedSha).toBe("sha-2");
+    expect(t.headSignedEvidenceScope).toBe("diff-read");
+    // the FIRST sign is preserved, not erased
+    expect(t.signHistory?.length).toBe(1);
+    expect(t.signHistory![0]).toMatchObject({
+      role: "head", by: "patchwork", sha: "sha-1", patchId: "patch-1", evidenceScope: "test-run", evidenceLocus: "loc-1",
+    });
+  });
+
+  test("signHistory accumulates across multiple re-signs of the SAME tier, oldest first", () => {
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    signTask("kobo", "kobo-1", "a", "head", null, "sha-1", "undeclared", undefined, "patch-1");
+    signTask("kobo", "kobo-1", "b", "head", null, "sha-2", "diff-read", undefined, "patch-2");
+    const t = signTask("kobo", "kobo-1", "c", "head", null, "sha-3", "test-run", "loc-3", "patch-3")!;
+    expect(t.signHistory?.map((h) => h.by)).toEqual(["a", "b"]);
+    expect(t.headSignedBy).toBe("c"); // only the current pointer moved, history is append-only
+  });
+
+  test("a first-ever sign on a tier has no prior — signHistory stays empty", () => {
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    const t = signTask("kobo", "kobo-1", "patchwork", "crew", null, "sha-1", "diff-read", undefined, "patch-1")!;
+    expect(t.signHistory ?? []).toEqual([]);
+  });
+
+  test("re-signing at the SAME patch-id with WEAKER evidence → downgrade (isSignDowngrade fires, distinct worklog kind emitted)", () => {
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    signTask("kobo", "kobo-1", "patchwork", "head", null, "sha-1", "test-run+mutation", "loc-1", "patch-SAME");
+    signTask("kobo", "kobo-1", "eq3", "head", null, "sha-2", "diff-read", undefined, "patch-SAME"); // same content, weaker claim
+    const wl = readWorklog("kobo");
+    const downgradeEvent = wl.find((e) => e.kind === "task-sign-downgrade" && e.task === "kobo-1");
+    expect(downgradeEvent).toBeTruthy();
+    expect(String((downgradeEvent as any).summary)).toContain("DOWNGRADE");
+  });
+
+  // The exact live shape from kobo-557 tonight: ancestry moved TWICE (a sibling
+  // PR merging underneath) while the reviewed diff never changed a single line.
+  // A sha-keyed mechanism would call this a downgrade at EVERY step even when
+  // evidence stayed constant or improved — the false-positive this design
+  // explicitly avoids by keying on patch-id instead.
+  test("kobo-557-shaped case: sha changes twice, patch-id constant, evidence UNCHANGED → never flagged a downgrade", () => {
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    signTask("kobo", "kobo-1", "reviewer", "crew", null, "ae80e699", "test-run+mutation", "loc-1", "patch-557");
+    signTask("kobo", "kobo-1", "reviewer", "crew", null, "36d7e5aa", "test-run+mutation", "loc-1", "patch-557"); // ancestry moved, re-signed same content
+    signTask("kobo", "kobo-1", "reviewer", "crew", null, "4a3548fb", "test-run+mutation", "loc-1", "patch-557"); // ancestry moved again
+    const wl = readWorklog("kobo");
+    const downgrades = wl.filter((e) => e.kind === "task-sign-downgrade" && e.task === "kobo-1");
+    expect(downgrades.length).toBe(0); // sha moved twice, content didn't — never a downgrade
+  });
+
+  test("kobo-557-shaped case, but evidence ALSO weakens at the constant patch-id → THAT is correctly flagged", () => {
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    signTask("kobo", "kobo-1", "reviewer", "crew", null, "ae80e699", "test-run+mutation", "loc-1", "patch-557");
+    signTask("kobo", "kobo-1", "reviewer", "crew", null, "36d7e5aa", "diff-read", undefined, "patch-557"); // same content, weaker claim this time
+    const wl = readWorklog("kobo");
+    const downgrades = wl.filter((e) => e.kind === "task-sign-downgrade" && e.task === "kobo-1");
+    expect(downgrades.length).toBe(1);
+  });
+
+  test("patch-id UNKNOWN on either side → never assumed same or different, no downgrade claim either way", () => {
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    signTask("kobo", "kobo-1", "patchwork", "head", null, "sha-1", "test-run+mutation", "loc-1"); // no patch-id fetched (gh failure, best-effort)
+    signTask("kobo", "kobo-1", "eq3", "head", null, "sha-2", "diff-read"); // also no patch-id
+    const wl = readWorklog("kobo");
+    expect(wl.filter((e) => e.kind === "task-sign-downgrade" && e.task === "kobo-1").length).toBe(0);
+  });
+
+  // kobo-578 review round 1 — the false-positive direction, undeclared/untested
+  // until now: a re-sign with WEAKER evidence at a genuinely DIFFERENT patch-id
+  // (real code change — the 4-times-a-day shape this card explicitly protects,
+  // "re-signed because the code changed") must NOT be flagged, since the old
+  // evidence is simply moot, not replaced-by-something-worse. Reviewer's own
+  // undeclared mutation (removing the `prior.patchId !== newPatchId` early
+  // return) turned this exact case into a false DOWNGRADE — this pins it.
+  test("different patch-id (real content change) + weaker evidence → NOT a downgrade, evidence is just moot", () => {
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    signTask("kobo", "kobo-1", "patchwork", "head", null, "sha-1", "test-run+mutation", "loc-1", "patch-A");
+    signTask("kobo", "kobo-1", "eq3", "head", null, "sha-2", "diff-read", undefined, "patch-B"); // real code change, weaker claim on the NEW code
+    const wl = readWorklog("kobo");
+    expect(wl.filter((e) => e.kind === "task-sign-downgrade" && e.task === "kobo-1").length).toBe(0);
+  });
+
+  test("sign CLI prints an overwrite notice on ANY re-sign of an already-signed tier, downgrade or not", async () => {
+    await task(["add", "c"]);
+    // a merged sibling PR (landed on alpha since this branch forked) now refuses
+    // sign with no PR linked — link one first, same pattern the rest of this file uses.
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    await signAs("eq3", "kobo-1", "head");
+    const r = await signAs("patchwork", "kobo-1", "head");
+    expect(r.output).toContain("overwriting existing head sign");
+    expect(r.output).toContain("eq3"); // names the PRIOR signer
+  });
+
+  test("sign-history <id> lists prior signs, oldest first; empty card says so plainly", async () => {
+    await task(["add", "c"]);
+    const empty = await run(["sign-history", "kobo-1", "--company", "kobo", "--from", "local:eq3"]);
+    expect(empty.output).toContain("no sign history");
+
+    // a merged sibling PR (landed on alpha since this branch forked) now refuses
+    // sign with no PR linked — link one first, same pattern the rest of this file uses.
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    await signAs("eq3", "kobo-1", "head");
+    await signAs("patchwork", "kobo-1", "head");
+    const r = await run(["sign-history", "kobo-1", "--company", "kobo", "--from", "local:eq3"]);
+    expect(r.output).toContain("head");
+    expect(r.output).toContain("eq3"); // the superseded signer shows up
   });
 });

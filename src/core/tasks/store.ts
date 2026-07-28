@@ -160,10 +160,17 @@ export interface TaskRecord {
   crewSignedTs?: number; // epoch ms
   crewSignedByPane?: string; // kobo-346: the tmux %pane-id that crew-signed (pane-grain identity — a v2 crew has many panes of ONE oracle; this binds the SIGNING pane). Live-resolved in the signer's shell → agent-settable → DEFENSE-IN-DEPTH, not airtight.
   crewSignedSha?: string; // kobo-400: the PR head SHA at crew-sign time (best-effort, `gh pr view --json headRefOid`) — binds WHAT was reviewed, not just when. Absent = a pre-kobo-400 sign (legacy, grandfathered at merge).
+  // kobo-578: the diff's OWN hash (`git patch-id --stable` on the PR diff) — unlike
+  // crewSignedSha, this is stable across a rebase/merge that moves ancestry without
+  // touching a single line (the common case: a sibling PR merges underneath this
+  // one). Used to tell "same reviewed content, new commit id" apart from "actually
+  // different code" when a tier gets re-signed.
+  crewSignedPatchId?: string;
   headSignedBy?: string; // kobo-327: oracle that head-signed (final gate before merge)
   headSignedTs?: number; // epoch ms
   headSignedByPane?: string; // kobo-346: the tmux %pane-id that head-signed (same pane-grain binding as crewSignedByPane)
   headSignedSha?: string; // kobo-400: the PR head SHA at head-sign time (same capture as crewSignedSha)
+  headSignedPatchId?: string; // kobo-578: same diff-hash capture as crewSignedPatchId, head tier
   // kobo-501: what JUSTIFIED the sign — a diff-read and a mutation-verified run look
   // identical on the board without this (kobo-482: one mutation artifact got counted
   // toward BOTH tiers because nothing recorded which tier actually produced it).
@@ -174,6 +181,12 @@ export interface TaskRecord {
   crewSignedEvidenceLocus?: string; // free text: worktree/path/command the evidence came from — REQUIRED (evidenceScopeViolation) whenever scope is "test-run" or above
   headSignedEvidenceScope?: SignEvidenceScope;
   headSignedEvidenceLocus?: string;
+  // kobo-578: every sign a tier EVER had, pushed here right before signTask
+  // overwrites the "current" scalar fields above. Nothing is Deleted — a
+  // re-sign moves the current-pointer forward, it never destroys what was
+  // there. There is deliberately no `unsign` verb; this is why one isn't
+  // needed — the prior sign is always still readable (`sign-history <id>`).
+  signHistory?: SignHistoryEntry[];
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -798,6 +811,28 @@ export type SignTier = "crew" | "head";
  */
 export type SignEvidenceScope = "undeclared" | "diff-read" | "test-run" | "test-run+mutation";
 
+// kobo-578: the canonical ORDER lives here once — the `sign` CLI validates
+// --evidence against this same array instead of hardcoding a second copy (the
+// whole session's recurring bug shape: a hand-maintained list drifting from its
+// real source).
+export const EVIDENCE_SCOPES: SignEvidenceScope[] = ["undeclared", "diff-read", "test-run", "test-run+mutation"];
+export function evidenceScopeRank(scope: SignEvidenceScope): number {
+  return EVIDENCE_SCOPES.indexOf(scope);
+}
+
+/** kobo-578: a snapshot of one tier's sign, either the CURRENT one (priorSignFor) or a superseded one (TaskRecord.signHistory). */
+export interface SignHistoryEntry {
+  role: SignTier;
+  by: string;
+  ts: number;
+  sha?: string;
+  patchId?: string;
+  evidenceScope: SignEvidenceScope;
+  evidenceLocus?: string;
+  pane?: string;
+  supersededTs: number; // when a NEW sign on the same tier overwrote this one
+}
+
 /**
  * The sign tiers a card must collect BEFORE it can be merged. Head is the final
  * gate on every gated card (single-tier = 1). A crew-cell card (`crewGate`) also
@@ -1003,6 +1038,39 @@ export function formatSignEvidenceScope(scope: SignEvidenceScope | undefined): s
   }
 }
 
+/** kobo-578: the CURRENT sign on a tier, in the same shape a history entry takes — null when that tier has never been signed. */
+export function priorSignFor(task: TaskRecord | null | undefined, role: SignTier): Omit<SignHistoryEntry, "supersededTs"> | null {
+  if (!task) return null;
+  const by = role === "crew" ? task.crewSignedBy : task.headSignedBy;
+  if (!by) return null;
+  return {
+    role,
+    by,
+    ts: (role === "crew" ? task.crewSignedTs : task.headSignedTs) ?? 0,
+    sha: role === "crew" ? task.crewSignedSha : task.headSignedSha,
+    patchId: role === "crew" ? task.crewSignedPatchId : task.headSignedPatchId,
+    evidenceScope: (role === "crew" ? task.crewSignedEvidenceScope : task.headSignedEvidenceScope) ?? "undeclared",
+    evidenceLocus: role === "crew" ? task.crewSignedEvidenceLocus : task.headSignedEvidenceLocus,
+    pane: role === "crew" ? task.crewSignedByPane : task.headSignedByPane,
+  };
+}
+
+/**
+ * kobo-578: true when a re-sign of the SAME reviewed content (patch-id
+ * unchanged) carries WEAKER evidence than what's already there. A SHA change
+ * alone is never enough to call this — ancestry moves (a sibling PR merging
+ * underneath this one) without the diff changing a single line, kobo-557 being
+ * the live example the card that opened this was built against — so the unit
+ * that decides "same review or not" is the diff's own hash, not the commit id
+ * it's currently attached to. Both patch-ids must be KNOWN to compare; either
+ * side missing means "can't tell" — never silently assumed same or different.
+ */
+export function isSignDowngrade(prior: Omit<SignHistoryEntry, "supersededTs"> | null, newScope: SignEvidenceScope, newPatchId: string | undefined): boolean {
+  if (!prior || !prior.patchId || !newPatchId) return false;
+  if (prior.patchId !== newPatchId) return false; // genuinely different content — the old evidence is moot, not a downgrade
+  return evidenceScopeRank(newScope) < evidenceScopeRank(prior.evidenceScope);
+}
+
 /**
  * Record a gate sign (crew or head). Idempotent — re-signing just refreshes who+ts
  * (no error, no duplicate). A crew sign self-marks the card `crewGate` so a card a
@@ -1019,10 +1087,19 @@ export function formatSignEvidenceScope(scope: SignEvidenceScope | undefined): s
  * BEFORE this and refuse on a non-null result (same pattern as `signPaneViolation`); this
  * function itself does not validate, so it stays a pure record-write, testable without
  * threading a refusal path through it.
+ *
+ * kobo-578: overwriting an existing sign on this tier NEVER refuses (last night alone,
+ * a legitimate re-sign-after-push happened 4 times) — but it never happens silently
+ * either. The sign about to be replaced is pushed onto `signHistory` first (Nothing is
+ * Deleted — this is also the answer to "why is there no unsign verb": overwriting
+ * doesn't erase, it just moves the current-pointer forward, so nothing needs undoing).
+ * `patchId` (when known — caller's best-effort `gh pr diff` piped through `git patch-id
+ * --stable`) is what `isSignDowngrade` uses to warn the CALLER loudly; this function
+ * itself only records, callers decide what to print (mirrors evidenceScopeViolation).
  */
 export function signTask(
   company: string, id: string, by: string, role: SignTier, pane?: string | null, sha?: string,
-  evidenceScope?: SignEvidenceScope, evidenceLocus?: string | null,
+  evidenceScope?: SignEvidenceScope, evidenceLocus?: string | null, patchId?: string,
 ): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
@@ -1030,11 +1107,16 @@ export function signTask(
   const signerPane = pane?.trim() || undefined; // kobo-346: the signing pane (%N), when known
   const scope: SignEvidenceScope = evidenceScope ?? "undeclared"; // kobo-501: never "diff-read" by default
   const locus = evidenceLocus?.trim() || undefined;
+  const prior = priorSignFor(task, role); // kobo-578: snapshot BEFORE overwrite
+  if (prior) {
+    task.signHistory = [...(task.signHistory ?? []), { ...prior, supersededTs: now }];
+  }
   if (role === "crew") {
     task.crewSignedBy = by;
     task.crewSignedTs = now;
     task.crewSignedByPane = signerPane; // kobo-346: bind the crew tier to its signing pane
     task.crewSignedSha = sha; // kobo-400: bind the crew tier to its reviewed commit
+    task.crewSignedPatchId = patchId; // kobo-578: bind the crew tier to its reviewed DIFF
     task.crewSignedEvidenceScope = scope; // kobo-501
     task.crewSignedEvidenceLocus = locus; // kobo-501
     task.crewGate = true; // a crew signing declares this a crew-tier card
@@ -1043,12 +1125,14 @@ export function signTask(
     task.headSignedTs = now;
     task.headSignedByPane = signerPane; // kobo-346: bind the head tier to its signing pane
     task.headSignedSha = sha; // kobo-400: bind the head tier to its reviewed commit
+    task.headSignedPatchId = patchId; // kobo-578: bind the head tier to its reviewed DIFF
     task.headSignedEvidenceScope = scope; // kobo-501
     task.headSignedEvidenceLocus = locus; // kobo-501
   }
   task.updatedTs = now;
   writeTaskRecord(task);
-  emit(task, by, "task-review", `sign ${task.id} (${role}): ${task.title}`);
+  const downgrade = isSignDowngrade(prior, scope, patchId);
+  emit(task, by, downgrade ? "task-sign-downgrade" : "task-review", `sign ${task.id} (${role}): ${task.title}${downgrade ? " [DOWNGRADE: weaker evidence at unchanged reviewed content]" : ""}`);
   return task;
 }
 
