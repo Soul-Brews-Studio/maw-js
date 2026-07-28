@@ -111,6 +111,32 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     expect(msgs[0].from).not.toBe("tony");
   });
 
+  // kobo-598 — crew reviewer's HOLD finding (card comment c2/c3): an id that resolves
+  // under NO company at all (findRoomCompany returns null) is the ORIGINAL kobo-245
+  // hey-relay-only contract — still delivers, deliberately not removed here. eq3's ruling
+  // (c3, option 2): the response must say so explicitly (persisted:false, relayOnly:true)
+  // rather than let a bare ok:true imply the turn was saved when it wasn't.
+  test("kobo-598: untracked room id (no company resolves) still relays — but the response says persisted:false, relayOnly:true", async () => {
+    const calls: string[][] = [];
+    const res = await post({ room: "no-such-room-xyz", to: "eq3", text: "hi", from: "tony" }, (a) => { calls.push(a); return { exited: Promise.resolve(0) }; });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; persisted?: boolean; relayOnly?: boolean; note?: string };
+    expect(json.ok).toBe(true); // relay is a real, kept capability — not flipped to failure
+    expect(json.persisted).toBe(false); // but the response must say nothing was saved
+    expect(json.relayOnly).toBe(true);
+    expect(json.note).toBeTruthy();
+    expect(calls).toHaveLength(1); // the nudge still fires — kobo-245 contract intact
+  });
+
+  test("kobo-598: a room that DOES resolve under a company reports persisted:true, relayOnly:false", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const res = await post({ room: "r", to: "eq3", text: "hi", from: "web", company: "kobo" }, noopSpawn);
+    const json = (await res.json()) as { ok: boolean; persisted?: boolean; relayOnly?: boolean };
+    expect(json.ok).toBe(true);
+    expect(json.persisted).toBe(true);
+    expect(json.relayOnly).toBe(false);
+  });
+
   test("send persists EXACTLY ONCE — the untagged nudge can't self-echo (kobo-260, finding #4)", async () => {
     await openR({ company: "kobo", room: "r", topic: "t" });
     const calls: string[][] = [];

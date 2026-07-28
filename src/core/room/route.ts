@@ -122,6 +122,13 @@ function resolveRoomTag(text: string, company: string | null, artifact: RoomArti
  * kobo-506: `nudgeTimeoutMs` bounds how long this waits on the nudge subprocess before
  * answering with `notified:false` anyway (default below) — injectable so a test can
  * exercise the timeout path in milliseconds instead of the real ceiling.
+ *
+ * kobo-598 (eq3 ruling, card comment c3): an untracked room id (no company resolves for
+ * it) keeps the original kobo-245 hey-relay-only contract — the turn still delivers, this
+ * is a real, used capability, not a bug to remove. But `ok:true` alone would say the same
+ * thing whether the turn was saved or not, so every success response now also carries
+ * `persisted`/`relayOnly` (+ a short `note` when relay-only) — "reached the person" and
+ * "saved to the room" are different facts and the caller must be able to tell them apart.
  */
 export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = defaultSpawn, nudgeTimeoutMs = 5000): Promise<Response> {
   let body: { room?: unknown; to?: unknown; text?: unknown; from?: unknown; company?: unknown };
@@ -160,6 +167,16 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
   if (artifact && artifact.status !== "open") {
     return Response.json({ ok: false, error: `room "${room}" is ${artifact.status} — replies are not accepted` }, { status: 403 });
   }
+  // kobo-598 (eq3 ruling, card comment c3): an untracked room id (no company resolves at
+  // all) keeps the original kobo-245 slice-1 hey-relay-only contract — the turn is still
+  // delivered, nothing here is removed. But the response must say so explicitly rather than
+  // let `ok:true` alone imply "saved," the same receipt-honesty shape as kobo-596 ("delivered"
+  // not meaning "reached") and this card's own persisted-write check above. `persisted` and
+  // `relayOnly` are threaded onto every success response below so the caller can always tell
+  // "reached the person" and "saved to the room" apart — they are NOT the same fact.
+  const persistenceFields = company
+    ? { persisted: true as const, relayOnly: false as const }
+    : { persisted: false as const, relayOnly: true as const, note: `room "${room}" is not tracked by any company — the turn was relayed but not saved; reopen it under a company to persist future turns` };
   try {
     // kobo-249 — persist the outbound turn NOW (source of truth), decoupled from delivery.
     // Only an OPEN room has an artifact (no company resolved → deliver but persist nothing,
@@ -195,7 +212,7 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     // needs a company (to resolve a lead); with none, drop the nudge rather than ever spawn
     // a denied literal.
     if (ROOM_TAG_DENY.has(bareName(target))) {
-      if (!company) return Response.json({ ok: true, room, to: null, skipped: true });
+      if (!company) return Response.json({ ok: true, room, to: null, skipped: true, ...persistenceFields });
       target = companyLead(company);
     }
     // kobo-260: nudge the lead with a PLAIN/UNTAGGED hey (no [room:<id>]) → the listener
@@ -233,12 +250,12 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     ]);
     clearTimeout(nudgeTimer); // whichever side won, the other must not keep a timer alive
     if (nudgeResult === "timeout") {
-      return Response.json({ ok: true, room, to: target, notified: false, notifyError: `nudge did not exit within ${nudgeTimeoutMs}ms — may still be running` });
+      return Response.json({ ok: true, room, to: target, notified: false, notifyError: `nudge did not exit within ${nudgeTimeoutMs}ms — may still be running`, ...persistenceFields });
     }
     if (nudgeResult !== 0) {
-      return Response.json({ ok: true, room, to: target, notified: false, notifyError: `nudge exited ${nudgeResult}` });
+      return Response.json({ ok: true, room, to: target, notified: false, notifyError: `nudge exited ${nudgeResult}`, ...persistenceFields });
     }
-    return Response.json({ ok: true, room, to: target });
+    return Response.json({ ok: true, room, to: target, ...persistenceFields });
   } catch (e) {
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "send failed" }, { status: 500 });
   }
