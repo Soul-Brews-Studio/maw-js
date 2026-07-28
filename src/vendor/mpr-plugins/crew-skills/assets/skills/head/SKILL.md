@@ -103,16 +103,26 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
    cat > ψ/active/head/comm-contract.md <<'EOF'
    <Comm Contract — §ล่าง>
    EOF
-   COMM=$(tmux split-window -h -P -F '#{pane_id}' \
+   # -v -b -t "$LEAD" -l 15% = แถบบางเหนือ lead. ห้ามใช้ -h: มันผ่า lead ครึ่งตามความกว้าง
+   # (วัดจริงที่ 200 คอลัมน์: lead 89 → 44 = 22%) และ resize -y แก้ความกว้างไม่ได้
+   COMM=$(tmux split-window -v -b -t "$LEAD" -l 15% -P -F '#{pane_id}' \
      'cd "'"$PWD"'" && MAW_ROOM_COMPANY="'"$CO_NAME"'" claude --model sonnet --dangerously-skip-permissions --append-system-prompt "$(cat ψ/active/head/comm-contract.md)"')
    ```
 3. **kick conductor + reviewer [+comm]** — `maw hey` (resolve index จาก pane-id) 1 บรรทัดต่อ pane: ชี้ lead pane-id + role + standby. (kick แรก = act จาก message แรก, ตาม crew)
 4. **offload lower tiers** — conductor spawn crew/worker-cell เมื่อ offload (ดู §Tiers · §Worker cell). worker-cell = /crew ตรงๆ. head cell เอง ≤4 pane.
-5. **layout** — **lead ใหญ่สุด (ล่างซ้าย, main-vertical 45%)** · conductor + reviewer กลางเท่ากัน (ขวา) — verb เซ็ตให้เองแล้ว (kobo-543, best-effort inside `headSpawn()`), **ไม่ต้องรัน tmux มือ**. เหลือแค่ comm (ถ้า opt-in — verb ไม่รู้จัก comm pane):
+5. **layout** — **lead ใหญ่สุด (ล่างซ้าย, main-vertical 45%)** · conductor + reviewer กลางเท่ากัน (ขวา) — verb เซ็ตให้เองแล้ว (kobo-543, best-effort inside `headSpawn()`), **ไม่ต้องรัน tmux มือ**. comm (ถ้า opt-in) แบ่งความสูงจาก lead ตอน spawn ใน §2 แล้ว (`-v -b -l 15%`) ⇒ **ไม่ต้อง resize อะไรเพิ่ม**.
+   ⚠️ **ห้าม `select-layout` ซ้ำหลัง comm เกิด** — `-b` แทรก comm ให้ index ต่ำกว่า lead ⇒ main-vertical เลือก **comm** เป็น main pane ซ้ายเต็มความสูง (วัดจริง: comm w=89 h=50) แล้วดัน **lead** ไปกอง stack ขวา (w=110 h=16) ⇒ ตรงข้ามกับที่ต้องการ. ถ้า layout เพี้ยน ให้ไปดูที่ lead ไม่ใช่หา comm ในกองขวา
+   **วัดซ้ำได้ (kobo-556 — เลือกวิธีนี้แทนเทสต์อัตโนมัติ เพราะ layout ขึ้นกับ geometry ของ terminal จริง เทสต์ที่ mock tmux จะเขียวโดยไม่ได้พิสูจน์อะไร):**
    ```bash
-   # comm (ถ้า opt-in) ย้ายซ้อนเหนือ lead แถบบาง:
-   [ -n "$COMM" ] && tmux resize-pane -t "$COMM" -y 15%   # comm สูงแค่ ~15% — best-effort
+   S=tmp-headsplit-$$; tmux new-session -d -s "$S" -x 200 -y 50 'sleep 300'
+   L=$(tmux list-panes -t "$S" -F '#{pane_id}')
+   tmux split-window -h -t "$L" 'sleep 300'; tmux split-window -h -t "$L" 'sleep 300'   # = headSpawn
+   tmux set-window-option -t "$S" main-pane-width 45%; tmux select-layout -t "$S" main-vertical
+   tmux split-window -v -b -t "$L" -l 15% 'sleep 300'                                    # = comm
+   tmux list-panes -t "$S" -F '#{pane_id} w=#{pane_width} h=#{pane_height}'
+   tmux kill-session -t "$S"    # ⚠️ target ต้องไม่ว่าง — `-t ''` = ฆ่า session ตัวเอง (kobo-362)
    ```
+   วัดจริง (tmux บน m5, 2026-07-28): **200 คอลัมน์ → lead w=89 (45%) h=42 · comm w=89 h=7 · conductor/reviewer w=110** · 160 → lead 71 (44%) · 120 → lead 53 (44%) ⇒ สัดส่วนคงที่ ไม่ใช่ถูกเฉพาะ 200
    **@role labels** (⚠️ อย่าใช้ `select-pane -T` — CC ยิง title ทับ):
    ```bash
    tmux set-option -p -t "$LEAD" @role "👤 lead";  tmux set-option -p -t "$COND" @role "🎼 conductor"
