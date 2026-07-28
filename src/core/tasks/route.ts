@@ -24,6 +24,9 @@ export interface TaskCard {
   assignee: string | null;
   repo?: string;
   pr?: number;
+  prMergeable?: string; // kobo-594: raw GitHub mergeable value ("MERGEABLE"|"CONFLICTING"|"UNKNOWN") — absent = never successfully checked, must not read as ready
+  prMergeStateStatus?: string; // kobo-594: raw GitHub mergeStateStatus value — richer than prMergeable alone
+  prMergeCheckedTs?: number; // kobo-594: epoch ms of the last successful check — lets the UI show staleness, not just a value
   block?: TaskRecord["block"]; // off-flow block {kind,reason,for} (ADR 0003 B)
   reviewer?: string;
   crewGate?: boolean; // kobo-327: merge needs a crew pre-sign too (crew-cell card)
@@ -88,6 +91,15 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   };
   if (t.repo) card.repo = t.repo;
   if (t.pr) card.pr = t.pr;
+  // kobo-594: pass through whatever's REALLY stored, including absent — same
+  // discipline as the sign-evidence fields below (kobo-501 comment) — a card whose
+  // PR mergeable state was never successfully checked must stay visibly absent
+  // here, never defaulted, so the UI can't accidentally read "no data" as "clean".
+  if (t.prMergeable) {
+    card.prMergeable = t.prMergeable;
+    card.prMergeStateStatus = t.prMergeStateStatus;
+    card.prMergeCheckedTs = t.prMergeCheckedTs;
+  }
   if (t.block) card.block = t.block;
   // kobo-328: expose the RESOLVED reviewer (never the executor) so the board shows
   // who's ACTUALLY up to review — UI↔CLI parity (Board Truth #7). Falls to "human"

@@ -147,6 +147,11 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
     const surfaces = pluginNonCliSurfaces(headlessPlugin);
     console.error(`\x1b[31m✗\x1b[0m '${args[0]}' is installed but has no CLI command.`);
     if (surfaces.length > 0) console.error(`  surfaces: ${surfaces.join(", ")}`);
+    // kobo-581: a headless plugin's manifest.description is the author's own
+    // words for where its real surface lives (e.g. task's says "invoked by
+    // `maw company task`") — print it when present so this generic message
+    // doesn't read as "the command doesn't exist" for every headless plugin.
+    if (headlessPlugin.manifest.description) console.error(`  ${headlessPlugin.manifest.description}`);
     console.error(`  Run: maw plugin ls -v`);
     throw new UserError(`headless plugin: ${args[0]}`);
   }

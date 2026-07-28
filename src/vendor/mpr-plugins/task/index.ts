@@ -1556,11 +1556,13 @@ export async function runTask(
         console.log(`  \x1b[90m${o.company}/${o.id}\x1b[0m ${o.from}→${o.to} \x1b[90m(${o.action})\x1b[0m`);
       }
     } else {
-      // kobo-578 adds only `sign-history` here — this list is already missing
-      // sign/merge/deployed/approve/need-answer/reject/next-ready (kobo-581,
-      // a separate in-flight fix); not duplicating that fix here to avoid two
-      // PRs racing the same line.
-      return { ok: false, error: "usage: maw company task <add|ls|start|move|claim|assign|ask|mentions|comment|comments|migrate-comments|migrate-lanes|review|hold|pr|sign-history|done|note|edit|epic|dep|decompose|archive|block|unblock> — see maw task for flags" };
+      // kobo-581: this list must match every dispatch branch above — pinned by
+      // test/isolated/plugin-task-standalone.test.ts, which derives the real
+      // verb list from THIS source file rather than hardcoding a second copy.
+      // kobo-578 (merged into alpha after this branch forked): added the
+      // `sign-history` read verb right after `pr`, matching where 578's own
+      // usage string placed it — combined here on reconcile, not duplicated.
+      return { ok: false, error: "usage: maw company task <add|ls|next-ready|start|move|claim|assign|done|deployed|reject|review|hold|approve|need-answer|pr|sign-history|sign|merge|archive|block|unblock|note|edit|epic|dep|decompose|ask|mentions|comment|comments|migrate-comments|migrate-lanes> — see maw task for flags" };
     }
 
     return { ok: true };
