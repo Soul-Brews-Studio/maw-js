@@ -865,27 +865,47 @@ function closeMermaidModal() {
 // the wrong instance's defs. Rewrite every id in the CLONE to a fresh one
 // before it's inserted, fixing up every attribute that pointed at the old id.
 let mermaidCloneIdSeq = 0;
-const SVG_ID_REF_ATTRS = ['fill', 'stroke', 'marker-start', 'marker-mid', 'marker-end', 'clip-path', 'mask', 'href'];
+// kobo-513: the previous fixed attribute-name list (fill/stroke/marker-*/
+// clip-path/mask/href) missed filter, inline style="...url(#x)...", and
+// xlink:href — and even for names ALREADY on the list, a mutation test
+// proved nothing was actually watching whether the list stayed complete
+// (deleting 'href' from it left every test green). Matching by the VALUE'S
+// SHAPE instead closes both gaps at once — url(#id) is unambiguous SVG
+// reference syntax on ANY attribute (paint servers, filter, inline style,
+// no name list to maintain or fall out of sync). A BARE #id value is
+// ambiguous — href="#section-2" is a REAL hyperlink on an anchor element,
+// not an id reference — so bare-hash rewriting is restricted to href/
+// xlink:href AND excludes the anchor tag (kobo-513's main risk is
+// over-matching a real link, not under-matching a reference).
+const BARE_HASH_REF_ATTRS = new Set(['href', 'xlink:href']);
 function dedupeSvgIds(svgNode) {
-  // querySelectorAll only searches DESCENDANTS — mermaid's root <svg> carries
-  // its own id (the 'mmd-N' render id), which would otherwise be skipped.
-  const idEls = [...svgNode.querySelectorAll('[id]')];
-  if (svgNode.getAttribute('id')) idEls.push(svgNode);
-  if (!idEls.length) return svgNode;
+  const allEls = [svgNode, ...svgNode.querySelectorAll('*')];
   const idMap = new Map();
-  for (const el of idEls) {
+  for (const el of allEls) {
     const oldId = el.getAttribute('id');
+    if (oldId == null) continue;
     const newId = oldId + '-clone' + (mermaidCloneIdSeq++);
     idMap.set(oldId, newId);
     el.setAttribute('id', newId);
   }
-  for (const el of svgNode.querySelectorAll('*')) {
-    for (const attr of SVG_ID_REF_ATTRS) {
-      const val = el.getAttribute(attr);
+  if (!idMap.size) return svgNode;
+
+  for (const el of allEls) {
+    for (const attrName of el.getAttributeNames()) {
+      const val = el.getAttribute(attrName);
       if (!val) continue;
-      for (const [oldId, newId] of idMap) {
-        if (val === '#' + oldId) { el.setAttribute(attr, '#' + newId); break; }
-        if (val === 'url(#' + oldId + ')') { el.setAttribute(attr, 'url(#' + newId + ')'); break; }
+
+      if (val.indexOf('url(#') !== -1) {
+        const rewritten = val.replace(/url\\(#([^)]+)\\)/g, (whole, oldId) => {
+          const newId = idMap.get(oldId);
+          return newId ? 'url(#' + newId + ')' : whole;
+        });
+        if (rewritten !== val) { el.setAttribute(attrName, rewritten); continue; }
+      }
+
+      if (BARE_HASH_REF_ATTRS.has(attrName) && el.tagName !== 'a' && val.charAt(0) === '#') {
+        const newId = idMap.get(val.slice(1));
+        if (newId) el.setAttribute(attrName, '#' + newId);
       }
     }
   }

@@ -486,7 +486,7 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     const start = html.indexOf("function openMermaidModal");
     const end = html.indexOf("// ── wire", start);
     const src = html.slice(start, end);
-    return new Function("$", `${src}; return { openMermaidModal, closeMermaidModal, onThreadClick };`)((id: string) => elements[id]);
+    return new Function("$", `${src}; return { openMermaidModal, closeMermaidModal, onThreadClick, dedupeSvgIds };`)((id: string) => elements[id]);
   }
   // kobo-426: openMermaidModal now reads document.activeElement and calls
   // $('mmdModalClose').focus() — every modal test needs a close-button fake
@@ -504,17 +504,22 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     try { fn(); } finally { (globalThis as any).document = prevDoc; }
   }
 
-  // kobo-426 — minimal fake SVG element with a real attribute API (getAttribute/
-  // setAttribute/id) and querySelectorAll('[id]' | '*'). onThreadClick now
-  // ALWAYS runs cloned svg nodes through dedupeSvgIds, so every test that
-  // clicks a thumbnail needs an svg stand-in with at least this much of a
-  // real API, not just a bare {tag} stub.
-  function fakeSvgEl(attrs: Record<string, string> = {}, children: any[] = []): any {
+  // kobo-426/513 — minimal fake SVG element with a real attribute API
+  // (getAttribute/setAttribute/getAttributeNames/tagName) and
+  // querySelectorAll('[id]' | '*'). onThreadClick now ALWAYS runs cloned svg
+  // nodes through dedupeSvgIds, so every test that clicks a thumbnail needs
+  // an svg stand-in with at least this much of a real API, not just a bare
+  // {tag} stub. kobo-513: dedupeSvgIds now walks getAttributeNames() (any
+  // attribute, not a fixed list) and checks tagName (to exclude real <a>
+  // hyperlinks from id-reference rewriting) — both added here.
+  function fakeSvgEl(attrs: Record<string, string> = {}, children: any[] = [], tagName = "g"): any {
     const el: any = {
       _attrs: { ...attrs },
       _children: children,
+      tagName,
       getAttribute(name: string) { return name in this._attrs ? this._attrs[name] : null; },
       setAttribute(name: string, val: string) { this._attrs[name] = val; },
+      getAttributeNames() { return Object.keys(this._attrs); },
       querySelectorAll(sel: string) {
         const out: any[] = [];
         const walk = (node: any) => {
@@ -527,7 +532,7 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
         return out;
       },
       cloneNode(deep: boolean) {
-        return fakeSvgEl({ ...el._attrs }, deep ? el._children.map((c: any) => c.cloneNode(true)) : []);
+        return fakeSvgEl({ ...el._attrs }, deep ? el._children.map((c: any) => c.cloneNode(true)) : [], tagName);
       },
     };
     return el;
@@ -616,6 +621,82 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(clonedMarker.getAttribute("id")).not.toBe("mmd-3_arrow"); // marker got a fresh id too
     expect(clonedPath.getAttribute("marker-end")).toBe("url(#" + clonedMarker.getAttribute("id") + ")"); // reference follows the SAME new id
     expect(clonedPath.getAttribute("marker-end")).not.toBe("url(#mmd-3_arrow)"); // never left dangling on the old one
+  });
+
+  // kobo-513: the previous fixed attribute-name list (fill/stroke/marker-*/
+  // clip-path/mask/href) missed filter, inline style, and xlink:href — and a
+  // mutation test on kobo-426 proved even a name ALREADY on the list wasn't
+  // actually watched (deleting 'href' left every test green). These tests
+  // exercise dedupeSvgIds directly (extracted via loadMermaidModal) rather
+  // than going through the whole onThreadClick/modal wiring each time.
+  function dedupeElements() {
+    const { mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    return { mmdModalContent, mermaidModal, mmdModalClose };
+  }
+
+  test("kobo-513: a filter=\"url(#id)\" reference is rewritten — not on the old fixed attribute list at all", () => {
+    const { dedupeSvgIds } = loadMermaidModal(dedupeElements());
+    const target = fakeSvgEl({ id: "blur1" });
+    const shape = fakeSvgEl({ filter: "url(#blur1)" });
+    const svg = fakeSvgEl({ id: "root" }, [target, shape]);
+    const clone = dedupeSvgIds(svg.cloneNode(true));
+    const [clonedTarget, clonedShape] = clone._children;
+    expect(clonedShape.getAttribute("filter")).toBe("url(#" + clonedTarget.getAttribute("id") + ")");
+  });
+
+  test("kobo-513: an inline style=\"fill:url(#id)\" reference is rewritten — value-pattern matching works inside a style STRING, not just a whole-value attribute", () => {
+    const { dedupeSvgIds } = loadMermaidModal(dedupeElements());
+    const grad = fakeSvgEl({ id: "grad1" });
+    const shape = fakeSvgEl({ style: "fill:url(#grad1); stroke:#000" });
+    const svg = fakeSvgEl({ id: "root" }, [grad, shape]);
+    const clone = dedupeSvgIds(svg.cloneNode(true));
+    const [clonedGrad, clonedShape] = clone._children;
+    expect(clonedShape.getAttribute("style")).toBe("fill:url(#" + clonedGrad.getAttribute("id") + "); stroke:#000");
+  });
+
+  test("kobo-513: xlink:href=\"#id\" is rewritten on a non-anchor element (e.g. <use>) — a SEPARATE set entry from href, its own guard", () => {
+    const { dedupeSvgIds } = loadMermaidModal(dedupeElements());
+    const orig = fakeSvgEl({ id: "path1" });
+    const use = fakeSvgEl({ "xlink:href": "#path1" }, [], "use");
+    const svg = fakeSvgEl({ id: "root" }, [orig, use]);
+    const clone = dedupeSvgIds(svg.cloneNode(true));
+    const [clonedOrig, clonedUse] = clone._children;
+    expect(clonedUse.getAttribute("xlink:href")).toBe("#" + clonedOrig.getAttribute("id"));
+  });
+
+  test("kobo-513: href=\"#id\" is rewritten on a non-anchor element (e.g. <use>) — a SEPARATE set entry from xlink:href, its own guard", () => {
+    const { dedupeSvgIds } = loadMermaidModal(dedupeElements());
+    const orig = fakeSvgEl({ id: "path1" });
+    const use = fakeSvgEl({ href: "#path1" }, [], "use");
+    const svg = fakeSvgEl({ id: "root" }, [orig, use]);
+    const clone = dedupeSvgIds(svg.cloneNode(true));
+    const [clonedOrig, clonedUse] = clone._children;
+    expect(clonedUse.getAttribute("href")).toBe("#" + clonedOrig.getAttribute("id"));
+  });
+
+  test("kobo-513: a brand-new attribute name never seen before, whose value is url(#id), is still handled — no code change needed for an unknown name", () => {
+    const { dedupeSvgIds } = loadMermaidModal(dedupeElements());
+    const mask = fakeSvgEl({ id: "mask1" });
+    const shape = fakeSvgEl({ "some-future-svg-attribute": "url(#mask1)" });
+    const svg = fakeSvgEl({ id: "root" }, [mask, shape]);
+    const clone = dedupeSvgIds(svg.cloneNode(true));
+    const [clonedMask, clonedShape] = clone._children;
+    expect(clonedShape.getAttribute("some-future-svg-attribute")).toBe("url(#" + clonedMask.getAttribute("id") + ")");
+  });
+
+  // 🔴 AC — the card's main risk: over-matching, not under-matching. A real
+  // hyperlink (<a href="#section-2">, e.g. a table-of-contents jump link
+  // somewhere in the document) uses the SAME bare "#id" syntax as an
+  // internal SVG reference — it must NEVER be rewritten just because its
+  // fragment happens to collide with an id this SVG also has.
+  test("kobo-513: a real hyperlink (<a href=\"#...\">) is NEVER rewritten, even when its fragment collides with an id in this SVG", () => {
+    const { dedupeSvgIds } = loadMermaidModal(dedupeElements());
+    const section = fakeSvgEl({ id: "section-2" }); // an unrelated element that happens to share the fragment's name
+    const link = fakeSvgEl({ href: "#section-2" }, [], "a"); // a REAL link, not an id reference
+    const svg = fakeSvgEl({ id: "root" }, [section, link]);
+    const clone = dedupeSvgIds(svg.cloneNode(true));
+    const [, clonedLink] = clone._children;
+    expect(clonedLink.getAttribute("href")).toBe("#section-2"); // untouched — real navigation, not an SVG id ref
   });
 
   // kobo-426 — closes the debt: #mermaidModal is aria-modal="true" (a promise
