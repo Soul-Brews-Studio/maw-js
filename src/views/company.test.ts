@@ -163,7 +163,14 @@ function loadRenderDetailSigns() {
 }
 function fakeDetailEl(tag) {
   const e = { tag, className: "", textContent: "", title: "", hidden: false, children: [] as any[] };
-  e.appendChild = (c: any) => { e.children.push(c); return c; };
+  // kobo-510 F2 (%109 review): a child span's text does NOT surface through this
+  // fake unless appendChild explicitly folds it in — unlike a real DOM node, this
+  // object's .textContent is just whatever string el() assigned at construction.
+  // Deliberately aggregating here (real <summary>.textContent DOES include
+  // descendant text) so the exact-toBe assertions below still see the full
+  // sentence when the warning moves into its own child element, instead of a
+  // silently-weakened assert passing on a truncated summary string.
+  e.appendChild = (c: any) => { e.children.push(c); if (c && typeof c.textContent === "string") e.textContent += c.textContent; return c; };
   e.replaceChildren = (...cs: any[]) => { e.children = cs; };
   return e;
 }
@@ -247,7 +254,15 @@ describe("renderDetailSigns (kobo-510) — real render path, not source-string a
   // stale commit, so the collapsed board showed zero warning). It now lives on the
   // SUMMARY line itself, exact-toBe pinned so the on-screen text can't silently
   // drift, plus its non-stale sibling below so a false positive would fail loudly.
-  test("stale-signature warning when crew and head signed DIFFERENT commits — on the SUMMARY line, visible without expanding", () => {
+  //
+  // %109 should-fix: a plain-text concat inherited .signs-summary's muted/fg colour
+  // (never red) — the warning must be its OWN element (`.sign-stale`, reused from
+  // the old div, now a <span>) so it carries var(--bad) regardless of the parent's
+  // collapsed/expanded colour. Assert BOTH: the full sentence still reads exactly
+  // right (text regression) AND the warning is a distinct child with the colorable
+  // class (structural regression — catches a future "simplify this" that goes back
+  // to a bare string).
+  test("stale-signature warning when crew and head signed DIFFERENT commits — on the SUMMARY line, visible without expanding, as its own colorable element", () => {
     const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-OLD", headSignedBy: "eq3", headSignedSha: "sha-NEW" });
     const summary = host.children[0].children[0];
     expect(summary.tag).toBe("summary");
@@ -255,8 +270,12 @@ describe("renderDetailSigns (kobo-510) — real render path, not source-string a
       "✍ 2 signed · crew: signed before evidence-tracking existed · head: signed before evidence-tracking existed"
       + " · ⚠ crew and head signed different commits — one tier reviewed stale code",
     );
-    // no separate collapsed-body div anymore — the warning is part of the summary string
-    expect(host.children[0].children.find((c: any) => c.className === "sign-stale")).toBeUndefined();
+    // structural: the warning is its own child element (carries var(--bad) via
+    // .sign-stale), not just concatenated text on the ambient-colour summary
+    const stale = summary.children.find((c: any) => c.className === "sign-stale");
+    expect(stale).toBeTruthy();
+    expect(stale.tag).toBe("span");
+    expect(stale.textContent).toContain("crew and head signed different commits");
   });
 
   test("no stale warning when both tiers signed the SAME commit (no false positive) — summary line has no trailing warning text", () => {

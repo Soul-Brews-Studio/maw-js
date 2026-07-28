@@ -325,7 +325,7 @@ function companyBody(): string {
     .sign-who { color:var(--fg); }
     .sign-pane, .sign-sha { color:var(--muted); }
     .sign-evidence { color:var(--ok); }
-    .sign-stale { color:var(--bad); font-size:var(--t-sm); margin-top:var(--s-2); }
+    .sign-stale { color:var(--bad); } /* kobo-510 F2: inline span in .signs-summary now, not a block div — own color always wins over the ancestor's muted/fg */
     /* kobo-190 — approve-lane decision block (human gate, gold like the lane). */
     #detail-approve[hidden] { display:none; }
     .approve-box { border:1px solid var(--link); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-5); background:var(--field-bg); }
@@ -1042,11 +1042,18 @@ function renderDetailSigns(task) {
   // NOT detect a PR head that has moved past a signature both tiers already agree on
   // (that gap is tracked separately — not this card, don't widen the claim here).
   const isStale = hasCrew && hasHead && task.crewSignedSha && task.headSignedSha && task.crewSignedSha !== task.headSignedSha;
-  const summaryText = '✍ ' + tierCount + ' signed · ' + summaryBits.join(' · ')
-    + (isStale ? ' · ⚠ crew and head signed different commits — one tier reviewed stale code' : '');
 
   const det = el('details', 'signs-detail');
-  det.appendChild(el('summary', 'signs-summary', summaryText));
+  // %109 review: the warning must stay ALARMING, not just visible — .signs-summary
+  // is var(--muted) collapsed / var(--fg) expanded either way, muted-to-normal, never
+  // red. A plain-text concatenation would inherit that colour and read as calm. The
+  // warning gets its OWN element (a bare-string own-color rule always wins over an
+  // inherited ancestor colour, so this stays var(--bad) in both collapsed and expanded
+  // states without touching the rest of the line's colour). Reuses .sign-stale — same
+  // class, now on a <span> instead of the old buried <div>.
+  const summary = el('summary', 'signs-summary', '✍ ' + tierCount + ' signed · ' + summaryBits.join(' · '));
+  if (isStale) summary.appendChild(el('span', 'sign-stale', ' · ⚠ crew and head signed different commits — one tier reviewed stale code'));
+  det.appendChild(summary);
   if (hasCrew) det.appendChild(signTierRow('crew', task.crewSignedBy, task.crewSignedByPane, task.crewSignedSha, task.crewSignedEvidenceScope));
   if (hasHead) det.appendChild(signTierRow('head', task.headSignedBy, task.headSignedByPane, task.headSignedSha, task.headSignedEvidenceScope));
   host.replaceChildren(det);
