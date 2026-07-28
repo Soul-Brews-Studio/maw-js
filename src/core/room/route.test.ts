@@ -353,9 +353,19 @@ describe("kobo-385: @tag overrides the hey target — POST /api/room/send direct
     const { calls, spawn } = spawnSpy();
     const res = await post({ room: "does-not-exist", to: "tony", text: "hi", from: "web" }, spawn);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { to: string | null; skipped?: boolean }).to).toBeNull();
+    const json = (await res.json()) as { to: string | null; skipped?: boolean };
+    expect(json.to).toBeNull();
     expect(calls).toHaveLength(0); // no lead to redirect to — dropped, never spawned
     expect(calls.flat()).not.toContain("tony");
+    // kobo-600: `skipped` was completely unpinned — reviewer measured that removing the
+    // field from the response left this exact test (and the whole suite) green. It's the
+    // ONLY signal that distinguishes "target denied, no company to fall back to, NOTHING
+    // was delivered" from a normal successful send — collapsing it away would make this
+    // case silently indistinguishable from a real send at the response-shape level, even
+    // though the delivery behavior above (calls.toHaveLength(0)) already proves nothing
+    // went out. Pinned on the FIELD explicitly, not just the delivery side-effect, so a
+    // future removal/inversion of `skipped` itself is caught here, not just "no crash."
+    expect(json.skipped).toBe(true);
   });
 
   test("unknown-room, non-denied `to` still routes fine (only denied literals are dropped)", async () => {
