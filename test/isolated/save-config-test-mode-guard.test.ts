@@ -18,7 +18,7 @@ import { runBunChild } from "./helpers/run-bun-child";
 function runScript(script: string, env: Record<string, string>): { code: number; stdout: string; stderr: string } {
   return runBunChild({
     script,
-    env: { ...process.env, ...env },
+    env,
   });
 }
 

@@ -8,7 +8,7 @@ function run(script: string, cwd: string, env: Record<string, string>) {
   return runBunChild({
     cwd,
     script,
-    env: { ...process.env, MAW_TEST_MODE: "1", MAW_QUIET: "1", ...env },
+    env: { MAW_TEST_MODE: "1", MAW_QUIET: "1", ...env },
   });
 }
 

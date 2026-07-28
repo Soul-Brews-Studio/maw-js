@@ -8,7 +8,6 @@ function runConfigChild(script: string, env: Record<string, string>) {
   return runBunChild({
     script,
     env: {
-      ...process.env,
       MAW_TEST_MODE: "1",
       MAW_QUIET: "1",
       ...env,

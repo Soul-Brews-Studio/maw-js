@@ -56,7 +56,7 @@ describe("plugin ls", () => {
     const result = runBunChild({
       script,
       cwd: REPO_ROOT,
-      env: { ...process.env, MAW_HOME: home, MAW_TEST_MODE: "1", MAW_QUIET: "1" },
+      env: { MAW_HOME: home, MAW_TEST_MODE: "1", MAW_QUIET: "1" },
     });
 
     expect(result.code).toBe(0);

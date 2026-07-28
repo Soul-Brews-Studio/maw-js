@@ -50,7 +50,7 @@ function runScript(
   env: Record<string, string>,
   opts: { testMode?: boolean } = {},
 ): { code: number; stdout: string; stderr: string } {
-  const baseEnv = { ...process.env, ...env };
+  const baseEnv: Record<string, string> = { ...env };
   if (opts.testMode === true) baseEnv.MAW_TEST_MODE = "1";
   if (opts.testMode === false) delete baseEnv.MAW_TEST_MODE;
   return runBunChild({ env: baseEnv, script });
@@ -329,6 +329,24 @@ describe("#913 — hostExec sees migrated host on next process boot", () => {
     );
     expect(second.stderr).not.toContain("legacy init bug (#906)");
   });
+});
+
+// ─── kobo-482 — this file's own runScript() built its baseEnv from
+// `...process.env` BEFORE handing it to runBunChild as opts.env, which
+// bypasses runBunChild's allow-list entirely (opts.env is spread after the
+// allow-list by design, so it wins) — the same ambient-leak bug the card
+// exists to kill, smuggled in through a caller that pre-mixes the ambient
+// shell into what it calls "declared" env. Caught in review (%5).
+test("kobo-482 — runScript() does not smuggle ambient shell env past runBunChild's allow-list", () => {
+  const poisonKey = "MAW_KOBO482_913_POISON";
+  process.env[poisonKey] = "leaked-from-ambient-shell";
+  try {
+    const { stdout } = runScript(`console.log("ENV:" + JSON.stringify(process.env));`, { MAW_HOME: "/tmp/whatever" });
+    const childEnv = JSON.parse(stdout.slice(stdout.indexOf("ENV:") + 4)) as Record<string, string>;
+    expect(childEnv).not.toHaveProperty(poisonKey);
+  } finally {
+    delete process.env[poisonKey];
+  }
 });
 
 // ─── (5) Source-level guard — the persist branch lives inside loadConfig ─────

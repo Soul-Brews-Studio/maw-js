@@ -52,6 +52,22 @@ try {
 }
 `;
 
+// kobo-482 — only what the child bun process itself needs to run at all
+// (find its own binary, resolve homedir, place tempfiles). Everything else
+// a test needs (MAW_HOME, MAW_TEST_MODE, CLAUDE_AGENT_NAME, ...) must be
+// passed explicitly via opts.env — never inherited from whatever happens to
+// be set in the shell that ran `bun test`.
+const CHILD_ENV_ALLOWLIST = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP"] as const;
+
+function allowlistedChildEnv(): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = {};
+  for (const key of CHILD_ENV_ALLOWLIST) {
+    const value = process.env[key];
+    if (value !== undefined) base[key] = value;
+  }
+  return base;
+}
+
 export function runBunChild(opts: {
   script: string;
   cwd?: string;
@@ -63,7 +79,7 @@ export function runBunChild(opts: {
     cwd: opts.cwd,
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...allowlistedChildEnv(),
       ...opts.env,
       MAW_CHILD_RESULT_FILE: resultFile,
       MAW_CHILD_SCRIPT_B64: Buffer.from(opts.script, "utf8").toString("base64"),
