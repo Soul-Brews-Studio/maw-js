@@ -131,6 +131,20 @@ export function roomHtml(): string {
     .mmd-modal-body svg { display:block; max-width:100%; height:auto; }
     .mmd-modal-close { position:absolute; top:10px; right:10px; background:var(--muted); border:1px solid var(--border); border-radius:8px; width:32px; height:32px; color:var(--fg); font-size:16px; line-height:1; }
     .mmd-modal-close:hover { filter:brightness(1.15); }
+    /* kobo-527: card-ref chip (message text "kobo-N" → clickable) + the modal
+       content it opens — same #mermaidModal instance the diagram zoom uses. */
+    .card-ref-chip { background:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:.9em; color:var(--human); }
+    .card-ref-chip:hover { filter:brightness(1.15); }
+    .card-ref-modal-title { font-size:1.1em; font-weight:700; margin-bottom:6px; }
+    .card-ref-modal-meta { color:var(--dim); font-size:.9em; margin-bottom:12px; }
+    /* card body markdown is outside .bubble, so it doesn't inherit .bubble .body's
+       code/pre/blockquote theming — a minimal same-look-and-feel copy, additive only. */
+    .card-ref-modal-body p { margin:4px 0; }
+    .card-ref-modal-body code { background:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:.9em; }
+    .card-ref-modal-body pre { background:var(--muted); border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; }
+    .card-ref-modal-body pre code { background:none; border:0; padding:0; }
+    .card-ref-modal-body blockquote { border-left:4px solid var(--danger); background:rgba(239,68,68,.12); color:var(--fg); margin:6px 0; padding:6px 12px; border-radius:0 6px 6px 0; }
+    .card-ref-modal-err { color:var(--danger); }
     .bubble .body a { color:var(--human); text-decoration:underline; }
     .bubble .body .note-img-link { display:inline-block; margin:4px 0; }
     .bubble .body .note-img { display:block; max-width:100%; max-height:320px; height:auto; border:1px solid var(--border); border-radius:9px; }
@@ -428,6 +442,71 @@ function linkifyDom(root) {
   }
 }
 
+// kobo-527 — "kobo-N" card refs in message text become a clickable chip that
+// opens the card in the SAME #mermaidModal instance the diagram zoom uses (no
+// second modal). Run AFTER linkifyDom: URL text is already wrapped in <a> by
+// then, so this pass's own closest('a') skip keeps a card number pasted
+// INSIDE a URL (the main over-match risk — this room pastes card numbers in
+// URLs and code blocks all day) from becoming a second, nested chip.
+// kobo-513 lesson: match by SHAPE (any word-ish-token + '-' + digits), not by
+// hardcoding this company's own "kobo-" prefix — the company check happens
+// at match time against the live company var, not baked into the regex, so
+// a differently-prefixed id from another company never turns into a chip
+// (kobo-527 Q3: same-company only, narrow first).
+const CARD_REF_RE = /\\b([a-zA-Z][a-zA-Z0-9]*)-(\\d+)\\b/g;
+function cardLinkify(container, text) {
+  CARD_REF_RE.lastIndex = 0;
+  let last = 0, m;
+  while ((m = CARD_REF_RE.exec(text))) {
+    if (m.index > last) container.appendChild(document.createTextNode(text.slice(last, m.index)));
+    const id = m[0], prefix = m[1];
+    if (company && prefix.toLowerCase() === company.toLowerCase()) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'card-ref-chip mono';
+      chip.textContent = id;
+      chip.setAttribute('data-card-id', id);
+      container.appendChild(chip);
+    } else {
+      container.appendChild(document.createTextNode(id));
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) container.appendChild(document.createTextNode(text.slice(last)));
+}
+function cardLinkifyDom(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    const p = n.parentElement;
+    if (p && (p.closest('a') || p.closest('code') || p.closest('pre'))) continue;
+    nodes.push(n);
+  }
+  for (const textNode of nodes) {
+    const frag = document.createDocumentFragment();
+    cardLinkify(frag, textNode.data);
+    textNode.replaceWith(frag);
+  }
+}
+async function openCardModal(id) {
+  const box = el('div', 'card-ref-modal');
+  const { body } = await getJson('/api/tasks/detail?company=' + encodeURIComponent(company) + '&id=' + encodeURIComponent(id));
+  const t = body && body.ok ? body.task : null;
+  if (!t) {
+    box.appendChild(el('div', 'card-ref-modal-err', 'card not found: ' + id));
+  } else {
+    box.appendChild(el('div', 'card-ref-modal-title', t.id + ' · ' + (t.title || '')));
+    box.appendChild(el('div', 'card-ref-modal-meta', 'state: ' + t.state + (t.assignee ? ' · assignee: ' + t.assignee : '')));
+    if (t.body) {
+      const bodyDiv = el('div', 'card-ref-modal-body body md');
+      bodyDiv.innerHTML = renderNoteBody(t.body); // same escape-first renderer as message bodies — same XSS guarantee
+      box.appendChild(bodyDiv);
+    }
+  }
+  openMermaidModal(box);
+}
+
 // kobo-398 — mermaid, lazy-loaded ONLY when a mermaid-fenced code block is
 // actually present (LAZY-BY-ABSENCE: a thread with no diagram never touches the
 // network for this asset). Same-origin asset (/assets/vendor/mermaid.js, new
@@ -609,6 +688,7 @@ async function loadThread() {
     const bodyEl = el('div', 'body md');
     bodyEl.innerHTML = renderNoteBody(m.text || '');
     linkifyDom(bodyEl);
+    cardLinkifyDom(bodyEl); // kobo-527: card-ref chips, after URL linkify so a card # pasted inside a link stays inert
     b.appendChild(bodyEl);
     thread.appendChild(b);
   }
@@ -920,6 +1000,8 @@ function dedupeSvgIds(svgNode) {
   return svgNode;
 }
 function onThreadClick(ev) {
+  const cardChip = ev.target.closest('.card-ref-chip');
+  if (cardChip) { openCardModal(cardChip.getAttribute('data-card-id')); return; }
   const thumb = ev.target.closest('.mermaid-thumb');
   if (!thumb) return;
   const svgEl = thumb.querySelector('svg');

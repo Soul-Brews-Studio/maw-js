@@ -114,14 +114,15 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     expect(html).toContain("createElement('a')");
   });
 
-  test("kobo-396/397/398: only 2 KNOWN innerHTML sinks — escape-first renderNoteBody + mermaid's own trusted SVG", () => {
+  test("kobo-396/397/398/527: only 3 KNOWN innerHTML sinks — escape-first renderNoteBody (x2) + mermaid's own trusted SVG", () => {
     expect(html).toContain("function mdToHtml"); // shared renderer (src/views/md.ts) injected verbatim
     expect(html).toContain("function escapeHtml");
     expect(html).toContain("function renderNoteBody"); // kobo-397: markdown + maw:// image-ref swap
-    expect(html).toContain("bodyEl.innerHTML = renderNoteBody(m.text || '')"); // sink 1: escape-first
+    expect(html).toContain("bodyEl.innerHTML = renderNoteBody(m.text || '')"); // sink 1: escape-first, message body
+    expect(html).toContain("bodyDiv.innerHTML = renderNoteBody(t.body)"); // sink 3 (kobo-527): SAME escape-first renderer, card-ref modal body
     expect(html).toContain("p.block.innerHTML = p.svg"); // sink 2: mermaid's OWN output (strict mode), not user text — one write site for both cache-hit and freshly-rendered
     const innerHtmlAssignments = (html.match(/\.innerHTML\s*=/g) || []).length;
-    expect(innerHtmlAssignments).toBe(2); // no OTHER innerHTML= sink anywhere in the view
+    expect(innerHtmlAssignments).toBe(3); // no OTHER innerHTML= sink anywhere in the view
   });
 
   // kobo-398 review fix (B3): check 11 (strict must be hardcoded, no flag/env
@@ -583,7 +584,7 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     const { content, modal, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
     const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
     const thumb = { querySelector: () => null };
-    const target = { closest: () => thumb };
+    const target = { closest: (sel: string) => (sel === ".mermaid-thumb" ? thumb : null) }; // kobo-527: onThreadClick now checks .card-ref-chip first — a selector-blind stub would wrongly match that branch too
     withModalGlobals({ focus() {} }, () => onThreadClick({ target }));
     expect(content.children).toEqual([]);
   });
@@ -954,6 +955,178 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
       expect(text).toContain("javascript:alert(2)"); // rejected protocol → inert text, never an href
     } finally {
       if (prevDoc === undefined) delete (globalThis as any).document; else (globalThis as any).document = prevDoc;
+    }
+  });
+
+  // kobo-527 — "kobo-N" card refs in message text → clickable chip that opens
+  // the card in the shared #mermaidModal instance. kobo-513 lesson applied:
+  // the main risk is OVER-matching (this room pastes card numbers in URLs and
+  // code blocks constantly), so these tests target that risk directly with
+  // the hardest cases, not just the happy path.
+  function loadCardLinkify() {
+    const start = html.indexOf("const CARD_REF_RE");
+    const end = html.indexOf("function cardLinkifyDom", start);
+    const src = html.slice(start, end);
+    return new Function(`${src}; return { cardLinkify };`)();
+  }
+  function loadCardLinkifyDom() {
+    const start = html.indexOf("const CARD_REF_RE");
+    const end = html.indexOf("async function openCardModal", start);
+    const src = html.slice(start, end);
+    return new Function(`${src}; return { cardLinkify, cardLinkifyDom };`)();
+  }
+  function stubCardDoc() {
+    return {
+      createTextNode: (text: string) => ({ kind: "text", text }),
+      createElement: (tag: string) => ({ kind: "el", tag, textContent: "", className: "", _attrs: {} as Record<string, string>, setAttribute(n: string, v: string) { this._attrs[n] = v; } }),
+    };
+  }
+  function withCardGlobals(companyVal: string, fn: () => void) {
+    const prevDoc = (globalThis as any).document;
+    const prevCompany = (globalThis as any).company;
+    (globalThis as any).document = stubCardDoc();
+    (globalThis as any).company = companyVal;
+    try { fn(); } finally {
+      (globalThis as any).document = prevDoc;
+      if (prevCompany === undefined) delete (globalThis as any).company; else (globalThis as any).company = prevCompany;
+    }
+  }
+
+  test("kobo-527: a card ref matching the CURRENT company becomes a clickable chip (button, not <a> — no real navigation target)", () => {
+    withCardGlobals("kobo", () => {
+      const { cardLinkify } = loadCardLinkify();
+      const container = { nodes: [] as any[], appendChild(n: any) { this.nodes.push(n); } };
+      cardLinkify(container, "see kobo-9 for detail");
+      const chips = container.nodes.filter((n) => n.kind === "el" && n.tag === "button");
+      expect(chips.length).toBe(1);
+      expect(chips[0].textContent).toBe("kobo-9");
+      expect(chips[0].className).toContain("card-ref-chip");
+      expect(chips[0]._attrs["data-card-id"]).toBe("kobo-9");
+    });
+  });
+
+  test("kobo-527 Q3 (narrow to same company first): a DIFFERENT company's card id never becomes a chip", () => {
+    withCardGlobals("kobo", () => {
+      const { cardLinkify } = loadCardLinkify();
+      const container = { nodes: [] as any[], appendChild(n: any) { this.nodes.push(n); } };
+      cardLinkify(container, "see eq3-9 and mawjs-3, not our card");
+      expect(container.nodes.filter((n) => n.kind === "el" && n.tag === "button").length).toBe(0);
+      const text = container.nodes.filter((n) => n.kind === "text").map((n: any) => n.text).join("");
+      expect(text).toContain("eq3-9");
+      expect(text).toContain("mawjs-3");
+    });
+  });
+
+  test("kobo-527: no company selected yet → never linkifies (defensive — nothing to scope the match to)", () => {
+    withCardGlobals("", () => {
+      const { cardLinkify } = loadCardLinkify();
+      const container = { nodes: [] as any[], appendChild(n: any) { this.nodes.push(n); } };
+      cardLinkify(container, "kobo-9");
+      expect(container.nodes.filter((n) => n.kind === "el" && n.tag === "button").length).toBe(0);
+    });
+  });
+
+  // kobo-513 pattern: over-match is the real risk, not under-match. A trailing
+  // word char blocks the match entirely (no partial chip on "kobo-9x"), and a
+  // token that merely LOOKS like <company>-N ("prekobo-9") is correctly
+  // rejected by the company check even though the shape matched.
+  test("kobo-527 (kobo-513 pattern, hardest case): word-boundary + company check both hold under adjacent text", () => {
+    withCardGlobals("kobo", () => {
+      const { cardLinkify } = loadCardLinkify();
+      const container = { nodes: [] as any[], appendChild(n: any) { this.nodes.push(n); } };
+      cardLinkify(container, "(kobo-9), kobo-9x, prekobo-9 done");
+      const chips = container.nodes.filter((n) => n.kind === "el" && n.tag === "button");
+      expect(chips.length).toBe(1); // only the clean "(kobo-9)" occurrence
+      expect(chips[0].textContent).toBe("kobo-9");
+      const text = container.nodes.filter((n) => n.kind === "text").map((n: any) => n.text).join("");
+      expect(text).toContain("kobo-9x"); // trailing word-char blocks the match — never a partial chip
+      expect(text).toContain("prekobo-9"); // shape matched, prefix didn't — stays plain text
+    });
+  });
+
+  function fakeTreeWalker(nodes: any[]) {
+    let i = 0;
+    return { nextNode: () => (i < nodes.length ? nodes[i++] : null) };
+  }
+  function fakeTextNode(data: string, parentElement: any) {
+    const node: any = { data, parentElement, replacedWith: null };
+    node.replaceWith = (frag: any) => { node.replacedWith = frag; };
+    return node;
+  }
+  function fakeParent(closestTags: Record<string, boolean>) {
+    return { closest: (sel: string) => (closestTags[sel] ? { tag: sel } : null) };
+  }
+
+  // kobo-513's actual review finding was exactly this shape: a mutation test
+  // proved the string was there but nothing was WATCHING it stay correct.
+  // This drives real text nodes through the real TreeWalker-walk + skip logic
+  // (not just a grep for the skip condition), so deleting the skip, or
+  // running cardLinkifyDom before linkifyDom, fails this test.
+  test("kobo-527 (kobo-513 pattern): cardLinkifyDom skips text already inside <a>/<code>/<pre> — the exact over-match risk this room hits daily (card # pasted inside a URL or code block)", () => {
+    const prevDoc = (globalThis as any).document;
+    const prevNF = (globalThis as any).NodeFilter;
+    const prevCompany = (globalThis as any).company;
+    (globalThis as any).NodeFilter = { SHOW_TEXT: 4 };
+    (globalThis as any).company = "kobo";
+    const plainNode = fakeTextNode("see kobo-9 for detail", fakeParent({}));
+    const inLinkNode = fakeTextNode("kobo-9", fakeParent({ a: true })); // e.g. inside a URL that happens to contain the card id
+    const inCodeNode = fakeTextNode("kobo-9", fakeParent({ code: true }));
+    const inPreNode = fakeTextNode("kobo-9", fakeParent({ pre: true }));
+    const nodes = [plainNode, inLinkNode, inCodeNode, inPreNode];
+    (globalThis as any).document = {
+      createTreeWalker: () => fakeTreeWalker(nodes),
+      createDocumentFragment: () => ({ kind: "frag", children: [] as any[], appendChild(c: any) { this.children.push(c); } }),
+      createTextNode: (t: string) => ({ kind: "text", text: t }),
+      createElement: (tag: string) => ({ kind: "el", tag, textContent: "", className: "", _attrs: {} as Record<string, string>, setAttribute(n: string, v: string) { this._attrs[n] = v; } }),
+    };
+    try {
+      const { cardLinkifyDom } = loadCardLinkifyDom();
+      cardLinkifyDom({}); // the fake TreeWalker ignores the root arg
+      expect(plainNode.replacedWith).not.toBe(null); // only the plain node was touched
+      expect(inLinkNode.replacedWith).toBe(null);
+      expect(inCodeNode.replacedWith).toBe(null);
+      expect(inPreNode.replacedWith).toBe(null);
+      const chipsInPlain = plainNode.replacedWith.children.filter((c: any) => c.kind === "el" && c.tag === "button");
+      expect(chipsInPlain.length).toBe(1); // and the plain one actually got a real chip, not just "was touched"
+    } finally {
+      (globalThis as any).document = prevDoc;
+      (globalThis as any).NodeFilter = prevNF;
+      if (prevCompany === undefined) delete (globalThis as any).company; else (globalThis as any).company = prevCompany;
+    }
+  });
+
+  test("kobo-527: card-ref chips run AFTER url linkify in the message render path (so a card # already wrapped in <a> by URL linkify is never double-linked)", () => {
+    const linkifyIdx = html.indexOf("linkifyDom(bodyEl)");
+    const cardLinkifyIdx = html.indexOf("cardLinkifyDom(bodyEl)");
+    expect(linkifyIdx).toBeGreaterThan(-1);
+    expect(cardLinkifyIdx).toBeGreaterThan(linkifyIdx);
+  });
+
+  test("kobo-527: clicking a card-ref chip opens the card in the SAME shared modal (no second modal instance)", async () => {
+    const { content, modal, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const prevDoc = (globalThis as any).document;
+    const prevCompany = (globalThis as any).company;
+    const prevEl = (globalThis as any).el;
+    const prevGetJson = (globalThis as any).getJson;
+    (globalThis as any).document = { activeElement: { focus() {} } };
+    (globalThis as any).company = "kobo";
+    (globalThis as any).el = (tag: string, cls?: string, txt?: string) => ({ tag, cls, textContent: txt, children: [] as any[], appendChild(c: any) { this.children.push(c); } });
+    (globalThis as any).getJson = async () => ({ body: { ok: true, task: { id: "kobo-9", title: "fix thing", state: "in-progress", assignee: "stitch" } } });
+    try {
+      const start = html.indexOf("const CARD_REF_RE");
+      const end = html.indexOf("// ── wire", start);
+      const src = html.slice(start, end);
+      const { onThreadClick } = new Function("$", `${src}; return { onThreadClick };`)((id: string) => ({ mmdModalContent, mermaidModal, mmdModalClose }[id]));
+      const chip = { getAttribute: (n: string) => (n === "data-card-id" ? "kobo-9" : null) };
+      const target = { closest: (sel: string) => (sel === ".card-ref-chip" ? chip : null) };
+      await onThreadClick({ target });
+      expect(content.children.length).toBe(1); // populated the SAME #mermaidModal content slot the diagram zoom uses
+      expect(modal.style.display).toBe(""); // and it's actually shown
+    } finally {
+      (globalThis as any).document = prevDoc;
+      if (prevCompany === undefined) delete (globalThis as any).company; else (globalThis as any).company = prevCompany;
+      if (prevEl === undefined) delete (globalThis as any).el; else (globalThis as any).el = prevEl;
+      if (prevGetJson === undefined) delete (globalThis as any).getJson; else (globalThis as any).getJson = prevGetJson;
     }
   });
 
