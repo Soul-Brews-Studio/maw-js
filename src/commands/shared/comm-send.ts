@@ -333,6 +333,51 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
 }
 
 /**
+ * kobo-586: parse the `[node:oracle]` attribution tag `formatSignedMessage`
+ * stamps onto an outgoing hey, if the given text starts with one. The ONE
+ * place that knows this tag's shape — worklog render (the inject block a
+ * receiving pane sees every turn) reuses this instead of re-deriving its own
+ * regex, so the two can never silently drift apart from each other.
+ *
+ * kobo-586 review round 1: this reads the sender AS DECLARED BY THE MESSAGE,
+ * never a system-verified sender. `formatSignedMessage` below only stamps a
+ * tag when the body doesn't already start with one (line 369ish,
+ * `if (parseSignedPrefix(body)) return message;`) — a message that already
+ * carries a `[node:oracle]` prefix passes through unmodified, so anyone can
+ * type a tag naming someone else and it reaches the receiver exactly as
+ * typed. Do not use a successful parse here as proof of who actually sent a
+ * message (same class of gap as the forge-actor issue in kobo-335).
+ *
+ * kobo-586 round 3 — a SUCCESSFUL PARSE is not proof this was ever a real
+ * sender tag either, separately from the forgery caveat above: the bracket
+ * shape `[word:word]` is reused by at least 4 other unrelated conventions in
+ * this fleet (a request-reply correlation id `[request:<id>]`, a brainstorm
+ * room marker `[room:<id>]`, a reply-context tag, and plain human habit like
+ * typing "Tony: subject" at the start of a message) — all of these parse here
+ * without error and would render as if a real node/oracle sent them. This
+ * function does NOT and cannot distinguish those from a genuine sender tag by
+ * shape alone (no fleet-wide node registry exists to validate against,
+ * measured: kobo-586's own investigation). That disambiguation is kobo-590's
+ * scope, not this function's — callers rendering this result as "sender" must
+ * carry the same caveat forward, not treat a non-null return as settled.
+ */
+export function parseSignedPrefix(text: string): { node: string; oracle: string; role?: string; rest: string } | null {
+  // kobo-586 review round 3 (eq3's AC, supersedes an earlier "oracle = rest of the
+  // bracket" shape): a crew cell has MULTIPLE panes of one oracle, distinguished by
+  // a ROLE typed after the oracle name (`[m5:eq3 conductor]`, `[m5:eq3 lead %0]`) —
+  // 837 real worklog rows carry this shape. The oracle segment itself must stop at
+  // the first space (①: sender = node:oracle only, never node:"eq3 conductor" as one
+  // string) — group 2 below. Anything after that space, up to the closing `]`, is
+  // captured SEPARATELY as `role` (②: must not disappear, must not flow into the
+  // message body — the caller renders it as its own badge next to the sender, never
+  // concatenated into `rest`). The closing `]` itself is consumed by the regex but
+  // captured by NEITHER group, so it can never leak into `rest` either (③).
+  const m = text.match(/^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/);
+  if (!m) return null;
+  return { node: m[1], oracle: m[2], role: m[3]?.trim() || undefined, rest: text.slice(m[0].length) };
+}
+
+/**
  * Visible internal federation attribution.
  *
  * Transport-level signing (`curlFetch(..., { from: "auto" })`) authenticates
@@ -353,7 +398,7 @@ export function formatSignedMessage(
   const body = message.slice(leading.length);
   if (!body) return message;
   if (body.startsWith("/") || body.startsWith("$")) return message;
-  if (/^\[[^\]\s:]+:[^\]]+\](?:\s|$)/.test(body)) return message;
+  if (parseSignedPrefix(body)) return message;
 
   const node = config.node || "local";
   return `${leading}[${node}:${senderName}] ${body}`;
