@@ -123,6 +123,56 @@ describe("Brainstorm Room core wire (kobo-245)", () => {
     expect(calls[0][calls[0].length - 1]).not.toContain("[room:"); // proves the nudge carries no tag to re-capture
   });
 
+  // kobo-598: room ids are NOT globally unique — confirmed live, both "kobo" and "demo"
+  // had an open "head-crew-skill" room. Every test above only ever seeds ONE company, so
+  // none of them could have caught this: findRoomCompany's first-match-across-every-company
+  // scan silently picks whichever company's rooms/ dir happens to be listed first, and the
+  // web turn lands there — while the human, looking at what they think is THEIR company's
+  // room, sees no change and a `ok:true` response that gives no hint anything went wrong.
+  test("kobo-598: explicit company in the body wins over a same-id room existing under a DIFFERENT company", async () => {
+    await openR({ company: "kobo", room: "same-id", topic: "t" });
+    seedCompanies(dir, { demo: "eq3demo" }); // additive — kobo from beforeEach stays registered
+    await openR({ company: "demo", room: "same-id", topic: "t" });
+
+    const res = await post({ room: "same-id", to: "eq3", text: "for kobo only", from: "web", company: "kobo" }, noopSpawn);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
+
+    const kobo = readRoom("kobo", "same-id")!;
+    const demo = readRoom("demo", "same-id")!;
+    expect(kobo.messages.map((m) => m.text)).toContain("for kobo only"); // landed where the caller said
+    expect(demo.messages.map((m) => m.text)).not.toContain("for kobo only"); // NOT in the same-id sibling
+  });
+
+  test("kobo-598: unknown company in the body → 404, no persist, no nudge", async () => {
+    await openR({ company: "kobo", room: "r", topic: "t" });
+    const calls: string[][] = [];
+    const res = await post({ room: "r", to: "eq3", text: "x", from: "web", company: "does-not-exist" }, (a) => { calls.push(a); return { exited: Promise.resolve(0) }; });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { ok: boolean }).ok).toBe(false);
+    expect(readRoom("kobo", "r")!.messages).toHaveLength(0); // nothing persisted
+    expect(calls).toEqual([]); // never reached the nudge
+  });
+
+  // kobo-598 AC: "Given persist fails, When responding, Then must NEVER answer ok:true" +
+  // "must NOT nudge" — appendRoomMessage returns null when the company resolves but no open
+  // artifact exists there for this room id (e.g. the room was only ever opened elsewhere).
+  // Previously that null return was discarded entirely; the handler fell through to ok:true
+  // and still spawned the nudge, exactly the receipt-lies-about-what-it-verified shape
+  // kobo-596 closed for `maw hey`. This is the mutation-provable case: the write is
+  // observably absent, so the response must say so and the nudge must never fire.
+  test("kobo-598: persist genuinely fails (company resolved, no artifact there) → ok:false, spawn never called", async () => {
+    // "kobo" is a real, registered company (companyExists passes) but "ghost-room" was
+    // never opened under it — appendRoomMessage's own existsSync(path) guard returns null.
+    const calls: string[][] = [];
+    const res = await post({ room: "ghost-room", to: "eq3", text: "x", from: "web", company: "kobo" }, (a) => { calls.push(a); return { exited: Promise.resolve(0) }; });
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as { ok: boolean; error?: string };
+    expect(json.ok).toBe(false);
+    expect(json.error).toContain("ghost-room");
+    expect(calls).toEqual([]); // the nudge must never fire on a failed persist
+  });
+
   test("Rule-6: the web side can't send AS a company oracle (no impersonating a teammate)", async () => {
     await openR({ company: "kobo", room: "r", topic: "t" });
     const res = await post({ room: "r", to: "eq3", text: "sneaky", from: "eq3" }, noopSpawn); // eq3 = kobo lead

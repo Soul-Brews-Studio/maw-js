@@ -793,7 +793,7 @@ async function send() {
   if (!text) return;
   $('send').disabled = true;
   try {
-    const res = await post('/api/room/send', { room: roomId, to: lead, text: text, from: 'web' }); // web turn tagged human (kobo-248)
+    const res = await post('/api/room/send', { room: roomId, to: lead, text: text, from: 'web', company: company }); // web turn tagged human (kobo-248); company explicit (kobo-598 — room ids collide across companies, e.g. "head-crew-skill" existed under both "kobo" and "demo")
     $('text').value = ''; autogrow();
     // kobo-506: the turn is saved either way (persist is decoupled from the nudge,
     // kobo-249) — but a failed nudge means the lead was never told, so say so distinctly
