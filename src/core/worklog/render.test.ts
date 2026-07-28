@@ -12,6 +12,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { renderLines, renderTimeline } from "./render";
+import { parseSignedPrefix } from "../../commands/shared/comm-send";
 import type { WorklogEntry } from "./types";
 
 function conversationEntry(overrides: Partial<WorklogEntry> = {}): WorklogEntry {
@@ -107,5 +108,89 @@ describe("worklog render — sender vs receiver (kobo-586)", () => {
     const e = conversationEntry({ oracle: "eq3", pane: "0", summary: "[m5:thawanban] hi" });
     const timeline = renderTimeline([e]);
     expect(timeline).toContain("m5:thawanban → eq3.0");
+  });
+});
+
+// kobo-586 round 3 — eq3's own AC, 3 mandatory points (①②③). A crew cell has
+// several panes of ONE oracle (conductor/lead/reviewer/worker); the ROLE typed
+// after the sender is what actually distinguishes them — 837 real worklog rows
+// carry this shape (`[m5:eq3 conductor]`, `[m5:eq3 lead %0]`, ...). ② and ③ are
+// the two failure modes that "pass silently" to a glance: the role text quietly
+// disappearing, or the closing `]` leaking into the message body.
+describe("worklog render — sender role badge, distinct from the message body (kobo-586 round 3)", () => {
+  // AC ①: the SENDER captured is node:oracle only — "conductor" must never end
+  // up glued onto the oracle name as part of the sender identity itself.
+  test("① sender is node:oracle only — the role never becomes part of the sender string", () => {
+    const e = conversationEntry({ summary: "[m5:eq3 conductor] Tony ขอเล่า flow case-study" });
+    const [rendered] = renderLines([e]);
+    const arrowIdx = rendered.indexOf(" → ");
+    const beforeArrow = rendered.slice(0, arrowIdx);
+    expect(beforeArrow).toContain("m5:eq3");
+    expect(beforeArrow).not.toContain("m5:eq3 conductor"); // role is not glued onto the sender id
+  });
+
+  // AC ②: the role must SURVIVE (not silently disappear) and must render as its
+  // own badge, NEVER get concatenated into the message body text (`tag.rest`).
+  test("② role survives as its own badge — does not vanish, does not flow into the message body", () => {
+    const e = conversationEntry({ summary: "[m5:eq3 conductor] Tony ขอเล่า flow case-study" });
+    const [rendered] = renderLines([e]);
+    expect(rendered).toContain("(conductor)"); // the role badge itself, not lost
+    const bodyIdx = rendered.indexOf("Tony ขอเล่า flow case-study");
+    expect(bodyIdx).toBeGreaterThan(-1); // real body text present
+    expect(rendered.slice(0, bodyIdx)).not.toMatch(/conductor\s*Tony/); // role never glued directly onto the body
+  });
+
+  test("② a multi-word role (\"lead %0\") survives whole, not truncated at the first space", () => {
+    const e = conversationEntry({ summary: "[m5:eq3 lead %0] promote pm1" });
+    const [rendered] = renderLines([e]);
+    expect(rendered).toContain("(lead %0)");
+    expect(rendered).toContain("promote pm1");
+  });
+
+  // AC ③: the closing `]` must NEVER leak into the message body — the exact
+  // trap of a role-capture group that doesn't bound tightly at `]`.
+  test("③ the closing ] never leaks into the message body, with or without a role", () => {
+    const withRole = conversationEntry({ summary: "[m5:eq3 conductor] hello there" });
+    expect(renderLines([withRole])[0]).not.toContain("]");
+
+    const withoutRole = conversationEntry({ summary: "[m5:eq3] hello there" });
+    expect(renderLines([withoutRole])[0]).not.toContain("]");
+  });
+
+  // No role present (plain `[node:oracle]`) — no badge, no stray parens, output
+  // unchanged from before this round (regression guard on the common case).
+  test("no role present → no badge rendered at all, not even empty parens", () => {
+    const e = conversationEntry({ summary: "[m5:eq3] ping" });
+    const [rendered] = renderLines([e]);
+    expect(rendered).not.toContain("()");
+    expect(rendered).toContain("m5:eq3 → ");
+  });
+});
+
+describe("parseSignedPrefix — role capture (kobo-586 round 3)", () => {
+  test("splits oracle (first word) from role (everything else inside the brackets)", () => {
+    expect(parseSignedPrefix("[m5:eq3 conductor] hi")).toEqual({ node: "m5", oracle: "eq3", role: "conductor", rest: "hi" });
+    expect(parseSignedPrefix("[m5:eq3 lead %0] hi")).toEqual({ node: "m5", oracle: "eq3", role: "lead %0", rest: "hi" });
+    expect(parseSignedPrefix("[m5:eq3] hi")).toEqual({ node: "m5", oracle: "eq3", role: undefined, rest: "hi" });
+  });
+
+  test("the closing ] is consumed by the match, captured by neither group — cannot structurally leak into rest", () => {
+    const withRole = parseSignedPrefix("[m5:eq3 conductor] rest text")!;
+    expect(withRole.role).not.toContain("]");
+    expect(withRole.rest).not.toContain("]");
+    const withoutRole = parseSignedPrefix("[m5:eq3] rest text")!;
+    expect(withoutRole.rest).not.toContain("]");
+  });
+
+  // kobo-586 round 3 — a role-capture group without `[^\]]` bounding (e.g. a
+  // naive `(\s.*)?` instead of `(\s[^\]]*)?`) would still PASS the test above
+  // (no other `]` in that input to expose the difference): a greedy `.*\]`
+  // backtracks to the LAST `]` in the string, so it only misbehaves when the
+  // message BODY itself contains a `]` after the tag closes — exactly the
+  // case a real message quoting code/JSON/a markdown link would hit.
+  test("③ the closing ] must bind to the TAG's own bracket, not backtrack into a ] later in the body", () => {
+    const parsed = parseSignedPrefix("[m5:eq3 conductor] see kobo[123] for detail")!;
+    expect(parsed.role).toBe("conductor"); // not "conductor] see kobo[123"
+    expect(parsed.rest).toBe("see kobo[123] for detail"); // body's own bracket stays intact
   });
 });
