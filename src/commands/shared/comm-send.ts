@@ -333,6 +333,19 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
 }
 
 /**
+ * kobo-586: parse the `[node:oracle]` attribution tag `formatSignedMessage`
+ * stamps onto an outgoing hey, if the given text starts with one. The ONE
+ * place that knows this tag's shape — worklog render (the inject block a
+ * receiving pane sees every turn) reuses this instead of re-deriving its own
+ * regex, so the two can never silently drift apart from each other.
+ */
+export function parseSignedPrefix(text: string): { node: string; oracle: string; rest: string } | null {
+  const m = text.match(/^\[([^\]\s:]+):([^\]]+)\](?:\s|$)/);
+  if (!m) return null;
+  return { node: m[1], oracle: m[2], rest: text.slice(m[0].length) };
+}
+
+/**
  * Visible internal federation attribution.
  *
  * Transport-level signing (`curlFetch(..., { from: "auto" })`) authenticates
@@ -353,7 +366,7 @@ export function formatSignedMessage(
   const body = message.slice(leading.length);
   if (!body) return message;
   if (body.startsWith("/") || body.startsWith("$")) return message;
-  if (/^\[[^\]\s:]+:[^\]]+\](?:\s|$)/.test(body)) return message;
+  if (parseSignedPrefix(body)) return message;
 
   const node = config.node || "local";
   return `${leading}[${node}:${senderName}] ${body}`;

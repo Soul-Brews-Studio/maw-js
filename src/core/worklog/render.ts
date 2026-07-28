@@ -5,8 +5,19 @@
  *   10:08  💬 worker  Tony: keep the hash field
  *   10:09  ⛏  worker  claim: fix #123
  *   10:15  ✓  worker  merged #123 (by tony)
+ *
+ * kobo-586: a `conversation` entry's own oracle/pane is who RECEIVED the
+ * prompt (UserPromptSubmit fires on the receiving pane, whether a human typed
+ * it there or a `maw hey` delivery landed there — significant.ts). When the
+ * summary carries a `[node:oracle]` sender tag (formatSignedMessage,
+ * comm-send.ts), the line below shows BOTH roles explicitly — sender → RECEIVER
+ * — instead of one name that reads as "who's speaking" when it's really "who
+ * received this":
+ *
+ *   10:08  💬  m5:stitch → eq3.0  Tony: keep the hash field
  */
 
+import { parseSignedPrefix } from "../../commands/shared/comm-send";
 import type { WorklogEntry } from "./types";
 
 const ICON: Record<WorklogEntry["kind"], string> = {
@@ -40,7 +51,14 @@ function displayName(e: WorklogEntry): string {
 
 function line(e: WorklogEntry): string {
   const icon = ICON[e.kind] ?? "·";
-  let text = `${hhmm(e)}  ${icon}  ${displayName(e)}  ${e.summary}`;
+  // kobo-586: only a `conversation` entry can carry a hey-delivered sender tag
+  // (it's the ONLY kind sourced from UserPromptSubmit, per significant.ts) —
+  // other kinds' summaries are self-authored (tool calls, PR events, etc.),
+  // never someone else's message landing in this pane.
+  const tag = e.kind === "conversation" ? parseSignedPrefix(e.summary) : null;
+  let text = tag
+    ? `${hhmm(e)}  ${icon}  ${tag.node}:${tag.oracle} → ${displayName(e)}  ${tag.rest}`
+    : `${hhmm(e)}  ${icon}  ${displayName(e)}  ${e.summary}`;
   if (e.kind === "pr-merged" && e.by) text += ` (by ${e.by})`;
   return text;
 }
