@@ -1057,6 +1057,102 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     return { closest: (sel: string) => (closestTags[sel] ? { tag: sel } : null) };
   }
 
+  // kobo-537 — linkifyDom (kobo-380) has the SAME shape of skip guard as
+  // kobo-527's cardLinkifyDom, and room.ts has BOTH of them as
+  // byte-identical lines (`if (p && (p.closest('a') || p.closest('code') ||
+  // p.closest('pre'))) continue;`) at two different line numbers — one per
+  // function. A text-based mutation/replace targeting "the guard line"
+  // can't tell which one it hit; two separate mutation attempts on this
+  // exact card already landed on the WRONG one by accident (one broke
+  // linkifyDom while meaning to test cardLinkifyDom; the other's fix
+  // pattern deleted the wrong occurrence entirely and reported a false
+  // "0 fail", which would have wrongly closed cardLinkifyDom's real guard
+  // as unwatched). This extraction is anchored on the UNIQUE function-name
+  // boundaries (const URL_RE ... const CARD_REF_RE), never on the guard
+  // text itself, specifically so it can only ever touch linkifyDom.
+  function loadLinkifyDomIsolated() {
+    const start = html.indexOf("const URL_RE =");
+    const end = html.indexOf("const CARD_REF_RE", start);
+    const src = html.slice(start, end);
+    // kobo-537: confirm at load time — from the ACTUALLY SERVED string, not
+    // by assumption — that this slice contains linkifyDom's guard exactly
+    // once and contains NONE of cardLinkifyDom (name, guard, or otherwise).
+    // If a future edit moves code across this boundary, this throws instead
+    // of silently testing the wrong (or an empty) function.
+    if ((src.match(/p\.closest\('a'\) \|\| p\.closest\('code'\) \|\| p\.closest\('pre'\)/g) || []).length !== 1) {
+      throw new Error("kobo-537: expected exactly ONE code/pre/a guard line in the linkifyDom-only slice");
+    }
+    if (src.includes("cardLinkifyDom") || src.includes("CARD_REF_RE")) {
+      throw new Error("kobo-537: linkifyDom extraction slice leaked cardLinkifyDom content — boundary drifted");
+    }
+    return new Function(`${src}; return { linkify, linkifyDom };`)();
+  }
+
+  // AC (two-way risk): removing the skip must go red (below), AND a URL in
+  // ORDINARY message text must still become a real link — a guard that's
+  // too broad (e.g. accidentally skipping plain text too) would pass the
+  // regression test below while silently breaking every normal URL.
+  test("kobo-537: linkifyDom still turns a bare URL in ordinary message text into a real <a> (not inside code/pre/a)", () => {
+    const prevDoc = (globalThis as any).document;
+    const prevNF = (globalThis as any).NodeFilter;
+    (globalThis as any).NodeFilter = { SHOW_TEXT: 4 };
+    const plainNode = fakeTextNode("see http://example.com/x for detail", fakeParent({}));
+    (globalThis as any).document = {
+      createTreeWalker: () => fakeTreeWalker([plainNode]),
+      createDocumentFragment: () => ({ kind: "frag", children: [] as any[], appendChild(c: any) { this.children.push(c); } }),
+      createTextNode: (t: string) => ({ kind: "text", text: t }),
+      createElement: (tag: string) => ({ kind: "el", tag, textContent: "", href: "", target: "", rel: "" }),
+    };
+    try {
+      const { linkifyDom } = loadLinkifyDomIsolated();
+      linkifyDom({});
+      expect(plainNode.replacedWith).not.toBe(null);
+      const anchors = plainNode.replacedWith.children.filter((c: any) => c.kind === "el" && c.tag === "a");
+      expect(anchors.length).toBe(1);
+      expect(anchors[0].href).toBe("http://example.com/x");
+    } finally {
+      (globalThis as any).document = prevDoc;
+      (globalThis as any).NodeFilter = prevNF;
+    }
+  });
+
+  // kobo-513's actual review finding was exactly this shape: a mutation test
+  // proved the string was there but nothing was WATCHING it stay correct —
+  // for linkifyDom, NOTHING watched it at all until this card. This drives
+  // real text nodes through the real TreeWalker-walk + skip logic (not just
+  // a grep for the skip condition), so deleting the skip from linkifyDom
+  // specifically (not its cardLinkifyDom lookalike) fails this test.
+  // VERIFIED [mutation: deleted this exact line from linkifyDom only (by
+  // position, not text — cardLinkifyDom's copy left untouched), confirmed
+  // THIS test goes red and no other test does, restored, confirmed green].
+  test("kobo-537 (kobo-513 pattern): linkifyDom skips text already inside <a>/<code>/<pre> — a URL pasted inside a code block must NOT become a link", () => {
+    const prevDoc = (globalThis as any).document;
+    const prevNF = (globalThis as any).NodeFilter;
+    (globalThis as any).NodeFilter = { SHOW_TEXT: 4 };
+    const plainNode = fakeTextNode("see http://example.com/x for detail", fakeParent({}));
+    const inLinkNode = fakeTextNode("http://example.com/y", fakeParent({ a: true }));
+    const inCodeNode = fakeTextNode("http://example.com/z", fakeParent({ code: true })); // the exact risk this card exists for
+    const inPreNode = fakeTextNode("http://example.com/w", fakeParent({ pre: true }));
+    const nodes = [plainNode, inLinkNode, inCodeNode, inPreNode];
+    (globalThis as any).document = {
+      createTreeWalker: () => fakeTreeWalker(nodes),
+      createDocumentFragment: () => ({ kind: "frag", children: [] as any[], appendChild(c: any) { this.children.push(c); } }),
+      createTextNode: (t: string) => ({ kind: "text", text: t }),
+      createElement: (tag: string) => ({ kind: "el", tag, textContent: "", href: "", target: "", rel: "" }),
+    };
+    try {
+      const { linkifyDom } = loadLinkifyDomIsolated();
+      linkifyDom({});
+      expect(plainNode.replacedWith).not.toBe(null); // only the plain node was touched
+      expect(inLinkNode.replacedWith).toBe(null);
+      expect(inCodeNode.replacedWith).toBe(null); // AC: a code-block URL must stay inert text
+      expect(inPreNode.replacedWith).toBe(null);
+    } finally {
+      (globalThis as any).document = prevDoc;
+      (globalThis as any).NodeFilter = prevNF;
+    }
+  });
+
   // kobo-513's actual review finding was exactly this shape: a mutation test
   // proved the string was there but nothing was WATCHING it stay correct.
   // This drives real text nodes through the real TreeWalker-walk + skip logic
