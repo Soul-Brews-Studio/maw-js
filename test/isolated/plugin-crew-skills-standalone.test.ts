@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,25 @@ function freshHome(): string {
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+// kobo-573 — syncCrewSkills() defaults repoDir to process.cwd() (correct for a
+// real user running from their own repo, per SyncOptions — NOT changing that
+// default). Every syncCrewSkills() call in this file must instead pass an
+// explicit repoDir pointing at a throwaway tmpdir, or it writes this actual
+// checkout's real .claude/settings.json (kobo-573: a test run silently dirtied
+// it, git-tracked, ~caught only by an incidental `git status`). This whole-file
+// guard is the backstop: if a `repoDir` is ever dropped from a test above,
+// THIS repo's real .claude/settings.json changes and the assertion below goes
+// red — not a silent pass.
+const cwdSettingsPath = join(process.cwd(), ".claude/settings.json");
+let cwdSettingsBefore: string | null;
+beforeAll(() => {
+  cwdSettingsBefore = existsSync(cwdSettingsPath) ? readFileSync(cwdSettingsPath, "utf8") : null;
+});
+afterAll(() => {
+  const after = existsSync(cwdSettingsPath) ? readFileSync(cwdSettingsPath, "utf8") : null;
+  expect(after).toBe(cwdSettingsBefore); // this file's own repoDir cwd never gets touched
 });
 
 describe("crew-skills plugin standalone boundary", () => {
@@ -504,7 +523,7 @@ describe("crew-skills global asset contract", () => {
 describe("crew-skills sync", () => {
   test("fresh install writes all items, hook is executable", () => {
     const home = freshHome();
-    const result = syncCrewSkills({ home, assetsDir });
+    const result = syncCrewSkills({ home, assetsDir, repoDir: freshHome() });
 
     expect(result.installed.sort()).toEqual(SYNC_ITEMS.map((i) => i.dest).sort());
     expect(result.skipped).toEqual([]);
@@ -521,33 +540,36 @@ describe("crew-skills sync", () => {
 
   test("second sync is idempotent (everything up-to-date)", () => {
     const home = freshHome();
-    syncCrewSkills({ home, assetsDir });
-    const again = syncCrewSkills({ home, assetsDir });
+    const repoDir = freshHome();
+    syncCrewSkills({ home, assetsDir, repoDir });
+    const again = syncCrewSkills({ home, assetsDir, repoDir });
     expect(again.installed).toEqual([]);
     expect(again.skipped.sort()).toEqual(SYNC_ITEMS.map((i) => i.dest).sort());
   });
 
   test("drifted file is re-synced back to canonical", () => {
     const home = freshHome();
-    syncCrewSkills({ home, assetsDir });
+    const repoDir = freshHome();
+    syncCrewSkills({ home, assetsDir, repoDir });
     const crewDest = join(home, ".claude/skills/crew/SKILL.md");
     writeFileSync(crewDest, "STALE COPY");
 
-    const result = syncCrewSkills({ home, assetsDir });
+    const result = syncCrewSkills({ home, assetsDir, repoDir });
     expect(result.installed).toContain("skills/crew/SKILL.md");
     expect(readFileSync(crewDest, "utf8")).not.toBe("STALE COPY");
   });
 
   test("--force rewrites even when unchanged", () => {
     const home = freshHome();
-    syncCrewSkills({ home, assetsDir });
-    const forced = syncCrewSkills({ home, assetsDir, force: true });
+    const repoDir = freshHome();
+    syncCrewSkills({ home, assetsDir, repoDir });
+    const forced = syncCrewSkills({ home, assetsDir, repoDir, force: true });
     expect(forced.installed.sort()).toEqual(SYNC_ITEMS.map((i) => i.dest).sort());
   });
 
   test("--dry-run reports changes but writes nothing", () => {
     const home = freshHome();
-    const result = syncCrewSkills({ home, assetsDir, dryRun: true });
+    const result = syncCrewSkills({ home, assetsDir, repoDir: freshHome(), dryRun: true });
     expect(result.dryRun).toBe(true);
     expect(result.installed.length).toBe(SYNC_ITEMS.length);
     expect(existsSync(join(home, ".claude/skills/crew/SKILL.md"))).toBe(false);
