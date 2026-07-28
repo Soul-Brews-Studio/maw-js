@@ -1342,8 +1342,9 @@ export async function runTask(
       }
     } else if (subcmd === "mentions") {
       // The @mention decision queue (kobo-126): unanswered @tony/@human (or --for
-      // <who>) mentions across the board. Read-only — the SAME source the web
-      // "mentions" badge reads. `maw company task mentions [--for tony]`.
+      // <who>) mentions across every card, regardless of board age (kobo-580 — a
+      // comment doesn't close because its card is done, Board Truth rule 10).
+      // `maw company task mentions [--for tony]`.
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--for": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const company = resolveCompany(flags["--company"], me);
@@ -1352,7 +1353,17 @@ export async function runTask(
       if (!pending.length) {
         console.log(`\x1b[90m○ no pending mentions\x1b[0m${flags["--for"] ? ` for ${flags["--for"]}` : ""}`);
       } else {
-        console.log(`\x1b[1m@mentions\x1b[0m \x1b[90m(${pending.length}${flags["--for"] ? ` → ${flags["--for"]}` : ""})\x1b[0m`);
+        // kobo-580 review round 1: since this queue stopped gating on isOnBoard,
+        // the real count can be much larger than what used to show (measured live:
+        // kobo board 20→116, pgw 19→294) — say how many came from a card that's
+        // aged off the board, so the count itself doesn't read as "everything is
+        // fine, just a lot of it" when most of it is old unresolved chatter.
+        const aged = pending.filter((p) => {
+          const t = readTask(company, p.id);
+          return t ? !isOnBoard(t) : false;
+        }).length;
+        const agedNote = aged ? ` · ${aged} จากการ์ดที่ปิดเกิน ${DEFAULT_ARCHIVE_DAYS} วัน` : "";
+        console.log(`\x1b[1m@mentions\x1b[0m \x1b[90m(${pending.length}${flags["--for"] ? ` → ${flags["--for"]}` : ""}${agedNote})\x1b[0m`);
         for (const p of pending) {
           const one = p.text.replace(/\s+/g, " ").trim();
           console.log(`  \x1b[90m${p.id} ${p.commentId}\x1b[0m →\x1b[32m@${p.who}\x1b[0m \x1b[90m(by ${p.by})\x1b[0m: ${one.length > 70 ? one.slice(0, 67) + "…" : one}`);

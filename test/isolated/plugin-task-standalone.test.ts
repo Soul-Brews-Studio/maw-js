@@ -337,4 +337,29 @@ describe("task command plugin standalone boundary", () => {
     expect(lsBlock).toContain("renderBoard(tasks, company, mine, stale, hiddenDone, hiddenRejected)");
     expect(lsBlock).toContain("renderBoardCompact(tasks, company, mine, hiddenDone, hiddenRejected)");
   });
+
+  // kobo-580 — pendingMentions() stopped gating on isOnBoard (rule 10: a comment
+  // doesn't close because its card is done), so the raw count can be much bigger
+  // than what used to show (measured live: kobo 20→116, pgw 19→294). The CLI
+  // header must break out how many came from a card already off the board, so a
+  // big number reads as "mostly old chatter" rather than "healthy queue".
+  // Behavioral coverage lives in plugin-task-cli.test.ts; this is the
+  // content-assert companion this standalone file's own convention expects.
+  test("mentions header computes and prints the aged-off share of the count (kobo-580)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    const mentionsStart = src.indexOf('subcmd === "mentions"');
+    const nextBlockStart = src.indexOf('subcmd === "comment"');
+    const mentionsBlock = src.slice(mentionsStart, nextBlockStart);
+    expect(mentionsBlock).toContain("pendingMentions(company, flags[\"--for\"])");
+    // aged = pending items whose OWN card fails isOnBoard — not the queue itself
+    // (pendingMentions still returns everything, unfiltered, per kobo-580).
+    const agedIdx = mentionsBlock.indexOf("const aged =");
+    expect(agedIdx).toBeGreaterThan(-1);
+    expect(mentionsBlock.slice(agedIdx)).toContain("!isOnBoard(t)");
+    expect(mentionsBlock).toContain("agedNote");
+    expect(mentionsBlock).toContain("DEFAULT_ARCHIVE_DAYS");
+  });
 });

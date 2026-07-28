@@ -2010,6 +2010,25 @@ describe("@mentions + ask (kobo-126)", () => {
     expect(pendingMentions("pgw", "tony")).toEqual([]); // a note @ does NOT enter the queue
   });
 
+  // kobo-580 — pendingMentions used to gate on isOnBoard, so an @mention comment on a
+  // card that went done/rejected more than DEFAULT_ARCHIVE_DAYS ago silently dropped
+  // out of the queue. Board Truth rule 10: a comment doesn't close because the card
+  // is done — time closes the CARD's board visibility, never an unanswered question.
+  // isOnBoard itself stays correct (still gates the board render, kobo-570; still
+  // gates the archive sweep, below) — this is a caller-level fix, not a semantic
+  // change to isOnBoard.
+  test("pendingMentions still surfaces an @mention on a done card aged past the window (kobo-580)", () => {
+    const a = addTask({ company: "pgw", title: "old but unanswered", by: "eq3" });
+    commentTask("pgw", a.id, "eq3", "@tony still waiting on this one");
+    completeTask("pgw", a.id, "eq3");
+    const rec = readTask("pgw", a.id)!;
+    rec.updatedTs = Date.now() - (DEFAULT_ARCHIVE_DAYS + 1) * 86_400_000; // aged past isOnBoard's window
+    require("fs").writeFileSync(taskFilePath("pgw", a.id), JSON.stringify(rec));
+
+    expect(isOnBoard(rec)).toBe(false); // control: the card really is off the board
+    expect(pendingMentions("pgw", "tony").map((m) => m.id)).toEqual([a.id]); // the mention still surfaces
+  });
+
   test("commentTask threads via replyTo, stamps stable c<n> ids, rejects a dangling reply", () => {
     const card = addTask({ company: "pgw", title: "card", by: "eq3", assignee: "patchwork" });
     const t1 = commentTask("pgw", card.id, "eq3", "@patchwork can you look?")!;
