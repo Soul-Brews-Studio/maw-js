@@ -146,6 +146,17 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("--match-head-commit"); // GitHub enforces atomically server-side at merge
     expect(src).toContain("different commits, only one tier actually reviewed"); // crew≠head refuse — the hole convergent-discovered from two angles (kobo-336's own distinct-signer rule opened this window)
     expect(src).toContain("pre-signSha-bind sign"); // legacy grandfather warning (field-absence trigger, no flag-day — kobo-404 tightens later)
+    // kobo-501: a sign records WHAT justified it (diff-read vs a real test-run vs
+    // mutation-verified), not just sha+pane — undeclared is the true default, never
+    // silently upgraded to diff-read (the collapse-unknown-into-a-value defect class).
+    expect(src).toContain('"--evidence": String');
+    expect(src).toContain('"--evidence-locus": String');
+    expect(src).toContain('?? "undeclared"'); // omitted --evidence records the honest unknown
+    expect(src).toContain("evidenceScopeViolation"); // sign-time refuse: test-run+ claims require a locus
+    expect(src).toContain("--evidence must be one of"); // unrecognized --evidence value is refused, not swallowed
+    expect(src).toContain("formatSignEvidenceScope"); // distinguishable label in the sign confirmation line
+    expect(src).toContain("sameEvidenceLocusBothTiers"); // merge backstop: both tiers citing the same evidence
+    expect(src).toContain("same evidence locus"); // merge refuse message (real kobo-482 shape)
     expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
     expect(src).toContain("parsePrRepo"); // kobo-80: stamp card.repo from the PR url on pr-link
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given

@@ -78,8 +78,12 @@ import {
   sameSignerBothTiers,
   samePaneBothTiers,
   signPaneViolation,
+  sameEvidenceLocusBothTiers,
+  evidenceScopeViolation,
+  formatSignEvidenceScope,
   requiredSignTiers,
   type SignTier,
+  type SignEvidenceScope,
   moveTask,
   markDeployedTask,
 editTask,
@@ -758,7 +762,7 @@ export async function runTask(
       // kobo-327: record a gate sign for the anti-race merge funnel. --role crew = the
       // crew-cell pre-PR gate (.3); --role head = the final gate before merge (.2). A
       // crew sign self-marks the card crewGate so it can't skip the crew tier. Idempotent.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--role": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--role": String, "--evidence": String, "--evidence-locus": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const role = flags["--role"] as SignTier | undefined;
@@ -789,6 +793,18 @@ export async function runTask(
       const signerPane = resolveSignerPane(); // %pane-id if in a tmux pane, else null (→ 335 fallback)
       const paneViol = before && signPaneViolation(before, role, signerPane, process.env.CREW_ROLE);
       if (paneViol) return { ok: false, error: `sign REFUSED for ${id}: ${paneViol}` };
+      // kobo-501: what JUSTIFIED this sign — a diff-read, a real test run, or a
+      // mutation-verified run. Omitting --evidence is NOT the same as claiming diff-read;
+      // it records "undeclared" (the honest unknown), never silently upgraded.
+      const EVIDENCE_SCOPES: SignEvidenceScope[] = ["undeclared", "diff-read", "test-run", "test-run+mutation"];
+      const rawEvidence = flags["--evidence"];
+      if (rawEvidence && !EVIDENCE_SCOPES.includes(rawEvidence as SignEvidenceScope)) {
+        return { ok: false, error: `--evidence must be one of: ${EVIDENCE_SCOPES.join(", ")}` };
+      }
+      const evidenceScope = (rawEvidence as SignEvidenceScope | undefined) ?? "undeclared";
+      const evidenceLocus = flags["--evidence-locus"];
+      const evidenceViol = evidenceScopeViolation(evidenceScope, evidenceLocus);
+      if (evidenceViol) return { ok: false, error: `sign REFUSED for ${id}: ${evidenceViol}` };
       // kobo-400: best-effort — bind this sign to the PR's current head commit. Only when a
       // PR is already linked (a sign before `pr` is linked has nothing to bind to yet); a gh
       // failure (network/auth) is swallowed, NOT surfaced as a sign error — the sign itself
@@ -803,10 +819,10 @@ export async function runTask(
           if (sha) signedSha = sha;
         }
       }
-      const t = signTask(company, id, me, role, signerPane, signedSha);
+      const t = signTask(company, id, me, role, signerPane, signedSha, evidenceScope, evidenceLocus);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       const still = missingSignTiers(t);
-      console.log(`\x1b[32m✍ signed\x1b[0m ${t.id} \x1b[90m(${role})\x1b[0m: ${t.title}${still.length ? ` \x1b[90m— still needs: ${still.join(", ")}\x1b[0m` : ` \x1b[90m— all signs in (mergeable)\x1b[0m`}`);
+      console.log(`\x1b[32m✍ signed\x1b[0m ${t.id} \x1b[90m(${role})\x1b[0m: ${t.title} \x1b[90m[${formatSignEvidenceScope(evidenceScope)}]\x1b[0m${still.length ? ` \x1b[90m— still needs: ${still.join(", ")}\x1b[0m` : ` \x1b[90m— all signs in (mergeable)\x1b[0m`}`);
     } else if (subcmd === "merge") {
       // kobo-327: the ONE path that merges a gated card. REFUSES until every required
       // sign tier (requiredSignTiers) is present, then runs `gh pr merge`. Removes merge
@@ -863,6 +879,15 @@ export async function runTask(
       const dupPane = samePaneBothTiers(t);
       if (dupPane) {
         return { ok: false, error: `merge REFUSED for ${id}: pane ${dupPane} signed BOTH the crew and head tier — a distinct reviewer pane is required for each tier (kobo-346/339). Re-sign one tier from a different pane.` };
+      }
+      // kobo-501: both tiers pointing at the SAME evidence locus means only one tier's
+      // sign actually did the work the other one is being credited for (the real kobo-482
+      // shape — %5's own mutation artifact counted toward both tiers). Distinct panes/
+      // signers alone don't catch this: two different reviewers can still both cite the
+      // one artifact that only one of them produced.
+      const dupLocus = sameEvidenceLocusBothTiers(t);
+      if (dupLocus) {
+        return { ok: false, error: `merge REFUSED for ${id}: both tiers cite the same evidence locus "${dupLocus}" — a distinct tier must point at its OWN verification, not the other tier's artifact (kobo-501/482). Re-sign one tier against evidence that tier actually produced.` };
       }
       // kobo-400: a sign proves WHAT was reviewed only if bound to a commit. Compare the
       // REQUIRED tiers' stored *SignedSha (no live gh fetch here — nothing to compare

@@ -9,6 +9,9 @@ import {
   requiredSignTiers,
   missingSignTiers,
   sameSignerBothTiers,
+  sameEvidenceLocusBothTiers,
+  evidenceScopeViolation,
+  formatSignEvidenceScope,
   signTask,
 } from "../../src/core/tasks/store";
 
@@ -401,6 +404,135 @@ describe("kobo-400 signSha hard-bind", () => {
     await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
     await signAs("eq3", "kobo-1", "head");
     expect(readTask("kobo", "kobo-1")!.headSignedSha).toBeUndefined();
+  });
+});
+
+// kobo-501: a sign records a sha+pane but nothing about what EVIDENCE justified it — a
+// diff-read sign and a mutation-verified sign were indistinguishable at merge time (the
+// real kobo-482 shape: %5's own mutation artifact got counted toward BOTH tiers even
+// though only one tier's sign actually did that work). Two guards, both must not collapse
+// "unknown" into a value: omitted --evidence records "undeclared" (never "diff-read"), and
+// a claimed test-run/mutation REQUIRES a locus (never opt-in free text).
+describe("kobo-501 evidenceScopeViolation (pure)", () => {
+  test("undeclared and diff-read need no locus", () => {
+    expect(evidenceScopeViolation("undeclared", undefined)).toBeNull();
+    expect(evidenceScopeViolation("diff-read", undefined)).toBeNull();
+  });
+
+  test("test-run / test-run+mutation REQUIRE a non-empty locus", () => {
+    expect(evidenceScopeViolation("test-run", undefined)).toContain("--evidence-locus");
+    expect(evidenceScopeViolation("test-run", "  ")).toContain("--evidence-locus"); // whitespace-only is absent
+    expect(evidenceScopeViolation("test-run+mutation", null)).toContain("--evidence-locus");
+    expect(evidenceScopeViolation("test-run", "~/maw-js-kobo501")).toBeNull();
+  });
+});
+
+describe("kobo-501 sameEvidenceLocusBothTiers (pure)", () => {
+  test("same locus both tiers → the locus; distinct/single/absent → null", () => {
+    expect(sameEvidenceLocusBothTiers({ crewSignedEvidenceLocus: "wt-A", headSignedEvidenceLocus: "wt-A" } as any)).toBe("wt-A");
+    expect(sameEvidenceLocusBothTiers({ crewSignedEvidenceLocus: "wt-A", headSignedEvidenceLocus: "wt-B" } as any)).toBeNull();
+    expect(sameEvidenceLocusBothTiers({ headSignedEvidenceLocus: "wt-A" } as any)).toBeNull(); // single-tier
+    expect(sameEvidenceLocusBothTiers({} as any)).toBeNull();
+  });
+});
+
+describe("kobo-501 formatSignEvidenceScope (pure)", () => {
+  test("each scope gets a DISTINCT label, undeclared for both undeclared and undefined", () => {
+    const labels = [
+      formatSignEvidenceScope("undeclared"),
+      formatSignEvidenceScope(undefined),
+      formatSignEvidenceScope("diff-read"),
+      formatSignEvidenceScope("test-run"),
+      formatSignEvidenceScope("test-run+mutation"),
+    ];
+    expect(labels[0]).toBe(labels[1]); // undeclared === undefined, same honest-unknown label
+    expect(new Set(labels).size).toBe(4); // 5 calls, 4 distinct labels (0 and 1 collapse on purpose)
+  });
+});
+
+describe("kobo-501 signTask store fn: default evidenceScope (independent of the CLI's own default)", () => {
+  test("signTask called directly with no evidenceScope arg → 'undeclared', NOT 'diff-read'", () => {
+    // the CLI already defaults omitted --evidence to "undeclared" before calling signTask
+    // (proven in the CLI describe block below) — this test exercises signTask's OWN
+    // fallback directly, for any caller that reaches the store without going through the
+    // CLI's default (a future verb, a script, a test helper).
+    addTask({ company: "kobo", title: "c", by: "eq3" });
+    const t = signTask("kobo", "kobo-1", "patchwork", "head")!;
+    expect(t.headSignedEvidenceScope).toBe("undeclared");
+  });
+});
+
+describe("kobo-501 sign CLI: --evidence / --evidence-locus", () => {
+  test("omitting --evidence records 'undeclared', NOT 'diff-read' (the whole point of the card)", async () => {
+    await task(["add", "c"]);
+    await signAs("eq3", "kobo-1", "head");
+    expect(readTask("kobo", "kobo-1")!.headSignedEvidenceScope).toBe("undeclared");
+  });
+
+  test("--evidence diff-read needs no locus", async () => {
+    await task(["add", "c"]);
+    const r = await run(["sign", "kobo-1", "--role", "head", "--evidence", "diff-read", "--company", "kobo", "--from", "local:eq3"]);
+    expect(r.ok).toBe(true);
+    expect(readTask("kobo", "kobo-1")!.headSignedEvidenceScope).toBe("diff-read");
+  });
+
+  test("--evidence test-run WITHOUT --evidence-locus is REFUSED, records nothing", async () => {
+    await task(["add", "c"]);
+    const r = await run(["sign", "kobo-1", "--role", "head", "--evidence", "test-run", "--company", "kobo", "--from", "local:eq3"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("--evidence-locus");
+    expect(readTask("kobo", "kobo-1")!.headSignedEvidenceScope).toBeUndefined(); // bad state never recorded
+  });
+
+  test("--evidence test-run+mutation WITH --evidence-locus records both fields", async () => {
+    await task(["add", "c"]);
+    const r = await run(["sign", "kobo-1", "--role", "head", "--evidence", "test-run+mutation", "--evidence-locus", "~/maw-js-kobo501", "--company", "kobo", "--from", "local:eq3"]);
+    expect(r.ok).toBe(true);
+    const t = readTask("kobo", "kobo-1")!;
+    expect(t.headSignedEvidenceScope).toBe("test-run+mutation");
+    expect(t.headSignedEvidenceLocus).toBe("~/maw-js-kobo501");
+  });
+
+  test("an unrecognized --evidence value is refused with a usage error, not silently accepted", async () => {
+    await task(["add", "c"]);
+    const r = await run(["sign", "kobo-1", "--role", "head", "--evidence", "vibes", "--company", "kobo", "--from", "local:eq3"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("--evidence must be one of");
+  });
+});
+
+describe("kobo-501 merge REFUSE: both tiers cite the same evidence locus (the real kobo-482 shape)", () => {
+  test("same locus on both tiers → merge refused, names the locus", async () => {
+    // force the same-locus state directly via the store (bypass the CLI, same trick the
+    // 336 distinct-signers backstop test above uses) to prove merge independently catches
+    // it even if a future caller reaches signTask some other way.
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew", null, undefined, "test-run+mutation", "wt-SHARED");
+    signTask("kobo", "kobo-1", "eq3", "head", null, undefined, "test-run+mutation", "wt-SHARED");
+    const r = await task(["merge", "kobo-1"]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("wt-SHARED");
+    expect(r.error).toContain("same evidence locus");
+  });
+
+  test("distinct loci on both tiers → merge passes this gate (no over-block)", async () => {
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew", null, undefined, "test-run", "wt-CREW");
+    signTask("kobo", "kobo-1", "eq3", "head", null, undefined, "test-run", "wt-HEAD");
+    const r = await task(["merge", "kobo-1", "--method", "octopus"]);
+    expect(r.error).toContain("--method"); // reached method check = past the evidence-locus gate
+    expect(r.error).not.toContain("same evidence locus");
+  });
+
+  test("undeclared/diff-read on both tiers (no locus at all) never over-blocks (both loci absent → guard inert)", async () => {
+    await task(["add", "c", "--crew-gate"]);
+    await task(["pr", "kobo-1", "42", "--repo", "meganechan/maw-js"]);
+    signTask("kobo", "kobo-1", "patchwork", "crew"); // undeclared, no locus
+    signTask("kobo", "kobo-1", "eq3", "head"); // undeclared, no locus
+    const r = await task(["merge", "kobo-1", "--method", "octopus"]);
+    expect(r.error).not.toContain("same evidence locus");
   });
 });
 

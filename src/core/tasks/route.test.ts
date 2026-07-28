@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { handleTaskApproveRequest, handleTaskArchiveRequest, handleTaskAssignRequest, handleTaskCommentRequest, handleTaskCreateRequest, handleTaskDeployedRequest, handleTaskDetailRequest, handleTaskDoneRequest, handleTaskEditRequest, handleTaskEventsRequest, handleTaskNoteRequest, handleTaskRejectRequest, handleTasksRequest } from "./route";
-import { addTask, assignTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, moveTask, noteTask, prOpenedReview, readTask, setTaskPr } from "./store";
+import { addTask, assignTask, claimTask, commentTask, completeTask, listArchivedTasks, listTasks, moveTask, noteTask, prOpenedReview, readTask, setTaskPr, signTask, taskFilePath } from "./store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-tasks-route-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -99,6 +99,60 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     };
     expect(detail.ok).toBe(true);
     expect(detail.task.body).toBe("# why\n- [ ] step a");
+  });
+
+  // kobo-501 — front (%2) verified hands-on at 9259b61b that these two fields were
+  // recorded by signTask but NEVER copied into toCard: `git grep -c
+  // "EvidenceScope|SignedLocus" src/core/tasks/route.ts` was 0 hits. The card's own
+  // stated purpose is "Tony sees what backed a sign on the board" — a field the store
+  // holds but /api/tasks never ships is invisible to the one place the AC names. This
+  // hits /api/tasks and /api/tasks/detail for real, not just the store (a store-only
+  // test — which already existed — cannot catch a missing field-copy in route.ts).
+  test("kobo-501: sign evidence scope/locus ships on /api/tasks (list) and /api/tasks/detail — not just the store", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    const t = addTask({ company: "evd", title: "evidence card", by: "eq3", crewGate: true });
+    signTask("evd", t.id, "patchwork", "crew", null, undefined, "test-run+mutation", "~/maw-js-kobo501");
+    signTask("evd", t.id, "eq3", "head", null, undefined, "diff-read");
+
+    const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=evd")).json()) as {
+      tasks: Array<{ title: string; crewSignedEvidenceScope?: string; crewSignedEvidenceLocus?: string; headSignedEvidenceScope?: string; headSignedEvidenceLocus?: string }>;
+    };
+    const card = board.tasks.find((c) => c.title === "evidence card")!;
+    expect(card.crewSignedEvidenceScope).toBe("test-run+mutation");
+    expect(card.crewSignedEvidenceLocus).toBe("~/maw-js-kobo501");
+    expect(card.headSignedEvidenceScope).toBe("diff-read");
+    expect(card.headSignedEvidenceLocus).toBeUndefined(); // diff-read needs no locus — never invented
+
+    const detail = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=evd&id=" + t.id)).json()) as {
+      task: { crewSignedEvidenceScope?: string; headSignedEvidenceScope?: string };
+    };
+    expect(detail.task.crewSignedEvidenceScope).toBe("test-run+mutation"); // detail's "full passthrough" must actually include it
+    expect(detail.task.headSignedEvidenceScope).toBe("diff-read");
+  });
+
+  // %10's hands-on finding (07:45): a pre-kobo-501 sign never wrote these fields at
+  // all — absence must stay absence on the API too, never silently upgraded to
+  // "undeclared" at the route layer (that would be the exact collapse-unknown-into-
+  // a-value defect this whole card exists to close, just moved from signTask here).
+  test("kobo-501: a pre-501-shaped sign (no evidence fields at all) ships with them ABSENT, never defaulted", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    const t = addTask({ company: "evd", title: "legacy sign card" });
+    signTask("evd", t.id, "eq3", "head"); // no evidenceScope/Locus args — but signTask itself now defaults to "undeclared"
+    // Simulate a TRUE pre-kobo-501 record (the field never existed on disk at all,
+    // not even "undeclared") by stripping it directly on disk, same shape as the
+    // real 470/482 records — readTask returns a fresh parse each call, so mutating
+    // an in-memory object alone would not affect what handleTasksRequest sees next.
+    const path = taskFilePath("evd", t.id);
+    const legacy = JSON.parse(readFileSync(path, "utf8"));
+    delete legacy.headSignedEvidenceScope;
+    delete legacy.headSignedEvidenceLocus;
+    writeFileSync(path, JSON.stringify(legacy));
+
+    const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=evd")).json()) as {
+      tasks: Array<{ title: string; headSignedEvidenceScope?: string }>;
+    };
+    const card = board.tasks.find((c) => c.title === "legacy sign card")!;
+    expect("headSignedEvidenceScope" in (card as object)).toBe(false); // absent, not "undeclared"
   });
 
   test("derives dependency block from parents (ADR 0003 A on web); reuses the store helper", async () => {

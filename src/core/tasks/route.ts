@@ -30,9 +30,13 @@ export interface TaskCard {
   crewSignedBy?: string; // kobo-327: who crew-signed (pre-PR gate)
   crewSignedTs?: number;
   crewSignedByPane?: string; // kobo-346: the pane that crew-signed (pane-grain identity)
+  crewSignedEvidenceScope?: TaskRecord["crewSignedEvidenceScope"]; // kobo-501: what justified the crew sign
+  crewSignedEvidenceLocus?: string; // kobo-501: where that evidence was produced (required above diff-read)
   headSignedBy?: string; // kobo-327: who head-signed (final gate)
   headSignedTs?: number;
   headSignedByPane?: string; // kobo-346: the pane that head-signed
+  headSignedEvidenceScope?: TaskRecord["headSignedEvidenceScope"]; // kobo-501
+  headSignedEvidenceLocus?: string; // kobo-501
   by: string;
   ts: number;
   updatedTs?: number;
@@ -90,8 +94,23 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   if (rv !== "human") card.reviewer = rv;
   // kobo-327: expose merge-gate sign state so the board UI matches the CLI (Board Truth #7)
   if (t.crewGate) card.crewGate = true;
-  if (t.crewSignedBy) { card.crewSignedBy = t.crewSignedBy; card.crewSignedTs = t.crewSignedTs; if (t.crewSignedByPane) card.crewSignedByPane = t.crewSignedByPane; } // kobo-346: pane parity
-  if (t.headSignedBy) { card.headSignedBy = t.headSignedBy; card.headSignedTs = t.headSignedTs; if (t.headSignedByPane) card.headSignedByPane = t.headSignedByPane; }
+  // kobo-501: pass through whatever's REALLY stored, including absent — a pre-kobo-501
+  // sign has neither field written at all, and that absence must stay visibly distinct
+  // from "undeclared" (every NEW sign always writes one of the 4 real values, never
+  // omits it) — defaulting a missing field here would silently upgrade an old sign the
+  // exact way the whole card exists to prevent, just moved from signTask to this route.
+  if (t.crewSignedBy) {
+    card.crewSignedBy = t.crewSignedBy; card.crewSignedTs = t.crewSignedTs;
+    if (t.crewSignedByPane) card.crewSignedByPane = t.crewSignedByPane; // kobo-346: pane parity
+    if (t.crewSignedEvidenceScope) card.crewSignedEvidenceScope = t.crewSignedEvidenceScope;
+    if (t.crewSignedEvidenceLocus) card.crewSignedEvidenceLocus = t.crewSignedEvidenceLocus;
+  }
+  if (t.headSignedBy) {
+    card.headSignedBy = t.headSignedBy; card.headSignedTs = t.headSignedTs;
+    if (t.headSignedByPane) card.headSignedByPane = t.headSignedByPane;
+    if (t.headSignedEvidenceScope) card.headSignedEvidenceScope = t.headSignedEvidenceScope;
+    if (t.headSignedEvidenceLocus) card.headSignedEvidenceLocus = t.headSignedEvidenceLocus;
+  }
   if (t.updatedTs) card.updatedTs = t.updatedTs;
   const progress = checklistProgress(t.body);
   if (progress) card.checklist = progress;

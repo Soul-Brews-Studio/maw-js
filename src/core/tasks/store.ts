@@ -164,6 +164,16 @@ export interface TaskRecord {
   headSignedTs?: number; // epoch ms
   headSignedByPane?: string; // kobo-346: the tmux %pane-id that head-signed (same pane-grain binding as crewSignedByPane)
   headSignedSha?: string; // kobo-400: the PR head SHA at head-sign time (same capture as crewSignedSha)
+  // kobo-501: what JUSTIFIED the sign — a diff-read and a mutation-verified run look
+  // identical on the board without this (kobo-482: one mutation artifact got counted
+  // toward BOTH tiers because nothing recorded which tier actually produced it).
+  // "undeclared" is the write-time default when the caller passes nothing — deliberately
+  // NOT "diff-read": collapsing "nobody said" into "diff-read" would recreate the exact
+  // unknown-collapsed-into-known defect this whole card exists to fix (front review, c1).
+  crewSignedEvidenceScope?: SignEvidenceScope;
+  crewSignedEvidenceLocus?: string; // free text: worktree/path/command the evidence came from — REQUIRED (evidenceScopeViolation) whenever scope is "test-run" or above
+  headSignedEvidenceScope?: SignEvidenceScope;
+  headSignedEvidenceLocus?: string;
   ts: number; // created (epoch ms)
   updatedTs?: number; // last mutation (epoch ms)
 }
@@ -745,6 +755,16 @@ export function setTaskPr(company: string, id: string, pr: number, by: string, r
 export type SignTier = "crew" | "head";
 
 /**
+ * kobo-501: what justified a sign, ordered lowest to highest. "undeclared" is distinct
+ * from "diff-read" on purpose — front review, c1: defaulting an omitted claim to
+ * "diff-read" would collapse "nobody said anything" into "someone actively said they
+ * only read the diff," the exact unknown-collapsed-into-known shape this card exists to
+ * remove (isPaneAway→present, sign→success, refusal→known-outsider, buildInjectSlice→
+ * nothing-to-report — all the same bug, tonight, before this one).
+ */
+export type SignEvidenceScope = "undeclared" | "diff-read" | "test-run" | "test-run+mutation";
+
+/**
  * The sign tiers a card must collect BEFORE it can be merged. Head is the final
  * gate on every gated card (single-tier = 1). A crew-cell card (`crewGate`) also
  * needs a crew pre-sign (crew-cell = 2). A card with no crewGate is NEVER
@@ -795,6 +815,23 @@ export function samePaneBothTiers(task: TaskRecord): string | null {
 }
 
 /**
+ * kobo-501: the evidence-grain twin of samePaneBothTiers — catches what pane/oracle
+ * checks structurally cannot: two DIFFERENT signers, from DIFFERENT panes, citing the
+ * SAME verification artifact for both tiers (the actual kobo-482 shape — one mutation
+ * run, credited to both). "Confirm two ways counts when the METHOD differs, not when
+ * the PERSON differs" (lead's ruling, this card's own body). Returns the offending
+ * locus, or null when the loci differ OR either is absent. This only bites because
+ * evidenceScopeViolation (below) makes locus REQUIRED once a claim is above diff-read —
+ * an optional locus would make this guard opt-in, missing the real incident, which had
+ * no locus recorded on EITHER tier (front review, c1 objection 2).
+ */
+export function sameEvidenceLocusBothTiers(task: TaskRecord): string | null {
+  const crew = task.crewSignedEvidenceLocus?.trim();
+  const head = task.headSignedEvidenceLocus?.trim();
+  return crew && head && crew === head ? crew : null;
+}
+
+/**
  * kobo-346 (v2 340c): the sign-time pane guard — pure so it's testable without real tmux. Given
  * the SIGNING pane-id + its CREW_ROLE (both live-resolved by the caller in the signer's shell),
  * returns a refusal reason, or null to allow. Two rules, only when a pane is present (a sign
@@ -819,6 +856,42 @@ export function signPaneViolation(task: TaskRecord, role: SignTier, signerPane: 
 }
 
 /**
+ * kobo-501: a claim of having RUN something must say WHERE. Pure so it's testable
+ * without a real sign. "undeclared" and "diff-read" need no locus (there's nothing to
+ * point at); "test-run" and "test-run+mutation" REQUIRE one, non-empty. Without this,
+ * evidenceLocus is opt-in free text, and sameEvidenceLocusBothTiers only catches a
+ * signer who volunteers a locus — which is not what happened on the real kobo-482
+ * incident (no locus recorded on either tier at all). Making locus mandatory above
+ * diff-read is what makes that guard load-bearing instead of advisory (front review,
+ * c1 objection 2).
+ */
+export function evidenceScopeViolation(scope: SignEvidenceScope, locus: string | null | undefined): string | null {
+  const needsLocus = scope === "test-run" || scope === "test-run+mutation";
+  if (needsLocus && !(locus ?? "").trim()) {
+    return `evidence scope "${scope}" requires --evidence-locus (a claim of having run something must say where, kobo-501) — pass the worktree/path/command the evidence came from, or sign with --evidence diff-read if that's what actually happened.`;
+  }
+  return null;
+}
+
+/**
+ * kobo-501: a distinct label per evidence tier, for board/API display — the whole point
+ * of this card is that two signs must read differently at a glance, not "passed both
+ * tiers" identically (kobo-470's exact pattern: different leading symbol per state, not
+ * just different trailing words, since a future "unify the formatting" tidy-up could
+ * quietly re-converge them otherwise).
+ */
+export function formatSignEvidenceScope(scope: SignEvidenceScope | undefined): string {
+  switch (scope) {
+    case "test-run+mutation": return "🔬 test-run+mutation";
+    case "test-run": return "✅ test-run";
+    case "diff-read": return "📄 diff-read";
+    case "undeclared":
+    case undefined:
+      return "❔ undeclared";
+  }
+}
+
+/**
  * Record a gate sign (crew or head). Idempotent — re-signing just refreshes who+ts
  * (no error, no duplicate). A crew sign self-marks the card `crewGate` so a card a
  * crew has touched can't skip the crew tier. Returns null if the card is absent.
@@ -828,23 +901,38 @@ export function signPaneViolation(task: TaskRecord, role: SignTier, signerPane: 
  * whatever the caller passed this time (including undefined on a failed re-fetch) — a
  * re-sign is a fresh act, so a stale SHA from an earlier attempt must not linger and
  * imply verification that didn't happen. Absent → `merge` grandfathers this tier.
+ *
+ * kobo-501: `evidenceScope` defaults to `"undeclared"` when the caller passes nothing —
+ * NOT `"diff-read"`. Callers should run `evidenceScopeViolation(evidenceScope, evidenceLocus)`
+ * BEFORE this and refuse on a non-null result (same pattern as `signPaneViolation`); this
+ * function itself does not validate, so it stays a pure record-write, testable without
+ * threading a refusal path through it.
  */
-export function signTask(company: string, id: string, by: string, role: SignTier, pane?: string | null, sha?: string): TaskRecord | null {
+export function signTask(
+  company: string, id: string, by: string, role: SignTier, pane?: string | null, sha?: string,
+  evidenceScope?: SignEvidenceScope, evidenceLocus?: string | null,
+): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
   const now = Date.now();
   const signerPane = pane?.trim() || undefined; // kobo-346: the signing pane (%N), when known
+  const scope: SignEvidenceScope = evidenceScope ?? "undeclared"; // kobo-501: never "diff-read" by default
+  const locus = evidenceLocus?.trim() || undefined;
   if (role === "crew") {
     task.crewSignedBy = by;
     task.crewSignedTs = now;
     task.crewSignedByPane = signerPane; // kobo-346: bind the crew tier to its signing pane
     task.crewSignedSha = sha; // kobo-400: bind the crew tier to its reviewed commit
+    task.crewSignedEvidenceScope = scope; // kobo-501
+    task.crewSignedEvidenceLocus = locus; // kobo-501
     task.crewGate = true; // a crew signing declares this a crew-tier card
   } else {
     task.headSignedBy = by;
     task.headSignedTs = now;
     task.headSignedByPane = signerPane; // kobo-346: bind the head tier to its signing pane
     task.headSignedSha = sha; // kobo-400: bind the head tier to its reviewed commit
+    task.headSignedEvidenceScope = scope; // kobo-501
+    task.headSignedEvidenceLocus = locus; // kobo-501
   }
   task.updatedTs = now;
   writeTaskRecord(task);
