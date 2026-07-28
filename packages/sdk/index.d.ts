@@ -367,6 +367,10 @@ export declare function setCachedNickname(name: string, nickname: string): void;
 /** Normalize a user, task, or worktree label for wake branch/window names. */
 export declare function sanitizeBranchName(name: string): string;
 
+/** Whether the inbox auto-write receiver is enabled — production defaults ON,
+ * tests default OFF unless MAW_HEY_INBOX_AUTOWRITE opts in explicitly. */
+export declare function receiverInboxAutoWriteEnabled(env?: NodeJS.ProcessEnv): boolean;
+
 /** Render numeric buckets as a compact Unicode sparkline. */
 export declare function sparkline(values: number[], hadActivity?: boolean[]): string;
 

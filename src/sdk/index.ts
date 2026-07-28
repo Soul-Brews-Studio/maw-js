@@ -77,6 +77,7 @@ export { resolveTarget } from "../core/routing";
 export type { ResolveResult } from "../core/routing";
 export { resolveSessionTarget, resolveWorktreeTarget, resolveFleetWindowSessionTarget } from "../core/matcher/resolve-target";
 export { sanitizeBranchName } from "../commands/shared/sanitize-branch-name";
+export { receiverInboxAutoWriteEnabled } from "../commands/shared/receiver-inbox";
 export { normalizeTarget } from "../core/matcher/normalize-target";
 export { isInfrastructureChannelSessionName } from "../core/matcher/channel-session";
 export { resolveOracle, pickOracle } from "../core/resolve";

@@ -12,6 +12,7 @@ import {
   updatePending,
   hostExec,
   tmuxCmd,
+  receiverInboxAutoWriteEnabled,
   type PendingMessage,
 } from "maw-js/sdk";
 
@@ -56,6 +57,11 @@ export interface InboxStatus {
   delta_since_last_check: number;
   level: "green" | "red";
   reasons: string[];
+  // kobo-470: whether the inbox WRITER is enabled (MAW_HEY_INBOX_AUTOWRITE / not
+  // MAW_TEST_MODE — see receiverInboxAutoWriteEnabled). When false, `unread` is not
+  // evidence of anything — nothing is being written to this inbox at all, so a
+  // genuinely-empty box and a disabled writer are indistinguishable by count alone.
+  writerEnabled: boolean;
 }
 
 export interface InboxDrainItem {
@@ -327,11 +333,17 @@ function ageSeconds(timestampMs: number, nowMs: number): number {
   return Math.max(0, Math.floor((nowMs - timestampMs) / 1000));
 }
 
-function buildInboxStatus(
+/** kobo-470: `deps.writerEnabled` is a test seam — production callers never pass it,
+ * so the default is always the real `receiverInboxAutoWriteEnabled()`. Exists so a
+ * test can pin the writer-enabled/disabled branch directly instead of fighting
+ * MAW_TEST_MODE, which the real function also treats as writer-disabled. */
+export function buildInboxStatus(
   { oracle, inboxDir }: InboxStatusTarget,
   nowMs: number,
   cursor: InboxCursorStore,
+  deps: { writerEnabled?: () => boolean } = {},
 ): InboxStatus {
+  const writerEnabled = (deps.writerEnabled ?? receiverInboxAutoWriteEnabled)();
   const messages = loadInboxMessages(inboxDir);
   const unreadMessages = messages.filter(msg => !msg.frontmatter.read);
   const unread = unreadMessages.length;
@@ -370,6 +382,7 @@ function buildInboxStatus(
     delta_since_last_check: delta,
     level: reasons.length ? "red" : "green",
     reasons,
+    writerEnabled,
   };
 
   cursor[oracle] = {
@@ -389,15 +402,24 @@ export async function getInboxStatus(oracleArg?: string, nowMs = Date.now()): Pr
   return status;
 }
 
+/** kobo-470 c7: exported so the ranking rule is directly testable — pulled out of
+ * getAllInboxStatuses (which hits real fleet/fs resolution) rather than proven only
+ * by constructing a whole fleet on disk. A disabled-writer entry has no `level`
+ * verdict at all, so it must never be ranked alongside red/green as though its
+ * `unread` count were real evidence. Surfaces first, ahead of red — "we don't know"
+ * needs eyes on it before "we know it's bad." */
+export function compareInboxStatusForList(a: InboxStatus, b: InboxStatus): number {
+  if (a.writerEnabled !== b.writerEnabled) return a.writerEnabled ? 1 : -1;
+  if (a.level !== b.level) return a.level === "red" ? -1 : 1;
+  return a.oracle.localeCompare(b.oracle);
+}
+
 export async function getAllInboxStatuses(nowMs = Date.now()): Promise<InboxStatus[]> {
   const targets = await resolveFleetInboxStatusTargets();
   const cursor = readCursorStore();
   const statuses = targets.map(target => buildInboxStatus(target, nowMs, cursor));
   writeCursorStore(cursor);
-  return statuses.sort((a, b) => {
-    if (a.level !== b.level) return a.level === "red" ? -1 : 1;
-    return a.oracle.localeCompare(b.oracle);
-  });
+  return statuses.sort(compareInboxStatusForList);
 }
 
 function formatDuration(seconds: number | null): string {
@@ -415,6 +437,14 @@ function formatDelta(delta: number): string {
 }
 
 export function formatInboxStatus(status: InboxStatus): string {
+  // kobo-470: structurally different, not just a different trailing clause — the
+  // defect this fixes is that a disabled writer produced output shaped exactly
+  // like a healthy quiet inbox. No 🔴/🟢, no "not draining", a different leading
+  // symbol, and a stated next action (kobo-413: a status line with no exit path
+  // gets routed around, not trusted).
+  if (!status.writerEnabled) {
+    return `⚪ WRITER DISABLED (MAW_HEY_INBOX_AUTOWRITE=0 or MAW_TEST_MODE) — UNREAD ${status.unread} is NOT evidence of no work. Nothing is being written to this inbox right now; check manually, or re-enable the writer.`;
+  }
   const symbol = status.level === "red" ? "🔴" : "🟢";
   const oldest = status.oldest_age_seconds === null ? "none" : formatDuration(status.oldest_age_seconds);
   const archive = status.last_archive_age_seconds === null
@@ -428,6 +458,12 @@ export function formatInboxStatus(status: InboxStatus): string {
 export function formatInboxStatusList(statuses: InboxStatus[]): string {
   if (!statuses.length) return "no local fleet inboxes found";
   return statuses.map((status) => {
+    // kobo-470 c7: same defect as the single-status formatter, in its sibling —
+    // this is the renderer `status --all`/`ls` actually use, and it was rendering
+    // a disabled-writer entry as a healthy 🟢 with a plain unread count.
+    if (!status.writerEnabled) {
+      return `⚪ ${status.oracle}: WRITER DISABLED — unread ${status.unread} is NOT evidence of no work. Check manually, or re-enable the writer.`;
+    }
     const symbol = status.level === "red" ? "🔴" : "🟢";
     const oldest = status.oldest_age_seconds === null ? "none" : formatDuration(status.oldest_age_seconds);
     const archive = status.last_archive_age_seconds === null ? "never" : `${formatDuration(status.last_archive_age_seconds)} ago`;

@@ -60,6 +60,11 @@ const sdkMock = {
     statusBadgeCalls.push({ target, unread });
     return { status: unread > 0 ? "set" : "cleared", session: target, unread };
   },
+  // kobo-470: buildInboxStatus reads this through the SDK boundary now
+  // (moved off a raw commands/shared import — that broke plugin extraction).
+  // Standalone-boundary tests exercise queue/write/mark-read paths, not
+  // status, so a fixed value is enough to keep the mock surface honest.
+  receiverInboxAutoWriteEnabled: () => true,
 };
 
 mock.module("maw-js/sdk", () => ({ ...realSdk, ...sdkMock }));
