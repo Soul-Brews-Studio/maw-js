@@ -242,6 +242,12 @@ describe("renderDetailSigns (kobo-510) — real render path, not source-string a
     const sha = tierRow.children.find((c: any) => c.className === "sign-sha mono");
     expect(sha.textContent).toBe("0843da38"); // clamped for scanning
     expect(sha.title).toBe("0843da38b89bdb98bf645fe21ec566afc8868823"); // full sha never lost, just on hover
+    // eq3 head review (%114): the test name claimed "all four AC fields" but this
+    // fourth one — the per-tier evidence copy — had no guard at all. The evidence
+    // value is exact-toBe pinned on the SUMMARY line, but that says nothing about
+    // this SEPARATE render site inside the tier row; deleting it left 68/68 green.
+    const ev = tierRow.children.find((c: any) => c.className === "sign-evidence");
+    expect(ev.textContent).toBe("test-run");
   });
 
   // kobo-510 AC#3 — the real kobo-470 shape: crew signed at an older commit than
