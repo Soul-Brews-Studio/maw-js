@@ -253,4 +253,28 @@ describe("reconcileMergedCards — swallowed merge-edge recovery (kobo-228)", ()
     expect(run2).toEqual([]); // second poll must NOT re-flip — no churn/event spam
     expect(readTask("kobo", "parked-1")!.updatedTs).toBe(stamp1); // and no updatedTs bump
   });
+
+  // kobo-507 — the real kobo-495 shape: a card sitting in review with a stale
+  // pr link to a CLOSED (not merged) PR had no way out — findTasksByPr only
+  // skips done/rejected/wait-for-deploy, not review. clearTaskPr closes it a
+  // different way: the pr field itself is gone, so `t.pr === pr` is false
+  // against EVERY pr number regardless of the card's state — reconcile can
+  // never find it again, first pass or the hundredth. Per conductor's
+  // instruction: any new skip-condition/state must prove itself idempotent
+  // across TWO reconcile passes, not just one.
+  it("kobo-507: a card whose PR was cleared (superseded) is invisible to reconcile forever, even sitting in review", async () => {
+    const { reconcileMergedCards } = await import("./pr-watch.ts?recon-507");
+    const { readTask, clearTaskPr } = await import("../tasks/store.ts?recon-507");
+    card("kobo", "kobo-495", { state: "review", pr: 334, repo: "meganechan/maw-js", assignee: "patchwork", crewGate: true });
+
+    const cleared = clearTaskPr("kobo", "kobo-495", "eq3", "PR #334 closed, superseded by kobo-504/kobo-506")!;
+    expect(cleared.pr).toBeUndefined();
+    expect(cleared.state).toBe("review"); // untouched by design — not clearTaskPr's call
+
+    const run1 = reconcileMergedCards(334, "meganechan/maw-js", "pr-watch");
+    expect(run1).toEqual([]); // never matched — the pr link is gone
+    const run2 = reconcileMergedCards(334, "meganechan/maw-js", "pr-watch");
+    expect(run2).toEqual([]); // second pass — still nothing, no thrash
+    expect(readTask("kobo", "kobo-495")?.state).toBe("review"); // reconcile never touched it
+  });
 });

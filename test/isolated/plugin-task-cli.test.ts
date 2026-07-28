@@ -438,6 +438,41 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("todo");
   });
 
+  // kobo-507 — the real kobo-495 shape: a card's PR closes without merging
+  // (superseded by a different PR/card split), and there was no way to clear the
+  // stale link — setTaskPr only ever WRITES a number. --clear is the manual way out.
+  test("pr --clear unlinks a stale PR, requires --reason, refuses combined with a PR number", async () => {
+    await run(["add", "superseded card", "--company", "pgw"]); // pgw-1
+    await run(["pr", "pgw-1", "334", "--repo", "meganechan/maw-js", "--company", "pgw"]);
+    expect(readTask("pgw", "pgw-1")!.pr).toBe(334);
+
+    // no --reason → refused, pr untouched
+    const noReason = await run(["pr", "pgw-1", "--clear", "--company", "pgw"]);
+    expect(noReason.ok).toBe(false);
+    expect(noReason.error).toContain("--reason");
+    expect(readTask("pgw", "pgw-1")!.pr).toBe(334);
+
+    // --clear + a PR number in the same call → refused (one call, one thing)
+    const both = await run(["pr", "pgw-1", "999", "--clear", "--reason", "x", "--company", "pgw"]);
+    expect(both.ok).toBe(false);
+    expect(readTask("pgw", "pgw-1")!.pr).toBe(334); // untouched
+
+    // the real path: --clear + --reason, no number
+    const cleared = await run(["pr", "pgw-1", "--clear", "--reason", "PR #334 closed, superseded by pgw-2/pgw-3", "--company", "pgw"]);
+    expect(cleared.ok).toBe(true);
+    const t = readTask("pgw", "pgw-1")!;
+    expect(t.pr).toBeUndefined();
+    expect(t.state).toBe("review"); // untouched — next lane is the reviewer's call
+    expect(t.repo).toBe("meganechan/maw-js"); // untouched — still a true historical fact
+  });
+
+  test("pr --clear on a card with no PR linked is a no-op, not an error", async () => {
+    await run(["add", "never had a pr", "--company", "pgw"]); // pgw-1
+    const r = await run(["pr", "pgw-1", "--clear", "--reason", "just in case", "--company", "pgw"]);
+    expect(r.ok).toBe(true);
+    expect(readTask("pgw", "pgw-1")!.pr).toBeUndefined();
+  });
+
   test("reject sets state=rejected + stores the reason (kobo-101)", async () => {
     await run(["add", "over-scoped plan", "--company", "pgw"]); // pgw-1
     await run(["claim", "pgw-1", "--company", "pgw"]);          // in-progress

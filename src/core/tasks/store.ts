@@ -750,6 +750,40 @@ export function setTaskPr(company: string, id: string, pr: number, by: string, r
   return task;
 }
 
+/**
+ * kobo-507 — the manual way out when a card's linked PR is closed without merging
+ * (superseded by a different PR/card split) and no verb can null a `pr: number`
+ * field: setTaskPr only ever WRITES a number, so a stale link had no clear path
+ * (the real kobo-495 case — PR #334 closed, work continued as kobo-504/kobo-506,
+ * the card still says "review (PR #334)", a dead link the board can't shed).
+ *
+ * Deliberately narrow: clears ONLY `task.pr` (`repo`/`state` untouched — the
+ * card's next lane is the reviewer/human's call, not this function's; forcing a
+ * state change here would be deciding ownership this store layer doesn't own,
+ * same reasoning `needAnswerTask` above uses for not auto-transitioning). `reason`
+ * is MANDATORY, matching every other why-parking verb in this file (approve/
+ * need-answer/reject) — a board that lets a PR link vanish silently is a board
+ * lie in the other direction. Idempotent: clearing an already-unset pr is a
+ * no-op, not an error (same shape as a re-sign refreshing who, not duplicating).
+ *
+ * Deliberately does NOT touch findTasksByPr's skip-list (done/rejected/
+ * wait-for-deploy): `findTasksByPr` filters on `t.pr === pr` — once `task.pr` is
+ * undefined, that comparison is false against every PR number regardless of the
+ * card's state, so the missing "review" entry there is moot for THIS unstick path.
+ */
+export function clearTaskPr(company: string, id: string, by: string, reason: string): TaskRecord | null {
+  if (!reason || !reason.trim()) return null; // mandatory — mirrors approve/need-answer/reject
+  const task = readTask(company, id);
+  if (!task) return null;
+  if (task.pr === undefined) return task; // idempotent no-op — nothing to clear
+  const priorPr = task.pr;
+  delete task.pr;
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", `unlinked PR #${priorPr} from ${task.id}: ${reason.trim()} — ${task.title}`);
+  return task;
+}
+
 // ── kobo-327: merge-gate — 2-sign funnel enforced in software ──────────────────
 
 export type SignTier = "crew" | "head";

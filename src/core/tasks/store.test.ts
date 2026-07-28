@@ -70,6 +70,7 @@ import {
   setTaskDep,
   setTaskEpic,
   setTaskPr,
+  clearTaskPr,
   setTaskRepoIfMissing,
   startTask,
   taskFilePath,
@@ -2250,5 +2251,51 @@ describe("completeOrParkMergedTask — merge flip routes deploy-required → wai
 
   test("missing card → null (no throw)", () => {
     expect(completeOrParkMergedTask("pgw", "pgw-999", "x")).toBeNull();
+  });
+});
+
+// kobo-507 — the real kobo-495 shape: a card's linked PR closes without merging
+// (superseded by a different PR/card split), and setTaskPr only ever WRITES a
+// number, so nothing could clear a stale link — the board kept saying "review
+// (PR #334)" forever. clearTaskPr is the manual way out; deliberately narrow
+// (pr only, state/repo untouched — the next lane is the reviewer/human's call).
+describe("clearTaskPr (kobo-507 — unlink a stale/superseded PR)", () => {
+  test("clears pr, leaves state and repo untouched, requires a reason", () => {
+    const t = addTask({ company: "pgw", title: "superseded work", by: "eq3", assignee: "patchwork" });
+    setTaskPr("pgw", t.id, 334, "patchwork", "meganechan/maw-js");
+    const cleared = clearTaskPr("pgw", t.id, "eq3", "PR #334 closed, superseded by pgw-9/pgw-10")!;
+    expect(cleared.pr).toBeUndefined();
+    expect(cleared.state).toBe("review"); // untouched — not this function's call to make
+    expect(cleared.repo).toBe("meganechan/maw-js"); // untouched — still a true historical fact
+  });
+
+  test("empty/whitespace-only reason → refused, pr NOT cleared", () => {
+    const t = addTask({ company: "pgw", title: "x", by: "eq3" });
+    setTaskPr("pgw", t.id, 10, "eq3");
+    expect(clearTaskPr("pgw", t.id, "eq3", "")).toBeNull();
+    expect(clearTaskPr("pgw", t.id, "eq3", "   ")).toBeNull();
+    expect(readTask("pgw", t.id)!.pr).toBe(10); // still linked — refusal didn't half-apply
+  });
+
+  test("idempotent — clearing an already-unset pr is a no-op, not an error", () => {
+    const t = addTask({ company: "pgw", title: "never had a pr", by: "eq3" });
+    const result = clearTaskPr("pgw", t.id, "eq3", "just in case");
+    expect(result?.pr).toBeUndefined();
+    expect(result?.id).toBe(t.id); // still returns the task, doesn't refuse
+  });
+
+  test("missing card → null (no throw)", () => {
+    expect(clearTaskPr("pgw", "pgw-999", "eq3", "why")).toBeNull();
+  });
+
+  test("emits a worklog entry naming the prior PR + reason (audit trail — Principle 1)", () => {
+    const t = addTask({ company: "pgw", title: "audited", by: "eq3" });
+    setTaskPr("pgw", t.id, 42, "eq3");
+    clearTaskPr("pgw", t.id, "eq3", "superseded");
+    const wl = readWorklog("pgw");
+    const entry = wl.find((e) => e.task === t.id && String((e as any).summary ?? "").includes("unlinked"));
+    expect(entry).toBeTruthy();
+    expect(String((entry as any).summary)).toContain("#42");
+    expect(String((entry as any).summary)).toContain("superseded");
   });
 });

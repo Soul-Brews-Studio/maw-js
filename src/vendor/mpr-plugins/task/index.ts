@@ -73,6 +73,7 @@ import {
   setTaskDep,
   setTaskEpic,
   setTaskPr,
+  clearTaskPr,
   signTask,
   missingSignTiers,
   sameSignerBothTiers,
@@ -723,10 +724,32 @@ export async function runTask(
       // that sets card.pr — `maw reply` can't (replier≠requester bug), so
       // pr-watch's open→review→done never fired. Reuse setTaskPr (state=review);
       // pr-watch's prOpenedReview is idempotent, so no double-transition.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--repo": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--repo": String, "--clear": Boolean, "--reason": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const prArg = flags._[1];
+      // kobo-507 — the manual way out when a card's linked PR closed without
+      // merging (superseded): --clear unlinks the stale pr instead of writing a
+      // new one. Mutually exclusive with a positional PR number — one call does
+      // one thing, never "clear this AND link that" in the same breath.
+      if (flags["--clear"]) {
+        if (prArg) return { ok: false, error: "usage: maw company task pr <id> --clear --reason \"<why>\" (no PR number with --clear)" };
+        if (!id) return { ok: false, error: "usage: maw company task pr <id> --clear --reason \"<why>\"" };
+        if (!flags["--reason"] || !flags["--reason"].trim()) {
+          return { ok: false, error: "--reason is required to clear a PR link (say why it's being unlinked — closed/superseded/etc)" };
+        }
+        const company = resolveCompany(flags["--company"], me);
+        if (!company) return { ok: false, error: "no company — pass --company <c>" };
+        const before = readTask(company, id);
+        if (!before) return { ok: false, error: `task not found: ${id}` };
+        const priorPr = before.pr;
+        const cleared = clearTaskPr(company, id, me, flags["--reason"]);
+        if (!cleared) return { ok: false, error: `task not found: ${id}` };
+        console.log(priorPr === undefined
+          ? `\x1b[90m○ no-op\x1b[0m ${cleared.id} — already had no PR linked: ${cleared.title}`
+          : `\x1b[33m✂ unlinked\x1b[0m ${cleared.id} \x1b[90m(was PR #${priorPr})\x1b[0m: ${cleared.title}`);
+        return { ok: true };
+      }
       if (!id || !prArg) return { ok: false, error: "usage: maw company task pr <id> <pr-number|pr-url> [--repo owner/name]" };
       // accept a bare number or a full github PR url (…/pull/<n>)
       const pr = /^\d+$/.test(prArg) ? Number(prArg) : parsePrNumber(prArg);

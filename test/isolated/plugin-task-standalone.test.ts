@@ -158,6 +158,12 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("sameEvidenceLocusBothTiers"); // merge backstop: both tiers citing the same evidence
     expect(src).toContain("same evidence locus"); // merge refuse message (real kobo-482 shape)
     expect(src).toContain("setTaskPr"); // eq3-013: worker links the PR → card.pr + review
+    // kobo-507: clear a stale/superseded pr link — the manual way out setTaskPr's
+    // number-only signature couldn't provide (the real kobo-495 shape).
+    expect(src).toContain("clearTaskPr");
+    expect(src).toContain('"--clear": Boolean');
+    expect(src).toContain("--reason is required to clear a PR link");
+    expect(src).toContain("no PR number with --clear"); // mutually exclusive with a positional PR number
     expect(src).toContain("parsePrRepo"); // kobo-80: stamp card.repo from the PR url on pr-link
     expect(src).toContain("currentRepoSlug"); // kobo-80: fall back to the CWD git remote when only a number is given
     expect(src).toContain("repo derived from CWD"); // kobo-195: WARN on the CWD fallback — silent stamp of the wrong repo was the kobo-188 foot-gun
