@@ -16,6 +16,7 @@ let nextSplitPane = 1;
 let paneListForSession = "";
 let bootTranscript: Record<string, string[]> = {}; // paneId -> queued capture-pane outputs (shift per poll)
 let throwOnListPanes = false;
+let throwOnLayout = false;
 
 function nextBootLine(paneId: string): string {
   const q = bootTranscript[paneId];
@@ -49,7 +50,13 @@ mock.module("maw-js/sdk", () => ({
       const paneId = m?.[1] ?? "";
       return nextBootLine(paneId);
     }
-    if (cmd.includes("tmux kill-window") || cmd.includes("tmux kill-pane") || cmd.includes("tmux set-option")) {
+    if (throwOnLayout && (cmd.includes("tmux select-layout") || cmd.includes("tmux set-window-option"))) {
+      throw new Error("no server running on socket");
+    }
+    if (
+      cmd.includes("tmux kill-window") || cmd.includes("tmux kill-pane") || cmd.includes("tmux set-option")
+      || cmd.includes("tmux select-layout") || cmd.includes("tmux set-window-option")
+    ) {
       return "";
     }
     if (cmd.startsWith("maw hey")) {
@@ -84,6 +91,7 @@ beforeEach(() => {
   paneListForSession = "";
   bootTranscript = {};
   throwOnListPanes = false;
+  throwOnLayout = false;
   logs = [];
   process.env.TMUX_PANE = "%lead";
   process.env.HEAD_SPAWN_POLL_MS = "1"; // test-only — keep poll loops fast (prod default 2000ms)
@@ -230,6 +238,45 @@ describe("headSpawn (kobo-364)", () => {
     expect(heyCalls[0]).toContain("reviewer");
     expect(logs.some(l => l.includes("boot-fail"))).toBe(true);
     expect(commands.some(c => c.includes("--model sonnet"))).toBe(false); // no fallback tier
+  });
+
+  // kobo-543: verb sets its own window layout (lead = main pane, 45%) so the
+  // human never runs tmux by hand. ORDER MATTERS — select-layout computes pane
+  // geometry from main-pane-width AT THAT MOMENT, so width must be set BEFORE
+  // select-layout or the layout is applied at the default width (reviewer %109
+  // caught this ordering bug before the diff was even open).
+  test("layout: sets main-pane-width 45% BEFORE select-layout main-vertical, both targeting the lead pane", async () => {
+    paneListForSession = "%lead|||👤 lead|||main\n";
+    bootTranscript["%p1"] = ["", "claude code — bypass permissions on"];
+    bootTranscript["%p2"] = ["", "claude code — bypass permissions on"];
+    const r = await headSpawn("kobo", emit);
+    expect(r.ok).toBe(true);
+
+    const widthIdx = commands.findIndex((c) => c.includes("tmux set-window-option") && c.includes("main-pane-width 45%"));
+    const layoutIdx = commands.findIndex((c) => c.includes("tmux select-layout") && c.includes("main-vertical"));
+    expect(widthIdx).toBeGreaterThan(-1);
+    expect(layoutIdx).toBeGreaterThan(-1);
+    expect(widthIdx).toBeLessThan(layoutIdx); // width first, or select-layout applies the OLD width
+
+    expect(commands[widthIdx]).toContain(`-t '%lead'`);
+    expect(commands[layoutIdx]).toContain(`-t '%lead'`);
+
+    // after both @role tags, before the final ok summary line
+    const condRoleIdx = commands.findIndex((c) => c.includes("set-option -p -t '%p1' @role") && c.includes("conductor"));
+    expect(condRoleIdx).toBeGreaterThan(-1);
+    expect(condRoleIdx).toBeLessThan(widthIdx);
+    expect(logs[logs.length - 1]).toStartWith("✓ head spawned");
+  });
+
+  test("layout: hostExec throw is best-effort — spawn still returns ok:true, a warning is emitted, no throw escapes", async () => {
+    paneListForSession = "%lead|||👤 lead|||main\n";
+    bootTranscript["%p1"] = ["", "claude code — bypass permissions on"];
+    bootTranscript["%p2"] = ["", "claude code — bypass permissions on"];
+    throwOnLayout = true;
+    const r = await headSpawn("kobo", emit);
+    expect(r.ok).toBe(true);
+    expect(logs.some((l) => l.includes("⚠") && l.includes("layout"))).toBe(true);
+    expect(logs.some((l) => l.startsWith("✓ head spawned"))).toBe(true);
   });
 
   test("idempotency: teardownCrewWindows called with the lead pane as protectPaneId (never empty)", async () => {

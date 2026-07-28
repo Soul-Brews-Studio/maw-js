@@ -108,14 +108,11 @@ Status dir: `ψ/active/head/` (ephemeral, gitignored) — `conductor.md` (roster
    ```
 3. **kick conductor + reviewer [+comm]** — `maw hey` (resolve index จาก pane-id) 1 บรรทัดต่อ pane: ชี้ lead pane-id + role + standby. (kick แรก = act จาก message แรก, ตาม crew)
 4. **offload lower tiers** — conductor spawn crew/worker-cell เมื่อ offload (ดู §Tiers · §Worker cell). worker-cell = /crew ตรงๆ. head cell เอง ≤4 pane.
-5. **layout** — **lead ใหญ่สุด (ล่างซ้าย)** · conductor + reviewer กลางเท่ากัน (ขวา) · comm (ถ้ามี) แถบบาง ~15% บนซ้ายเหนือ lead:
+5. **layout** — **lead ใหญ่สุด (ล่างซ้าย, main-vertical 45%)** · conductor + reviewer กลางเท่ากัน (ขวา) — verb เซ็ตให้เองแล้ว (kobo-543, best-effort inside `headSpawn()`), **ไม่ต้องรัน tmux มือ**. เหลือแค่ comm (ถ้า opt-in — verb ไม่รู้จัก comm pane):
    ```bash
-   tmux select-layout main-vertical            # lead main ซ้าย, ที่เหลือ stack ขวา (baseline)
-   tmux set-window-option main-pane-width 45%  # ซ้าย ~45% (lead ใหญ่)
    # comm (ถ้า opt-in) ย้ายซ้อนเหนือ lead แถบบาง:
    [ -n "$COMM" ] && tmux resize-pane -t "$COMM" -y 15%   # comm สูงแค่ ~15% — best-effort
    ```
-   ⚠️ tmux layout ไม่มี preset ตรงเป๊ะ — บล็อกนี้ = **เจตนา + best-effort**; ปรับ `-x/-y` ตามจอจริง.
    **@role labels** (⚠️ อย่าใช้ `select-pane -T` — CC ยิง title ทับ):
    ```bash
    tmux set-option -p -t "$LEAD" @role "👤 lead";  tmux set-option -p -t "$COND" @role "🎼 conductor"

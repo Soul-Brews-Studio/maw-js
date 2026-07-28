@@ -105,6 +105,21 @@ describe("head command plugin standalone boundary", () => {
     expect(spawnSrc).toContain("teardownCrewWindows");
   });
 
+  // kobo-543: the verb sets its own window layout (lead = main pane, 45%) instead of
+  // leaving it to a manual tmux step the human ran by hand. Best-effort — a layout
+  // failure must warn, not fail the spawn. Order matters: main-pane-width must be set
+  // BEFORE select-layout, since select-layout reads the width option at call time.
+  test("spawn.ts: sets main-pane-width BEFORE select-layout main-vertical, wrapped best-effort (kobo-543)", () => {
+    const spawnSrc = readFileSync(join(import.meta.dir, "../../src/vendor/mpr-plugins/head/spawn.ts"), "utf8");
+    const widthIdx = spawnSrc.indexOf("main-pane-width 45%");
+    const layoutIdx = spawnSrc.indexOf("select-layout -t");
+    expect(widthIdx).toBeGreaterThan(-1);
+    expect(layoutIdx).toBeGreaterThan(-1);
+    expect(widthIdx).toBeLessThan(layoutIdx); // width set first, or select-layout uses the stale default width
+    expect(spawnSrc).toContain("try {");
+    expect(spawnSrc).toMatch(/catch \(e: any\) \{\s*emit\(`⚠/); // best-effort: warn, never throw out of headSpawn
+  });
+
   test("company/index.ts wires `head` to runHead (the CLI seam)", () => {
     const companyIndexSrc = readFileSync(
       join(import.meta.dir, "../../src/vendor/mpr-plugins/company/index.ts"),

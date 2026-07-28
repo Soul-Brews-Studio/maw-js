@@ -212,6 +212,18 @@ export async function headSpawn(company: string | undefined, emit: (line: string
   await hostExec(`tmux set-option -p -t ${shellArg(conductor)} @role ${shellArg("🎼 conductor")}`);
   await hostExec(`tmux set-option -p -t ${shellArg(reviewer)} @role ${shellArg("🔎 reviewer")}`);
 
+  // kobo-543: lead = main pane (45%), no manual tmux by the human. best-effort —
+  // a layout failure must warn, never fail the spawn (panes are already up and usable).
+  // ORDER MATTERS: select-layout computes pane geometry from main-pane-width AT THAT
+  // MOMENT — setting the width after select-layout changes the option but does not
+  // re-apply the layout, so the width must be set FIRST (reviewer %109 caught this).
+  try {
+    await hostExec(`tmux set-window-option -t ${shellArg(lead)} main-pane-width 45%`);
+    await hostExec(`tmux select-layout -t ${shellArg(lead)} main-vertical`);
+  } catch (e: any) {
+    emit(`⚠ layout apply failed — window left in default split, fix by hand (${e.message})`);
+  }
+
   emit(`✓ head spawned — lead=${lead} conductor=${conductor} reviewer=${reviewer}`);
   // kobo-384: populate the already-declared HeadSpawnResult (was silently discarded as
   // `{ ok: true }`) — mirrors the crewSpawn fix, same rationale (SKILL.md auto-kick).
