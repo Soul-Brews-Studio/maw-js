@@ -267,6 +267,33 @@ describe("renderDetailSigns (kobo-510) — real render path, not source-string a
   });
 });
 
+// kobo-510, %11's review gap: every function above is pinned, but nothing proved
+// openDetail() actually CALLS renderDetailSigns — delete just the call site and
+// every one of the tests above still passes, because they all drive
+// renderDetailSigns directly rather than through the wiring that makes it run in
+// production. This extracts the REAL 5-line call sequence out of openDetail() (not
+// the whole function — it has network/DOM dependencies unrelated to this question)
+// with each render* stubbed as a spy, and proves renderDetailSigns is one of the
+// calls, in the right slot (after meta, before approve), with the real task object.
+describe("openDetail wiring (kobo-510) — renderDetailSigns is actually called, not just correct in isolation", () => {
+  function loadDetailCallSequence() {
+    const html = companyHtml();
+    const start = html.indexOf("renderDetailMeta(task); // kobo-62");
+    const end = html.indexOf("renderDetailFamily(task); // kobo-136") + "renderDetailFamily(task); // kobo-136: family tree (root → descendants, current marked)".length;
+    const src = html.slice(start, end);
+    return new Function("task", "renderDetailMeta", "renderDetailSigns", "renderDetailApprove", "renderDetailDeps", "renderDetailFamily", src);
+  }
+
+  test("renderDetailSigns(task) is called between renderDetailMeta and renderDetailApprove, with the real task object", () => {
+    const calls: string[] = [];
+    const spy = (name: string) => (t: unknown) => { calls.push(name); expect(t).toBe(task); };
+    const task = { id: "kobo-510", crewSignedBy: "patchwork" };
+    const run = loadDetailCallSequence();
+    run(task, spy("meta"), spy("signs"), spy("approve"), spy("deps"), spy("family"));
+    expect(calls).toEqual(["meta", "signs", "approve", "deps", "family"]); // signs between meta and approve, all five actually invoked
+  });
+});
+
 // kobo-237: the resolve concept is removed — comment-fold tests deleted.
 describe("companyHtml injection (kobo-171; kobo-237 removed resolve-fold)", () => {
   test("the served client script contains the walker fns and calls them (single source)", () => {
