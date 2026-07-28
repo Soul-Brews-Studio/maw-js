@@ -32,11 +32,13 @@ export interface TaskCard {
   crewSignedByPane?: string; // kobo-346: the pane that crew-signed (pane-grain identity)
   crewSignedEvidenceScope?: TaskRecord["crewSignedEvidenceScope"]; // kobo-501: what justified the crew sign
   crewSignedEvidenceLocus?: string; // kobo-501: where that evidence was produced (required above diff-read)
+  crewSignedSha?: string; // kobo-400/kobo-510: the commit the crew tier reviewed
   headSignedBy?: string; // kobo-327: who head-signed (final gate)
   headSignedTs?: number;
   headSignedByPane?: string; // kobo-346: the pane that head-signed
   headSignedEvidenceScope?: TaskRecord["headSignedEvidenceScope"]; // kobo-501
   headSignedEvidenceLocus?: string; // kobo-501
+  headSignedSha?: string; // kobo-400/kobo-510: the commit the head tier reviewed
   by: string;
   ts: number;
   updatedTs?: number;
@@ -99,17 +101,25 @@ function toCard(t: TaskRecord, resolveParent: (id: string) => ParentState, cards
   // from "undeclared" (every NEW sign always writes one of the 4 real values, never
   // omits it) — defaulting a missing field here would silently upgrade an old sign the
   // exact way the whole card exists to prevent, just moved from signTask to this route.
+  // kobo-510: crewSignedSha/headSignedSha (kobo-400) had NEVER been copied here either —
+  // a gap that predates and is independent of kobo-501's evidence-scope fields (verified:
+  // 501's diff only touches Evidence* fields, never Sha fields). The board needs both SHAs
+  // to show a signature is stale (crew and head reviewed different commits) — the same
+  // comparison the merge-gate itself already refuses on (kobo-400), just surfaced visually
+  // before someone attempts to merge.
   if (t.crewSignedBy) {
     card.crewSignedBy = t.crewSignedBy; card.crewSignedTs = t.crewSignedTs;
     if (t.crewSignedByPane) card.crewSignedByPane = t.crewSignedByPane; // kobo-346: pane parity
     if (t.crewSignedEvidenceScope) card.crewSignedEvidenceScope = t.crewSignedEvidenceScope;
     if (t.crewSignedEvidenceLocus) card.crewSignedEvidenceLocus = t.crewSignedEvidenceLocus;
+    if (t.crewSignedSha) card.crewSignedSha = t.crewSignedSha;
   }
   if (t.headSignedBy) {
     card.headSignedBy = t.headSignedBy; card.headSignedTs = t.headSignedTs;
     if (t.headSignedByPane) card.headSignedByPane = t.headSignedByPane;
     if (t.headSignedEvidenceScope) card.headSignedEvidenceScope = t.headSignedEvidenceScope;
     if (t.headSignedEvidenceLocus) card.headSignedEvidenceLocus = t.headSignedEvidenceLocus;
+    if (t.headSignedSha) card.headSignedSha = t.headSignedSha;
   }
   if (t.updatedTs) card.updatedTs = t.updatedTs;
   const progress = checklistProgress(t.body);

@@ -70,6 +70,41 @@ describe("handleTasksRequest (real file-per-card store)", () => {
     expect(card.nextAction).toContain("PR #88"); // "รอ merge PR #88 → done"
   });
 
+  // kobo-510 — crewSignedSha/headSignedSha (kobo-400) had never been copied into
+  // /api/tasks either, a gap independent of and predating kobo-501's evidence-scope
+  // fields (that PR only touches Evidence* fields). The board's stale-signature
+  // warning needs both SHAs to compare against each other.
+  test("kobo-510: crewSignedSha/headSignedSha ship on /api/tasks (list) and /api/tasks/detail", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    const t = addTask({ company: "shaexp", title: "sha exposure card", by: "eq3", crewGate: true });
+    signTask("shaexp", t.id, "patchwork", "crew", null, "sha-CREW-AAAA");
+    signTask("shaexp", t.id, "eq3", "head", null, "sha-HEAD-BBBB");
+
+    const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=shaexp")).json()) as {
+      tasks: Array<{ title: string; crewSignedSha?: string; headSignedSha?: string }>;
+    };
+    const card = board.tasks.find((c) => c.title === "sha exposure card")!;
+    expect(card.crewSignedSha).toBe("sha-CREW-AAAA");
+    expect(card.headSignedSha).toBe("sha-HEAD-BBBB");
+
+    const detail = (await handleTaskDetailRequest(new Request("http://x/api/tasks/detail?company=shaexp&id=" + t.id)).json()) as {
+      task: { crewSignedSha?: string; headSignedSha?: string };
+    };
+    expect(detail.task.crewSignedSha).toBe("sha-CREW-AAAA");
+    expect(detail.task.headSignedSha).toBe("sha-HEAD-BBBB");
+  });
+
+  test("kobo-510: a sign with no captured sha (legacy, pre-kobo-400) ships with the field absent, not empty string", async () => {
+    process.env.MAW_DATA_DIR = dir;
+    const t = addTask({ company: "shaexp", title: "no-sha legacy sign" });
+    signTask("shaexp", t.id, "eq3", "head"); // no sha arg — legacy shape
+    const board = (await handleTasksRequest(new Request("http://x/api/tasks?company=shaexp")).json()) as {
+      tasks: Array<{ title: string; headSignedSha?: string }>;
+    };
+    const card = board.tasks.find((c) => c.title === "no-sha legacy sign")!;
+    expect("headSignedSha" in (card as object)).toBe(false);
+  });
+
   test("derives checklist N/M from body; absent when no checkbox (ADR 0003 C)", async () => {
     process.env.MAW_DATA_DIR = dir;
     addTask({ company: "kobo", title: "with checklist", by: "eq3", body: "plan\n- [ ] a\n- [x] b\n- [x] c" });

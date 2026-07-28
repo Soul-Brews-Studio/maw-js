@@ -147,6 +147,193 @@ describe("ctx-span label direction (kobo-443 — same bug family as the statusli
   });
 });
 
+// kobo-510 — the board had NEVER rendered a merge-gate signature field, old
+// (327/346: who signed / pane) or new (501: evidence scope). This exercises the
+// REAL render function extracted straight out of companyHtml() with a fake $/el
+// (same extract-and-eval technique as loadCtxPct/loadCtxLabel above), not a
+// source-string `toContain` assertion — that distinction is the exact one that
+// sent kobo-501 back once (asserting data reached the view's input is not the
+// same as proving the view renders it).
+function loadRenderDetailSigns() {
+  const html = companyHtml();
+  const start = html.indexOf("function shortSha(sha)");
+  const end = html.indexOf("// kobo-62 — assignee avatar");
+  const src = html.slice(start, end);
+  return new Function("el", "$", `${src}\nreturn { renderDetailSigns, evidenceLabel, shortSha };`);
+}
+function fakeDetailEl(tag) {
+  const e = { tag, className: "", textContent: "", title: "", hidden: false, children: [] as any[] };
+  // kobo-510 F2 (%109 review): a child span's text does NOT surface through this
+  // fake unless appendChild explicitly folds it in — unlike a real DOM node, this
+  // object's .textContent is just whatever string el() assigned at construction.
+  // Deliberately aggregating here (real <summary>.textContent DOES include
+  // descendant text) so the exact-toBe assertions below still see the full
+  // sentence when the warning moves into its own child element, instead of a
+  // silently-weakened assert passing on a truncated summary string.
+  e.appendChild = (c: any) => { e.children.push(c); if (c && typeof c.textContent === "string") e.textContent += c.textContent; return c; };
+  e.replaceChildren = (...cs: any[]) => { e.children = cs; };
+  return e;
+}
+function detailEl(tag: string, cls?: string, txt?: unknown) {
+  const e = fakeDetailEl(tag);
+  if (cls) e.className = cls;
+  if (txt != null) e.textContent = String(txt);
+  return e;
+}
+function runRenderDetailSigns(task: Record<string, any>) {
+  const host = fakeDetailEl("div");
+  const $ = (id: string) => { if (id !== "detail-signs") throw new Error("unexpected id " + id); return host; };
+  const mod = loadRenderDetailSigns()(detailEl, $);
+  mod.renderDetailSigns(task);
+  return { host, mod };
+}
+
+describe("evidenceLabel (kobo-510, pure) — the 3-state rule", () => {
+  test("undefined (no key on the record) → its own distinct label, never blank and never 'undeclared'", () => {
+    const { mod } = runRenderDetailSigns({});
+    expect(mod.evidenceLabel(undefined)).toBe("signed before evidence-tracking existed");
+  });
+  test("literal 'undeclared' → the word itself, distinct from the no-key case", () => {
+    const { mod } = runRenderDetailSigns({});
+    expect(mod.evidenceLabel("undeclared")).toBe("undeclared");
+  });
+  test("a real scope value passes through literally", () => {
+    const { mod } = runRenderDetailSigns({});
+    expect(mod.evidenceLabel("diff-read")).toBe("diff-read");
+    expect(mod.evidenceLabel("test-run+mutation")).toBe("test-run+mutation");
+  });
+});
+
+describe("renderDetailSigns (kobo-510) — real render path, not source-string assertions", () => {
+  test("never-signed → section stays hidden, no children rendered at all", () => {
+    const { host } = runRenderDetailSigns({});
+    expect(host.hidden).toBe(true);
+    expect(host.children.length).toBe(0);
+  });
+
+  test("signed-pre-evidence (no evidence key at all) — the state that predates kobo-501, distinct from undeclared", () => {
+    const { host } = runRenderDetailSigns({ headSignedBy: "eq3" }); // no headSignedEvidenceScope key
+    expect(host.hidden).toBe(false);
+    const summary = host.children[0].children[0];
+    expect(summary.tag).toBe("summary");
+    expect(summary.textContent).toContain("signed before evidence-tracking existed");
+    expect(summary.textContent).not.toContain("undeclared");
+  });
+
+  test("signed-undeclared (evidence key literally the string 'undeclared') — distinct from the pre-evidence case", () => {
+    const { host } = runRenderDetailSigns({ headSignedBy: "eq3", headSignedEvidenceScope: "undeclared" });
+    const summary = host.children[0].children[0];
+    expect(summary.textContent).toContain("head: undeclared");
+    expect(summary.textContent).not.toContain("before evidence-tracking");
+  });
+
+  test("a real declared evidence scope renders literally in the summary", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedEvidenceScope: "test-run+mutation" });
+    expect(host.children[0].children[0].textContent).toBe("✍ 1 signed · crew: test-run+mutation");
+  });
+
+  test("signer + pane + short sha (full sha on hover) render per tier — all four AC fields present", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedByPane: "%12", crewSignedSha: "0843da38b89bdb98bf645fe21ec566afc8868823", crewSignedEvidenceScope: "test-run" });
+    const tierRow = host.children[0].children[1]; // [0]=summary, [1]=crew tier row
+    const who = tierRow.children.find((c: any) => c.className === "sign-who");
+    expect(who.textContent).toBe("crew: patchwork");
+    const pane = tierRow.children.find((c: any) => c.className === "sign-pane");
+    expect(pane.textContent).toBe("pane %12");
+    const sha = tierRow.children.find((c: any) => c.className === "sign-sha mono");
+    expect(sha.textContent).toBe("0843da38"); // clamped for scanning
+    expect(sha.title).toBe("0843da38b89bdb98bf645fe21ec566afc8868823"); // full sha never lost, just on hover
+    // eq3 head review (%114): the test name claimed "all four AC fields" but this
+    // fourth one — the per-tier evidence copy — had no guard at all. The evidence
+    // value is exact-toBe pinned on the SUMMARY line, but that says nothing about
+    // this SEPARATE render site inside the tier row; deleting it left 68/68 green.
+    const ev = tierRow.children.find((c: any) => c.className === "sign-evidence");
+    expect(ev.textContent).toBe("test-run");
+  });
+
+  // kobo-510 AC#3 — the real kobo-470 shape: crew signed at an older commit than
+  // what eventually merged. Same comparison the merge-gate itself already refuses
+  // on (kobo-400), surfaced here before anyone attempts to merge.
+  //
+  // kobo-510 F2: this warning used to be a `.sign-stale` <div> buried inside the
+  // collapsed <details> body — invisible unless a reader expanded it, which is the
+  // exact case that bit 510's own PR (crew/head shas agreed with each other at a
+  // stale commit, so the collapsed board showed zero warning). It now lives on the
+  // SUMMARY line itself, exact-toBe pinned so the on-screen text can't silently
+  // drift, plus its non-stale sibling below so a false positive would fail loudly.
+  //
+  // %109 should-fix: a plain-text concat inherited .signs-summary's muted/fg colour
+  // (never red) — the warning must be its OWN element (`.sign-stale`, reused from
+  // the old div, now a <span>) so it carries var(--bad) regardless of the parent's
+  // collapsed/expanded colour. Assert BOTH: the full sentence still reads exactly
+  // right (text regression) AND the warning is a distinct child with the colorable
+  // class (structural regression — catches a future "simplify this" that goes back
+  // to a bare string).
+  test("stale-signature warning when crew and head signed DIFFERENT commits — on the SUMMARY line, visible without expanding, as its own colorable element", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-OLD", headSignedBy: "eq3", headSignedSha: "sha-NEW" });
+    const summary = host.children[0].children[0];
+    expect(summary.tag).toBe("summary");
+    expect(summary.textContent).toBe(
+      "✍ 2 signed · crew: signed before evidence-tracking existed · head: signed before evidence-tracking existed"
+      + " · ⚠ crew and head signed different commits — one tier reviewed stale code",
+    );
+    // structural: the warning is its own child element (carries var(--bad) via
+    // .sign-stale), not just concatenated text on the ambient-colour summary
+    const stale = summary.children.find((c: any) => c.className === "sign-stale");
+    expect(stale).toBeTruthy();
+    expect(stale.tag).toBe("span");
+    expect(stale.textContent).toContain("crew and head signed different commits");
+  });
+
+  test("no stale warning when both tiers signed the SAME commit (no false positive) — summary line has no trailing warning text", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-SAME", headSignedBy: "eq3", headSignedSha: "sha-SAME" });
+    const summary = host.children[0].children[0];
+    expect(summary.textContent).toBe(
+      "✍ 2 signed · crew: signed before evidence-tracking existed · head: signed before evidence-tracking existed",
+    );
+    expect(summary.textContent).not.toContain("⚠");
+  });
+
+  test("only one tier signed (mid-flight crew-gated card) → no stale check fires, single tier row shown", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-A" });
+    const det = host.children[0];
+    expect(det.children.length).toBe(2); // summary + 1 tier row, no stale line
+    expect(det.children.find((c: any) => c.className === "sign-stale")).toBeUndefined();
+  });
+
+  test("the collapsed summary line alone states tier count + each tier's evidence label — the card's own unhappy-path bar (readable without expanding)", () => {
+    const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedEvidenceScope: "diff-read", headSignedBy: "eq3", headSignedEvidenceScope: "test-run" });
+    const summary = host.children[0].children[0];
+    expect(summary.textContent).toBe("✍ 2 signed · crew: diff-read · head: test-run");
+  });
+});
+
+// kobo-510, %11's review gap: every function above is pinned, but nothing proved
+// openDetail() actually CALLS renderDetailSigns — delete just the call site and
+// every one of the tests above still passes, because they all drive
+// renderDetailSigns directly rather than through the wiring that makes it run in
+// production. This extracts the REAL 5-line call sequence out of openDetail() (not
+// the whole function — it has network/DOM dependencies unrelated to this question)
+// with each render* stubbed as a spy, and proves renderDetailSigns is one of the
+// calls, in the right slot (after meta, before approve), with the real task object.
+describe("openDetail wiring (kobo-510) — renderDetailSigns is actually called, not just correct in isolation", () => {
+  function loadDetailCallSequence() {
+    const html = companyHtml();
+    const start = html.indexOf("renderDetailMeta(task); // kobo-62");
+    const end = html.indexOf("renderDetailFamily(task); // kobo-136") + "renderDetailFamily(task); // kobo-136: family tree (root → descendants, current marked)".length;
+    const src = html.slice(start, end);
+    return new Function("task", "renderDetailMeta", "renderDetailSigns", "renderDetailApprove", "renderDetailDeps", "renderDetailFamily", src);
+  }
+
+  test("renderDetailSigns(task) is called between renderDetailMeta and renderDetailApprove, with the real task object", () => {
+    const calls: string[] = [];
+    const spy = (name: string) => (t: unknown) => { calls.push(name); expect(t).toBe(task); };
+    const task = { id: "kobo-510", crewSignedBy: "patchwork" };
+    const run = loadDetailCallSequence();
+    run(task, spy("meta"), spy("signs"), spy("approve"), spy("deps"), spy("family"));
+    expect(calls).toEqual(["meta", "signs", "approve", "deps", "family"]); // signs between meta and approve, all five actually invoked
+  });
+});
+
 // kobo-237: the resolve concept is removed — comment-fold tests deleted.
 describe("companyHtml injection (kobo-171; kobo-237 removed resolve-fold)", () => {
   test("the served client script contains the walker fns and calls them (single source)", () => {
