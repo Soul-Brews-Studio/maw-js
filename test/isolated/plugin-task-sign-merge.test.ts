@@ -152,7 +152,9 @@ describe("kobo-327 merge-gate: runTask sign/merge verbs", () => {
     expect(c.ok).toBe(true);
     expect(c.output).toContain("still needs: head");
     const h = await signAs("patchwork", "kobo-1", "head"); // kobo-336: distinct signer for head
-    expect(h.output).toContain("mergeable");
+    // kobo-576 review round 1: "mergeable" overclaimed what tier-vs-tier agreement
+    // actually verifies — reworded to what was checked + the GitHub-at-merge caveat.
+    expect(h.output).toContain("all tiers signed the same commit");
   });
 
   test("sign without --role → usage error", async () => {

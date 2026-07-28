@@ -80,6 +80,8 @@ import {
   unblockTask,
   requiredSignTiers,
   missingSignTiers,
+  staleSignTiers,
+  signTask,
   escalateCrewGate,
   reclassifyAndEscalate,
   type ParentState,
@@ -2302,6 +2304,78 @@ describe("clearTaskPr (kobo-507 — unlink a stale/superseded PR)", () => {
     expect(entry).toBeTruthy();
     expect(String((entry as any).summary)).toContain("#42");
     expect(String((entry as any).summary)).toContain("superseded");
+  });
+});
+
+// kobo-576 — missingSignTiers only ever checked "does a BY field exist," never
+// whether the tiers that signed agree on WHICH commit they reviewed. The real
+// pgw-368 incident: an 11-day-old crew sign the signer themselves had already
+// declared void still counted as "complete" — the CLI printed "all signs in
+// (mergeable)" for a card `merge` itself would refuse (kobo-400's tierShas
+// check). staleSignTiers makes that SAME comparison available before merge
+// time. Deliberately narrow: only catches required tiers DISAGREEING WITH
+// EACH OTHER, never compares against the PR's true external current head
+// (that's GitHub's own --match-head-commit, atomic, at actual merge time —
+// duplicating it here would mean a live `gh` fetch on every read).
+describe("staleSignTiers (kobo-576) — tiers that signed different commits", () => {
+  test("both required tiers present, DIFFERENT sha → both tiers reported stale", () => {
+    const t = addTask({ company: "kobo", title: "c", by: "eq3", crewGate: true });
+    signTask("kobo", t.id, "patchwork", "crew", null, "sha-AAAA");
+    signTask("kobo", t.id, "eq3", "head", null, "sha-BBBB");
+    expect(staleSignTiers(readTask("kobo", t.id)!)).toEqual(["crew", "head"]);
+  });
+
+  test("both required tiers present, SAME sha → not stale", () => {
+    const t = addTask({ company: "kobo", title: "c", by: "eq3", crewGate: true });
+    signTask("kobo", t.id, "patchwork", "crew", null, "sha-SAME");
+    signTask("kobo", t.id, "eq3", "head", null, "sha-SAME");
+    expect(staleSignTiers(readTask("kobo", t.id)!)).toEqual([]);
+  });
+
+  test("one tier's sha absent (legacy, pre-kobo-400) → NOT flagged stale — that's kobo-404's scope, not this one", () => {
+    const t = addTask({ company: "kobo", title: "c", by: "eq3", crewGate: true });
+    signTask("kobo", t.id, "patchwork", "crew"); // no sha at all
+    signTask("kobo", t.id, "eq3", "head", null, "sha-ONLY-HEAD");
+    expect(staleSignTiers(readTask("kobo", t.id)!)).toEqual([]);
+  });
+
+  test("neither tier signed yet → not stale (nothing to compare, missingSignTiers already covers this)", () => {
+    const t = addTask({ company: "kobo", title: "c", by: "eq3", crewGate: true });
+    expect(staleSignTiers(readTask("kobo", t.id)!)).toEqual([]);
+  });
+
+  test("single-tier card (no crewGate) → never flagged, only one tier exists to disagree with itself", () => {
+    const t = addTask({ company: "kobo", title: "c", by: "eq3" }); // no crewGate
+    signTask("kobo", t.id, "eq3", "head", null, "sha-SOLO");
+    expect(staleSignTiers(readTask("kobo", t.id)!)).toEqual([]);
+  });
+});
+
+describe("taskNextAction — review state reflects a stale sign mismatch (kobo-576)", () => {
+  test("review + PR linked + tiers signed different commits → warns, does not read as ready for merge", () => {
+    const t = addTask({ company: "kobo", title: "c", by: "eq3", crewGate: true, state: "review" });
+    setTaskPr("kobo", t.id, 99, "eq3");
+    signTask("kobo", t.id, "patchwork", "crew", null, "sha-AAAA");
+    signTask("kobo", t.id, "eq3", "head", null, "sha-BBBB");
+    const next = taskNextAction(readTask("kobo", t.id)!);
+    expect(next).toContain("เซ็นคนละ commit");
+    expect(next).toContain("crew");
+    expect(next).toContain("head");
+    expect(next).not.toContain("รอ merge PR #99 → done"); // must NOT read as ready
+  });
+
+  test("review + PR linked + tiers agree → unchanged, still reads as ready", () => {
+    const t = addTask({ company: "kobo", title: "c", by: "eq3", crewGate: true, state: "review" });
+    setTaskPr("kobo", t.id, 99, "eq3");
+    signTask("kobo", t.id, "patchwork", "crew", null, "sha-SAME");
+    signTask("kobo", t.id, "eq3", "head", null, "sha-SAME");
+    expect(taskNextAction(readTask("kobo", t.id)!)).toBe("รอ merge PR #99 → done (freshness ของ head ตรวจที่ GitHub ตอน merge)");
+  });
+
+  test("review + PR linked + no signs at all → unchanged (nothing to compare)", () => {
+    const t = addTask({ company: "kobo", title: "c", by: "eq3", state: "review" });
+    setTaskPr("kobo", t.id, 99, "eq3");
+    expect(taskNextAction(readTask("kobo", t.id)!)).toBe("รอ merge PR #99 → done (freshness ของ head ตรวจที่ GitHub ตอน merge)");
   });
 });
 
