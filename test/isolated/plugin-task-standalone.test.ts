@@ -159,6 +159,20 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("--match-head-commit"); // GitHub enforces atomically server-side at merge
     expect(src).toContain("different commits, only one tier actually reviewed"); // crew≠head refuse — the hole convergent-discovered from two angles (kobo-336's own distinct-signer rule opened this window)
     expect(src).toContain("pre-signSha-bind sign"); // legacy grandfather warning (field-absence trigger, no flag-day — kobo-404 tightens later)
+    // kobo-557: SHA-compare at merge-time only proves crew+head agree with EACH OTHER,
+    // never that either read what they signed — --sha makes the signer's read explicit
+    // and REFUSES (not warns) when the head has moved since. Injectable fetcher (no
+    // MAW_TEST_MODE branch in the gate path — kobo-546's lesson).
+    expect(src).toContain('"--sha": String');
+    expect(src).toContain("__setHeadShaFetcherForTest");
+    expect(src).toContain("__resetHeadShaFetcherForTest");
+    expect(src).toContain("someone pushed since you read it");
+    // kobo-557 — Tony's ruling (path 2): (A) no PR linked is a workflow gap → REFUSE
+    // (stamp it, fixable in 5 seconds). (C) a gh fetch failure with the PR linked is
+    // the network-dependency shape kobo-404 protects → ALLOW through, loud — the
+    // output line must say plainly no SHA bound, distinct from a genuine bind.
+    expect(src).toContain("no PR linked yet");
+    expect(src).toContain("NO SHA BOUND");
     // kobo-501: a sign records WHAT justified it (diff-read vs a real test-run vs
     // mutation-verified), not just sha+pane — undeclared is the true default, never
     // silently upgraded to diff-read (the collapse-unknown-into-a-value defect class).
