@@ -240,17 +240,32 @@ describe("renderDetailSigns (kobo-510) — real render path, not source-string a
   // kobo-510 AC#3 — the real kobo-470 shape: crew signed at an older commit than
   // what eventually merged. Same comparison the merge-gate itself already refuses
   // on (kobo-400), surfaced here before anyone attempts to merge.
-  test("stale-signature warning when crew and head signed DIFFERENT commits", () => {
+  //
+  // kobo-510 F2: this warning used to be a `.sign-stale` <div> buried inside the
+  // collapsed <details> body — invisible unless a reader expanded it, which is the
+  // exact case that bit 510's own PR (crew/head shas agreed with each other at a
+  // stale commit, so the collapsed board showed zero warning). It now lives on the
+  // SUMMARY line itself, exact-toBe pinned so the on-screen text can't silently
+  // drift, plus its non-stale sibling below so a false positive would fail loudly.
+  test("stale-signature warning when crew and head signed DIFFERENT commits — on the SUMMARY line, visible without expanding", () => {
     const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-OLD", headSignedBy: "eq3", headSignedSha: "sha-NEW" });
-    const stale = host.children[0].children.find((c: any) => c.className === "sign-stale");
-    expect(stale).toBeTruthy();
-    expect(stale.textContent).toContain("different commits");
+    const summary = host.children[0].children[0];
+    expect(summary.tag).toBe("summary");
+    expect(summary.textContent).toBe(
+      "✍ 2 signed · crew: signed before evidence-tracking existed · head: signed before evidence-tracking existed"
+      + " · ⚠ crew and head signed different commits — one tier reviewed stale code",
+    );
+    // no separate collapsed-body div anymore — the warning is part of the summary string
+    expect(host.children[0].children.find((c: any) => c.className === "sign-stale")).toBeUndefined();
   });
 
-  test("no stale warning when both tiers signed the SAME commit (no false positive)", () => {
+  test("no stale warning when both tiers signed the SAME commit (no false positive) — summary line has no trailing warning text", () => {
     const { host } = runRenderDetailSigns({ crewSignedBy: "patchwork", crewSignedSha: "sha-SAME", headSignedBy: "eq3", headSignedSha: "sha-SAME" });
-    const stale = host.children[0].children.find((c: any) => c.className === "sign-stale");
-    expect(stale).toBeUndefined();
+    const summary = host.children[0].children[0];
+    expect(summary.textContent).toBe(
+      "✍ 2 signed · crew: signed before evidence-tracking existed · head: signed before evidence-tracking existed",
+    );
+    expect(summary.textContent).not.toContain("⚠");
   });
 
   test("only one tier signed (mid-flight crew-gated card) → no stale check fires, single tier row shown", () => {

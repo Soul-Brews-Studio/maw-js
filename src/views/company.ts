@@ -1032,17 +1032,23 @@ function renderDetailSigns(task) {
   if (hasCrew) summaryBits.push('crew: ' + evidenceLabel(task.crewSignedEvidenceScope));
   if (hasHead) summaryBits.push('head: ' + evidenceLabel(task.headSignedEvidenceScope));
 
-  const det = el('details', 'signs-detail');
-  det.appendChild(el('summary', 'signs-summary', '✍ ' + tierCount + ' signed · ' + summaryBits.join(' · ')));
-  if (hasCrew) det.appendChild(signTierRow('crew', task.crewSignedBy, task.crewSignedByPane, task.crewSignedSha, task.crewSignedEvidenceScope));
-  if (hasHead) det.appendChild(signTierRow('head', task.headSignedBy, task.headSignedByPane, task.headSignedSha, task.headSignedEvidenceScope));
   // AC#3 — crew and head signed DIFFERENT commits: the same mismatch the merge-gate
   // itself already refuses on (kobo-400's "different commits, only one tier actually
-  // reviewed the code being merged") — surfaced visually here BEFORE anyone attempts
-  // the merge, not a new comparison mechanism (Out-of-scope: don't touch sign/merge).
-  if (hasCrew && hasHead && task.crewSignedSha && task.headSignedSha && task.crewSignedSha !== task.headSignedSha) {
-    det.appendChild(el('div', 'sign-stale', '⚠ crew and head signed different commits — one tier reviewed stale code'));
-  }
+  // reviewed the code being merged") — surfaced on the SUMMARY line itself (kobo-510
+  // F2, was a <div> buried inside the collapsed <details> body, invisible unless
+  // expanded — the exact case that bit 510's own PR: crew/head shas agreed with each
+  // other at a stale commit, and the buried warning never showed on load). Wording
+  // stays narrow/literal on purpose: this only compares crew-sha to head-sha, it does
+  // NOT detect a PR head that has moved past a signature both tiers already agree on
+  // (that gap is tracked separately — not this card, don't widen the claim here).
+  const isStale = hasCrew && hasHead && task.crewSignedSha && task.headSignedSha && task.crewSignedSha !== task.headSignedSha;
+  const summaryText = '✍ ' + tierCount + ' signed · ' + summaryBits.join(' · ')
+    + (isStale ? ' · ⚠ crew and head signed different commits — one tier reviewed stale code' : '');
+
+  const det = el('details', 'signs-detail');
+  det.appendChild(el('summary', 'signs-summary', summaryText));
+  if (hasCrew) det.appendChild(signTierRow('crew', task.crewSignedBy, task.crewSignedByPane, task.crewSignedSha, task.crewSignedEvidenceScope));
+  if (hasHead) det.appendChild(signTierRow('head', task.headSignedBy, task.headSignedByPane, task.headSignedSha, task.headSignedEvidenceScope));
   host.replaceChildren(det);
   host.hidden = false;
 }
