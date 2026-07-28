@@ -491,10 +491,16 @@ let mermaidBlockSeq = 0;
 // every cached SVG (a diagram rendered under the OLD palette must never be
 // served as-is once the theme changes), not just the source text.
 const mermaidSvgCache = new Map();
-// U+0001 between them is a real separator (never appears in a mermaid source
-// string) — without one, theme "a" + src "bc" would collide in the map with
-// theme "ab" + src "c".
-function mermaidCacheKey(src) { return mermaidThemeId + '' + src; }
+// U+0001 between fields is a real separator (never appears in a mermaid
+// source string or in JSON.stringify output) — without one, theme "a" + src
+// "bc" would collide in the map with theme "ab" + src "c".
+// kobo-426: mermaidThemeId alone relied on a human remembering to bump it
+// whenever MERMAID_THEME_VARIABLES changed (the comment above it said so,
+// nothing enforced it). Folding a stringified copy of the variables directly
+// into the key makes invalidation mechanical: change any theme value, the
+// key changes, no bump required. mermaidThemeId itself stays too — a test
+// harness still swaps it directly to prove that path independently.
+function mermaidCacheKey(src) { return mermaidThemeId + '' + JSON.stringify(MERMAID_THEME_VARIABLES) + '' + src; }
 async function renderMermaidBlocks(root) {
   const blocks = root.querySelectorAll('.mermaid-src');
   if (!blocks.length) return; // nothing to render — never load the asset (lazy-by-absence)
@@ -833,20 +839,64 @@ async function confirmMerge() {
 // Modal content is populated via cloneNode of the diagram's OWN already-rendered
 // <svg> (the SAME element the thumbnail shows, never re-rendered) + replaceChildren
 // — no innerHTML involved, so this adds no new innerHTML sink.
+// kobo-426: aria-modal="true" on #mermaidModal (see the template above) is a
+// promise to keyboard/screen-reader users that focus moves in and comes back
+// — nothing here kept it before. Capture whatever had focus (the thumbnail
+// that triggered this), move focus into the modal, and restore on close.
+let mermaidModalReturnFocus = null;
 function openMermaidModal(svgNode) {
+  mermaidModalReturnFocus = document.activeElement;
   $('mmdModalContent').replaceChildren(svgNode);
   $('mermaidModal').style.display = '';
+  $('mmdModalClose').focus();
 }
 function closeMermaidModal() {
   $('mermaidModal').style.display = 'none';
   $('mmdModalContent').replaceChildren();
+  if (mermaidModalReturnFocus && mermaidModalReturnFocus.focus) mermaidModalReturnFocus.focus();
+  mermaidModalReturnFocus = null;
+}
+// kobo-426: mermaid.render's SVG carries an id (the 'mmd-N' passed in above)
+// plus internal marker/gradient ids referenced via url(#...) or href="#...".
+// cloneNode(true) copies those ids verbatim — while the modal is open, the
+// SAME id exists twice in the live document (the thumbnail's original SVG,
+// still in #thread, and this clone in the modal). Duplicate ids break
+// getElementById/aria-* lookups and can misresolve url(#...) references to
+// the wrong instance's defs. Rewrite every id in the CLONE to a fresh one
+// before it's inserted, fixing up every attribute that pointed at the old id.
+let mermaidCloneIdSeq = 0;
+const SVG_ID_REF_ATTRS = ['fill', 'stroke', 'marker-start', 'marker-mid', 'marker-end', 'clip-path', 'mask', 'href'];
+function dedupeSvgIds(svgNode) {
+  // querySelectorAll only searches DESCENDANTS — mermaid's root <svg> carries
+  // its own id (the 'mmd-N' render id), which would otherwise be skipped.
+  const idEls = [...svgNode.querySelectorAll('[id]')];
+  if (svgNode.getAttribute('id')) idEls.push(svgNode);
+  if (!idEls.length) return svgNode;
+  const idMap = new Map();
+  for (const el of idEls) {
+    const oldId = el.getAttribute('id');
+    const newId = oldId + '-clone' + (mermaidCloneIdSeq++);
+    idMap.set(oldId, newId);
+    el.setAttribute('id', newId);
+  }
+  for (const el of svgNode.querySelectorAll('*')) {
+    for (const attr of SVG_ID_REF_ATTRS) {
+      const val = el.getAttribute(attr);
+      if (!val) continue;
+      for (const [oldId, newId] of idMap) {
+        if (val === '#' + oldId) { el.setAttribute(attr, '#' + newId); break; }
+        if (val === 'url(#' + oldId + ')') { el.setAttribute(attr, 'url(#' + newId + ')'); break; }
+      }
+    }
+  }
+  return svgNode;
 }
 function onThreadClick(ev) {
   const thumb = ev.target.closest('.mermaid-thumb');
   if (!thumb) return;
   const svgEl = thumb.querySelector('svg');
   if (!svgEl) return;
-  openMermaidModal(svgEl.cloneNode(true));
+  openMermaidModal(dedupeSvgIds(svgEl.cloneNode(true)));
 }
 
 // ── wire ────────────────────────────────────────────────────────────────

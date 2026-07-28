@@ -159,7 +159,11 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     // statement — mermaidThemeId is a `let` inside the extracted source purely
     // so this harness can prove the cache key reacts to it; shipped code never
     // reassigns it (no runtime theme switcher exists).
-    return new Function(`${src}; return { loadMermaid, renderMermaidBlocks, setMermaidThemeIdForTest: (v) => { mermaidThemeId = v; } };`)();
+    // kobo-426: setMermaidThemeVariableForTest exists ONLY here too — proves
+    // the cache key reacts to MERMAID_THEME_VARIABLES itself changing, not
+    // just to mermaidThemeId (the fix for "invalidation relied on someone
+    // remembering to bump a comment-instructed string").
+    return new Function(`${src}; return { loadMermaid, renderMermaidBlocks, setMermaidThemeIdForTest: (v) => { mermaidThemeId = v; }, setMermaidThemeVariableForTest: (k, v) => { MERMAID_THEME_VARIABLES[k] = v; } };`)();
   }
   // kobo-398 review fix (B2): the real querySelectorAll returns a NodeList, not
   // an Array — a plain-array stub is a MORE capable fake than the real DOM (it
@@ -417,6 +421,34 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     }
   });
 
+  // kobo-426 — the debt this closes: invalidation depended on a HUMAN
+  // remembering to bump mermaidThemeId whenever MERMAID_THEME_VARIABLES
+  // changed; nothing enforced it. This proves the OTHER path: change a theme
+  // variable directly, WITHOUT touching mermaidThemeId at all, and the cache
+  // must still invalidate for the same source.
+  test("kobo-426: changing MERMAID_THEME_VARIABLES invalidates the cache even if mermaidThemeId is never bumped", async () => {
+    const { renderMermaidBlocks, setMermaidThemeVariableForTest } = loadMermaidRenderer();
+    let renderCalls = 0;
+    const { doc, win } = stubEnv(async () => { renderCalls++; return { svg: "<svg>call-" + renderCalls + "</svg>" }; });
+    const prevDoc = (globalThis as any).document, prevWin = (globalThis as any).window;
+    (globalThis as any).document = doc; (globalThis as any).window = win;
+    try {
+      const src = "graph TD; A-->B;";
+      const block1 = { textContent: src, innerHTML: "", isConnected: true, classList: { add: () => {} } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block1]) });
+      expect(renderCalls).toBe(1);
+
+      // same source, new node, mermaidThemeId untouched — only a theme VALUE changed
+      setMermaidThemeVariableForTest("background", "#000000");
+      const block2 = { textContent: src, innerHTML: "", isConnected: true, classList: { add: () => {} } };
+      await renderMermaidBlocks({ querySelectorAll: () => nodeList([block2]) });
+      expect(renderCalls).toBe(2); // re-rendered — the old-palette SVG was NOT served stale
+      expect(block2.innerHTML).toBe("<svg>call-2</svg>");
+    } finally {
+      (globalThis as any).document = prevDoc; (globalThis as any).window = prevWin;
+    }
+  });
+
   test("kobo-422: mermaid.initialize uses theme:'base' + site-matched themeVariables, not mermaid's default palette", () => {
     expect(html).toContain("theme: 'base'");
     expect(html).toContain("themeVariables: MERMAID_THEME_VARIABLES");
@@ -456,60 +488,152 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
     const src = html.slice(start, end);
     return new Function("$", `${src}; return { openMermaidModal, closeMermaidModal, onThreadClick };`)((id: string) => elements[id]);
   }
+  // kobo-426: openMermaidModal now reads document.activeElement and calls
+  // $('mmdModalClose').focus() — every modal test needs a close-button fake
+  // and a stubbed global document, or these throw regardless of what they're
+  // actually testing.
   function modalElements() {
     const content = { children: [] as any[], replaceChildren(...nodes: any[]) { this.children = nodes; } };
     const modal = { style: { display: "none" } };
-    return { content, modal, mmdModalContent: content, mermaidModal: modal };
+    const closeBtn = { focusCalls: 0, focus() { this.focusCalls++; } };
+    return { content, modal, closeBtn, mmdModalContent: content, mermaidModal: modal, mmdModalClose: closeBtn };
+  }
+  function withModalGlobals(activeElement: any, fn: () => void) {
+    const prevDoc = (globalThis as any).document;
+    (globalThis as any).document = { activeElement };
+    try { fn(); } finally { (globalThis as any).document = prevDoc; }
+  }
+
+  // kobo-426 — minimal fake SVG element with a real attribute API (getAttribute/
+  // setAttribute/id) and querySelectorAll('[id]' | '*'). onThreadClick now
+  // ALWAYS runs cloned svg nodes through dedupeSvgIds, so every test that
+  // clicks a thumbnail needs an svg stand-in with at least this much of a
+  // real API, not just a bare {tag} stub.
+  function fakeSvgEl(attrs: Record<string, string> = {}, children: any[] = []): any {
+    const el: any = {
+      _attrs: { ...attrs },
+      _children: children,
+      getAttribute(name: string) { return name in this._attrs ? this._attrs[name] : null; },
+      setAttribute(name: string, val: string) { this._attrs[name] = val; },
+      querySelectorAll(sel: string) {
+        const out: any[] = [];
+        const walk = (node: any) => {
+          for (const c of node._children) {
+            if (sel === "*" || (sel === "[id]" && "id" in c._attrs)) out.push(c);
+            walk(c);
+          }
+        };
+        walk(el);
+        return out;
+      },
+      cloneNode(deep: boolean) {
+        return fakeSvgEl({ ...el._attrs }, deep ? el._children.map((c: any) => c.cloneNode(true)) : []);
+      },
+    };
+    return el;
   }
 
   test("kobo-422: openMermaidModal replaceChildren-s the given node into modal content (no innerHTML) and shows the modal", () => {
-    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
-    const { openMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const { content, modal, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const { openMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
     const fakeSvg = { tag: "svg" };
-    openMermaidModal(fakeSvg);
+    withModalGlobals({ focus() {} }, () => openMermaidModal(fakeSvg));
     expect(content.children).toEqual([fakeSvg]);
     expect(modal.style.display).toBe("");
   });
 
   test("kobo-422: closeMermaidModal hides the modal and clears its content", () => {
-    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
+    const { content, modal, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
     content.children = ["stale" as any];
     modal.style.display = "";
-    const { closeMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal });
-    closeMermaidModal();
+    const { openMermaidModal, closeMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
+    withModalGlobals({ focus() {} }, () => { openMermaidModal({ tag: "svg" }); closeMermaidModal(); });
     expect(modal.style.display).toBe("none");
     expect(content.children).toEqual([]);
   });
 
   test("kobo-422: onThreadClick opens the modal with a CLONE of the clicked diagram's svg, not the live thumbnail node", () => {
-    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
-    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
-    const originalSvg = { tag: "svg", cloneNode(deep: boolean) { return { tag: "svg-clone", deep }; } };
+    const { content, modal, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
+    const originalSvg = fakeSvgEl({ id: "mmd-1" });
     const thumb = { querySelector: (sel: string) => (sel === "svg" ? originalSvg : null) };
     const target = { closest: (sel: string) => (sel === ".mermaid-thumb" ? thumb : null) };
-    onThreadClick({ target });
+    withModalGlobals({ focus() {} }, () => onThreadClick({ target }));
     expect(content.children.length).toBe(1);
     expect(content.children[0]).not.toBe(originalSvg); // a CLONE — the live thumbnail node is never moved into the modal
-    expect(content.children[0]).toEqual({ tag: "svg-clone", deep: true });
+    expect(content.children[0]._attrs.id).not.toBe("mmd-1"); // kobo-426: dedup gives the clone a fresh id
     expect(modal.style.display).toBe("");
   });
 
   test("kobo-422: onThreadClick is a no-op when the click lands outside any .mermaid-thumb", () => {
-    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
-    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const { content, modal, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
     const target = { closest: () => null };
-    onThreadClick({ target });
+    withModalGlobals({ focus() {} }, () => onThreadClick({ target }));
     expect(content.children).toEqual([]);
     expect(modal.style.display).toBe("none");
   });
 
   test("kobo-422: onThreadClick is a no-op when the thumb has no <svg> child yet (render still pending)", () => {
-    const { content, modal, mmdModalContent, mermaidModal } = modalElements();
-    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal });
+    const { content, modal, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
     const thumb = { querySelector: () => null };
     const target = { closest: () => thumb };
-    onThreadClick({ target });
+    withModalGlobals({ focus() {} }, () => onThreadClick({ target }));
     expect(content.children).toEqual([]);
+  });
+
+  // kobo-426: mermaid's rendered SVG carries its own id (the render id) plus
+  // internal ids (markers/defs) referenced via url(#...) — cloning it
+  // verbatim into the modal while the original stays in #thread put the SAME
+  // id twice in the live document at once.
+  test("kobo-426: onThreadClick's clone gets a fresh root id — the original thumbnail svg's id is untouched", () => {
+    const { content, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
+    const originalSvg = fakeSvgEl({ id: "mmd-3" });
+    const thumb = { querySelector: (sel: string) => (sel === "svg" ? originalSvg : null) };
+    const target = { closest: (sel: string) => (sel === ".mermaid-thumb" ? thumb : null) };
+    withModalGlobals({ focus() {} }, () => onThreadClick({ target }));
+    const clone = content.children[0];
+    expect(clone.getAttribute("id")).not.toBe(null);
+    expect(clone.getAttribute("id")).not.toBe("mmd-3"); // fresh id, not a duplicate
+    expect(originalSvg.getAttribute("id")).toBe("mmd-3"); // dedup mutates the CLONE only, never the live original
+  });
+
+  test("kobo-426: a marker-end url(#...) reference inside the clone is rewritten to the clone's OWN new marker id, not left pointing at the original", () => {
+    const { content, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const { onThreadClick } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
+    const marker = fakeSvgEl({ id: "mmd-3_arrow" });
+    const path = fakeSvgEl({ "marker-end": "url(#mmd-3_arrow)" });
+    const defs = fakeSvgEl({}, [marker]);
+    const originalSvg = fakeSvgEl({ id: "mmd-3" }, [defs, path]);
+    const thumb = { querySelector: (sel: string) => (sel === "svg" ? originalSvg : null) };
+    const target = { closest: (sel: string) => (sel === ".mermaid-thumb" ? thumb : null) };
+    withModalGlobals({ focus() {} }, () => onThreadClick({ target }));
+    const clone = content.children[0];
+    const [clonedDefs, clonedPath] = clone._children;
+    const clonedMarker = clonedDefs._children[0];
+    expect(clonedMarker.getAttribute("id")).not.toBe("mmd-3_arrow"); // marker got a fresh id too
+    expect(clonedPath.getAttribute("marker-end")).toBe("url(#" + clonedMarker.getAttribute("id") + ")"); // reference follows the SAME new id
+    expect(clonedPath.getAttribute("marker-end")).not.toBe("url(#mmd-3_arrow)"); // never left dangling on the old one
+  });
+
+  // kobo-426 — closes the debt: #mermaidModal is aria-modal="true" (a promise
+  // to keyboard/screen-reader users) but nothing moved focus in or back.
+  test("kobo-426: openMermaidModal captures the previously-focused element and moves focus to the close button", () => {
+    const { closeBtn, mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const { openMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
+    withModalGlobals({ focus() {} }, () => openMermaidModal({ tag: "svg" }));
+    expect(closeBtn.focusCalls).toBe(1);
+  });
+
+  test("kobo-426: closeMermaidModal restores focus to whatever triggered the open (the clicked thumbnail), not just the close button", () => {
+    const { mmdModalContent, mermaidModal, mmdModalClose } = modalElements();
+    const { openMermaidModal, closeMermaidModal } = loadMermaidModal({ mmdModalContent, mermaidModal, mmdModalClose });
+    let thumbnailFocusCalls = 0;
+    const thumbnail = { focus() { thumbnailFocusCalls++; } };
+    withModalGlobals(thumbnail, () => { openMermaidModal({ tag: "svg" }); closeMermaidModal(); });
+    expect(thumbnailFocusCalls).toBe(1);
   });
 
   // kobo-422 review (eq3 L1): the markup test above only proves the close
