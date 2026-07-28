@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 
-const realSdk = await import("../src/sdk");
+const realSdk = { ...(await import("../src/sdk")) };
 
 let active = false;
 // kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
@@ -82,6 +82,15 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
 
 const { findTopRightPane, maybeOpenWindow, maybeSplit, probeTmuxServer } =
   await import("../src/commands/shared/wake-maybe-split.ts?wake-maybe-split-coverage");
+
+// kobo-592: mock.module() replaces the process-WIDE module registry — every
+// later file sharing this run/worker keeps hitting this file's mocked
+// src/sdk (and realCallForbidden, since suiteStarted never resets) unless
+// the registry gets its real implementation back. See
+// comm-send-durable-inbox.test.ts for the full write-up.
+afterAll(() => {
+  mock.module(join(import.meta.dir, "../src/sdk"), () => realSdk);
+});
 
 const originalTmux = process.env.TMUX;
 const originalPane = process.env.TMUX_PANE;

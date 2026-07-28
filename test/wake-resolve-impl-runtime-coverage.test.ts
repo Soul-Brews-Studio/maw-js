@@ -25,11 +25,11 @@ const tempRoot = mkdtempSync(join(tmpdir(), "maw-wake-resolve-runtime-"));
 const originalMawStateDir = process.env.MAW_STATE_DIR;
 process.env.MAW_STATE_DIR = stateRoot;
 
-const _rSdk = await import("../src/sdk");
-const _rConfig = await import("../src/config");
-const _rGhq = await import("../src/core/ghq");
-const _rWorktrees = await import("../src/core/fleet/worktrees-scan");
-const _rScanSuggest = await import("../src/commands/shared/wake-resolve-scan-suggest");
+const _rSdk = { ...(await import("../src/sdk")) };
+const _rConfig = { ...(await import("../src/config")) };
+const _rGhq = { ...(await import("../src/core/ghq")) };
+const _rWorktrees = { ...(await import("../src/core/fleet/worktrees-scan")) };
+const _rScanSuggest = { ...(await import("../src/commands/shared/wake-resolve-scan-suggest")) };
 
 const realSdk = {
   hostExec: _rSdk.hostExec,
@@ -265,6 +265,16 @@ afterAll(() => {
   rmSync(fleetRoot, { recursive: true, force: true });
   rmSync(stateRoot, { recursive: true, force: true });
   rmSync(tempRoot, { recursive: true, force: true });
+  // kobo-592: mock.module() replaces the process-WIDE module registry —
+  // every later file sharing this run/worker keeps hitting this file's
+  // mocked modules (and realCallForbidden, since suiteStarted never resets)
+  // unless the registry gets its real implementation back. See
+  // comm-send-durable-inbox.test.ts for the full write-up.
+  mock.module(join(import.meta.dir, "../src/sdk"), () => _rSdk);
+  mock.module(join(import.meta.dir, "../src/config"), () => _rConfig);
+  mock.module(join(import.meta.dir, "../src/core/ghq"), () => _rGhq);
+  mock.module(join(import.meta.dir, "../src/core/fleet/worktrees-scan"), () => _rWorktrees);
+  mock.module(join(import.meta.dir, "../src/commands/shared/wake-resolve-scan-suggest"), () => _rScanSuggest);
 });
 
 describe("resolveOracle runtime paths", () => {

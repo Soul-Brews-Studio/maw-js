@@ -6,12 +6,28 @@ const srcRoot = join(import.meta.dir, "..");
 
 // Capture real implementations before mocking — gate pattern prevents mock
 // bleed into later files that share this process (#2474).
-const _rSdk = await import("../src/sdk");
-const _rConfig = await import("../src/config");
-const _rFeed = await import("../src/commands/shared/comm-log-feed");
-const _rOracle = await import("../src/lib/oracle-manifest");
-const _rAutoWake = await import("../src/commands/shared/should-auto-wake");
-const _rAway = await import("../src/core/worklog/presence-away");
+//
+// kobo-592: `await import(path)` returns the module's namespace object — a
+// SINGLETON per resolved specifier, the SAME object every importer in this
+// process gets. `mock.module(path, factory)` mutates that singleton's live
+// bindings in place; it does not swap importers over to a distinct new
+// object. So a bare `const _rSdk = await import(...)` is NOT a snapshot —
+// it's a live reference that reflects whatever `mock.module` did to that
+// path most recently, including calls made LATER in this very file (line 62
+// below) or a restore attempted afterward. Verified live: without the
+// spread-copy here, reading `_rConfig.cfgLimit` from `afterAll` (after this
+// file's own `mock.module` call at line ~99) returned the MOCKED closure,
+// not the real function — so restoring the module with `() => _rConfig` in
+// afterAll just put the mock back in a new box. Spreading into a fresh plain
+// object HERE, before any `mock.module` call in this file, decouples the
+// capture from that singleton — a plain object's own properties can't be
+// mutated by a later reassignment of a DIFFERENT object's bindings.
+const _rSdk = { ...(await import("../src/sdk")) };
+const _rConfig = { ...(await import("../src/config")) };
+const _rFeed = { ...(await import("../src/commands/shared/comm-log-feed")) };
+const _rOracle = { ...(await import("../src/lib/oracle-manifest")) };
+const _rAutoWake = { ...(await import("../src/commands/shared/should-auto-wake")) };
+const _rAway = { ...(await import("../src/core/worklog/presence-away")) };
 
 const realSdk = {
   listSessions: _rSdk.listSessions,
@@ -221,6 +237,31 @@ afterAll(() => {
   console.log = origLog;
   console.error = origErr;
   (process as unknown as { exit: typeof origExit }).exit = origExit;
+  // kobo-592: mock.module() replaces the process-WIDE module registry, not a
+  // per-file one — Bun keeps each mocked factory active for every LATER file
+  // that shares this test run/worker, not just this file's own tests.
+  // `suiteStarted` is deliberately never reset (kobo-483 — it's the
+  // fail-closed trip-wire against a real sendKeys/curlFetch slipping through
+  // if `mockActive` ever flips false mid-suite by a bug), so once this
+  // file's tests finish, every later file calling any of these six modules
+  // hits realCallForbidden instead of the real implementation — reproduced
+  // live: running this file together with src/core/worklog/ in one process
+  // turns a completely unrelated worklog test red on `cfgLimit`
+  // (pushFeedEvent → src/config), because nothing ever gave the module
+  // registry its real implementation back.
+  //
+  // Re-register each with the FULL original captured module (the `_r*`
+  // namespace objects from the top of this file, not the narrower `real*`
+  // convenience subsets used inside resolveMock — those omit every export
+  // this file doesn't call, and mock.module's factory return value becomes
+  // the ENTIRE module's exports, so restoring with the subset would silently
+  // undefine everything else importers of these modules rely on).
+  mock.module(join(srcRoot, "src/sdk"), () => _rSdk);
+  mock.module(join(srcRoot, "src/config"), () => _rConfig);
+  mock.module(join(srcRoot, "src/commands/shared/comm-log-feed"), () => _rFeed);
+  mock.module(join(srcRoot, "src/lib/oracle-manifest"), () => _rOracle);
+  mock.module(join(srcRoot, "src/commands/shared/should-auto-wake"), () => _rAutoWake);
+  mock.module(join(srcRoot, "src/core/worklog/presence-away"), () => _rAway);
 });
 
 describe("cmdSend durable receiver inbox (#1967)", () => {

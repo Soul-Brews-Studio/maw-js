@@ -3,10 +3,10 @@
  * ssh, script, or expect processes. Bun.spawn is process-global, so this lives
  * in test/isolated/ where CI runs one Bun process per file.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const realConfig = await import("../../src/config");
-const realTmux = await import("../../src/core/transport/tmux");
+const realConfig = { ...(await import("../../src/config")) };
+const realTmux = { ...(await import("../../src/core/transport/tmux")) };
 
 const encode = (text: string) => new TextEncoder().encode(text);
 const decode = (data: unknown) => data instanceof Uint8Array ? new TextDecoder().decode(data) : String(data);
@@ -218,6 +218,16 @@ afterEach(async () => {
   else process.env.MAW_HOST = originalHost;
   if (originalPlatformDescriptor) Object.defineProperty(process, "platform", originalPlatformDescriptor);
   mockActive = false;
+});
+
+// kobo-592: mock.module() replaces the process-WIDE module registry — every
+// later file sharing this run/worker keeps hitting this file's mocked
+// modules (and realCallForbidden, since suiteStarted never resets) unless
+// the registry gets its real implementation back. See
+// comm-send-durable-inbox.test.ts for the full write-up.
+afterAll(() => {
+  mock.module(import.meta.resolve("../../src/config"), () => realConfig);
+  mock.module(import.meta.resolve("../../src/core/transport/tmux"), () => realTmux);
 });
 
 describe("PTY websocket bridge", () => {
