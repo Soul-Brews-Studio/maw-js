@@ -545,7 +545,7 @@ describe("cmdSend — delivery branch coverage", () => {
     // kobo-368 reviewer .1 finding: assert the body is genuinely ABSENT + the
     // compact char-count present — a bare "delivered" substring check would
     // still pass on a reverted full-echo default (hollow pin).
-    const deliveredLine = logs.find((l) => l.includes("delivered"));
+    const deliveredLine = logs.find((l) => l.includes("landed")); // kobo-596: "delivered" reworded to "landed" — matches what's actually verified
     expect(deliveredLine).toBeDefined();
     expect(deliveredLine).toContain("(24 chars)"); // "[test-node:sender] hello".length === 24
     expect(deliveredLine).not.toContain("[test-node:sender] hello"); // body genuinely absent
@@ -558,7 +558,7 @@ describe("cmdSend — delivery branch coverage", () => {
     await runCmd(() => cmdSend("local:session:oracle", "hello", false, { verbose: true }));
 
     expect(exitCode).toBeUndefined();
-    const deliveredLine = logs.find((l) => l.includes("delivered"));
+    const deliveredLine = logs.find((l) => l.includes("landed")); // kobo-596: "delivered" reworded to "landed" — matches what's actually verified
     expect(deliveredLine).toBeDefined();
     expect(deliveredLine).toContain("session:oracle.0: [test-node:sender] hello"); // full body, byte-equiv to pre-368
     expect(deliveredLine).not.toContain("chars)");
