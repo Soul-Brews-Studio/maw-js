@@ -428,6 +428,14 @@ export function stripGhostText(line: string): string {
           if (n === 0) { dim = false; reverse = false; }
           else if (n === 2) dim = true;
           else if (n === 22) dim = false;
+          // kobo-508: this treats ANY reverse span as ghost and deletes it whole —
+          // including, hypothetically, a permission-menu selected row, IF Claude
+          // Code ever draws it in reverse instead of today's colour (38;5;153).
+          // That would make checkPaneIdle alone read the pane as idle while a
+          // confirm dialog sits open. It's safe today only because of that colour
+          // choice, not because this function knows what a menu is — see
+          // isSafeToInject below, which is the actual second gate that closes
+          // this regardless of which way the TUI happens to render it.
           else if (n === 7) reverse = true;
           else if (n === 27) reverse = false;
         }
@@ -440,6 +448,19 @@ export function stripGhostText(line: string): string {
   return out;
 }
 
+/**
+ * kobo-508 — the single declared source for how many rows the send-gate
+ * captures. checkPaneIdle and detectPermissionMenu both read the input box
+ * above its divider+footer and MUST request the same depth: widen this once
+ * to catch a taller menu and both see it. If the two call sites ever drift
+ * apart, the two gates read a different depth of the same pane — a silent
+ * behavioral hole, which is exactly why check-pane-idle-real-captures.test.ts
+ * pins each call site against this constant and goes red on that drift. NOT
+ * covered: a call site re-hardcoding a literal that happens to equal this
+ * value — that class of regression is out of scope for that test.
+ */
+export const SEND_GATE_SNAPSHOT_LINES = 12;
+
 export async function checkPaneIdle(
   target: string,
   host?: string,
@@ -448,7 +469,7 @@ export async function checkPaneIdle(
   const capturePane = deps.captureFn ?? capture;
   try {
     // Capture enough rows to see the TUI input box above its divider+footer.
-    const content = await capturePane(target, 12, host);
+    const content = await capturePane(target, SEND_GATE_SNAPSHOT_LINES, host);
     const lines = content
       .split("\n")
       .map(l => stripGhostText(l)
@@ -509,7 +530,7 @@ export async function detectPermissionMenu(
 ): Promise<boolean> {
   const capturePane = deps.captureFn ?? capture;
   try {
-    const text = (await capturePane(target, 12, host))
+    const text = (await capturePane(target, SEND_GATE_SNAPSHOT_LINES, host))
       .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
       .replace(/\x1b\[[0-9;]*[mGKHFJA-Z]/g, "")
       .replace(/\r/g, "");
@@ -519,6 +540,45 @@ export async function detectPermissionMenu(
   } catch {
     return false;
   }
+}
+
+/**
+ * kobo-508 — answers the question this card exists to force an answer to:
+ * should detectPermissionMenu also gate SENDING, not just notify? Yes. On the
+ * two paths this fix touches — cmdSend's direct injection below, and the
+ * DispatchEngine sweep via server.ts's sweepPaneIdleCheck — checkPaneIdle used
+ * to be the only send-gate (dispatch-engine's own detectMenu call is
+ * notify-only — see checkStall). checkPaneIdle's ghost-strip deletes a whole
+ * reverse-video span; detectPermissionMenu strips only ANSI codes and never a
+ * whole attribute span, so its numbered-cursor + modal-footer signal survives a
+ * shape that would fool checkPaneIdle alone (a menu row drawn in reverse
+ * instead of colour — not observed yet, but no longer able to slip through
+ * silently on these two paths if it happens). This does NOT claim every send
+ * path in the codebase is gated this way — see kobo-508's card note for the
+ * enumeration of paths that are and aren't. Callers should use this instead of
+ * checkPaneIdle directly when the result gates an actual injection.
+ */
+export async function isSafeToInject(
+  target: string,
+  host?: string,
+  deps: { captureFn?: typeof capture } = {},
+): Promise<{ safe: boolean; reason?: "typing" | "menu"; lastInput: string }> {
+  // %5's request-change: checkPaneIdle + detectPermissionMenu each captured
+  // independently doubled the real tmux round-trips per send (1 -> 2) — on a
+  // shared tmux server that has already hung once tonight (kobo-477) with an
+  // open latency card (kobo-408), that is not a cost to pay silently as a
+  // side effect of wiring two functions together. Capture once, feed the SAME
+  // snapshot to both — one round-trip, same behavior either function had on
+  // its own.
+  let captured: Promise<string> | undefined;
+  const captureOnce: typeof capture = (...args) => (captured ??= (deps.captureFn ?? capture)(...args));
+  const onceDeps = { captureFn: captureOnce };
+
+  const pane = await checkPaneIdle(target, host, onceDeps);
+  if (!pane.idle) return { safe: false, reason: "typing", lastInput: pane.lastInput };
+  const menuOpen = await detectPermissionMenu(target, host, onceDeps);
+  if (menuOpen) return { safe: false, reason: "menu", lastInput: pane.lastInput };
+  return { safe: true, lastInput: pane.lastInput };
 }
 
 /**
@@ -1399,16 +1459,23 @@ export async function cmdSend(
     // Read off the already-loaded config (not a new barrel helper) so the wide
     // set of modules that mock `src/config` inline don't all need a new export.
     if (config.inputGuard?.enabled ?? true) {
-      const pane = await checkPaneIdle(target);
-      if (!pane.idle) {
+      // kobo-508: checkPaneIdle alone was the only real send-gate (detectPermissionMenu
+      // used to be notify-only). isSafeToInject combines both so a menu drawn in a
+      // shape that fools checkPaneIdle's ghost-strip still defers instead of typing
+      // over an open confirm dialog.
+      const safe = await isSafeToInject(target);
+      if (!safe.safe) {
         queueForDispatch({ from: `${config.node ?? "local"}:${senderName}`, to: query, target, message: outboundMessage });
         const inbox = await writeReceiverInbox(target);
-        const reason = `operator input in progress on '${guard.oracle}'; queued — auto-delivers when the pane clears`;
+        const reason = safe.reason === "menu"
+          ? `a permission/confirm menu is open on '${guard.oracle}'; queued — auto-delivers when it clears`
+          : `operator input in progress on '${guard.oracle}'; queued — auto-delivers when the pane clears`;
         if (logQueuedInbox(inbox, target, reason)) {
           await notifyQueuedInbox(inbox, target, reason);
           return;
         }
-        console.log(`\x1b[33mqueued\x1b[0m '${guard.oracle}' has operator input mid-edit — will auto-deliver when the pane clears \x1b[90m(📬)\x1b[0m`);
+        const label = safe.reason === "menu" ? "has a permission menu open" : "has operator input mid-edit";
+        console.log(`\x1b[33mqueued\x1b[0m '${guard.oracle}' ${label} — will auto-deliver when the pane clears \x1b[90m(📬)\x1b[0m`);
         return;
       }
     }

@@ -17,7 +17,12 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { checkPaneIdle, detectPermissionMenu } from "../src/commands/shared/comm-send";
+import {
+  checkPaneIdle,
+  detectPermissionMenu,
+  isSafeToInject,
+  SEND_GATE_SNAPSHOT_LINES,
+} from "../src/commands/shared/comm-send";
 
 const FX = join(import.meta.dir, "fixtures/pane-captures");
 const probe = (file: string) =>
@@ -91,6 +96,128 @@ describe("detectPermissionMenu — modal recognition (eq3-004)", () => {
   test("modal footer alone, with no numbered cursor, does NOT count as a menu", async () => {
     const footerOnly = "Press Esc to cancel the running task\n❯ \n";
     expect(await probeMenu(footerOnly)).toBe(false);
+  });
+});
+
+/**
+ * kobo-508 — the real permission menu (claude-permission-menu.txt) draws its
+ * selected row in COLOUR (38;5;153), not reverse video. checkPaneIdle's
+ * ghost-strip (kobo-503) deletes a whole reverse span; it has never had to
+ * face a menu row drawn that way because Claude Code has never drawn one that
+ * way. This shape is NOT OBSERVED on any real pane — constructed to match the
+ * real menu's own structure (numbered cursor + "Esc to cancel" footer, from
+ * claude-permission-menu.txt) with only the selected row's styling swapped
+ * from colour to reverse. If Claude Code ever renders this way, checkPaneIdle
+ * alone reads the pane as idle (proven below); isSafeToInject does not,
+ * because detectPermissionMenu strips only ANSI codes, never a whole
+ * attribute span, so its signal survives regardless of which way the row is
+ * styled.
+ */
+describe("kobo-508 — permission-menu row drawn in reverse instead of colour (hypothetical, not yet observed)", () => {
+  const reverseMenuPane = [
+    " Do you want to proceed?",
+    " \x1b[7m❯ 1. Yes\x1b[27m",
+    "   2. Yes, and don't ask again for: maw inbox *",
+    "   3. No",
+    "",
+    " Esc to cancel · Tab to amend · ctrl+e to explain",
+  ].join("\n");
+  const captureFn = async () => reverseMenuPane;
+
+  test("checkPaneIdle ALONE reads this as idle — the latent hole this card documents", async () => {
+    // Not a regression to fix in stripGhostText itself: the whole point is that
+    // checkPaneIdle can't tell dim/reverse text apart from a menu without help.
+    const r = await checkPaneIdle("pane:0.0", undefined, { captureFn });
+    expect(r.idle).toBe(true);
+  });
+
+  test("detectPermissionMenu still catches it — its strip never deletes the row", async () => {
+    expect(await detectPermissionMenu("pane:0.0", undefined, { captureFn })).toBe(true);
+  });
+
+  test("isSafeToInject is the actual fix: unsafe, reason 'menu', despite checkPaneIdle alone saying idle", async () => {
+    const r = await isSafeToInject("pane:0.0", undefined, { captureFn });
+    expect(r.safe).toBe(false);
+    expect(r.reason).toBe("menu");
+  });
+
+  test("isSafeToInject on real bright typing: unsafe, reason 'typing' (existing behaviour preserved)", async () => {
+    const r = await isSafeToInject("pane:0.0", undefined, {
+      captureFn: async () => readFileSync(join(FX, "claude-bright-typing.txt"), "utf8"),
+    });
+    expect(r.safe).toBe(false);
+    expect(r.reason).toBe("typing");
+  });
+
+  test("isSafeToInject on a truly empty box: safe (existing behaviour preserved)", async () => {
+    const r = await isSafeToInject("pane:0.0", undefined, {
+      captureFn: async () => readFileSync(join(FX, "claude-empty.txt"), "utf8"),
+    });
+    expect(r.safe).toBe(true);
+    expect(r.reason).toBeUndefined();
+  });
+});
+
+/**
+ * kobo-508 — checkPaneIdle and detectPermissionMenu must request the SAME
+ * snapshot depth. Widening the window to catch a taller menu only works both
+ * places if there's one declared source; if the two ever drift apart, one
+ * gate reads a shorter (or taller) pane than the other and the hole this card
+ * exists to close reopens silently, with no red test to catch it. This spies
+ * on the raw captureFn args each function passes and pins both to the
+ * exported constant. It catches the two call sites DIVERGING (e.g. one left
+ * at 12, the other bumped to 40) — it does NOT prove either call site still
+ * references the constant rather than a re-hardcoded literal that happens to
+ * equal it; that class of regression is out of scope here (would need a
+ * source-scan, which is more than this AC asks for).
+ */
+describe("kobo-508 — send-gate snapshot depth is declared once, used by both", () => {
+  test("checkPaneIdle requests SEND_GATE_SNAPSHOT_LINES rows", async () => {
+    const seen: number[] = [];
+    await checkPaneIdle("pane:0.0", undefined, {
+      captureFn: async (_t, lines) => { seen.push(lines as number); return ""; },
+    });
+    expect(seen).toEqual([SEND_GATE_SNAPSHOT_LINES]);
+  });
+
+  test("detectPermissionMenu requests SEND_GATE_SNAPSHOT_LINES rows", async () => {
+    const seen: number[] = [];
+    await detectPermissionMenu("pane:0.0", undefined, {
+      captureFn: async (_t, lines) => { seen.push(lines as number); return ""; },
+    });
+    expect(seen).toEqual([SEND_GATE_SNAPSHOT_LINES]);
+  });
+});
+
+/**
+ * kobo-508 — the two items %11 raised while reviewing kobo-503 are recorded as
+ * HYPOTHESES, not findings, per lead's explicit instruction: neither has been
+ * observed on a real pane, and this card must not let either read as proven.
+ *
+ * 1. An input of EXACTLY one character with the cursor sitting on it may read
+ *    as empty. %11 constructed this himself; he has never seen it on a real
+ *    pane, and every real capture of actual operator typing on file (e.g.
+ *    claude-bright-typing.txt) renders with NO reverse-video codes at all —
+ *    the cursor does not visibly overlap real typed text in any artifact this
+ *    fleet has captured tonight. I did not attempt to produce one live (would
+ *    require sending a single real keystroke into a live Claude Code pane to
+ *    capture the result, which risks overtyping someone's actual session for
+ *    a hypothesis check) — leaving this UNTESTED, stated plainly, not
+ *    converted to a finding either way.
+ * 2. A pure-reverse/no-dim shape (no dim anywhere in the row) already passes
+ *    checkPaneIdle correctly, but nothing in the committed suite asserted it
+ *    directly. This one WAS convertible to a real finding: verified live
+ *    against %11's own pane (13-patchwork:0.2, tmux pane %11) while it was
+ *    showing exactly this shape mid-incident tonight (a bare placeholder
+ *    ellipsis, cursor-reverse, zero dim) — real capture-pane -e bytes fed
+ *    through checkPaneIdle returned idle:true. Committed below as a real
+ *    fixture, not reconstructed.
+ */
+describe("kobo-508 hypothesis 2 (CONVERTED to finding): pure reverse, zero dim, real pane", () => {
+  test("real capture (13-patchwork:0.2, mid-incident): reverse-only placeholder is idle", async () => {
+    const r = await probe("claude-pure-reverse-no-dim.txt");
+    expect(r.idle).toBe(true);
+    expect(r.lastInput).toBe("");
   });
 });
 

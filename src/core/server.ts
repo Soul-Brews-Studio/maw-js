@@ -276,6 +276,30 @@ function profileFlag(profile: ServeProfile, key: "intervals" | "views"): boolean
   return profile[key] !== false;
 }
 
+/**
+ * kobo-508 — the `paneIdle` re-check DispatchEngine's sweep uses before
+ * auto-delivering a queued message (dispatch-engine.ts:134/161). This is one of
+ * the small enumerated set of paths that actually gate an injection with the
+ * combined checkPaneIdle+detectPermissionMenu signal (isSafeToInject) rather
+ * than checkPaneIdle alone — comm-send.ts's direct cmdSend path is the other.
+ * Several OTHER send paths do not go through either (WebSocket handlers, the
+ * cross-node inbound path, raw type-text callers) — see kobo-508's card note
+ * for the full enumeration; this comment names only what THIS function does,
+ * not a count of every injection point in the codebase (kobo-394 shape: an
+ * absence-claim ("both real injection points") is unverifiable and was wrong
+ * here — %11 found 6+ send paths, only 3 gated).
+ *
+ * Exported (not inlined in startDispatchEngine's options object) so a test can
+ * call the REAL wiring directly with a mocked capture, instead of stubbing
+ * `paneIdle` itself — a stub proves nothing about what this line actually does.
+ * Dynamic import keeps comm-send out of server.ts's static link graph (it pulls
+ * heavy deps that some serve-boot tests mock partially).
+ */
+export async function sweepPaneIdleCheck(target: string): Promise<boolean> {
+  const { isSafeToInject } = await import("../commands/shared/comm-send");
+  return (await isSafeToInject(target)).safe;
+}
+
 // --- Server ---
 
 export async function startServer(
@@ -332,10 +356,7 @@ export async function startBunGatewayServer(
     startDispatchEngine(sendKeys, {
       // Dynamic imports keep comm-send / tmux-class out of server.ts's static
       // link graph (they pull heavy deps that some serve-boot tests mock partially).
-      paneIdle: async (target) => {
-        const { checkPaneIdle } = await import("../commands/shared/comm-send");
-        return (await checkPaneIdle(target)).idle;
-      },
+      paneIdle: sweepPaneIdleCheck,
       // eq3-004 — permission-modal detector (separate from the typing guard) so a
       // pane stuck on a confirm prompt notifies the sender immediately.
       detectMenu: async (target) => {
