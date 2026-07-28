@@ -380,11 +380,19 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * Explicitly NOT rejected by name: `local` is formatSignedMessage's own
  * literal fallback (`config.node || "local"`, below) when a sender's node is
  * unset — genuinely machine-constructed, kept. Measured against kobo's real
- * worklog.jsonl (8723 conversation-entry prefixes matched): 0 real senders
- * lost, 33 rows reclassified (26 numeric-session-shaped + 7 colon-in-oracle).
- * request:/room:/head:/re:/patchwork-as-node (~89 rows) remain UNCLASSIFIED
- * by this structural rule — they are textually indistinguishable from a
- * plausible short node name without a registry or a word list, both
+ * worklog.jsonl: 0 real senders lost, a small number of rows reclassified
+ * (numeric-session-shaped + colon-in-oracle) — exact counts deliberately NOT
+ * repeated here (the worklog grows continuously; a number baked into a
+ * comment goes stale and gets read as current fact by someone who never
+ * re-measures — see the kobo-597 card note for the as-of-review-time count
+ * and the reproducible measurement script). reviewer .1 independently
+ * re-measured across the WHOLE fleet, not just kobo — pgw's worklog carries
+ * ~14x more reclassified rows than kobo's (same real cause, session-name
+ * leaks like `[27:sapan]` — genuine reclassifications, not false positives),
+ * since this file is shared fleet-wide. request:/room:/head:/re:/
+ * patchwork-as-node remain UNCLASSIFIED by this structural rule — they are
+ * textually indistinguishable from a plausible short node name without a
+ * registry or a word list, both
  * explicitly out of this card's scope (measured + reported, not silently
  * left unmentioned — see the kobo-597 card note).
  */
