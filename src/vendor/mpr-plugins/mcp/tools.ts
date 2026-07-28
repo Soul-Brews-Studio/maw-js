@@ -59,6 +59,8 @@ export interface TaskInput {
   gate?: boolean;      // hold: --gate — route the brake to the approve lane (Tony's queue), not review (kobo-224)
   reviewer?: string;   // add (persistent per-card reviewer, kobo-144)
   role?: string;       // sign (required): crew|head — which gate tier is signing (kobo-327)
+  evidence?: string;   // sign (kobo-501): scope of what justified this sign — mirrors CLI --evidence (undeclared|diff-read|test-run|test-run+mutation); omitted = undeclared, never guessed
+  evidenceLocus?: string; // sign (kobo-501): where that evidence lives — mirrors CLI --evidence-locus (required once evidence is above diff-read)
   crewGate?: boolean;  // add (kobo-327): mark a crew-cell card → merge needs crew + head sign
   method?: string;     // merge (kobo-327): merge|squash|rebase (default merge)
   singleTier?: boolean; // merge (kobo-331): declare a genuine no-crew card → head-only merge (explicit escape from fail-closed)
@@ -351,7 +353,15 @@ export function taskArgs(input: TaskInput): string[] {
       // kobo-327: record a merge-gate sign (crew pre-PR gate / head final gate).
       const sid = needId("sign");
       if (!input.role) throw new Error("task sign requires a role (crew|head)");
-      return ["company", "task", "sign", sid, "--role", input.role, ...common()];
+      const argv = ["company", "task", "sign", sid, "--role", input.role];
+      // kobo-565: without these, every sign placed through MCP silently drops its
+      // evidence scope — the CLI has always accepted --evidence/--evidence-locus,
+      // but tools.ts never forwarded them, so a sign that WAS scoped reads back as
+      // "undeclared" indistinguishably from one that never was. Optional — this
+      // only makes declaring possible, it does not require it (posture unchanged).
+      if (input.evidence) argv.push("--evidence", input.evidence);
+      if (input.evidenceLocus) argv.push("--evidence-locus", input.evidenceLocus);
+      return [...argv, ...common()];
     }
     case "merge": {
       // kobo-327: the gated merge — refuses until required signs present, then gh pr merge.

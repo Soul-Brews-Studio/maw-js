@@ -184,6 +184,8 @@ export function buildServer(opts: BuildOptions = {}): McpServer {
         gate: z.boolean().optional().describe("hold: --gate — the reviewer judges this a Tony-gate (big) card → route the brake to the approve lane (Tony's queue) instead of review, replacing hold+@tony; reason required. Pure lane move, never auto-deploys (kobo-224)"),
         reviewer: z.string().optional().describe("add: persistent per-card reviewer (resolve chain head → creator → human, kobo-144)"),
         role: z.enum(["crew", "head"]).optional().describe("sign (REQUIRED, kobo-327): which merge-gate tier signs — crew = crew-cell pre-PR gate, head = final gate before merge"),
+        evidence: z.enum(["undeclared", "diff-read", "test-run", "test-run+mutation"]).optional().describe("sign (kobo-501/565): scope of what justified this sign — omitted defaults to undeclared (the honest unknown), never guessed"),
+        evidenceLocus: z.string().optional().describe("sign (kobo-501/565): where that evidence lives — required once evidence is above diff-read"),
         crewGate: z.boolean().optional().describe("add (kobo-327): mark a crew-cell card → `merge` needs a crew pre-sign in addition to head (the anti-race funnel)"),
         method: z.enum(["merge", "squash", "rebase"]).optional().describe("merge (kobo-327): gh merge method, default merge"),
         singleTier: z.boolean().optional().describe("merge (kobo-331): declare a genuine no-crew card → head-only merge. The explicit escape when crewGate is unset (fail-closed refuses otherwise); rejected if the card is crew-gated."),

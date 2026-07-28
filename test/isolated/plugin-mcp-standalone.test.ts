@@ -131,14 +131,20 @@ describe("mcp plugin standalone boundary (#2113)", () => {
       expect(tools).toContain(verb);
     }
     // kobo-327: merge-gate — sign records a crew/head tier; merge is the gated merge path.
-    expect(tools).toContain('["company", "task", "sign", sid, "--role", input.role');
+    expect(tools).toContain('const argv = ["company", "task", "sign", sid, "--role", input.role]');
     expect(tools).toContain('task sign requires a role'); // sign refuses without a tier
+    // kobo-565: evidence scope must reach the CLI through MCP too — it was silently
+    // dropped before (every MCP sign read back "undeclared" regardless of what was done).
+    expect(tools).toContain('argv.push("--evidence", input.evidence)');
+    expect(tools).toContain('argv.push("--evidence-locus", input.evidenceLocus)');
     expect(tools).toContain('["company", "task", "merge", gid]');
     expect(tools).toContain('argv.push("--crew-gate")'); // add forwards the crew-cell flag
     expect(tools).toContain('argv.push("--single-tier")'); // kobo-331: merge forwards the no-crew escape
     expect(server).toContain('"sign"'); // enum + description advertise the verb
     expect(server).toContain('"merge"');
     expect(server).toContain('z.enum(["crew", "head"])'); // role param schema
+    expect(server).toContain('evidence: z.enum(["undeclared", "diff-read", "test-run", "test-run+mutation"])'); // kobo-565: evidence param schema
+    expect(server).toContain("evidenceLocus: z.string()"); // kobo-565: evidence locus param schema
     expect(server).toContain('z.enum(["merge", "squash", "rebase"])'); // method param schema
     expect(server).toContain("singleTier: z.boolean()"); // kobo-331: --single-tier param schema
     // kobo-275: deployed maps 1:1 to the CLI verb (manual wait-for-deploy → done drain).

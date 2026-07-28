@@ -298,6 +298,25 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "sign", id: "kobo-3" })).toThrow(/role/);
   });
 
+  // kobo-565: MCP had no way to forward evidence scope — every sign placed through
+  // it silently read back as "undeclared" regardless of what the signer actually
+  // did. These compare the ACTUAL argv array (not just that it doesn't throw), per
+  // the card's own instruction — a pure argv mapper needs its argv checked directly.
+  test("sign: evidence is forwarded as --evidence (kobo-565)", () => {
+    expect(taskArgs({ action: "sign", id: "kobo-3", role: "head", evidence: "test-run" }))
+      .toEqual(["company", "task", "sign", "kobo-3", "--role", "head", "--evidence", "test-run"]);
+  });
+
+  test("sign: evidence + evidenceLocus are BOTH forwarded, in order (kobo-565)", () => {
+    expect(taskArgs({ action: "sign", id: "kobo-3", role: "head", evidence: "test-run+mutation", evidenceLocus: "~/maw-js-kobo565" }))
+      .toEqual(["company", "task", "sign", "kobo-3", "--role", "head", "--evidence", "test-run+mutation", "--evidence-locus", "~/maw-js-kobo565"]);
+  });
+
+  test("sign: omitting evidence still produces the plain argv — no flag guessed on the caller's behalf (kobo-565)", () => {
+    expect(taskArgs({ action: "sign", id: "kobo-3", role: "crew" }))
+      .toEqual(["company", "task", "sign", "kobo-3", "--role", "crew"]); // no --evidence anywhere — posture unchanged, not made mandatory
+  });
+
   test("merge: id only (default method)", () => {
     expect(taskArgs({ action: "merge", id: "kobo-3" })).toEqual(["company", "task", "merge", "kobo-3"]);
   });
