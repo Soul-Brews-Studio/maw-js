@@ -122,11 +122,18 @@ run_bun_case() {
   if [[ -n "$COVERAGE_DIR" ]]; then
     local run_dir="$COVERAGE_DIR/$coverage_key"
     mkdir -p "$run_dir"
+    # kobo-531: this branch's own return code used to be append_lcov_manifest's
+    # (always ~0), not the subshell's — a real bun test failure under
+    # --coverage-dir (test-unit-coverage.sh's own path) would have been
+    # swallowed silently once callers started trusting run_bun_case's exit
+    # code for OVERALL_RC. Capture the subshell's code explicitly.
+    local rc=0
     (
       cd "$run_cwd"
       bun test "$@" "${RUN_ARGS[@]}" --coverage-dir "$run_dir"
-    )
+    ) || rc=$?
     append_lcov_manifest "$run_dir/lcov.info"
+    return "$rc"
   else
     (
       cd "$run_cwd"
@@ -264,11 +271,24 @@ done
 # mid-loop, or any future case this script doesn't have yet — instead of
 # duplicating the same "what's left" logic at every call site. (SIGKILL can't
 # be trapped; that's an OS limit, not a gap in this script.)
+#
+# kobo-531 — kobo-476 made the skip VISIBLE but didn't stop it: a shared-sweep
+# failure still hard-exited via `set -e` before a single mock-isolated file
+# ran (CI evidence: run 30339030797, "1 attempted, 3 NEVER RAN" — the 3 were
+# never actually tried, only reported as skipped). Each run_bun_case call
+# below is now `|| OVERALL_RC=$?` — the standard bash idiom for "let this
+# fail without triggering errexit" — so CASE_POS reaches the full count on
+# every ordinary run (routine test failures no longer short-circuit later
+# cases) and the exit code still reflects failure via OVERALL_RC. The EXIT
+# trap stays as a backstop for a genuinely unexpected early exit (a bug
+# elsewhere in this script, a signal) — it should no longer fire on a
+# plain test failure.
 CASE_NAMES=("shared sweep (${#SAFE_FILES[@]} file(s))")
 for f in "${MOCK_FILES[@]}"; do
   CASE_NAMES+=("mock-isolated: $f")
 done
 CASE_POS=0
+OVERALL_RC=0
 report_unattempted_cases() {
   local exit_code=$?
   if [[ "$exit_code" -ne 0 && "$CASE_POS" -lt "${#CASE_NAMES[@]}" ]]; then
@@ -286,7 +306,7 @@ trap report_unattempted_cases EXIT
 echo "=== test-default-safe.sh: shared default sweep ==="
 CASE_POS=1
 if [[ "${#SAFE_FILES[@]}" -gt 0 ]]; then
-  run_bun_case "shared" "$REPO_ROOT" "${SAFE_FILES[@]}"
+  run_bun_case "shared" "$REPO_ROOT" "${SAFE_FILES[@]}" || OVERALL_RC=$?
 else
   echo "(skipped: no shared default-suite files matched)"
 fi
@@ -294,6 +314,10 @@ fi
 if [[ "${#MOCK_FILES[@]}" -eq 0 ]]; then
   echo ""
   echo "=== no default-suite mock.module files detected ==="
+  if [[ "$OVERALL_RC" -ne 0 ]]; then
+    echo "=== test-default-safe.sh: completed ${CASE_POS}/${#CASE_NAMES[@]} case(s) — FAILED (exit $OVERALL_RC) ===" >&2
+    exit "$OVERALL_RC"
+  fi
   echo "=== test-default-safe.sh: completed ${CASE_POS}/${#CASE_NAMES[@]} case(s) — matches enumerated ==="
   exit 0
 fi
@@ -318,21 +342,27 @@ for f in "${MOCK_FILES[@]}"; do
     # no recursive agents ignore is needed here.
     path_ignore_args=()
   fi
-  run_bun_case "mock-$mock_index" "$run_cwd" "$test_path" "${path_ignore_args[@]}"
+  run_bun_case "mock-$mock_index" "$run_cwd" "$test_path" "${path_ignore_args[@]}" || OVERALL_RC=$?
 done
 
 # kobo-499: CASE_POS and CASE_NAMES are the SAME variables the loops above
 # actually drove (kobo-476's own bookkeeping, not a fresh recount) — this is
 # the "declared vs completed, from one source" check: if every case in
-# CASE_NAMES was reached (true whenever this line is reached at all, since
-# `set -e` + the EXIT trap above would have already reported and exited
-# non-zero on any earlier failure), say so explicitly instead of exiting 0
-# in silence. A future edit that adds a case to CASE_NAMES without routing it
-# through run_bun_case (or skips a mock file inside the loop) would leave
-# CASE_POS short of the total and this fails loudly, by construction, not by
+# CASE_NAMES was reached, say so explicitly instead of exiting in silence. A
+# future edit that adds a case to CASE_NAMES without routing it through
+# run_bun_case (or skips a mock file inside the loop) would leave CASE_POS
+# short of the total and this fails loudly, by construction, not by
 # re-deriving a second count that could itself drift from CASE_NAMES.
+# kobo-531: this is no longer guarded by `set -e` catching an earlier
+# failure first — every case above now runs regardless of its siblings'
+# outcome, so reaching this line is the ORDINARY path, not a "should be
+# unreachable if a failure happened" path. Overall pass/fail is OVERALL_RC.
 if [[ "$CASE_POS" -ne "${#CASE_NAMES[@]}" ]]; then
   echo "error: test-default-safe.sh: enumerated ${#CASE_NAMES[@]} case(s), only reached ${CASE_POS} — this should be unreachable if every case above routes through run_bun_case" >&2
   exit 2
+fi
+if [[ "$OVERALL_RC" -ne 0 ]]; then
+  echo "=== test-default-safe.sh: completed ${CASE_POS}/${#CASE_NAMES[@]} case(s) — FAILED (exit $OVERALL_RC) ===" >&2
+  exit "$OVERALL_RC"
 fi
 echo "=== test-default-safe.sh: completed ${CASE_POS}/${#CASE_NAMES[@]} case(s) — matches enumerated ==="

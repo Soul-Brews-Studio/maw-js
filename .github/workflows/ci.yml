@@ -52,6 +52,8 @@ jobs:
             run: bun run test:plugin
           - name: mock-smoke
             run: bun run test:mock-smoke
+          - name: selftest
+            run: bun run test:selftest
     name: test-${{ matrix.suite.name }}
     steps:
       - uses: actions/checkout@v6
