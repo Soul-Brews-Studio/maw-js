@@ -15,6 +15,15 @@
  * received this":
  *
  *   10:08  💬  m5:stitch → eq3.0  Tony: keep the hash field
+ *
+ * kobo-586 review round 1: the `sender` half of that arrow is the sender AS
+ * DECLARED BY THE MESSAGE, not a system-verified sender — `parseSignedPrefix`
+ * only recognizes the `[node:oracle]` shape, it doesn't authenticate who
+ * wrote it. `comm-send.ts`'s `formatSignedMessage` passes an already-present
+ * tag through unmodified (comm-send.ts:369), so anyone who types
+ * `[m5:tony] ...` into their own outgoing message gets that exact tag
+ * rendered here. Do not treat this line as proof of who actually sent a
+ * message (same class of gap as the forge-actor issue in kobo-335).
  */
 
 import { parseSignedPrefix } from "../../commands/shared/comm-send";

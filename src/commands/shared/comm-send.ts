@@ -338,6 +338,15 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * place that knows this tag's shape — worklog render (the inject block a
  * receiving pane sees every turn) reuses this instead of re-deriving its own
  * regex, so the two can never silently drift apart from each other.
+ *
+ * kobo-586 review round 1: this reads the sender AS DECLARED BY THE MESSAGE,
+ * never a system-verified sender. `formatSignedMessage` below only stamps a
+ * tag when the body doesn't already start with one (line 369ish,
+ * `if (parseSignedPrefix(body)) return message;`) — a message that already
+ * carries a `[node:oracle]` prefix passes through unmodified, so anyone can
+ * type a tag naming someone else and it reaches the receiver exactly as
+ * typed. Do not use a successful parse here as proof of who actually sent a
+ * message (same class of gap as the forge-actor issue in kobo-335).
  */
 export function parseSignedPrefix(text: string): { node: string; oracle: string; rest: string } | null {
   const m = text.match(/^\[([^\]\s:]+):([^\]]+)\](?:\s|$)/);
