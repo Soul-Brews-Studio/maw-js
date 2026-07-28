@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { heldWorkByOracle } from "./held";
+import { heldWorkByOracle, pendingTasksByOracle } from "./held";
 import { appendWorklog } from "../worklog/store";
-import { addTask, claimTask, completeTask } from "../tasks/store";
+import { addTask, claimTask, completeTask, moveTask, rejectTask } from "../tasks/store";
 
 const dir = mkdtempSync(join(tmpdir(), "maw-held-"));
 const prev = process.env.MAW_DATA_DIR;
@@ -72,5 +72,92 @@ describe("heldWorkByOracle", () => {
   test("null / empty company → empty map, never throws", () => {
     expect(heldWorkByOracle(null)).toEqual({});
     expect(heldWorkByOracle("no-such-company")).toEqual({});
+  });
+});
+
+describe("pendingTasksByOracle", () => {
+  let reviewCardId: string;
+  let rejectedCardId: string;
+
+  beforeAll(() => {
+    // kobo-445: pending is the FULLER set — todo counts here (heldWorkByOracle
+    // excludes it), and a rejected card must NOT count (terminal, like done).
+    const review = addTask({ company: "kobo", title: "in review", by: "eq3", assignee: "patchwork", state: "review" });
+    reviewCardId = review.id;
+    const rejected = addTask({ company: "kobo", title: "rejected thing", by: "eq3", assignee: "neo", state: "todo" });
+    rejectedCardId = rejected.id;
+    moveTask("kobo", rejectedCardId, "in-progress", "neo");
+    rejectTask("kobo", rejectedCardId, "eq3", "not needed");
+  });
+
+  test("includes every non-terminal state (todo/in-progress/review/…), not just in-progress", () => {
+    const pending = pendingTasksByOracle("kobo");
+
+    // neo: the outer-scope todo card ("future") — heldWorkByOracle excludes this, pending includes it
+    expect(pending.neo?.some((p) => p.title === "future" && p.state === "todo")).toBe(true);
+
+    // patchwork: both the in-progress card AND the review card
+    expect(pending.patchwork?.some((p) => p.id === reviewCardId && p.state === "review")).toBe(true);
+    expect(pending.patchwork?.some((p) => p.title === "wire route" && p.state === "in-progress")).toBe(true);
+  });
+
+  test("done and rejected are excluded — a closed card drops off the list", () => {
+    const pending = pendingTasksByOracle("kobo");
+
+    expect(pending.somsri).toBeUndefined(); // done card from the outer fixture
+    expect(pending.neo?.some((p) => p.id === rejectedCardId)).toBe(false); // rejected in this describe
+  });
+
+  test("unassigned tasks are never surfaced (no owner to attribute pending work to)", () => {
+    addTask({ company: "kobo", title: "nobody's yet", by: "eq3" }); // no assignee, state defaults to todo
+    const pending = pendingTasksByOracle("kobo");
+    for (const arr of Object.values(pending)) {
+      expect(arr.some((p) => p.title === "nobody's yet")).toBe(false);
+    }
+  });
+
+  test("sorted newest-first per oracle by updatedTs", () => {
+    const pending = pendingTasksByOracle("kobo");
+    const patchworkTs = pending.patchwork!.map((p) => p.updatedTs);
+    expect(patchworkTs).toEqual([...patchworkTs].sort((a, b) => b - a));
+  });
+
+  test("null / empty company → empty map, never throws", () => {
+    expect(pendingTasksByOracle(null)).toEqual({});
+    expect(pendingTasksByOracle("no-such-company")).toEqual({});
+  });
+
+  // kobo-445 review round 2: /api/roster calls listTasks(company) ONCE and hands
+  // the same array to both heldWorkByOracle and pendingTasksByOracle — the whole
+  // point is that neither function re-reads the task directory itself when given
+  // one. Mocking listTasks to assert a call-count is off-limits here (mock.module
+  // is test/isolated-or-test/helpers only, per check-mock-boundary.sh #387) — so
+  // this proves the SAME thing without a mock: feed a FABRICATED tasks array that
+  // could not possibly come from the real store, and check the function's output
+  // matches the fabrication. If either function silently ignored the param and
+  // called listTasks(company) itself, the output would reflect the REAL scratch-dir
+  // fixtures above instead — this test would then fail (or worse, pass by
+  // coincidence, which is why the fabricated oracle name is one no fixture uses).
+  test("the tasks param is actually used, not silently ignored (both functions honor it, no internal re-fetch)", () => {
+    const fabricated = [
+      { id: "kobo-999", title: "fabricated — not in the real store", state: "todo", assignee: "nobody-real", ts: 1, updatedTs: 1 },
+    ] as Parameters<typeof pendingTasksByOracle>[1];
+
+    // pendingTasksByOracle is pure listTasks-derived — the fabricated array must be
+    // the ONLY thing it reflects, not the real scratch-dir fixtures above.
+    const pending = pendingTasksByOracle("kobo", fabricated);
+    expect(Object.keys(pending)).toEqual(["nobody-real"]);
+    expect(pending["nobody-real"][0].id).toBe("kobo-999");
+
+    // heldWorkByOracle also folds in openClaims (a SEPARATE store, unaffected by the
+    // tasks param on purpose — only the listTasks half should be replaceable). Give
+    // a fresh oracle a real open claim but a FABRICATED in-progress card under a
+    // different id: with tasks=[] the card contribution must vanish (proving no
+    // internal re-fetch happened — the real in-progress card added in the outer
+    // beforeAll would otherwise still show up) while the real claim still does.
+    claim("kobo", "freshly-claimed-only", "kobo-777");
+    const held = heldWorkByOracle("kobo", []);
+    expect(held["freshly-claimed-only"]).toEqual([{ id: "kobo-777", kind: "claim" }]);
+    expect(held.patchwork?.some((h) => h.kind === "card")).toBeFalsy(); // real in-progress card suppressed by tasks=[]
   });
 });

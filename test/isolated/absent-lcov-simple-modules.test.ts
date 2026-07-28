@@ -46,6 +46,7 @@ describe("absent-from-LCOV simple modules", { timeout: 30000 }, () => {
       "/federation",
       "/messages",
       "/company",
+      "/company-status", // kobo-445 — read-only per-oracle rollup (separate from the kanban board)
       "/room", // kobo-245 — Brainstorm Room core wire
       "/assets", // kobo-398 — same-origin static assets (mermaid.js)
     ]);
