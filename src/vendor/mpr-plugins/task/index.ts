@@ -69,6 +69,7 @@ import {
   rejectTask,
   resolveReviewer,
   isSelfReview,
+  isSelfReviewPaneAware,
   reviewTask,
   setTaskDep,
   setTaskEpic,
@@ -251,6 +252,26 @@ function resolveSignerPane(): string | null {
     const pane = process.env.TMUX_PANE;
     const argv = ["tmux", "display-message", ...(pane ? ["-t", pane] : []), "-p", "#{pane_id}"];
     const out = Bun.spawnSync(argv, { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
+    return /^%\d+$/.test(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * kobo-587: resolve an ARBITRARY tmux target address (e.g. "30-stitch:0.2", the same
+ * session:window.pane form `maw hey` already addresses) to its live tmux %pane-id — the
+ * `--to-pane` sibling of resolveSignerPane() (which only ever resolves THIS pane). Used
+ * so `review --to <oracle> --to-pane <addr>` lets the operator type the human-readable
+ * address they already coordinate with, not a raw %id. Returns null on any resolve
+ * failure (unknown pane, no tmux, dead session) — caller then falls back to the
+ * original oracle-name-only self-review check (AC4), never silently treats a failed
+ * resolve as "independent".
+ */
+function resolvePaneIdForAddress(addr: string): string | null {
+  if (!process.env.TMUX) return null;
+  try {
+    const out = Bun.spawnSync(["tmux", "display-message", "-t", addr, "-p", "#{pane_id}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
     return /^%\d+$/.test(out) ? out : null;
   } catch {
     return null;
@@ -766,10 +787,10 @@ export async function runTask(
         console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
       }
     } else if (subcmd === "review") {
-      const flags = parseFlags(args.slice(1), { "--company": String, "--to": String, "--reason": String, "--from": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--to": String, "--to-pane": String, "--reason": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
-      if (!id) return { ok: false, error: 'usage: maw company task review <id> [--to <oracle>] [--reason "<text>"]' };
+      if (!id) return { ok: false, error: 'usage: maw company task review <id> [--to <oracle>] [--to-pane <tmux-addr>] [--reason "<text>"]' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c>" };
       // kobo-328: REFUSE a self-review dispatch — routing a card's review to its own
@@ -777,12 +798,24 @@ export async function runTask(
       // downgrade, so the operator re-routes to an independent reviewer.
       const existing = readTask(company, id);
       if (!existing) return { ok: false, error: `task not found: ${id}` };
-      const reviewViol = companyScopeViolation(company, flags["--to"]); // kobo-341: no cross-company reviewer
+      const reviewViol = companyScopeViolation(company, flags["--to"]); // kobo-341: no cross-company reviewer (bare oracle name only)
       if (reviewViol) return { ok: false, error: reviewViol };
-      if (flags["--to"] && isSelfReview(existing, flags["--to"])) {
+      // kobo-587: --to-pane names the SPECIFIC pane accepting the review (same address
+      // form `maw hey` already uses, e.g. "30-stitch:0.2") — live-resolved to its real
+      // tmux %pane-id and compared against THIS pane's own %id, so a crew's worker pane
+      // can hand a card to a DIFFERENT pane of the same oracle without tripping the
+      // self-review refusal. A resolve failure (dead pane, no tmux) is silently ignored
+      // — never treated as proof of independence — and the call falls back to the
+      // original oracle-name-only check untouched (AC4).
+      let toForReview = flags["--to"];
+      if (flags["--to"] && flags["--to-pane"]) {
+        const targetPaneId = resolvePaneIdForAddress(flags["--to-pane"]);
+        if (targetPaneId) toForReview = `${flags["--to"]}@${targetPaneId}`;
+      }
+      if (toForReview && isSelfReviewPaneAware(existing, toForReview, resolveSignerPane())) {
         return { ok: false, error: `refuse: ${flags["--to"]} is the assignee/executor of ${id} — self-review banned (executor≠reviewer, kobo-328). Route --to an independent reviewer.` };
       }
-      const t = reviewTask(company, id, me, { to: flags["--to"], reason: flags["--reason"] });
+      const t = reviewTask(company, id, me, { to: toForReview, reason: flags["--reason"] });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
       // kobo-328: surface when no independent reviewer exists — resolveReviewer fell to

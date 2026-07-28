@@ -161,6 +161,7 @@ export interface TaskRecord {
   prevState?: TaskState; // flow state to return to on unblock
   reviewer?: string; // who should review/take over (set when state = review, optional)
   reviewReason?: string; // why it needs review (optional)
+  reviewerPane?: string; // kobo-587: the tmux %pane-id that ACCEPTED the review (same pane-grain binding as crewSignedByPane, kobo-346). Set only when `review --to` named an independent PANE, not just an independent oracle name — this is what lets resolveReviewer treat a same-oracle-different-pane reviewer as independent instead of falling to human. Live-resolved in the accepting caller's shell → agent-settable → DEFENSE-IN-DEPTH, not airtight (same ceiling as kobo-346, and kobo-460's pane-id-reuse-across-sessions applies here too).
   rejectReason?: string; // why the card was rejected (kobo-101) — MANDATORY on reject, kept to learn (Nothing is Deleted)
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
   parentIds?: string[]; // card→card deps (ADR 0003 A) — blocked-by-dependency is DERIVED, never stored
@@ -641,8 +642,12 @@ export function resolveReviewer(task: TaskRecord): string {
   // the doer, even when the field explicitly names them (a dirty --to/web-edit that
   // set reviewer=assignee must not route the review back to the person who did the
   // work). Explicit field wins only when it's independent; else creator; else human.
+  // kobo-587: a recorded reviewerPane is proof independence was already VERIFIED at
+  // accept-time (a distinct tmux pane accepted the review) even when the oracle name
+  // equals the assignee — a crew cell shares one oracle name across many panes ("N
+  // panes, 1 soul"), so name-equality alone must not downgrade to creator/human here.
   const doer = task.assignee;
-  if (task.reviewer && task.reviewer !== doer) return task.reviewer;
+  if (task.reviewer && (task.reviewer !== doer || task.reviewerPane)) return task.reviewer;
   if (task.by && task.by !== doer) return task.by; // creator reviews — unless they're the doer
   return "human"; // no independent reviewer (doer created + does it) → the human
 }
@@ -656,8 +661,41 @@ export function isSelfReview(task: TaskRecord, who: string): boolean {
   return !!who && who === task.assignee;
 }
 
+/**
+ * kobo-587: parse a `--to` value that MAY be pane-qualified as `oracle@%paneId` (the
+ * tmux %pane-id format resolveSignerPane()-style callers produce) — { pane: null }
+ * for a bare oracle name (the only form that existed before this card, still the only
+ * form any non-crew caller ever sends).
+ */
+export function parseReviewTarget(to: string): { oracle: string; pane: string | null } {
+  const at = to.indexOf("@");
+  if (at === -1) return { oracle: to, pane: null };
+  const oracle = to.slice(0, at);
+  const pane = to.slice(at + 1);
+  return { oracle, pane: /^%\d+$/.test(pane) ? pane : null };
+}
+
+/**
+ * kobo-587: the pane-aware sibling of isSelfReview, mirroring kobo-346's sign-pane
+ * guard shape. A `--to` naming the SAME oracle as the assignee is normally self-review
+ * (isSelfReview's rule, unchanged) — UNLESS `to` is pane-qualified (`oracle@%id`) AND
+ * that pane differs from the CALLER's own live pane: that proves a genuinely distinct
+ * pane of the same crew oracle is accepting the review, not the executor rubber-
+ * stamping itself. Any of: different oracle, bare (non-pane-qualified) `to`, or no
+ * caller pane → falls straight back to isSelfReview's original behavior (AC4: zero
+ * change for every pre-existing, non-pane-qualified caller).
+ * CEILING: pane ids are agent-settable and not guaranteed stable across a tmux server
+ * restart (kobo-460) — same defense-in-depth ceiling as kobo-346, never airtight.
+ */
+export function isSelfReviewPaneAware(task: TaskRecord, to: string, callerPane: string | null | undefined): boolean {
+  const target = parseReviewTarget(to);
+  if (target.oracle !== task.assignee) return false; // different oracle — never self-review, pane info irrelevant (AC4)
+  if (target.pane && callerPane) return target.pane === callerPane; // both sides pane-qualified → compare panes, not oracle names
+  return isSelfReview(task, target.oracle); // no pane info on one/both sides → original oracle-name-only behavior (AC4)
+}
+
 export interface ReviewInput {
-  to?: string; // requested reviewer / next person (optional → anyone)
+  to?: string; // requested reviewer / next person (optional → anyone) — may be `oracle@%paneId` (kobo-587)
   reason?: string;
 }
 
@@ -672,7 +710,11 @@ export function reviewTask(company: string, id: string, by: string, opts: Review
   // kobo-144: --to overrides the reviewer, but a plain `review` KEEPS the card's
   // persistent reviewer field (set at add) instead of clearing it — the resolve
   // chain needs that field to survive a review with no explicit --to.
-  if (opts.to) task.reviewer = opts.to;
+  if (opts.to) {
+    const target = parseReviewTarget(opts.to);
+    task.reviewer = target.oracle; // kobo-587: store the bare oracle name — reviewerPane is the separate, explicit independence proof
+    if (target.pane) task.reviewerPane = target.pane; else delete task.reviewerPane;
+  }
   if (opts.reason) task.reviewReason = opts.reason; else delete task.reviewReason;
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: review + pending dep → blocked (blocked wins)
