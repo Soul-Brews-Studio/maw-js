@@ -98,26 +98,42 @@ function resolveRoomTag(text: string, company: string | null, artifact: RoomArti
 }
 
 /**
- * POST /api/room/send — body { room, to, text, from } → persist the outbound turn to the
- * artifact SYNCHRONOUSLY (kobo-249: the artifact is the source of truth, so a turn lands
- * within <2s of send regardless of whether the lead pane is busy), THEN deliver via
- * `maw hey` (same path a human `maw hey` takes). The turn's own delivery feed event never
- * re-persists it — the nudge hey is deliberately untagged (kobo-260 finding #4), so the
- * feed listener's `[room:<id>]` capture is a no-op for it; this send-time write is the
+ * POST /api/room/send — body { room, to, text, from, company? } → persist the outbound
+ * turn to the artifact SYNCHRONOUSLY (kobo-249: the artifact is the source of truth, so a
+ * turn lands within <2s of send regardless of whether the lead pane is busy), THEN deliver
+ * via `maw hey` (same path a human `maw hey` takes). The turn's own delivery feed event
+ * never re-persists it — the nudge hey is deliberately untagged (kobo-260 finding #4), so
+ * the feed listener's `[room:<id>]` capture is a no-op for it; this send-time write is the
  * ONLY write. The persisted `from` is always the constant `"web"` (kobo-386) — NEVER
  * `roomSender(from)`/the caller-supplied name, which is untrusted (nothing in the request
  * path verifies it; a raw POST could pick any string and have it render as an impersonated
  * teammate). The typed name still reaches the outbound hey's `--from` stamp for notification
  * cosmetics only. `spawn` is injectable for unit tests.
  *
+ * kobo-598: `company` is preferred when the caller supplies one — room ids are NOT globally
+ * unique (confirmed live: "kobo" and "demo" both had an open "head-crew-skill" room), so the
+ * OLD company-less request relied on `findRoomCompany`'s first-match-across-every-company
+ * scan and could silently persist into the WRONG company's artifact while still answering
+ * `ok:true` and still nudging the (unrelated) target — the room a human is actually looking
+ * at never changes. The web client now always sends the company it's already scoped to
+ * (src/views/room.ts); the scan remains only as a fallback for stray/legacy callers that
+ * still omit it, where the ambiguity was always possible, not newly introduced here.
+ *
  * kobo-506: `nudgeTimeoutMs` bounds how long this waits on the nudge subprocess before
  * answering with `notified:false` anyway (default below) — injectable so a test can
  * exercise the timeout path in milliseconds instead of the real ceiling.
+ *
+ * kobo-598 (eq3 ruling, card comment c3): an untracked room id (no company resolves for
+ * it) keeps the original kobo-245 hey-relay-only contract — the turn still delivers, this
+ * is a real, used capability, not a bug to remove. But `ok:true` alone would say the same
+ * thing whether the turn was saved or not, so every success response now also carries
+ * `persisted`/`relayOnly` (+ a short `note` when relay-only) — "reached the person" and
+ * "saved to the room" are different facts and the caller must be able to tell them apart.
  */
 export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = defaultSpawn, nudgeTimeoutMs = 5000): Promise<Response> {
-  let body: { room?: unknown; to?: unknown; text?: unknown; from?: unknown };
+  let body: { room?: unknown; to?: unknown; text?: unknown; from?: unknown; company?: unknown };
   try {
-    body = (await request.json()) as { room?: unknown; to?: unknown; text?: unknown; from?: unknown };
+    body = (await request.json()) as { room?: unknown; to?: unknown; text?: unknown; from?: unknown; company?: unknown };
   } catch {
     return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
@@ -128,7 +144,16 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
   if (!room || !to || !text) {
     return Response.json({ ok: false, error: "room, to and text are required" }, { status: 400 });
   }
-  const company = findRoomCompany(room);
+  const bodyCompany = typeof body.company === "string" ? body.company.trim() : "";
+  let company: string | null;
+  if (bodyCompany) {
+    if (!companyExists(bodyCompany)) {
+      return Response.json({ ok: false, error: `unknown company: ${bodyCompany}` }, { status: 404 });
+    }
+    company = bodyCompany;
+  } else {
+    company = findRoomCompany(room); // legacy fallback — see kobo-598 note above
+  }
   // Rule-6 (kobo-260): the web/human side may NOT impersonate a company oracle — reject the
   // whole request if the caller-supplied name collides with a real teammate name (defense in
   // depth for the outbound hey's --from stamp, which still carries the user-typed name).
@@ -142,17 +167,39 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
   if (artifact && artifact.status !== "open") {
     return Response.json({ ok: false, error: `room "${room}" is ${artifact.status} — replies are not accepted` }, { status: 403 });
   }
+  // kobo-598 (eq3 ruling, card comment c3): an untracked room id (no company resolves at
+  // all) keeps the original kobo-245 slice-1 hey-relay-only contract — the turn is still
+  // delivered, nothing here is removed. But the response must say so explicitly rather than
+  // let `ok:true` alone imply "saved," the same receipt-honesty shape as kobo-596 ("delivered"
+  // not meaning "reached") and this card's own persisted-write check above. `persisted` and
+  // `relayOnly` are threaded onto every success response below so the caller can always tell
+  // "reached the person" and "saved to the room" apart — they are NOT the same fact.
+  const persistenceFields = company
+    ? { persisted: true as const, relayOnly: false as const }
+    : { persisted: false as const, relayOnly: true as const, note: `room "${room}" is not tracked by any company — the turn was relayed but not saved; reopen it under a company to persist future turns` };
   try {
     // kobo-249 — persist the outbound turn NOW (source of truth), decoupled from delivery.
-    // Only an OPEN room has an artifact (findRoomCompany null → deliver but persist nothing).
+    // Only an OPEN room has an artifact (no company resolved → deliver but persist nothing,
+    // the original kobo-245 slice-1 hey-relay-only contract for an untracked room id).
     // kobo-260/386: the PERSISTED identity is always the constant "web" — never the
     // caller-supplied name. `author` (derived from client-supplied `from`) is NOT trustworthy
     // as an identity (kobo-386: nothing in the request path verifies it — a raw POST with any
     // `from` string was rendering as an impersonated teammate). The typed name still reaches
     // the outbound hey's --from stamp (line below) for notification cosmetics only; it never
     // becomes the room artifact's speaker of record.
+    //
+    // kobo-598: the write's return value is now CHECKED. appendRoomMessage returns null when
+    // `company` resolved but no open artifact actually exists there for this room id (e.g. a
+    // resolved-but-stale company) — previously this was discarded and the handler fell through
+    // to `ok:true` (and still nudged the lead) as if the turn had been saved, while the room's
+    // real content never changed. Same defect shape kobo-596 closed for `maw hey`'s "delivered"
+    // receipt: never report success for a write that's provably not there. Bail out BEFORE the
+    // nudge spawns below — a failed persist must not also notify (this card's 3rd AC).
     if (company) {
-      appendRoomMessage(company, room, { id: `send-web-${Date.now()}`, from: "web", text, ts: Date.now() });
+      const wrote = appendRoomMessage(company, room, { id: `send-web-${Date.now()}`, from: "web", text, ts: Date.now() });
+      if (!wrote) {
+        return Response.json({ ok: false, error: `room "${room}" has no open artifact under company "${company}" — the turn was not saved` }, { status: 404 });
+      }
     }
     // kobo-385: @handle in the text overrides the hey target; unmatched/denied → falls back
     // to the incoming `to` (the web's default = lead). Response surfaces the RESOLVED target.
@@ -165,7 +212,7 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     // needs a company (to resolve a lead); with none, drop the nudge rather than ever spawn
     // a denied literal.
     if (ROOM_TAG_DENY.has(bareName(target))) {
-      if (!company) return Response.json({ ok: true, room, to: null, skipped: true });
+      if (!company) return Response.json({ ok: true, room, to: null, skipped: true, ...persistenceFields });
       target = companyLead(company);
     }
     // kobo-260: nudge the lead with a PLAIN/UNTAGGED hey (no [room:<id>]) → the listener
@@ -203,12 +250,12 @@ export async function handleRoomSendRequest(request: Request, spawn: SpawnFn = d
     ]);
     clearTimeout(nudgeTimer); // whichever side won, the other must not keep a timer alive
     if (nudgeResult === "timeout") {
-      return Response.json({ ok: true, room, to: target, notified: false, notifyError: `nudge did not exit within ${nudgeTimeoutMs}ms — may still be running` });
+      return Response.json({ ok: true, room, to: target, notified: false, notifyError: `nudge did not exit within ${nudgeTimeoutMs}ms — may still be running`, ...persistenceFields });
     }
     if (nudgeResult !== 0) {
-      return Response.json({ ok: true, room, to: target, notified: false, notifyError: `nudge exited ${nudgeResult}` });
+      return Response.json({ ok: true, room, to: target, notified: false, notifyError: `nudge exited ${nudgeResult}`, ...persistenceFields });
     }
-    return Response.json({ ok: true, room, to: target });
+    return Response.json({ ok: true, room, to: target, ...persistenceFields });
   } catch (e) {
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "send failed" }, { status: 500 });
   }
