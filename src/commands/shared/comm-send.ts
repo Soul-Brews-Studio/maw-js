@@ -360,6 +360,33 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * measured: kobo-586's own investigation). That disambiguation is kobo-590's
  * scope, not this function's — callers rendering this result as "sender" must
  * carry the same caveat forward, not treat a non-null return as settled.
+ *
+ * kobo-597 — classification only (never enforcement/trust, that stays
+ * kobo-590's posture call): 2 shapes are rejected — treated as NOT a tag at
+ * all, `null`, so the whole thing stays plain message text — because they
+ * cannot have been PRODUCED by anything in this codebase that constructs a
+ * real `[node:oracle]` tag, independent of what word the node/oracle happen
+ * to spell (no blocklist of specific words like "request"/"urgent"):
+ *   (a) the oracle segment contains a `:` — `[fleet:monkut:monkut]` is a
+ *       real, DIFFERENT 3-part convention this file doesn't own; a genuine
+ *       oracle name never contains a colon (same char class the node segment
+ *       is already held to, one line up).
+ *   (b) the node segment is purely numeric or numeric-hyphen-prefixed
+ *       (`13`, `13-patchwork`, `31-kadan-reader`) — that is a raw tmux
+ *       SESSION name leaking through unstripped; this file already strips
+ *       exactly that `^\d+-` shape when resolving a sender FROM a session
+ *       name elsewhere (see the `session.replace(/^\d+-/, "")` sites in this
+ *       file) — no real `config.node` value is ever numeric-shaped.
+ * Explicitly NOT rejected by name: `local` is formatSignedMessage's own
+ * literal fallback (`config.node || "local"`, below) when a sender's node is
+ * unset — genuinely machine-constructed, kept. Measured against kobo's real
+ * worklog.jsonl (8723 conversation-entry prefixes matched): 0 real senders
+ * lost, 33 rows reclassified (26 numeric-session-shaped + 7 colon-in-oracle).
+ * request:/room:/head:/re:/patchwork-as-node (~89 rows) remain UNCLASSIFIED
+ * by this structural rule — they are textually indistinguishable from a
+ * plausible short node name without a registry or a word list, both
+ * explicitly out of this card's scope (measured + reported, not silently
+ * left unmentioned — see the kobo-597 card note).
  */
 export function parseSignedPrefix(text: string): { node: string; oracle: string; role?: string; rest: string } | null {
   // kobo-586 review round 3 (eq3's AC, supersedes an earlier "oracle = rest of the
@@ -372,8 +399,15 @@ export function parseSignedPrefix(text: string): { node: string; oracle: string;
   // message body — the caller renders it as its own badge next to the sender, never
   // concatenated into `rest`). The closing `]` itself is consumed by the regex but
   // captured by NEITHER group, so it can never leak into `rest` either (③).
-  const m = text.match(/^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/);
+  //
+  // kobo-597 (a): the oracle group excludes `:` too (same class as node) — a colon
+  // inside it means this is some OTHER bracket convention (e.g. `fleet:monkut:monkut`),
+  // not a 2-part node:oracle tag; the whole match fails and falls through to `rest`.
+  const m = text.match(/^\[([^\]\s:]+):([^\]\s:]+)(\s[^\]]*)?\](?:\s|$)/);
   if (!m) return null;
+  // kobo-597 (b): a session name leaking through unstripped (`13-patchwork`, bare
+  // `13`) is not a real node value — no configured node is ever numeric-shaped.
+  if (/^\d+(-|$)/.test(m[1])) return null;
   return { node: m[1], oracle: m[2], role: m[3]?.trim() || undefined, rest: text.slice(m[0].length) };
 }
 

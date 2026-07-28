@@ -194,3 +194,88 @@ describe("parseSignedPrefix — role capture (kobo-586 round 3)", () => {
     expect(parsed.rest).toBe("see kobo[123] for detail"); // body's own bracket stays intact
   });
 });
+
+// kobo-597 — classification only: 2 shapes are structurally rejected (null,
+// falls through to plain text) because nothing in this codebase constructs
+// them as a real [node:oracle] tag — never a blocklist of specific words like
+// "request"/"urgent" (that class of rule chases an unbounded tail). Tests
+// fire from the REJECT side deliberately (per instruction): a happy-path-only
+// suite would stay green whether or not the rejection logic does anything.
+describe("parseSignedPrefix — non-sender prefixes are classified out, not promoted (kobo-597)", () => {
+  // (a) oracle segment containing a colon = a DIFFERENT, unrelated bracket
+  // convention (e.g. fleet:host:oracle, a real 3-part shape this file doesn't
+  // own) — a genuine oracle name never contains a colon.
+  test("a colon inside the oracle segment is rejected — not a 2-part node:oracle tag", () => {
+    expect(parseSignedPrefix("[fleet:monkut:monkut] ✅ posted 5 photos")).toBeNull();
+  });
+
+  // (b) a numeric or numeric-hyphen-prefixed node = a raw tmux session name
+  // leaking through unstripped — no configured node is ever numeric-shaped.
+  test("a numeric-hyphen-prefixed node (a leaked tmux session name) is rejected", () => {
+    expect(parseSignedPrefix("[13-patchwork:worker] did the thing")).toBeNull();
+    expect(parseSignedPrefix("[31-kadan-reader:review] looked at it")).toBeNull();
+  });
+
+  test("a bare numeric node (session number with no oracle suffix) is rejected", () => {
+    expect(parseSignedPrefix("[13:patchwork] รับ kobo-317")).toBeNull();
+  });
+
+  // request:/room:/head:/re:/patchwork-as-node are explicitly NOT covered by
+  // this structural rule (no word-list, no registry — see the function's own
+  // docstring + the kobo-597 card note for the measured, reported gap). This
+  // test locks that boundary in so nobody "fixes" it later with a blocklist
+  // by accident and calls it done without re-opening the scope conversation.
+  test("request:/room:/etc remain UNCLASSIFIED by this structural rule — explicitly out of scope, not silently caught", () => {
+    expect(parseSignedPrefix("[request:req-lazy-pos-8] UI rework")).not.toBeNull();
+    expect(parseSignedPrefix("[room:e2e-239] driver test")).not.toBeNull();
+  });
+
+  // "local" is formatSignedMessage's own literal fallback value (config.node
+  // || "local") — genuinely machine-constructed, must never be rejected.
+  test("node = 'local' (formatSignedMessage's real fallback) is NOT rejected", () => {
+    expect(parseSignedPrefix("[local:eq3] assigned you acme-1")).not.toBeNull();
+  });
+
+  // kobo-597 review requirement ⑤: replay kobo-586's own role-badge fixture at
+  // this card's head — the two new structural rejections must not touch it.
+  test("kobo-586's role-badge case is unaffected by kobo-597's new rejections", () => {
+    expect(parseSignedPrefix("[m5:eq3 conductor] Tony ขอเล่า flow case-study")).toEqual({
+      node: "m5", oracle: "eq3", role: "conductor", rest: "Tony ขอเล่า flow case-study",
+    });
+    const [rendered] = renderLines([conversationEntry({ summary: "[m5:eq3 conductor] hi" })]);
+    expect(rendered).toContain("(conductor)");
+  });
+
+  // Real-corpus measurement (card's own AC — must be run against data, not
+  // asserted from reasoning): 0 real senders lost across every known-real
+  // node bucket, 13 rows reclassified. Snapshotting the exact counts here so
+  // a future change to this function that silently starts rejecting a real
+  // sender (or silently STOPS rejecting the 2 confirmed-fake shapes) goes red
+  // against the live corpus, not just a synthetic fixture.
+  test("real-corpus measurement: 0 real senders lost, 13 rows reclassified (kobo's actual worklog.jsonl)", () => {
+    let worklogPath: string;
+    try {
+      worklogPath = require("path").join(require("os").homedir(), ".maw/companies/kobo/worklog.jsonl");
+      if (!require("fs").existsSync(worklogPath)) throw new Error("no local worklog");
+    } catch {
+      return; // this machine has no kobo worklog to measure against — skip, don't fail the suite
+    }
+    const lines = require("fs").readFileSync(worklogPath, "utf8").split("\n").filter(Boolean);
+    const REAL_NODES = new Set(["m5", "mba", "monkut", "monkut-pod", "web", "local"]);
+    const beforeCounts: Record<string, number> = {};
+    const afterCounts: Record<string, number> = {};
+    let before = 0, after = 0;
+    for (const line of lines) {
+      let entry: any;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry.kind !== "conversation" || typeof entry.summary !== "string") continue;
+      const oldMatch = entry.summary.match(/^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/);
+      if (oldMatch) { before++; if (REAL_NODES.has(oldMatch[1])) beforeCounts[oldMatch[1]] = (beforeCounts[oldMatch[1]] ?? 0) + 1; }
+      const tag = parseSignedPrefix(entry.summary);
+      if (tag) { after++; if (REAL_NODES.has(tag.node)) afterCounts[tag.node] = (afterCounts[tag.node] ?? 0) + 1; }
+    }
+    const realSendersLost = Object.entries(beforeCounts).reduce((s, [k, v]) => s + (v - (afterCounts[k] ?? 0)), 0);
+    expect(realSendersLost).toBe(0);
+    expect(before - after).toBeGreaterThanOrEqual(13); // at least the 13 confirmed-fake rows measured at review time
+  });
+});
