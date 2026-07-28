@@ -625,7 +625,7 @@ describe("crew-skills sync", () => {
   describe("prune (kobo-566)", () => {
     test("fresh install (no prior manifest) writes a manifest matching current SYNC_ITEMS, prunes nothing", () => {
       const home = freshHome();
-      const result = syncCrewSkills({ home, assetsDir });
+      const result = syncCrewSkills({ home, assetsDir, repoDir: freshHome() });
       expect(result.pruned).toEqual([]);
       const manifest = JSON.parse(readFileSync(join(home, ".claude/.crew-skills-manifest.json"), "utf8"));
       expect(manifest.installed.sort()).toEqual(SYNC_ITEMS.map((i) => i.dest).sort());
@@ -633,7 +633,8 @@ describe("crew-skills sync", () => {
 
     test("a dest tracked in the manifest but no longer in SYNC_ITEMS is deleted from disk and reported pruned", () => {
       const home = freshHome();
-      syncCrewSkills({ home, assetsDir }); // seeds a real manifest
+      const repoDir = freshHome();
+      syncCrewSkills({ home, assetsDir, repoDir }); // seeds a real manifest
 
       // simulate a stale entry: a dest this tool once installed, now dropped from SYNC_ITEMS
       const claudeDir = join(home, ".claude");
@@ -646,7 +647,7 @@ describe("crew-skills sync", () => {
       manifest.installed.push(staleDest);
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
-      const result = syncCrewSkills({ home, assetsDir });
+      const result = syncCrewSkills({ home, assetsDir, repoDir });
       expect(result.pruned).toContain(staleDest);
       expect(existsSync(staleAbs)).toBe(false);
       // manifest re-written to just the current items — stale dest drops out for good
@@ -656,7 +657,8 @@ describe("crew-skills sync", () => {
 
     test("--dry-run reports what would be pruned but deletes nothing and does not touch the manifest", () => {
       const home = freshHome();
-      syncCrewSkills({ home, assetsDir });
+      const repoDir = freshHome();
+      syncCrewSkills({ home, assetsDir, repoDir });
       const claudeDir = join(home, ".claude");
       const staleDest = "skills/worker/SKILL.md";
       const staleAbs = join(claudeDir, staleDest);
@@ -668,7 +670,7 @@ describe("crew-skills sync", () => {
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
       const manifestMtimeBefore = statSync(manifestPath).mtimeMs;
 
-      const result = syncCrewSkills({ home, assetsDir, dryRun: true });
+      const result = syncCrewSkills({ home, assetsDir, repoDir, dryRun: true });
       expect(result.pruned).toContain(staleDest);
       expect(existsSync(staleAbs)).toBe(true); // untouched
       expect(statSync(manifestPath).mtimeMs).toBe(manifestMtimeBefore); // untouched
@@ -685,10 +687,11 @@ describe("crew-skills sync", () => {
       mkdirSync(join(claudeDir, "skills/recap"), { recursive: true });
       writeFileSync(otherAbs, "not ours — arra-oracle skill set");
 
-      syncCrewSkills({ home, assetsDir }); // first run: no manifest yet, otherDest untracked
+      const repoDir = freshHome();
+      syncCrewSkills({ home, assetsDir, repoDir }); // first run: no manifest yet, otherDest untracked
       expect(existsSync(otherAbs)).toBe(true);
 
-      const again = syncCrewSkills({ home, assetsDir }); // second run: manifest now exists, still never mentions otherDest
+      const again = syncCrewSkills({ home, assetsDir, repoDir }); // second run: manifest now exists, still never mentions otherDest
       expect(again.pruned).not.toContain(otherDest);
       expect(existsSync(otherAbs)).toBe(true);
     });
