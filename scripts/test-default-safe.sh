@@ -160,12 +160,53 @@ else
         printf '%s\n' "$f"
       done
   )
+
+  # kobo-499: a green run only proves the FILES IT SAW passed — it says
+  # nothing about whether the git-ls-files pathspec above (`:(top)test/*.ts`
+  # `:(top)test/**/*.ts`) still matches everything it used to. A narrowed
+  # pathspec (a typo, a dropped `**`, an accidental extra exclusion) makes
+  # ALL_TEST_FILES silently smaller — every file it DOES contain still runs
+  # and passes, so the script exits 0 exactly like a real green run. Comparing
+  # ALL_TEST_FILES's own length against itself would prove nothing (it would
+  # match ANY narrowing, since both sides come from the same broken glob).
+  # This cross-checks the git-ls-files count against an INDEPENDENT recount
+  # (`find`, not git's pathspec magic, same exclusion predicates translated
+  # 1:1) — a regression in the git pathspec doesn't touch `find`'s logic at
+  # all, so the two only disagree when the enumeration actually drifted.
+  FIND_RECOUNT_FILES=()
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && FIND_RECOUNT_FILES+=("$f")
+  done < <(
+    find test -type f -name '*.ts' |
+      sed 's#^\./##' |
+      while IFS= read -r f; do
+        [[ "$f" == test/helpers/* ]] && continue
+        [[ "$f" == test/isolated/* ]] && continue
+        [[ "$f" == agents/* || "$f" == *"/agents/"* ]] && continue
+        [[ "$f" == test/zz-mock-tmux-smoke.test.ts ]] && continue
+        [[ "$f" == test/zz-mock-transport-smoke.test.ts ]] && continue
+        printf '%s\n' "$f"
+      done |
+      sort
+  )
+  GIT_LS_FILES_SORTED=()
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && GIT_LS_FILES_SORTED+=("$f")
+  done < <(printf '%s\n' "${ALL_TEST_FILES[@]}" | sort)
+
+  if [[ "${GIT_LS_FILES_SORTED[*]}" != "${FIND_RECOUNT_FILES[*]}" ]]; then
+    echo "error: test-default-safe.sh: git-ls-files enumeration (${#GIT_LS_FILES_SORTED[@]} file(s)) disagrees with an independent find-based recount (${#FIND_RECOUNT_FILES[@]} file(s)) — the pathspec likely narrowed or widened. Diff:" >&2
+    diff <(printf '%s\n' "${GIT_LS_FILES_SORTED[@]}") <(printf '%s\n' "${FIND_RECOUNT_FILES[@]}") >&2 || true
+    exit 2
+  fi
 fi
 
 if [ "${#ALL_TEST_FILES[@]}" -eq 0 ]; then
   echo "error: no default-suite test files matched" >&2
   exit 2
 fi
+
+echo "=== test-default-safe.sh: enumerated ${#ALL_TEST_FILES[@]} default-suite test file(s), cross-checked against find ==="
 
 if [[ -n "$SHARD_TOTAL" ]]; then
   SHARD_FILES=()
@@ -253,6 +294,7 @@ fi
 if [[ "${#MOCK_FILES[@]}" -eq 0 ]]; then
   echo ""
   echo "=== no default-suite mock.module files detected ==="
+  echo "=== test-default-safe.sh: completed ${CASE_POS}/${#CASE_NAMES[@]} case(s) — matches enumerated ==="
   exit 0
 fi
 
@@ -278,3 +320,19 @@ for f in "${MOCK_FILES[@]}"; do
   fi
   run_bun_case "mock-$mock_index" "$run_cwd" "$test_path" "${path_ignore_args[@]}"
 done
+
+# kobo-499: CASE_POS and CASE_NAMES are the SAME variables the loops above
+# actually drove (kobo-476's own bookkeeping, not a fresh recount) — this is
+# the "declared vs completed, from one source" check: if every case in
+# CASE_NAMES was reached (true whenever this line is reached at all, since
+# `set -e` + the EXIT trap above would have already reported and exited
+# non-zero on any earlier failure), say so explicitly instead of exiting 0
+# in silence. A future edit that adds a case to CASE_NAMES without routing it
+# through run_bun_case (or skips a mock file inside the loop) would leave
+# CASE_POS short of the total and this fails loudly, by construction, not by
+# re-deriving a second count that could itself drift from CASE_NAMES.
+if [[ "$CASE_POS" -ne "${#CASE_NAMES[@]}" ]]; then
+  echo "error: test-default-safe.sh: enumerated ${#CASE_NAMES[@]} case(s), only reached ${CASE_POS} — this should be unreachable if every case above routes through run_bun_case" >&2
+  exit 2
+fi
+echo "=== test-default-safe.sh: completed ${CASE_POS}/${#CASE_NAMES[@]} case(s) — matches enumerated ==="
