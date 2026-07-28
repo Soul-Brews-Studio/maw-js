@@ -248,6 +248,27 @@ describe("crew-skills global asset contract", () => {
     expect(existsSync(join(assetsDir, "skills/worker/SKILL.md"))).toBe(false);
   });
 
+  // kobo-574 — the comm pane's split direction was wrong TWICE before landing right
+  // (kobo-543, kobo-556): `-h` splits by WIDTH and cuts lead's pane in half (measured
+  // 22% instead of 45%); `-v -b` inserts comm as a thin strip ABOVE lead instead,
+  // which is what the 45%-wide lead layout actually depends on. Nothing pinned it, so
+  // a future doc edit could flip it back with no test to catch it — pin both the real
+  // spawn command (§2) and its own reproducible-measurement recipe (§5), since either
+  // could drift independently and both feed a human copying commands out of this file.
+  test("head SKILL.md's comm split direction is pinned to -v -b, not -h (kobo-543/556)", () => {
+    const head = readFileSync(join(assetsDir, "skills/head/SKILL.md"), "utf8");
+    expect(head).toContain("kobo-543"); // the fix this pin protects, named in the doc's own prose
+    // §2 — the real spawn command a lead's setup script actually runs
+    expect(head).toContain('COMM=$(tmux split-window -v -b -t "$LEAD" -l 15%');
+    expect(head).not.toContain('COMM=$(tmux split-window -h -t "$LEAD"');
+    // §5 — the reproducible-measurement recipe, explicitly labeled `# = comm`.
+    // Two separate asserts (not one string with the exact column-alignment
+    // whitespace baked in) — reviewer's finding: a pure reformat that keeps the
+    // same direction would otherwise turn this test red for the wrong reason.
+    expect(head).toContain('tmux split-window -v -b -t "$L" -l 15% \'sleep 300\'');
+    expect(head).toContain("# = comm");
+  });
+
   // kobo-343 — /teardown = crew lifecycle close (spin↔teardown). Safety-critical pane killer:
   // kills ONLY crew-spawned panes (@role conductor/worker/reviewer), preserves invoker + untagged
   // (fail-closed). Graceful-wrap before kill (shutdown_request). Ships as a synced skill asset.

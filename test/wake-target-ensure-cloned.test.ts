@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 
 let mockActive = false;
@@ -22,8 +22,8 @@ let hostExecCalls: string[] = [];
 let hostExecError: unknown = null;
 let logs: string[] = [];
 
-const realSdk = await import("../src/sdk");
-const realGhq = await import("../src/core/ghq");
+const realSdk = { ...(await import("../src/sdk")) };
+const realGhq = { ...(await import("../src/core/ghq")) };
 
 mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ...realSdk,
@@ -78,6 +78,17 @@ beforeEach(() => {
 
 afterEach(() => {
   mockActive = false;
+});
+
+// kobo-592: mock.module() replaces the process-WIDE module registry, not a
+// per-file one — every later file sharing this test run/worker keeps seeing
+// this file's mocked src/sdk + src/core/ghq (and hits realCallForbidden,
+// since suiteStarted is deliberately never reset) unless something gives the
+// registry its real implementation back. See comm-send-durable-inbox.test.ts
+// for the full write-up (kobo-592 root cause) — same fix here.
+afterAll(() => {
+  mock.module(join(import.meta.dir, "../src/sdk"), () => realSdk);
+  mock.module(join(import.meta.dir, "../src/core/ghq"), () => realGhq);
 });
 
 describe("ensureCloned", () => {

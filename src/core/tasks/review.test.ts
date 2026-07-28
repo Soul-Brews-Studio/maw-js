@@ -89,7 +89,7 @@ describe("taskNextAction — every state answers 'what next + who'", () => {
   test("review: reviewer vs PR", () => {
     expect(taskNextAction(mk({ state: "review", reviewer: "eq3" }))).toBe("รอ eq3 ตรวจ");
     expect(taskNextAction(mk({ state: "review" }))).toBe("รอ ใครก็ได้ ตรวจ");
-    expect(taskNextAction(mk({ state: "review", pr: 53 }))).toBe("รอ merge PR #53 → done");
+    expect(taskNextAction(mk({ state: "review", pr: 53 }))).toBe("รอ merge PR #53 → done (freshness ของ head ตรวจที่ GitHub ตอน merge)");
   });
   test("blocked surfaces the kind + who-clears + why", () => {
     expect(taskNextAction(mk({ state: "blocked", block: { kind: "needs_input", for: "tony", reason: "approve" } }))).toBe("⚑ [needs_input] รอ tony: approve");

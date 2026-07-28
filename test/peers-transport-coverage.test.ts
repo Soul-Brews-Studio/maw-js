@@ -3,11 +3,11 @@
  * peers. Mocks are gated and delegate when inactive so this default-suite file
  * does not pollute unrelated tests.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Session } from "../src/core/transport/ssh";
 
-const realConfig = await import("../src/config");
-const realCurl = await import("../src/core/transport/curl-fetch");
+const realConfig = { ...(await import("../src/config")) };
+const realCurl = { ...(await import("../src/core/transport/curl-fetch")) };
 
 let mockActive = false;
 // kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts —
@@ -116,6 +116,16 @@ afterEach(() => {
   console.warn = originalWarn;
   Date.now = originalDateNow;
   mockActive = false;
+});
+
+// kobo-592: mock.module() replaces the process-WIDE module registry — every
+// later file sharing this run/worker keeps hitting this file's mocked
+// modules (and realCallForbidden, since suiteStarted never resets) unless
+// the registry gets its real implementation back. See
+// comm-send-durable-inbox.test.ts for the full write-up.
+afterAll(() => {
+  mock.module(import.meta.resolve("../src/config"), () => realConfig);
+  mock.module(import.meta.resolve("../src/core/transport/curl-fetch"), () => realCurl);
 });
 
 function session(name: string, windows: Array<{ name: string }> = [{ name: "main" }]): Session {

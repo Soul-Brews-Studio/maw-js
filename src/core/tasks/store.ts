@@ -817,6 +817,44 @@ export function missingSignTiers(task: TaskRecord): SignTier[] {
 }
 
 /**
+ * kobo-576: required tiers whose signed SHA disagrees with another required
+ * tier's — crew and head reviewed different commits. Mirrors the EXACT
+ * comparison the `merge` verb already enforces (kobo-400, task/index.ts, the
+ * tierShas check right before `--match-head-commit`) before it will attempt a
+ * merge — this makes that same judgment available BEFORE merge time, so a
+ * status message or board display can stop calling a card ready when `merge`
+ * itself would refuse it (the real pgw-368 shape: `missingSignTiers` alone
+ * said "complete," never having looked at a SHA at all).
+ *
+ * Requires ALL required tiers' sha to be PRESENT to fire — any tier's sha
+ * absent is the kobo-400 legacy-grandfather case, out of scope here (that gap
+ * has its own card, kobo-404: sha=null). Deliberately does NOT compare
+ * against the PR's true external current head — that external freshness
+ * check already happens atomically server-side via GitHub's own
+ * `--match-head-commit` at actual merge time; duplicating it here would mean
+ * a live `gh` fetch on every read (the Unhappy path this card explicitly
+ * warns against), for a check GitHub already performs for free at the one
+ * moment it actually matters. This only catches tiers DISAGREEING WITH EACH
+ * OTHER — the shape proven to matter live tonight (kobo-557).
+ *
+ * kobo-576 review round 1 — the gap this leaves, enumerated: both tiers
+ * signing the SAME stale commit is NOT caught here (crewSignedSha ===
+ * headSignedSha ⇒ `new Set(shas).size` is 1 ⇒ `[]`), even when the real PR
+ * head has since moved past that commit. This happened for real on
+ * 2026-07-28 (kobo-557): crew and head both signed `ae80e699`, no one did
+ * anything wrong, and the head still moved to `36d7e5aa` then `4a3548fb`
+ * because a sibling PR merged into alpha underneath it. The only thing that
+ * catches THAT shape is `--match-head-commit` at actual merge time — this
+ * function's claim is narrower than "ready to merge."
+ */
+export function staleSignTiers(task: TaskRecord): SignTier[] {
+  const required = requiredSignTiers(task);
+  const shas = required.map((tier) => (tier === "crew" ? task.crewSignedSha : task.headSignedSha));
+  if (shas.some((s) => !s)) return []; // kobo-400/404 legacy grandfather — not this card's scope
+  return new Set(shas).size > 1 ? required : [];
+}
+
+/**
  * kobo-546 — the ONLY place `crewGate` gets set true outside an explicit crew
  * sign/dispatch. ONE-WAY RATCHET: already `crewGate: true` is a no-op (no
  * re-note, no re-emit) — this file has no function anywhere that clears
@@ -1490,20 +1528,37 @@ export interface PendingMention {
 }
 
 /**
- * Unanswered @mentions across the on-board cards (kobo-126 → repointed kobo-140).
- * Phase C moved the ask/answer channel from notes to COMMENTS (Board Truth rule
- * 10), so the queue reads every COMMENT that carries an @mention. kobo-237: the
- * resolve concept is gone — the queue no longer drops a comment when it's resolved
- * (nor reads the legacy `resolved` field); it's trimmed instead by the reader's
- * mark-as-read (kobo-238). `forWho` filters to one person's queue (canonicalized, so
- * --for tony also catches @human). Read-only derivation — never mutates; both CLI
- * `mentions` and the web queue read this one source.
+ * Unanswered @mentions across EVERY card (kobo-126 → repointed kobo-140). Phase C
+ * moved the ask/answer channel from notes to COMMENTS (Board Truth rule 10), so
+ * the queue reads every COMMENT that carries an @mention. kobo-237: the resolve
+ * concept is gone — the queue no longer drops a comment when it's resolved (nor
+ * reads the legacy `resolved` field); it's trimmed instead by the reader's
+ * mark-as-read (kobo-238). `forWho` filters to one person's queue (canonicalized,
+ * so --for tony also catches @human). Read-only derivation — never mutates.
+ *
+ * kobo-580: does NOT gate on isOnBoard (deliberately, caller-level fix — isOnBoard
+ * itself stays correct for its other callers). Rule 10 says a comment doesn't
+ * close because the card is done; gating this queue by the board's 7-day done
+ * window silently dropped unanswered @mentions once their card aged off (36
+ * cards / 96 comments measured on kobo; review round 1 re-measured against the
+ * real removal — kobo 20→116, pgw 19→294, i.e. most of the true total on both
+ * boards was hidden). Only this CLI-facing function is affected — the web
+ * mentions panel (company.ts pendingMentions) has computed its own client-side
+ * mirror from the already-unfiltered bulk list since kobo-401 and was never
+ * gated here at all; this docstring previously claimed otherwise (stale).
+ *
+ * kobo-580 review round 1 — a literal "don't show resolved comments" isn't
+ * possible here: kobo-237 removed the resolve concept server-side entirely (the
+ * `resolved` field is legacy-only, never read). The web panel's only trim is
+ * kobo-238's per-browser localStorage mark-as-read, which has no CLI/MCP
+ * equivalent — this function returns every unfiltered @mention every time, by
+ * design, until a real per-reader read-state exists on this side too.
  */
 export function pendingMentions(company: string, forWho?: string): PendingMention[] {
   const want = forWho ? mentionKey(forWho) : null;
   const out: PendingMention[] = [];
   for (const t of listTasks(company)) {
-    if (!isOnBoard(t) || !t.comments?.length) continue;
+    if (!t.comments?.length) continue;
     for (const c of t.comments) {
       for (const who of parseMentions(c.text)) {
         if (want && who !== want) continue;
@@ -1696,9 +1751,23 @@ export function taskNextAction(task: TaskRecord): string {
   switch (task.state) {
     case "blocked":
       return blockNextAction(task);
-    case "review":
-      if (task.pr) return `รอ merge PR #${task.pr} → done`;
+    case "review": {
+      // kobo-576: "รอ merge" used to be unconditional the moment a PR was
+      // linked, regardless of whether the tiers that signed it actually agree
+      // on which commit they reviewed — the same tierSha mismatch `merge`
+      // itself refuses on (kobo-400). Surfaced here so both CLI `ls` and the
+      // web board (same field, `TaskCard.nextAction`) stop implying "just
+      // needs a merge click" for a card `merge` will actually reject.
+      const stale = staleSignTiers(task);
+      if (task.pr && stale.length) return `⚠ เซ็นคนละ commit (${stale.join(" + ")}) — merge จะปฏิเสธ ต้องเซ็นใหม่ก่อน`;
+      // kobo-576 review round 1 (AC3 — every surface must claim the same thing):
+      // this only means tiers agree with EACH OTHER (staleSignTiers above), never
+      // that the signed commit still matches the PR's real current head — same
+      // caveat as the CLI sign message right below. GitHub's own
+      // `--match-head-commit` is what actually verifies freshness, at merge time.
+      if (task.pr) return `รอ merge PR #${task.pr} → done (freshness ของ head ตรวจที่ GitHub ตอน merge)`;
       return `รอ ${task.reviewer || "ใครก็ได้"} ตรวจ${task.reviewReason ? ` (${task.reviewReason})` : ""}`;
+    }
     case "approve":
       return "รอ Tony เคาะ (approve → done)"; // kobo-189 — human gate after worker review
     case "need-answer":

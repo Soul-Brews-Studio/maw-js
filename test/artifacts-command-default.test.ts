@@ -4,10 +4,10 @@
  * Keeps the mock gated so other default tests can still use the real
  * src/lib/artifacts module if this file runs in the same process.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 
-const realArtifacts = await import("../src/lib/artifacts");
+const realArtifacts = { ...(await import("../src/lib/artifacts")) };
 
 let mockActive = false;
 // kobo-483: fail-closed, same pattern as wake-cmd-cmdwake-coverage.test.ts.
@@ -100,6 +100,15 @@ afterEach(() => {
   console.log = origLog;
   console.error = origError;
   (process as unknown as { exit: typeof origExit }).exit = origExit;
+});
+
+// kobo-592: mock.module() replaces the process-WIDE module registry — every
+// later file sharing this run/worker keeps hitting this file's mocked
+// src/lib/artifacts (and realCallForbidden, since suiteStarted never resets)
+// unless the registry gets its real implementation back. See
+// comm-send-durable-inbox.test.ts for the full write-up.
+afterAll(() => {
+  mock.module(join(import.meta.dir, "../src/lib/artifacts"), () => realArtifacts);
 });
 
 describe("maw artifacts command", () => {

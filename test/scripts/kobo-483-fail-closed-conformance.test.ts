@@ -228,6 +228,56 @@ function resolveMockBodyIsIntact(source: string): boolean {
   return body.includes("realCallForbidden");
 }
 
+// Finds the source range of the file's own `afterAll(() => { ... });` block
+// (there is exactly one per fixed file) by locating `afterAll(` and balancing
+// braces from there — same brace-balancing technique as resolveMockBodyIsIntact.
+function findAfterAllRange(source: string): { start: number; end: number } | null {
+  const idx = source.indexOf("afterAll(");
+  if (idx === -1) return null;
+  const braceStart = source.indexOf("{", idx);
+  if (braceStart === -1) return null;
+  let depth = 0;
+  let i = braceStart;
+  for (; i < source.length; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") {
+      depth--;
+      if (depth === 0) break;
+    }
+  }
+  return { start: idx, end: i + 1 };
+}
+
+// A top-level `mock.module(path, ...)` call's path — `join(import.meta.dir,
+// "...")`, `import.meta.resolve("...")`, and a bare string literal are all in
+// use across these files; this pulls just the quoted path out of any of them
+// so a registration site and its restoration site can be matched by path,
+// independent of which wrapper form each one happens to use.
+function extractMockModulePaths(scope: string): Set<string> {
+  const re = /mock\.module\(\s*(?:join\([^,]+,\s*|import\.meta\.resolve\(\s*)?["']([^"']+)["']/g;
+  const paths = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(scope))) paths.add(m[1]);
+  return paths;
+}
+
+// Every path registered by a top-level `mock.module()` call (i.e. NOT one of
+// the restoration calls inside afterAll itself) must also appear as a
+// restoration inside afterAll — otherwise this file's mock stays active
+// process-wide once the file finishes, exactly kobo-592's root cause.
+function findUnrestoredMockModules(source: string): string[] {
+  const afterAllRange = findAfterAllRange(source);
+  const afterAllBody = afterAllRange ? source.slice(afterAllRange.start, afterAllRange.end) : "";
+  const outsideAfterAll = afterAllRange
+    ? source.slice(0, afterAllRange.start) + source.slice(afterAllRange.end)
+    : source;
+
+  const registered = extractMockModulePaths(outsideAfterAll);
+  const restored = extractMockModulePaths(afterAllBody);
+
+  return [...registered].filter((path) => !restored.has(path));
+}
+
 // The 12 files kobo-483 made fail-closed. If a future PR adds another file
 // with a real-fallthrough shape (toggle-based or otherwise), it belongs on
 // this list too — that's a deliberate, visible list to edit, not something
@@ -250,6 +300,55 @@ const FIXED_FILES: Array<{ path: string; kind: "toggle" | "bottleneck-override" 
   { path: "test/wake-maybe-split-coverage.test.ts", kind: "toggle" },
   { path: "test/tmux-sendtext-submit.test.ts", kind: "bottleneck-override" },
 ];
+
+// kobo-592: `mock.module()` replaces bindings in Bun's process-WIDE module
+// registry, not a per-file one. A file that registers a mock and never
+// restores it leaves that mock (and, for the toggle files above,
+// `suiteStarted` staying permanently true -> `realCallForbidden`) active for
+// every OTHER file that shares the same `bun test` run/worker afterward —
+// root-caused in test/comm-send-durable-inbox.test.ts's own header comment.
+// reviewer round 1 (kobo-592): the first version of this list was a SECOND
+// hand-typed copy of file paths, next to FIXED_FILES's own 12 — the exact
+// drift shape kobo-581's AC forbids for the usage-string/dispatch-chain pair.
+// Derive from FIXED_FILES instead: every "toggle" file needs restoration
+// UNLESS it's explicitly named as a known-unfixed exception below, so a
+// future 13th fail-closed file added to FIXED_FILES is covered automatically
+// (or must be added to KNOWN_UNFIXED to explain why it isn't — either way
+// something in this file has to change, nothing drifts silently).
+const KNOWN_UNFIXED = new Set([
+  // 3 files discovered to have the SAME cross-file leak symptom but that
+  // regress their OWN intra-file tests when given the same afterAll-restore
+  // fix (their root captures feed a `class X extends _rY.SomeClass` /
+  // large-barrel shape that a snapshot copy disturbs in a way not yet
+  // understood) — deliberately left unfixed rather than shipped broken, see
+  // the kobo-592 card note for the open follow-up. Same posture as this
+  // file's other "known limit" comments: a visible, honest gap, not a
+  // silently-closed one.
+  "test/comm-send-cmdsend-coverage.test.ts",
+  "test/wake-cmd-cmdwake-coverage.test.ts",
+  "test/isolated/wake-cmd-branch-coverage.test.ts",
+]);
+
+const MOCK_MODULE_RESTORED_FILES = FIXED_FILES
+  .filter((f) => f.kind === "toggle" && !KNOWN_UNFIXED.has(f.path))
+  .map((f) => f.path);
+
+describe("kobo-592 — mock.module() registrations get restored, not left leaking process-wide", () => {
+  for (const relPath of MOCK_MODULE_RESTORED_FILES) {
+    test(`${relPath}: every top-level mock.module() path is restored inside afterAll`, () => {
+      const source = readFileSync(join(REPO_ROOT, relPath), "utf-8");
+      expect(findUnrestoredMockModules(source)).toEqual([]);
+    });
+  }
+
+  test("mutation check: deleting the afterAll restoration block is caught", () => {
+    const source = readFileSync(join(REPO_ROOT, "test/comm-send-durable-inbox.test.ts"), "utf-8");
+    const range = findAfterAllRange(source);
+    expect(range).not.toBeNull();
+    const mutated = source.slice(0, range!.start) + source.slice(range!.end);
+    expect(findUnrestoredMockModules(mutated).length).toBeGreaterThan(0);
+  });
+});
 
 // `kobo-483-intentional-real-read` is a lock anyone can also use as a key —
 // it's a plain string in the source, easier to add than to actually make a

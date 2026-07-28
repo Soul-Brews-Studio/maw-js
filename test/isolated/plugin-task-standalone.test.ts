@@ -159,6 +159,20 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("--match-head-commit"); // GitHub enforces atomically server-side at merge
     expect(src).toContain("different commits, only one tier actually reviewed"); // crew≠head refuse — the hole convergent-discovered from two angles (kobo-336's own distinct-signer rule opened this window)
     expect(src).toContain("pre-signSha-bind sign"); // legacy grandfather warning (field-absence trigger, no flag-day — kobo-404 tightens later)
+    // kobo-557: SHA-compare at merge-time only proves crew+head agree with EACH OTHER,
+    // never that either read what they signed — --sha makes the signer's read explicit
+    // and REFUSES (not warns) when the head has moved since. Injectable fetcher (no
+    // MAW_TEST_MODE branch in the gate path — kobo-546's lesson).
+    expect(src).toContain('"--sha": String');
+    expect(src).toContain("__setHeadShaFetcherForTest");
+    expect(src).toContain("__resetHeadShaFetcherForTest");
+    expect(src).toContain("someone pushed since you read it");
+    // kobo-557 — Tony's ruling (path 2): (A) no PR linked is a workflow gap → REFUSE
+    // (stamp it, fixable in 5 seconds). (C) a gh fetch failure with the PR linked is
+    // the network-dependency shape kobo-404 protects → ALLOW through, loud — the
+    // output line must say plainly no SHA bound, distinct from a genuine bind.
+    expect(src).toContain("no PR linked yet");
+    expect(src).toContain("NO SHA BOUND");
     // kobo-501: a sign records WHAT justified it (diff-read vs a real test-run vs
     // mutation-verified), not just sha+pane — undeclared is the true default, never
     // silently upgraded to diff-read (the collapse-unknown-into-a-value defect class).
@@ -322,5 +336,72 @@ describe("task command plugin standalone boundary", () => {
     expect(mineFilterIdx).toBeLessThan(hiddenDoneIdx);
     expect(lsBlock).toContain("renderBoard(tasks, company, mine, stale, hiddenDone, hiddenRejected)");
     expect(lsBlock).toContain("renderBoardCompact(tasks, company, mine, hiddenDone, hiddenRejected)");
+  });
+
+  // kobo-576 — the `sign` command's own status message used to derive
+  // "(mergeable)" from missingSignTiers alone (does a BY field exist), never
+  // checking whether the tiers that signed agree on which commit they
+  // reviewed. Behavioral coverage of staleSignTiers/taskNextAction lives in
+  // store.test.ts (fully testable there, no gh dependency); the live "stale
+  // AND both signs present" shape at `sign` time can't be driven through the
+  // CLI test harness under MAW_TEST_MODE (the sha fetch is skipped entirely,
+  // so a real per-tier sha never gets set via the CLI path in tests) — this
+  // is the content-assert companion this standalone file's own convention
+  // expects for exactly that kind of gap.
+  test("sign's status message checks staleSignTiers before claiming mergeable (kobo-576)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    const signStart = src.indexOf('subcmd === "sign"');
+    const mergeStart = src.indexOf('subcmd === "merge"');
+    const signBlock = src.slice(signStart, mergeStart);
+    // stale is only computed when still is empty — a truly incomplete card
+    // (missing a tier) must keep saying "still needs", not the stale wording
+    const staleIdx = signBlock.indexOf("const stale = still.length ? [] : staleSignTiers(t)");
+    expect(staleIdx).toBeGreaterThan(-1);
+    const afterStale = signBlock.slice(staleIdx);
+    expect(afterStale).toContain("DIFFERENT commits");
+    expect(afterStale).toContain("NOT mergeable");
+    // kobo-576 review round 1: "all signs in (mergeable)" claimed more than
+    // tier-vs-tier verifies — reworded to what was actually checked, and the
+    // GitHub-checks-freshness-at-merge caveat is now explicit in the message.
+    expect(afterStale).toContain("all tiers signed the same commit");
+    expect(afterStale).toContain("head freshness is checked by GitHub at merge time");
+    // reviewer round 2: pin the reword itself, not just its presence — reverting the
+    // success branch's RUNTIME string back to `— all signs in (mergeable)` must go red
+    // here. Scoped to the `statusSuffix = agreedSha ? ... : ...;` assignment itself
+    // (not the wider afterStale slice) — that slice also contains this card's own
+    // explanatory comments, which legitimately quote the old string in prose; a scan
+    // over prose would self-trip on its own history note (kobo-581's exact trap).
+    const successAssignIdx = afterStale.indexOf("statusSuffix = agreedSha");
+    expect(successAssignIdx).toBeGreaterThan(-1);
+    const successAssign = afterStale.slice(successAssignIdx, afterStale.indexOf(";", afterStale.indexOf(";", successAssignIdx) + 1) + 1);
+    expect(successAssign).not.toContain("(mergeable)");
+  });
+
+  // kobo-580 — pendingMentions() stopped gating on isOnBoard (rule 10: a comment
+  // doesn't close because its card is done), so the raw count can be much bigger
+  // than what used to show (measured live: kobo 20→116, pgw 19→294). The CLI
+  // header must break out how many came from a card already off the board, so a
+  // big number reads as "mostly old chatter" rather than "healthy queue".
+  // Behavioral coverage lives in plugin-task-cli.test.ts; this is the
+  // content-assert companion this standalone file's own convention expects.
+  test("mentions header computes and prints the aged-off share of the count (kobo-580)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    const mentionsStart = src.indexOf('subcmd === "mentions"');
+    const nextBlockStart = src.indexOf('subcmd === "comment"');
+    const mentionsBlock = src.slice(mentionsStart, nextBlockStart);
+    expect(mentionsBlock).toContain("pendingMentions(company, flags[\"--for\"])");
+    // aged = pending items whose OWN card fails isOnBoard — not the queue itself
+    // (pendingMentions still returns everything, unfiltered, per kobo-580).
+    const agedIdx = mentionsBlock.indexOf("const aged =");
+    expect(agedIdx).toBeGreaterThan(-1);
+    expect(mentionsBlock.slice(agedIdx)).toContain("!isOnBoard(t)");
+    expect(mentionsBlock).toContain("agedNote");
+    expect(mentionsBlock).toContain("DEFAULT_ARCHIVE_DAYS");
   });
 });

@@ -76,6 +76,7 @@ import {
   clearTaskPr,
   signTask,
   missingSignTiers,
+  staleSignTiers,
   sameSignerBothTiers,
   samePaneBothTiers,
   signPaneViolation,
@@ -252,6 +253,27 @@ function resolveSignerPane(): string | null {
     return null;
   }
 }
+
+/**
+ * kobo-400/557: the PR's CURRENT head commit, for sign-time SHA binding. Real
+ * `gh` call by default; no MAW_TEST_MODE branch guarding the call itself
+ * (kobo-546's lesson: an env check wrapping a gate's CALL means the code that
+ * reads the result never runs under test — a mutation there would go
+ * undetected). Tests inject a stub via __setHeadShaFetcherForTest instead.
+ * Best-effort: any failure (network/auth/no gh) returns undefined, same as
+ * before — a sign must never be blocked by this fetch failing.
+ */
+function realFetchHeadSha(pr: number, repo: string): string | undefined {
+  const shaOut = Bun.spawnSync(["gh", "pr", "view", String(pr), "--repo", repo, "--json", "headRefOid", "-q", ".headRefOid"], { stdout: "pipe", stderr: "pipe" });
+  if (shaOut.exitCode !== 0) return undefined;
+  const sha = shaOut.stdout.toString().trim();
+  return sha || undefined;
+}
+let headShaFetcher: (pr: number, repo: string) => string | undefined = realFetchHeadSha;
+/** @internal test-only override — never called from a normal code path. */
+export function __setHeadShaFetcherForTest(fn: (pr: number, repo: string) => string | undefined): void { headShaFetcher = fn; }
+/** @internal test-only reset — restores the real `gh` fetcher. */
+export function __resetHeadShaFetcherForTest(): void { headShaFetcher = realFetchHeadSha; }
 
 // exported for the kobo-569 render-exhaustiveness test — Record<TaskState, string>
 // already forces the compiler to keep this map exhaustive over TaskState; the test
@@ -889,7 +911,7 @@ export async function runTask(
       // kobo-327: record a gate sign for the anti-race merge funnel. --role crew = the
       // crew-cell pre-PR gate (.3); --role head = the final gate before merge (.2). A
       // crew sign self-marks the card crewGate so it can't skip the crew tier. Idempotent.
-      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--role": String, "--evidence": String, "--evidence-locus": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--role": String, "--evidence": String, "--evidence-locus": String, "--sha": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       const role = flags["--role"] as SignTier | undefined;
@@ -932,24 +954,93 @@ export async function runTask(
       const evidenceLocus = flags["--evidence-locus"];
       const evidenceViol = evidenceScopeViolation(evidenceScope, evidenceLocus);
       if (evidenceViol) return { ok: false, error: `sign REFUSED for ${id}: ${evidenceViol}` };
-      // kobo-400: best-effort — bind this sign to the PR's current head commit. Only when a
-      // PR is already linked (a sign before `pr` is linked has nothing to bind to yet); a gh
-      // failure (network/auth) is swallowed, NOT surfaced as a sign error — the sign itself
-      // must never be blocked by this. Either gap just means `merge` grandfathers this tier.
-      // MAW_TEST_MODE=1 skips the real subprocess entirely (same idiom as ping() above /
-      // notify.ts:23) — a test driving `sign` must not shell out to the real `gh` binary.
+      // kobo-557 — Tony's ruling (path 2, via lead 2026-07-28): (A) and (C) are NOT
+      // the same class. (A) no PR linked is a WORKFLOW gap — nothing here is a
+      // network dependency, fixable in 5 seconds (`maw company task pr ...`), so it
+      // REFUSES. (C) the head-commit fetch failing is the exact "network stuff
+      // blocking a sign" shape kobo-404 protects: its own AC forbids changing that
+      // posture to "refuse" — the real defect kobo-400 was fixing was SILENCE, not
+      // non-blocking (its own words: "ที่ผิดจริงไม่ใช่ไม่บล็อก แต่คือไม่บอก แก้ที่
+      // ข้อความ ไม่ใช่ที่ posture"). So (C) stays ALLOW, loud: it must say plainly
+      // that no SHA bound, distinct from a genuine bind (AC8), so the two states are
+      // never confused from the output line alone (kobo-556's exact confusion).
+      //
+      // (A) no PR linked at all — a WORKFLOW gap, fixable immediately.
+      if (before && (!before.pr || !before.repo)) {
+        return { ok: false, error: `sign REFUSED for ${id}: no PR linked yet — this sign can't be bound to a commit. Stamp the PR first: maw company task pr ${id} <n> --repo <owner/name>, then sign.` };
+      }
+      // (C) PR IS linked, but the head-commit fetch itself failed — a TRANSIENT gh
+      // problem (network/auth), not a defect in the card or its SHA. kobo-404's
+      // posture: never block a sign for this, only ever fail to tell the signer. The
+      // shaLabel below (AC8) is what tells them, on the SAME line as the success.
       let signedSha: string | undefined;
-      if (before?.pr && before?.repo && process.env.MAW_TEST_MODE !== "1") {
-        const shaOut = Bun.spawnSync(["gh", "pr", "view", String(before.pr), "--repo", before.repo, "--json", "headRefOid", "-q", ".headRefOid"], { stdout: "pipe", stderr: "pipe" });
-        if (shaOut.exitCode === 0) {
-          const sha = shaOut.stdout.toString().trim();
-          if (sha) signedSha = sha;
-        }
+      if (before?.pr && before?.repo) {
+        signedSha = headShaFetcher(before.pr, before.repo);
+      }
+      // kobo-557: comparing crew-sha vs head-sha at MERGE time (kobo-400, below) only
+      // proves the two tiers agree with EACH OTHER — it never proves either of them
+      // read what they signed. Live incident: a push landed between a reviewer READING
+      // the diff and typing `sign`; the fetch above silently re-bound the sign to the
+      // NEW head, and if it had happened before BOTH tiers signed, crew+head would have
+      // agreed on the new commit without either having read it — the merge-time compare
+      // would have passed clean. --sha makes the read explicit: the signer states which
+      // commit they reviewed, and a head that moved since is refused, not silently
+      // re-bound. Omitting --sha keeps today's best-effort auto-bind — this is a
+      // DIFFERENT gap from kobo-404 (which owns the field-absence class at merge
+      // time: a genuinely-legacy pre-kobo-400 sign and a (C)-path sign that allowed
+      // through unbound both end up with no *SignedSha, indistinguishable to merge's
+      // grandfather check — kobo-404's job, not this one, to eventually tell them
+      // apart or tighten). A sign that binds fine but was never told what the signer
+      // read has NO card holding it yet — eq3 has sent the question of whether --sha
+      // should become mandatory up to Tony; this card only closes the hole for a
+      // signer who opts in by declaring what they read.
+      const readSha = flags["--sha"];
+      if (readSha && signedSha && readSha !== signedSha) {
+        return { ok: false, error: `sign REFUSED for ${id}: you read ${readSha} but the PR's head is now ${signedSha} — someone pushed since you read it. Pull the latest diff, re-review it, then re-run sign with --sha ${signedSha}.` };
       }
       const t = signTask(company, id, me, role, signerPane, signedSha, evidenceScope, evidenceLocus);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       const still = missingSignTiers(t);
-      console.log(`\x1b[32m✍ signed\x1b[0m ${t.id} \x1b[90m(${role})\x1b[0m: ${t.title} \x1b[90m[${formatSignEvidenceScope(evidenceScope)}]\x1b[0m${still.length ? ` \x1b[90m— still needs: ${still.join(", ")}\x1b[0m` : ` \x1b[90m— all signs in (mergeable)\x1b[0m`}`);
+      // kobo-557 (AC8): (C) allows the sign through with an unbound SHA (Tony's
+      // ruling, kobo-404 posture) — so the two states must be told apart from THIS
+      // line, not by opening the card file (kobo-556's exact confusion: `still needs:
+      // head` printed identically whether or not a SHA had bound).
+      const shaLabel = signedSha
+        ? ` \x1b[90m[sha ${signedSha}]\x1b[0m`
+        : ` \x1b[31m[NO SHA BOUND — gh fetch failed, this tier is unverified]\x1b[0m`;
+      // kobo-576: "all signs in" used to mean "every required tier has a BY
+      // field" — never checked whether the tiers agree on WHICH commit they
+      // reviewed. A stale tier (crew signed 11 days ago, head signed today,
+      // different commits) counted as complete and printed "(mergeable)" —
+      // the exact claim `merge` itself will refuse on (kobo-400's tierShas
+      // check). staleSignTiers mirrors that same comparison here, BEFORE
+      // merge time, so this message can't lie ahead of what merge will do.
+      const stale = still.length ? [] : staleSignTiers(t);
+      let statusSuffix: string;
+      if (still.length) {
+        statusSuffix = ` \x1b[90m— still needs: ${still.join(", ")}\x1b[0m`;
+      } else if (stale.length) {
+        statusSuffix = ` \x1b[31m— signed at DIFFERENT commits (${stale.join(" + ")}) — NOT mergeable, re-sign the stale tier\x1b[0m`;
+      } else {
+        // kobo-576 review round 1: "all signs in (mergeable)" claimed more than this
+        // check verifies — it only compares tier-vs-tier, never against the CURRENT
+        // real head. Two tiers can both sign the SAME stale commit (crewSignedSha ===
+        // headSignedSha, staleSignTiers sees one distinct sha, "agrees") while the
+        // real PR head has moved past it twice since — kobo-557's exact shape on
+        // 2026-07-28 (crew+head both signed ae80e699, head moved to 36d7e5aa then
+        // 4a3548fb, no one did anything wrong). This does NOT catch that case — only
+        // `gh pr merge --match-head-commit`, at actual merge time, does. Say only
+        // what this check verified.
+        // kobo-404 legacy-grandfather: a pre-kobo-400 sign (or a test run with
+        // no real `gh` call, MAW_TEST_MODE=1) can leave both shas absent —
+        // out of this card's scope, so just drop the parenthetical rather
+        // than print an empty "()" placeholder.
+        const agreedSha = t.headSignedSha ?? t.crewSignedSha;
+        statusSuffix = agreedSha
+          ? ` \x1b[90m— all tiers signed the same commit (${agreedSha.slice(0, 8)}) — head freshness is checked by GitHub at merge time\x1b[0m`
+          : ` \x1b[90m— all tiers signed the same commit — head freshness is checked by GitHub at merge time\x1b[0m`;
+      }
+      console.log(`\x1b[32m✍ signed\x1b[0m ${t.id} \x1b[90m(${role})\x1b[0m: ${t.title} \x1b[90m[${formatSignEvidenceScope(evidenceScope)}]\x1b[0m${shaLabel}${statusSuffix}`);
     } else if (subcmd === "merge") {
       // kobo-327: the ONE path that merges a gated card. REFUSES until every required
       // sign tier (requiredSignTiers) is present, then runs `gh pr merge`. Removes merge
@@ -1284,8 +1375,9 @@ export async function runTask(
       }
     } else if (subcmd === "mentions") {
       // The @mention decision queue (kobo-126): unanswered @tony/@human (or --for
-      // <who>) mentions across the board. Read-only — the SAME source the web
-      // "mentions" badge reads. `maw company task mentions [--for tony]`.
+      // <who>) mentions across every card, regardless of board age (kobo-580 — a
+      // comment doesn't close because its card is done, Board Truth rule 10).
+      // `maw company task mentions [--for tony]`.
       const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--for": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const company = resolveCompany(flags["--company"], me);
@@ -1294,7 +1386,17 @@ export async function runTask(
       if (!pending.length) {
         console.log(`\x1b[90m○ no pending mentions\x1b[0m${flags["--for"] ? ` for ${flags["--for"]}` : ""}`);
       } else {
-        console.log(`\x1b[1m@mentions\x1b[0m \x1b[90m(${pending.length}${flags["--for"] ? ` → ${flags["--for"]}` : ""})\x1b[0m`);
+        // kobo-580 review round 1: since this queue stopped gating on isOnBoard,
+        // the real count can be much larger than what used to show (measured live:
+        // kobo board 20→116, pgw 19→294) — say how many came from a card that's
+        // aged off the board, so the count itself doesn't read as "everything is
+        // fine, just a lot of it" when most of it is old unresolved chatter.
+        const aged = pending.filter((p) => {
+          const t = readTask(company, p.id);
+          return t ? !isOnBoard(t) : false;
+        }).length;
+        const agedNote = aged ? ` · ${aged} จากการ์ดที่ปิดเกิน ${DEFAULT_ARCHIVE_DAYS} วัน` : "";
+        console.log(`\x1b[1m@mentions\x1b[0m \x1b[90m(${pending.length}${flags["--for"] ? ` → ${flags["--for"]}` : ""}${agedNote})\x1b[0m`);
         for (const p of pending) {
           const one = p.text.replace(/\s+/g, " ").trim();
           console.log(`  \x1b[90m${p.id} ${p.commentId}\x1b[0m →\x1b[32m@${p.who}\x1b[0m \x1b[90m(by ${p.by})\x1b[0m: ${one.length > 70 ? one.slice(0, 67) + "…" : one}`);

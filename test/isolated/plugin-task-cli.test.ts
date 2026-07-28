@@ -750,6 +750,38 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.comments!.at(-1)!.tldr).toBe("rebased, ready");
   });
 
+  // kobo-580 review round 1: once the queue stopped gating on isOnBoard, the real
+  // count can be much bigger than what used to show (measured live: kobo 20→116,
+  // pgw 19→294) — the header must say how many came from a card already off the
+  // board, so a big number doesn't read as "healthy queue, just a lot of it".
+  //
+  // kobo-580 review round 2: the FIRST version of this fixture had exactly 1
+  // recent + 1 aged card, so flipping the `!isOnBoard(t)` predicate to
+  // `isOnBoard(t)` (counting the WRONG side) still produced "1" and the test
+  // stayed green — reviewer's mutation caught it. Asymmetric fixture (1 recent,
+  // 2 aged) so the two predicates give different numbers and a flip goes red.
+  test("mentions header breaks out the count that came from cards off the board (kobo-580)", async () => {
+    await run(["add", "recent", "--company", "pgw"]);
+    await run(["comment", "pgw-1", "@tony", "--tldr", "still open", "--ask", "still open?", "--company", "pgw"]);
+    await run(["add", "old one", "--company", "pgw"]);
+    await run(["comment", "pgw-2", "@tony", "--tldr", "old q", "--ask", "old q?", "--company", "pgw"]);
+    await run(["done", "pgw-2", "--company", "pgw"]);
+    await run(["add", "old two", "--company", "pgw"]);
+    await run(["comment", "pgw-3", "@tony", "--tldr", "old q2", "--ask", "old q2?", "--company", "pgw"]);
+    await run(["done", "pgw-3", "--company", "pgw"]);
+    for (const id of ["pgw-2", "pgw-3"]) {
+      const rec = readTask("pgw", id)!;
+      (rec as any).updatedTs = Date.now() - 8 * 86_400_000; // aged past the 7-day window
+      writeFileSync(taskFilePath("pgw", id), JSON.stringify(rec));
+    }
+
+    const q = await run(["mentions", "--for", "tony", "--company", "pgw"]);
+    expect(q.output).toContain("(3 → tony · 2 จากการ์ดที่ปิดเกิน 7 วัน)");
+    expect(q.output).toContain("pgw-1");
+    expect(q.output).toContain("pgw-2"); // both aged cards still shown, not silently dropped
+    expect(q.output).toContain("pgw-3");
+  });
+
   test("a @mention inside a NOTE does NOT enter the mentions queue (rule 10 — notes are log, not asks)", async () => {
     await run(["add", "card A", "--company", "pgw"]);
     await run(["note", "pgw-1", "logged:", "pinged", "@tony", "elsewhere", "--company", "pgw"]);

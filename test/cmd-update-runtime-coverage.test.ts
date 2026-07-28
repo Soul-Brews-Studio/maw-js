@@ -3,7 +3,7 @@
  * Bun global install. Mocks are gated and delegate when inactive so this main
  * suite file contributes to `test:coverage` without polluting other tests.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   existsSync,
   mkdtempSync,
@@ -34,11 +34,11 @@ function resolveMock<T>(fake: () => T, real: () => T, label: string): T {
   return realCallForbidden(label);
 }
 
-const _rChild = await import("child_process");
-const _rOs = await import("os");
-const _rVersion = await import("../src/cli/cmd-version");
-const _rGhq = await import("../src/core/ghq");
-const _rUpdateLock = await import("../src/cli/update-lock");
+const _rChild = { ...(await import("child_process")) };
+const _rOs = { ...(await import("os")) };
+const _rVersion = { ...(await import("../src/cli/cmd-version")) };
+const _rGhq = { ...(await import("../src/core/ghq")) };
+const _rUpdateLock = { ...(await import("../src/cli/update-lock")) };
 
 const realChild = { execSync: _rChild.execSync };
 const realOs = { homedir: _rOs.homedir };
@@ -248,6 +248,19 @@ afterEach(() => {
   if (original.mawXdg === undefined) delete process.env.MAW_XDG;
   else process.env.MAW_XDG = original.mawXdg;
   if (tempRoot && existsSync(tempRoot)) rmSync(tempRoot, { recursive: true, force: true });
+});
+
+// kobo-592: mock.module() replaces the process-WIDE module registry — every
+// later file sharing this run/worker keeps hitting this file's mocked
+// modules (and realCallForbidden, since suiteStarted never resets) unless
+// the registry gets its real implementation back. See
+// comm-send-durable-inbox.test.ts for the full write-up.
+afterAll(() => {
+  mock.module("child_process", () => _rChild);
+  mock.module("os", () => _rOs);
+  mock.module(join(import.meta.dir, "../src/cli/cmd-version"), () => _rVersion);
+  mock.module(join(import.meta.dir, "../src/core/ghq"), () => _rGhq);
+  mock.module(join(import.meta.dir, "../src/cli/update-lock"), () => _rUpdateLock);
 });
 
 describe("cmd-update runtime coverage", () => {
