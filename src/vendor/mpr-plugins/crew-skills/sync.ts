@@ -16,7 +16,7 @@
  * Pure node:fs so the standalone boundary stays trivial to assert.
  */
 
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -61,13 +61,45 @@ export const SYNC_ITEMS: SyncItem[] = [
   { src: "skills/head/contracts/conductor.md", dest: "skills/head/contracts/conductor.md" },
   { src: "skills/head/contracts/reviewer.md", dest: "skills/head/contracts/reviewer.md" },
   { src: "skills/teardown/SKILL.md", dest: "skills/teardown/SKILL.md" }, // kobo-343 — /teardown lifecycle close (spin↔teardown); safety-critical pane killer
-  // kobo-317 — /worker skill removed: worker is no longer a self-defined standalone role, only a /crew-spawned in-cell pane (crew §4 inline contract). sync is install-only (no prune) → any already-synced ~/.claude/skills/worker/SKILL.md stays as a harmless stale no-op until the human deletes it.
+  // kobo-317 — /worker skill removed: worker is no longer a self-defined standalone role, only a /crew-spawned in-cell pane (crew §4 inline contract).
   { src: "hooks/crew-worker-stop.sh", dest: "hooks/crew-worker-stop.sh", exec: true },
   { src: "hooks/maw-card-gate.sh", dest: "hooks/maw-card-gate.sh", exec: true }, // kobo-174 — lead card-create gate (dormant until an oracle opts in via .maw/card-gate.json, kobo-200)
   { src: "hooks/seat-resume.sh", dest: "hooks/seat-resume.sh", exec: true }, // kobo-196 — auto-seat on SessionStart:clear (self-gates to warroom repos; wired into the oracle REPO's settings by ensureSeatResumeHook, never the user's global ~/.claude)
   { src: "card-gate.sample.json", dest: "card-gate.sample.json" }, // kobo-200 — dormant sample; adopter copies to <repo>/.maw/card-gate.json (hook reads .maw/, NOT this path → never auto-activates)
   { src: "crew-worker-settings.json", dest: "crew-worker-settings.json" },
 ];
+
+/**
+ * kobo-566 — dest paths (relative to .claude) THIS tool has installed, tracked
+ * across runs. A later sync prunes ONLY dests that both (a) appear in this
+ * manifest (we put them there) and (b) no longer appear in SYNC_ITEMS (the
+ * source dropped them) — never a blind diff against whatever else lives in
+ * .claude/skills. ~/.claude/skills mixes content from other sources (the
+ * arra-oracle skill set, symlinks to external repos); a prune keyed off "not
+ * in current SYNC_ITEMS" without the manifest gate would delete those too.
+ *
+ * A file already installed BEFORE this manifest existed (e.g. a stale
+ * skills/worker/SKILL.md from a pre-kobo-566 sync) is not in the manifest's
+ * first snapshot, so it is NOT retroactively pruned — only the class of
+ * future drops is fixed forward. Documented, not silent.
+ */
+const MANIFEST_REL_PATH = ".crew-skills-manifest.json";
+
+function readManifestDests(claudeDir: string): string[] {
+  const path = join(claudeDir, MANIFEST_REL_PATH);
+  if (!existsSync(path)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return Array.isArray(parsed.installed) ? parsed.installed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeManifestDests(claudeDir: string, dests: string[]): void {
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(join(claudeDir, MANIFEST_REL_PATH), JSON.stringify({ installed: dests }, null, 2) + "\n");
+}
 
 export interface SyncOptions {
   /** target home (default: os.homedir()) */
@@ -93,6 +125,8 @@ export interface SyncResult {
   installed: string[];
   /** dest paths skipped because already up-to-date */
   skipped: string[];
+  /** dest paths removed (or, in dryRun, that would be removed) — manifest-tracked only (kobo-566) */
+  pruned: string[];
   /** true when the SessionStart:clear seat-resume hook was added to settings.json */
   seatHookWired: boolean;
   dryRun: boolean;
@@ -162,6 +196,20 @@ export function syncCrewSkills(options: SyncOptions = {}): SyncResult {
   const claudeDir = join(home, ".claude");
   const installed: string[] = [];
   const skipped: string[] = [];
+  const currentDests = SYNC_ITEMS.map((i) => i.dest);
+
+  // kobo-566 — prune dests THIS tool previously installed (per its own manifest)
+  // that have since dropped out of SYNC_ITEMS. Gated on the manifest, never on
+  // "absent from SYNC_ITEMS" alone, so other-source files in .claude/skills are
+  // structurally unreachable here.
+  const pruned: string[] = [];
+  for (const dest of readManifestDests(claudeDir)) {
+    if (currentDests.includes(dest)) continue;
+    pruned.push(dest);
+    if (options.dryRun) continue;
+    const destPath = join(claudeDir, dest);
+    if (existsSync(destPath)) rmSync(destPath);
+  }
 
   for (const item of SYNC_ITEMS) {
     const srcPath = join(assetsDir, item.src);
@@ -186,7 +234,9 @@ export function syncCrewSkills(options: SyncOptions = {}): SyncResult {
   const repoDir = options.repoDir ?? process.cwd();
   const seatHookWired = ensureSeatResumeHook(join(repoDir, ".claude"), { dryRun: options.dryRun });
 
-  return { home, claudeDir, installed, skipped, seatHookWired, dryRun: !!options.dryRun };
+  if (!options.dryRun) writeManifestDests(claudeDir, currentDests);
+
+  return { home, claudeDir, installed, skipped, pruned, seatHookWired, dryRun: !!options.dryRun };
 }
 
 export function formatSyncResult(result: SyncResult): string {
@@ -197,6 +247,11 @@ export function formatSyncResult(result: SyncResult): string {
     `  ${verb}: ${result.installed.length} · up-to-date: ${result.skipped.length}`,
   ];
   for (const dest of result.installed) lines.push(`  + ${dest}`);
+  if (result.pruned.length > 0) {
+    const pruneVerb = result.dryRun ? "would prune" : "pruned";
+    lines.push(`  ${pruneVerb}: ${result.pruned.length} (dropped from this tool's manifest, no longer shipped)`);
+    for (const dest of result.pruned) lines.push(`  - ${dest}`);
+  }
   if (result.seatHookWired) {
     lines.push(`  + settings.json SessionStart:clear → seat-resume.sh (auto-seat)`);
   }

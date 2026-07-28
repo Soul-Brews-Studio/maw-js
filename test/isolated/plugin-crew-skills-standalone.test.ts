@@ -597,6 +597,81 @@ describe("crew-skills sync", () => {
     expect(ensureSeatResumeHook(claudeDir)).toBe(false); // now current — no-op
   });
 
+  // kobo-566 — sync now prunes dests it previously installed (tracked in its own
+  // manifest) that have since dropped out of SYNC_ITEMS, instead of leaving them
+  // as permanent stale no-ops (kobo-317's /worker was the proof case).
+  describe("prune (kobo-566)", () => {
+    test("fresh install (no prior manifest) writes a manifest matching current SYNC_ITEMS, prunes nothing", () => {
+      const home = freshHome();
+      const result = syncCrewSkills({ home, assetsDir });
+      expect(result.pruned).toEqual([]);
+      const manifest = JSON.parse(readFileSync(join(home, ".claude/.crew-skills-manifest.json"), "utf8"));
+      expect(manifest.installed.sort()).toEqual(SYNC_ITEMS.map((i) => i.dest).sort());
+    });
+
+    test("a dest tracked in the manifest but no longer in SYNC_ITEMS is deleted from disk and reported pruned", () => {
+      const home = freshHome();
+      syncCrewSkills({ home, assetsDir }); // seeds a real manifest
+
+      // simulate a stale entry: a dest this tool once installed, now dropped from SYNC_ITEMS
+      const claudeDir = join(home, ".claude");
+      const staleDest = "skills/worker/SKILL.md";
+      const staleAbs = join(claudeDir, staleDest);
+      mkdirSync(join(claudeDir, "skills/worker"), { recursive: true });
+      writeFileSync(staleAbs, "stale worker skill, kobo-317 removed it from SYNC_ITEMS");
+      const manifestPath = join(claudeDir, ".crew-skills-manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      manifest.installed.push(staleDest);
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+      const result = syncCrewSkills({ home, assetsDir });
+      expect(result.pruned).toContain(staleDest);
+      expect(existsSync(staleAbs)).toBe(false);
+      // manifest re-written to just the current items — stale dest drops out for good
+      const after = JSON.parse(readFileSync(manifestPath, "utf8"));
+      expect(after.installed).not.toContain(staleDest);
+    });
+
+    test("--dry-run reports what would be pruned but deletes nothing and does not touch the manifest", () => {
+      const home = freshHome();
+      syncCrewSkills({ home, assetsDir });
+      const claudeDir = join(home, ".claude");
+      const staleDest = "skills/worker/SKILL.md";
+      const staleAbs = join(claudeDir, staleDest);
+      mkdirSync(join(claudeDir, "skills/worker"), { recursive: true });
+      writeFileSync(staleAbs, "stale");
+      const manifestPath = join(claudeDir, ".crew-skills-manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      manifest.installed.push(staleDest);
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      const manifestMtimeBefore = statSync(manifestPath).mtimeMs;
+
+      const result = syncCrewSkills({ home, assetsDir, dryRun: true });
+      expect(result.pruned).toContain(staleDest);
+      expect(existsSync(staleAbs)).toBe(true); // untouched
+      expect(statSync(manifestPath).mtimeMs).toBe(manifestMtimeBefore); // untouched
+      expect(formatSyncResult(result)).toContain("would prune");
+    });
+
+    test("a file from another source (never in this tool's manifest) is never deleted, even if absent from SYNC_ITEMS", () => {
+      const home = freshHome();
+      const claudeDir = join(home, ".claude");
+      // simulate an arra-oracle-set skill or an external symlink target already
+      // sitting in .claude/skills before crew-skills ever ran here
+      const otherDest = "skills/recap/SKILL.md";
+      const otherAbs = join(claudeDir, otherDest);
+      mkdirSync(join(claudeDir, "skills/recap"), { recursive: true });
+      writeFileSync(otherAbs, "not ours — arra-oracle skill set");
+
+      syncCrewSkills({ home, assetsDir }); // first run: no manifest yet, otherDest untracked
+      expect(existsSync(otherAbs)).toBe(true);
+
+      const again = syncCrewSkills({ home, assetsDir }); // second run: manifest now exists, still never mentions otherDest
+      expect(again.pruned).not.toContain(otherDest);
+      expect(existsSync(otherAbs)).toBe(true);
+    });
+  });
+
   test("seat-resume wiring preserves pre-existing settings + hooks (non-destructive)", () => {
     const home = freshHome();
     const claudeDir = join(home, ".claude");
