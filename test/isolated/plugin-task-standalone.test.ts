@@ -127,6 +127,19 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain('"--single-tier": Boolean'); // explicit no-crew escape flag
     expect(src).toContain("crewGate is not set"); // fail-closed refuse message
     expect(src).toContain("process.env.CREW_ROLE"); // kobo-333: crew-dispatch stamp (claim/start in crew pane → crewGate=true)
+    // kobo-546: diff-aware tier classification — stamped at PR-open (`pr` verb) and
+    // re-checked at merge-time (merge-time wins over a stale stamp, same rebase shape
+    // kobo-544 closed for sha). --single-tier usage is logged (who/when/card) via the
+    // card's own notes, never silent.
+    expect(src).toContain("reclassifyAndEscalate");
+    expect(src).toContain("fetchPrDiffFiles");
+    expect(src).toContain("--single-tier used for merge");
+    // kobo-546 REWORK: no MAW_TEST_MODE branch anywhere on the gate path — a code
+    // branch in the gate is the hole, not a missing env-discipline rule. Injectable
+    // seam instead: real fetcher by default, test-only override + reset.
+    expect(src).not.toContain('process.env.MAW_TEST_MODE !== "1" && t.pr');
+    expect(src).toContain("__setPrDiffFetcherForTest");
+    expect(src).toContain("__resetPrDiffFetcherForTest");
     expect(src).toContain("crew-gated"); // --single-tier rejected on a crew-gated card
     // kobo-336: a crew card needs two INDEPENDENT signers — one oracle can't fill both tiers.
     expect(src).toContain("sameSignerBothTiers"); // merge backstop: refuse same-signer crew+head

@@ -19,6 +19,7 @@ import { mawDataPath } from "../xdg";
 import { appendWorklog, openClaims, readWorklog, worklogCacheProbe } from "../worklog/store";
 import type { WorklogEntry, WorklogKind } from "../worklog/types";
 import { notifyParentOfSubcardDone } from "./notify";
+import { classifySignTiers, type DiffFile } from "./sign-tier-classifier";
 
 export type TaskState =
   | "backlog"
@@ -814,6 +815,46 @@ export function missingSignTiers(task: TaskRecord): SignTier[] {
   return requiredSignTiers(task).filter((tier) =>
     tier === "crew" ? !task.crewSignedBy : !task.headSignedBy,
   );
+}
+
+/**
+ * kobo-546 — the ONLY place `crewGate` gets set true outside an explicit crew
+ * sign/dispatch. ONE-WAY RATCHET: already `crewGate: true` is a no-op (no
+ * re-note, no re-emit) — this file has no function anywhere that clears
+ * `crewGate`, so a downgrade is structurally impossible, not just discouraged
+ * (pinned by a source-string test: `crewGate = false` must never appear here).
+ * `reason` lands on the card's own notes — a reviewer sees WHY a card became
+ * 2-tier, not just that it did (who/when/which-card come free from the note).
+ */
+export function escalateCrewGate(company: string, id: string, by: string, reason: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  if (task.crewGate) return task; // ratchet is one-way — already 2-tier, nothing to do
+  task.crewGate = true;
+  const note: TaskNote = { ts: Date.now(), iso: nowIso(), by, text: `⬆ escalated to 2-tier (crew+head): ${reason}` };
+  task.notes = [...(task.notes ?? []), note];
+  task.updatedTs = note.ts;
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", `⬆ ${task.id} escalated to 2-tier: ${reason}`);
+  return task;
+}
+
+/**
+ * kobo-546 — orchestrates classify+escalate given an ALREADY-FETCHED file list
+ * (never calls gh itself — that I/O lives in the CLI caller, same convention as
+ * kobo-400's sha-fetch: untestable subprocess call stays a thin wrapper, the
+ * LOGIC that consumes its result is what's unit-tested). `stage` labels the
+ * note/emit reason so a reviewer can tell a PR-open stamp from a merge-time
+ * reclassify (rule 7: merge-time wins over stamp — calling this again at merge
+ * time with a fresher `files` list is exactly how that AC is satisfied: the
+ * ratchet only ever adds a tier, so a merge-time escalation sticks even though
+ * PR-open already stamped 1-tier). Returns null when nothing needed escalating
+ * (already 1-tier-sufficient, or already crew-gated).
+ */
+export function reclassifyAndEscalate(company: string, id: string, by: string, files: DiffFile[] | null, stage: "pr-open" | "merge-time"): TaskRecord | null {
+  const classification = classifySignTiers(files);
+  if (!classification.tiers.includes("crew")) return null;
+  return escalateCrewGate(company, id, by, `${stage}: ${classification.reason}`);
 }
 
 /**

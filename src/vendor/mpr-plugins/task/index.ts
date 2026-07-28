@@ -83,6 +83,7 @@ import {
   evidenceScopeViolation,
   formatSignEvidenceScope,
   requiredSignTiers,
+  reclassifyAndEscalate,
   type SignTier,
   type SignEvidenceScope,
   moveTask,
@@ -101,6 +102,7 @@ editTask,
 } from "../../../core/tasks/store";
 import { notifyCommentReply, notifyReviewer, notifyTaskComment } from "../../../core/tasks/notify";
 import { spawnHeyProcess } from "../../../core/tasks/hey-spawn";
+import type { DiffFile } from "../../../core/tasks/sign-tier-classifier";
 
 /**
  * Best-effort `owner/repo` of the git repo at CWD (kobo-80). The worker links a PR
@@ -118,6 +120,51 @@ function currentRepoSlug(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * kobo-546 REWORK — the classify+escalate gate now has NO env-mode branch
+ * anywhere on its call path (the eq3-lead ruling: a branch in the gate path
+ * is the hole, not a missing guard on it — a "never export MAW_TEST_MODE"
+ * discipline rule can't close a hole that a code branch keeps open). This
+ * function always shells to the real `gh` when it's the active fetcher.
+ * `null` on any failure/unparseable shape → the classifier's own fail-closed
+ * null handling takes it from there (2 tiers).
+ */
+function fetchPrDiffFiles(pr: number, repo: string): DiffFile[] | null {
+  try {
+    const out = Bun.spawnSync(["gh", "pr", "view", String(pr), "--repo", repo, "--json", "files"], { stdout: "pipe", stderr: "pipe" });
+    if (out.exitCode !== 0) return null;
+    const parsed = JSON.parse(out.stdout.toString());
+    if (!Array.isArray(parsed.files)) return null;
+    return parsed.files.map((f: { path: string; additions: number; deletions: number }) => ({ path: f.path, additions: f.additions, deletions: f.deletions }));
+  } catch {
+    return null;
+  }
+}
+
+// kobo-546 REWORK — the injectable seam. DEFAULT is the real subprocess-calling
+// fetchPrDiffFiles; a test overrides it via __setPrDiffFetcherForTest so the
+// classify/escalate gate never has to be conditionally skipped to stay
+// test-safe (the gate always RUNS, only what it calls changes).
+let prDiffFetcher: (pr: number, repo: string) => DiffFile[] | null = fetchPrDiffFiles;
+
+/**
+ * TEST-ONLY seam (kobo-546 rework) — override the PR-diff fetcher so tests never
+ * shell to real `gh` through the classify/escalate gate path. No normal CLI/MCP
+ * code path calls this; nothing in `runTask`'s dispatch table reaches it. A test
+ * file that calls this MUST call `__resetPrDiffFetcherForTest()` in its own
+ * `afterAll` — an unreset override is a module-level leak into every OTHER test
+ * file sharing the same bun test process (the lead's own words: "the classic
+ * hole").
+ */
+export function __setPrDiffFetcherForTest(fn: (pr: number, repo: string) => DiffFile[] | null): void {
+  prDiffFetcher = fn;
+}
+
+/** Companion to `__setPrDiffFetcherForTest` — restores the real fetcher. */
+export function __resetPrDiffFetcherForTest(): void {
+  prDiffFetcher = fetchPrDiffFiles;
 }
 
 /**
@@ -781,6 +828,17 @@ export async function runTask(
       // kobo-144: PR up = card in review → poke the resolved reviewer to look.
       const prRv = notifyReviewer(t, me);
       if (prRv) console.log(`  \x1b[36m→ pinged ${prRv}\x1b[0m`);
+      // kobo-546: stamp the required tiers from what the PR ACTUALLY touches, at
+      // PR-open — the worker sees the real cost early instead of a crewGate flag
+      // guessed at card-creation before anyone knew what the diff would contain.
+      // REWORK: no env branch here — the gate always runs; only the fetcher (real
+      // vs test-injected) changes. Best-effort: a gh failure doesn't block linking
+      // the PR (the classifier's own null-handling is fail-closed 2-tier, so an
+      // unreadable diff still errs safe rather than throwing).
+      if (t.pr && t.repo) {
+        const escalated = reclassifyAndEscalate(company, id, me, prDiffFetcher(t.pr, t.repo), "pr-open");
+        if (escalated) console.log(`\x1b[33m⬆ ${escalated.id} now 2-tier (crew+head)\x1b[0m \x1b[90m— PR touches a sensitive path, see the card's notes\x1b[0m`);
+      }
     } else if (subcmd === "sign") {
       // kobo-327: record a gate sign for the anti-race merge funnel. --role crew = the
       // crew-cell pre-PR gate (.3); --role head = the final gate before merge (.2). A
@@ -870,6 +928,22 @@ export async function runTask(
       const t = readTask(company, id);
       if (!t) return { ok: false, error: `task not found: ${id}` };
       if (!t.pr || !t.repo) return { ok: false, error: `${id} has no linked PR+repo — merge-gate only merges a card with a PR (run \`maw company task pr ${id} <n> --repo owner/name\` first)` };
+      // kobo-546: merge-time is the LAST word, not the PR-open stamp — reclassify the
+      // CURRENT diff right before the single-tier/fail-closed checks below so a PR that
+      // moved into a sensitive path AFTER being stamped 1-tier still gets caught here
+      // (the exact rebase-shaped gap kobo-544 closed for sha-staleness; this is the same
+      // shape for tier-count). Escalation is in-place on `t` so every check below this
+      // line sees the fresh crewGate. REWORK: no env branch — the gate always runs;
+      // best-effort only means a gh failure doesn't block merge (the classifier's own
+      // fail-closed null-handling takes an unreadable fetch to 2 tiers, same as any
+      // other unreadable diff, never a silent skip).
+      {
+        const escalated = reclassifyAndEscalate(company, id, me, prDiffFetcher(t.pr, t.repo), "merge-time");
+        if (escalated) {
+          t.crewGate = true;
+          console.log(`\x1b[33m⬆ ${id} escalated to 2-tier at merge-time\x1b[0m \x1b[90m— PR-open stamp was stale, see the card's notes\x1b[0m`);
+        }
+      }
       const singleTier = Boolean(flags["--single-tier"]);
       // kobo-331: --single-tier must NOT downgrade a card that IS crew-gated — a crew
       // sign (or add --crew-gate) declared the crew tier; single-tier can't skip it.
@@ -880,6 +954,13 @@ export async function runTask(
       // refuse rather than silently merge head-only. Operator picks the tier explicitly.
       if (!t.crewGate && !singleTier) {
         return { ok: false, error: `merge REFUSED for ${id}: crewGate is not set — can't tell a crew-cell card (crew sign still missing) from a genuine single-tier card (no durable signal exists). Declare the tier explicitly:\n  • crew-cell → get the crew sign: \`maw company task sign ${id} --role crew\` (then head sign, then merge)\n  • genuine single-tier (no crew) → \`maw company task merge ${id} --single-tier\`` };
+      }
+      // kobo-546 rule 1: the ratchet's only way down is a HUMAN using --single-tier,
+      // and unlogged means nobody actually carries the responsibility — log every use
+      // (not just ones that collided with a classifier verdict), who/when/which-card
+      // via the card's own notes (reused, no new plumbing).
+      if (singleTier) {
+        noteTask(company, id, me, `⚠ --single-tier used for merge (bypassing the 2-tier default) by ${me}`);
       }
       const missing = missingSignTiers(t);
       if (missing.length) {
