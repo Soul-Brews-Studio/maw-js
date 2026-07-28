@@ -143,6 +143,19 @@ export interface TaskRecord {
   assignee: string | null; // who holds the work (SSoT for ownership)
   repo?: string;
   pr?: number;
+  // kobo-594: the board's ONLY source for whether the linked PR is actually mergeable
+  // on GitHub — before this, "all signs in" + a PR link read as "ready to merge" with
+  // NOTHING checking the PR's real state, so a card stayed silent through a real
+  // CONFLICTING PR (proven live: alpha absorbing sibling PRs flipped #371/#375
+  // CONFLICTING in the same minute, board still said "รอ merge"). Written by
+  // pr-watch's poll (setTaskPrMergeState) from `gh pr list --json mergeable,
+  // mergeStateStatus` — the SAME call pr-watch already makes for open/merged/closed
+  // detection, so this costs zero extra `gh` calls. Absent = never successfully
+  // checked; a failed/rate-limited `gh` call leaves these UNCHANGED (never writes a
+  // fake value) — absence must never be read as "mergeable" (the unhappy-path AC).
+  prMergeable?: string; // raw GitHub value: "MERGEABLE" | "CONFLICTING" | "UNKNOWN" (GitHub's own lazy-compute-pending state, not this repo's "we never checked")
+  prMergeStateStatus?: string; // raw GitHub value: "CLEAN" | "DIRTY" | "BLOCKED" | "BEHIND" | "UNSTABLE" | "UNKNOWN" | "DRAFT" — richer detail than prMergeable alone
+  prMergeCheckedTs?: number; // epoch ms of the last SUCCESSFUL check — staleness must always be readable from this, never assumed fresh
   deployRequired?: boolean; // kobo-274 — when its PR merges, park in wait-for-deploy (merged≠live) instead of done. Unset → defaults to "has a PR" (Tony option a); set explicitly to override either way.
   block?: TaskBlock; // set when state = blocked (explicit block — ADR 0003 B)
   prevState?: TaskState; // flow state to return to on unblock
@@ -1155,6 +1168,46 @@ export function setTaskRepoIfMissing(company: string, id: string, repo: string):
 }
 
 /**
+ * kobo-594: record a SUCCESSFUL `gh` mergeable-state check — the caller (pr-watch)
+ * only calls this when it actually got a value back; a failed/rate-limited `gh`
+ * call must never call this at all, leaving the prior (possibly absent) state
+ * untouched rather than writing a guess. This is the ONLY writer of these 3
+ * fields — always called together so they can never desync (a status without
+ * its own timestamp would be unreadable as fresh-or-stale).
+ */
+export function setTaskPrMergeState(company: string, id: string, mergeable: string, mergeStateStatus: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task) return null;
+  // kobo-594 review round 1: this runs on EVERY poll (serve-pr-watch ticks every
+  // 2 min) for every OPEN PR-linked card, by design — that's what makes it
+  // self-heal without a manual unset. But rewriting the file + bumping a
+  // timestamp on EVERY poll even when NOTHING changed means a card churns
+  // (and Company Home's git diff churns) ~720x/day for zero new information.
+  // Skip the write entirely — INCLUDING prMergeCheckedTs — when the value
+  // didn't change. Trade-off, chosen deliberately: prMergeCheckedTs then reads
+  // as "last time this CHANGED," not "last time this was re-confirmed," so a
+  // long-stable MERGEABLE PR can show an old checked-time even though pr-watch
+  // has silently re-confirmed it every 2 minutes since. That is the safe
+  // direction to be wrong in for a merge-safety signal — it makes a fresh fact
+  // look OLDER than it is (prompting a manual double-check, harmless) rather
+  // than newer (which could paper over a check that actually failed silently
+  // upstream). Never the other way.
+  if (task.prMergeable === mergeable && task.prMergeStateStatus === mergeStateStatus) return task;
+  task.prMergeable = mergeable;
+  task.prMergeStateStatus = mergeStateStatus;
+  task.prMergeCheckedTs = Date.now();
+  // kobo-594 review round 1: deliberately NOT touching task.updatedTs here.
+  // updatedTs is the same field kobo-571 is asking Tony to rule "no longer
+  // trustworthy" because too many writers already bump it for reasons a human
+  // reading the board doesn't care about — adding pr-watch's routine polling
+  // as a new automatic writer would make that problem worse, not better, and
+  // would fight its own pending resolution. prMergeCheckedTs already carries
+  // this write's own freshness signal; nothing needs to borrow updatedTs.
+  writeTaskRecord(task);
+  return task;
+}
+
+/**
  * PR opened → drive the linked card to review (eq3-011 kobo-13). Driven by PR-watch
  * off the card.pr link (the SAME link merge→done uses) so the board tracks the PR
  * (truth), not a manual step. Idempotent: a card already review-for-this-reviewer is
@@ -1826,6 +1879,60 @@ export function blockNextAction(task: TaskRecord): string {
   return `⚑ [${b.kind}]${who}${why}`;
 }
 
+/** Minutes since `ts`, floored — used only to label a cached check's staleness inline. */
+function minutesAgo(ts: number): number {
+  return Math.max(0, Math.floor((Date.now() - ts) / 60_000));
+}
+
+/**
+ * kobo-594: the review-state next-action's PR-linked branch used to read
+ * `task.pr` alone as "ready — just needs a merge click," with nothing checking
+ * whether the PR was ACTUALLY mergeable on GitHub. `task.prMergeable` (written by
+ * pr-watch, see setTaskPrMergeState) is the only real signal — absent means it
+ * was never successfully checked (a failed/rate-limited `gh` call leaves it
+ * untouched, never a guessed value), and that case must read as "don't know,"
+ * never silently as "ready" (the unhappy-path AC this card exists to close).
+ * Every branch that DOES have a value shows when it was checked so a stale
+ * cache reads as stale, not as fresh.
+ */
+function prMergeNextAction(task: TaskRecord): string {
+  const pr = task.pr;
+  if (task.prMergeable === "CONFLICTING") {
+    const checked = task.prMergeCheckedTs ? ` (เช็คล่าสุด ${minutesAgo(task.prMergeCheckedTs)} นาทีที่แล้ว)` : "";
+    return `⚠ PR #${pr} conflict — ต้องแก้ conflict ก่อน merge${checked}`;
+  }
+  if (task.prMergeable === "MERGEABLE") {
+    const checked = task.prMergeCheckedTs ? ` (เช็คล่าสุด ${minutesAgo(task.prMergeCheckedTs)} นาทีที่แล้ว)` : "";
+    return `รอ merge PR #${pr} → done${checked}`;
+  }
+  // kobo-594 review round 2 (eq3's c5, real bug found via a live render, not a
+  // diff read): "never checked" and "checked, GitHub itself hadn't finished
+  // computing it" are DIFFERENT facts and must be 3 distinct states, not 2 —
+  // exactly the "unknown must be its own state, never collapsed into either
+  // side" rule this whole card's ancestry (557/576/594) has held all night.
+  // task.prMergeCheckedTs is the ONLY thing that tells them apart: absent =
+  // genuinely never checked; present + prMergeable === "UNKNOWN" = a real
+  // check ran and GitHub's own lazy-compute hadn't resolved yet.
+  //
+  // kobo-594 review round 3 (undeclared mutation, caught by the reviewer):
+  // `&& task.prMergeCheckedTs` is NOT redundant, even though setTaskPrMergeState
+  // — the only writer today — always sets prMergeable and prMergeCheckedTs
+  // together, so a prMergeable==="UNKNOWN" with no timestamp can't happen via
+  // the real write path right now. That's an invariant held by "there happens
+  // to be exactly one writer," not by anything this function itself enforces
+  // — a future second writer (a migration, a manual repair script, a legacy
+  // record) could set one field without the other with zero warning here. Without
+  // this guard, minutesAgo(undefined) computes `Date.now() - undefined` = NaN,
+  // silently printing "NaN นาทีที่แล้ว" while still claiming "เช็คแล้ว" (checked)
+  // — the exact "system reports something it can't verify" defect this card
+  // exists to close, just moved one field over. Do not delete this guard as
+  // "dead code" without re-deriving why it's here.
+  if (task.prMergeable === "UNKNOWN" && task.prMergeCheckedTs) {
+    return `รอ merge PR #${pr} → done (เช็คแล้วแต่ GitHub ยังไม่สรุปสถานะ conflict — เช็คล่าสุด ${minutesAgo(task.prMergeCheckedTs)} นาทีที่แล้ว, อย่ากด merge โดยไม่เช็ค gh ด้วยมือ)`;
+  }
+  return `รอ merge PR #${pr} → done (ยังไม่เคยเช็คสถานะ conflict — อย่ากด merge โดยไม่เช็ค gh ด้วยมือ)`;
+}
+
 /**
  * Next-action hint — the board's answer to "what happens next + who". Computed,
  * never stored. Every state returns a non-empty line so no card is ever a dead
@@ -1839,17 +1946,15 @@ export function taskNextAction(task: TaskRecord): string {
       // kobo-576: "รอ merge" used to be unconditional the moment a PR was
       // linked, regardless of whether the tiers that signed it actually agree
       // on which commit they reviewed — the same tierSha mismatch `merge`
-      // itself refuses on (kobo-400). Surfaced here so both CLI `ls` and the
-      // web board (same field, `TaskCard.nextAction`) stop implying "just
-      // needs a merge click" for a card `merge` will actually reject.
+      // itself refuses on (kobo-400). This is a DIFFERENT problem than kobo-594's
+      // PR-mergeable check below (a person must re-sign vs the PR's code needs
+      // fixing) and takes priority: a stale signature means merge will refuse
+      // regardless of the PR's own mergeable state, so check it first.
       const stale = staleSignTiers(task);
       if (task.pr && stale.length) return `⚠ เซ็นคนละ commit (${stale.join(" + ")}) — merge จะปฏิเสธ ต้องเซ็นใหม่ก่อน`;
-      // kobo-576 review round 1 (AC3 — every surface must claim the same thing):
-      // this only means tiers agree with EACH OTHER (staleSignTiers above), never
-      // that the signed commit still matches the PR's real current head — same
-      // caveat as the CLI sign message right below. GitHub's own
-      // `--match-head-commit` is what actually verifies freshness, at merge time.
-      if (task.pr) return `รอ merge PR #${task.pr} → done (freshness ของ head ตรวจที่ GitHub ตอน merge)`;
+      // kobo-594: tiers agreeing (above) is a DIFFERENT question from whether the
+      // PR is actually mergeable on GitHub right now — see prMergeNextAction.
+      if (task.pr) return prMergeNextAction(task);
       return `รอ ${task.reviewer || "ใครก็ได้"} ตรวจ${task.reviewReason ? ` (${task.reviewReason})` : ""}`;
     }
     case "approve":

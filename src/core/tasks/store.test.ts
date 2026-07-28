@@ -72,6 +72,7 @@ import {
   setTaskPr,
   clearTaskPr,
   setTaskRepoIfMissing,
+  setTaskPrMergeState,
   startTask,
   taskFilePath,
   taskNextAction,
@@ -1451,6 +1452,59 @@ describe("pr-link repo binding (kobo-80 — enforce/backfill card.repo so pr-wat
     expect(readTask("pgw", b.id)!.updatedTs).toBe(before); // no-op → no write
     expect(setTaskRepoIfMissing("pgw", "pgw-nope", "x/y")).toBeNull(); // absent card
   });
+
+  // kobo-594 — pr-watch's only writer of the board's real merge-state signal.
+  test("setTaskPrMergeState writes mergeable + mergeStateStatus + a fresh checked timestamp; absent card → null", () => {
+    const a = addTask({ company: "pgw", title: "watch me", by: "eq3", pr: 53 });
+    const before = Date.now();
+    const t = setTaskPrMergeState("pgw", a.id, "CONFLICTING", "DIRTY")!;
+    expect(t.prMergeable).toBe("CONFLICTING");
+    expect(t.prMergeStateStatus).toBe("DIRTY");
+    expect(t.prMergeCheckedTs).toBeGreaterThanOrEqual(before);
+    expect(setTaskPrMergeState("pgw", "pgw-nope", "MERGEABLE", "CLEAN")).toBeNull(); // absent card
+  });
+
+  test("setTaskPrMergeState always overwrites the prior value + timestamp — the poll result is always fresher than the last one, never sticky", () => {
+    const a = addTask({ company: "pgw", title: "watch me", by: "eq3", pr: 53 });
+    setTaskPrMergeState("pgw", a.id, "CONFLICTING", "DIRTY");
+    const firstTs = readTask("pgw", a.id)!.prMergeCheckedTs!;
+    const t = setTaskPrMergeState("pgw", a.id, "MERGEABLE", "CLEAN")!; // conflict resolved on the next poll
+    expect(t.prMergeable).toBe("MERGEABLE"); // self-heals — no manual unset needed
+    expect(t.prMergeStateStatus).toBe("CLEAN");
+    expect(t.prMergeCheckedTs).toBeGreaterThanOrEqual(firstTs);
+  });
+
+  // kobo-594 review round 1: serve-pr-watch polls every 2 min — writing the file
+  // + bumping a timestamp on EVERY poll for EVERY open PR-linked card even when
+  // nothing changed is ~720 no-op writes/day/card, and Company Home is a git
+  // repo (diff churn for free).
+  test("setTaskPrMergeState skips the write entirely when the value is unchanged — no poll-churn", () => {
+    const a = addTask({ company: "pgw", title: "watch me", by: "eq3", pr: 53 });
+    setTaskPrMergeState("pgw", a.id, "MERGEABLE", "CLEAN");
+    const afterFirst = readTask("pgw", a.id)!;
+    // spin until the clock ticks at least 1ms forward — Date.now() has only
+    // millisecond resolution, so two calls back-to-back can land in the SAME
+    // millisecond and make a real (unwanted) write look like a no-op by
+    // coincidence. This makes the comparison below load-bearing: if the skip
+    // guard is removed, the re-write MUST land on a strictly later timestamp.
+    const spinFrom = Date.now();
+    while (Date.now() === spinFrom) { /* busy-wait */ }
+    // re-poll with the IDENTICAL result — must be a true no-op, not just "same values written again"
+    setTaskPrMergeState("pgw", a.id, "MERGEABLE", "CLEAN");
+    const afterSecond = readTask("pgw", a.id)!;
+    expect(afterSecond.prMergeCheckedTs).toBe(afterFirst.prMergeCheckedTs); // NOT bumped — the write never happened
+  });
+
+  // kobo-594 review round 1: this field must never feed the SAME "too many
+  // writers, no longer trustworthy" problem kobo-571 is asking Tony to rule on
+  // for updatedTs — pr-watch's routine 2-minute poll must not become a new
+  // automatic writer of it.
+  test("setTaskPrMergeState never touches task.updatedTs", () => {
+    const a = addTask({ company: "pgw", title: "watch me", by: "eq3", pr: 53 });
+    const before = readTask("pgw", a.id)!.updatedTs;
+    setTaskPrMergeState("pgw", a.id, "CONFLICTING", "DIRTY");
+    expect(readTask("pgw", a.id)!.updatedTs).toBe(before);
+  });
 });
 
 describe("prOpenedReview (eq3-011 kobo-13 — PR open drives the linked card to review + owner)", () => {
@@ -2364,18 +2418,25 @@ describe("taskNextAction — review state reflects a stale sign mismatch (kobo-5
     expect(next).not.toContain("รอ merge PR #99 → done"); // must NOT read as ready
   });
 
-  test("review + PR linked + tiers agree → unchanged, still reads as ready", () => {
+  // kobo-594: reworded further — tiers agreeing is no longer the FULL story once
+  // a real PR-mergeable check exists; without one ever run here (no
+  // setTaskPrMergeState call), the message must say "not yet checked," not "ready."
+  test("review + PR linked + tiers agree → falls through to the PR-mergeable check (kobo-594), not an unqualified ready", () => {
     const t = addTask({ company: "kobo", title: "c", by: "eq3", crewGate: true, state: "review" });
     setTaskPr("kobo", t.id, 99, "eq3");
     signTask("kobo", t.id, "patchwork", "crew", null, "sha-SAME");
     signTask("kobo", t.id, "eq3", "head", null, "sha-SAME");
-    expect(taskNextAction(readTask("kobo", t.id)!)).toBe("รอ merge PR #99 → done (freshness ของ head ตรวจที่ GitHub ตอน merge)");
+    const next = taskNextAction(readTask("kobo", t.id)!);
+    expect(next).toContain("รอ merge PR #99 → done");
+    expect(next).toContain("ยังไม่เคยเช็ค"); // kobo-594: no prMergeable ever written for this fixture
   });
 
   test("review + PR linked + no signs at all → unchanged (nothing to compare)", () => {
     const t = addTask({ company: "kobo", title: "c", by: "eq3", state: "review" });
     setTaskPr("kobo", t.id, 99, "eq3");
-    expect(taskNextAction(readTask("kobo", t.id)!)).toBe("รอ merge PR #99 → done (freshness ของ head ตรวจที่ GitHub ตอน merge)");
+    const next = taskNextAction(readTask("kobo", t.id)!);
+    expect(next).toContain("รอ merge PR #99 → done");
+    expect(next).toContain("ยังไม่เคยเช็ค");
   });
 });
 

@@ -20,7 +20,7 @@ import { mawStatePath } from "../xdg";
 import { scanWorktrees } from "../fleet/worktrees";
 import { loadConfig } from "../../config";
 import { appendWorklog } from "./store";
-import { completeOrParkMergedTask, findTasksByPr, prOpenedReview, setTaskRepoIfMissing, listTasks, listCompanies } from "../tasks/store";
+import { completeOrParkMergedTask, findTasksByPr, prOpenedReview, setTaskRepoIfMissing, setTaskPrMergeState, listTasks, listCompanies } from "../tasks/store";
 import { notifyReviewer } from "../tasks/notify";
 import { pingOnMerge } from "./ping";
 import { scopeOfOracle, companyOfOracleStrict } from "./company-scope";
@@ -37,6 +37,12 @@ interface GhPr {
   state: string;
   mergedAt: string | null;
   author?: { login?: string };
+  // kobo-594: riding the SAME `gh pr list` call this file already makes for
+  // open/merged/closed detection — zero extra `gh` calls, same poll cadence.
+  // "UNKNOWN" is GitHub's own lazy-compute-pending value, distinct from this
+  // repo never having checked at all (an absent TaskRecord.prMergeable).
+  mergeable?: string; // "MERGEABLE" | "CONFLICTING" | "UNKNOWN"
+  mergeStateStatus?: string; // "CLEAN" | "DIRTY" | "BLOCKED" | "BEHIND" | "UNSTABLE" | "UNKNOWN" | "DRAFT"
 }
 
 function snapshotPath(): string {
@@ -194,7 +200,7 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
     try {
       const out = await gh([
         "pr", "list", "--repo", repo, "--state", "all", "--limit", "30",
-        "--json", "number,title,state,mergedAt,author",
+        "--json", "number,title,state,mergedAt,author,mergeable,mergeStateStatus",
       ]);
       prs = JSON.parse(out || "[]") as GhPr[];
     } catch {
@@ -219,6 +225,23 @@ export async function pollPrsOnce(): Promise<WorklogEntry[]> {
       if (cur === "MERGED" && (firstRun || prev === cur)) {
         try { reconcileMergedCards(pr.number, repo, author || "pr-watch"); }
         catch { /* never let task auto-done break PR-watch */ }
+      }
+
+      // kobo-594: runs on EVERY poll (before the firstRun/prev===cur early-returns
+      // below, same placement reasoning as the reconcile pass above) — an OPEN PR
+      // that never changes OPEN/MERGED/CLOSED state (the only thing `prev`/`cur`
+      // track) can still flip mergeable→conflicting from a SIBLING PR merging
+      // underneath it, with zero snapshot transition of its own. Gating this behind
+      // `prev === cur` would mean it only ever updates on a PR's own open/merge/close
+      // edge — exactly the gap this card exists to close. `pr.mergeable` is only
+      // absent/undefined when `gh` itself failed upstream (JSON.parse threw or the
+      // whole `gh` call errored, caught above) — the unhappy-path AC requires that
+      // failure leave the card's prior value untouched, never write a guess.
+      if (cur === "OPEN" && pr.mergeable && pr.mergeStateStatus) {
+        for (const hit of findCardsByPrAnywhere(pr.number, repo)) {
+          try { setTaskPrMergeState(hit.company, hit.taskId, pr.mergeable, pr.mergeStateStatus); }
+          catch { /* never let this break PR-watch's other work */ }
+        }
       }
 
       if (firstRun) continue; // seed baseline only — no retroactive spam

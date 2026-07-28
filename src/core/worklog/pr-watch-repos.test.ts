@@ -278,3 +278,55 @@ describe("reconcileMergedCards — swallowed merge-edge recovery (kobo-228)", ()
     expect(readTask("kobo", "kobo-495")?.state).toBe("review"); // reconcile never touched it
   });
 });
+
+// kobo-594 — pollPrsOnce() shells to the real `gh` binary with no injectable
+// fetcher (unlike task/index.ts's headShaFetcher/prDiffFetcher pattern), so its
+// mergeable-state wiring can't be driven end-to-end in this test file. Content-
+// assert companion, same convention as plugin-task-standalone.test.ts's `sign`
+// pins: reads the real source and checks the SHAPE that matters, not just "the
+// field exists somewhere" — placement relative to the firstRun/prev===cur
+// early-returns is exactly what makes this either self-healing every poll or a
+// dead write that only fires once per PR's lifetime (the bug this card exists
+// to close).
+import { readFileSync as readFileSyncPw } from "node:fs";
+import { join as joinPw } from "node:path";
+
+describe("pollPrsOnce — mergeable-state write is wired correctly (kobo-594)", () => {
+  const src = readFileSyncPw(joinPw(import.meta.dir, "pr-watch.ts"), "utf8");
+
+  it("gh pr list requests mergeable + mergeStateStatus — riding the SAME call, not a second gh invocation", () => {
+    const listCallIdx = src.indexOf('"pr", "list"');
+    expect(listCallIdx).toBeGreaterThan(-1);
+    const listCallBlock = src.slice(listCallIdx, src.indexOf("]);", listCallIdx));
+    expect(listCallBlock).toContain("mergeable");
+    expect(listCallBlock).toContain("mergeStateStatus");
+    // sanity: exactly one gh(["pr","list",...]) call in the whole poll loop —
+    // if this ever becomes 2, the "zero extra gh calls" design claim is false.
+    expect(src.match(/"pr",\s*"list"/g)?.length).toBe(1);
+  });
+
+  it("the mergeable write runs BEFORE firstRun/prev===cur early-returns — every poll, not just on a state transition", () => {
+    const writeIdx = src.indexOf("setTaskPrMergeState(");
+    const firstRunContinueIdx = src.indexOf("if (firstRun) continue;");
+    const prevCurContinueIdx = src.indexOf("if (prev === cur) continue;");
+    expect(writeIdx).toBeGreaterThan(-1);
+    expect(firstRunContinueIdx).toBeGreaterThan(-1);
+    expect(prevCurContinueIdx).toBeGreaterThan(-1);
+    // if this ever flips (write moved AFTER either continue), the write only
+    // fires on a PR's own open/merge/close edge — an OPEN PR that stays OPEN
+    // while a SIBLING PR flips it conflicting would never update again.
+    expect(writeIdx).toBeLessThan(firstRunContinueIdx);
+    expect(writeIdx).toBeLessThan(prevCurContinueIdx);
+  });
+
+  it("the write is gated on cur === \"OPEN\" and truthy pr.mergeable/mergeStateStatus — never fires on a failed/rate-limited gh call", () => {
+    const writeIdx = src.indexOf("setTaskPrMergeState(");
+    // walk back to the nearest enclosing `if (...)` guard immediately above the write
+    const guardStart = src.lastIndexOf("if (cur ===", writeIdx);
+    expect(guardStart).toBeGreaterThan(-1);
+    const guardLine = src.slice(guardStart, src.indexOf(")", src.indexOf("{", guardStart)));
+    expect(guardLine).toContain('cur === "OPEN"');
+    expect(guardLine).toContain("pr.mergeable");
+    expect(guardLine).toContain("pr.mergeStateStatus");
+  });
+});
