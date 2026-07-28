@@ -285,9 +285,24 @@ function missingLine(info: DependencyBlock): string | null {
   return info.missing.length ? `    \x1b[90m⚠ parent ไม่พบ: ${info.missing.join(", ")}\x1b[0m` : null;
 }
 
-function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, stale: Set<string> = new Set()): string {
+// kobo-570: no-silent-caps — isOnBoard() (ADR 0002 P3) hides done/rejected older
+// than DEFAULT_ARCHIVE_DAYS before either render function ever sees the list; say
+// so and say there's no flag to lift it (`ls` has none — --full only changes
+// density, not the window).
+function hiddenSummaryLine(hiddenDone: number, hiddenRejected: number): string {
+  const total = hiddenDone + hiddenRejected;
+  if (!total) return "";
+  const parts: string[] = [];
+  if (hiddenDone) parts.push(`${hiddenDone} done`);
+  if (hiddenRejected) parts.push(`${hiddenRejected} rejected`);
+  return `\x1b[90m(+${parts.join(" · ")} hidden, older than ${DEFAULT_ARCHIVE_DAYS}d — no flag to show them, ADR 0002 P3)\x1b[0m`;
+}
+
+function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, stale: Set<string> = new Set(), hiddenDone = 0, hiddenRejected = 0): string {
   const lines: string[] = [];
   lines.push(`\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""}`);
+  const hiddenLine = hiddenSummaryLine(hiddenDone, hiddenRejected);
+  if (hiddenLine) lines.push(hiddenLine);
   if (!tasks.length) { lines.push("  \x1b[90m(no tasks)\x1b[0m"); return lines.join("\n"); }
 
   // Off-flow = explicit-or-dependency block (state="blocked") OR derived needs-owner
@@ -360,8 +375,10 @@ function renderBoard(tasks: TaskRecord[], company: string, mine: string | null, 
  * (regression pin, Principle 1 — nothing lost, just not the default anymore).
  * Empty board → still a valid compact line (0 tasks), never an error.
  */
-function renderBoardCompact(tasks: TaskRecord[], company: string, mine: string | null): string {
-  const header = `\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""} \x1b[90m(${tasks.length} task${tasks.length === 1 ? "" : "s"})\x1b[0m`;
+function renderBoardCompact(tasks: TaskRecord[], company: string, mine: string | null, hiddenDone = 0, hiddenRejected = 0): string {
+  let header = `\x1b[36m▌ ${company} board\x1b[0m${mine ? ` \x1b[90m(--mine ${mine})\x1b[0m` : ""} \x1b[90m(${tasks.length} task${tasks.length === 1 ? "" : "s"})\x1b[0m`;
+  const hiddenLine = hiddenSummaryLine(hiddenDone, hiddenRejected);
+  if (hiddenLine) header += `\n${hiddenLine}`;
   if (!tasks.length) return header;
   const counts = new Map<string, number>();
   for (const t of tasks) counts.set(t.state, (counts.get(t.state) ?? 0) + 1);
@@ -502,8 +519,16 @@ export async function runTask(
       const mine = args.includes("--mine") ? me : null;
       // Board shows done only within the window (ADR 0002 P3) — old done ages
       // off here even before the archive sweep physically moves it.
-      let tasks = listTasks(company).filter((t) => isOnBoard(t));
-      if (mine) tasks = tasks.filter((t) => t.assignee === mine);
+      let allTasks = listTasks(company);
+      if (mine) allTasks = allTasks.filter((t) => t.assignee === mine);
+      let tasks = allTasks.filter((t) => isOnBoard(t));
+      // kobo-570: no-silent-caps — count what the window above just hid so the
+      // render can say so, instead of a done/rejected lane silently looking complete.
+      // Scoped to `mine` FIRST (kobo-570 review round 1) so the count matches what
+      // the view itself is scoped to — otherwise --mine renders a handful of your
+      // own cards next to a hidden-count drawn from the WHOLE board.
+      const hiddenDone = allTasks.filter((t) => t.state === "done" && !isOnBoard(t)).length;
+      const hiddenRejected = allTasks.filter((t) => t.state === "rejected" && !isOnBoard(t)).length;
       // --for <who> → the decision queue: blocked cards waiting on that person (ADR 0003 B)
       if (flags["--for"]) tasks = tasks.filter((t) => t.state === "blocked" && t.block?.for === flags["--for"]);
       // kobo-368 — default compact (lane counts); --full/--verbose = full per-card render.
@@ -512,9 +537,9 @@ export async function runTask(
         const activity = lastActivityByOracle(company);
         const now = Date.now();
         const stale = new Set(tasks.filter((t) => isStaleDecisionCard(t, t.assignee ? activity[t.assignee] : undefined, now)).map((t) => t.id));
-        console.log(renderBoard(tasks, company, mine, stale));
+        console.log(renderBoard(tasks, company, mine, stale, hiddenDone, hiddenRejected));
       } else {
-        console.log(renderBoardCompact(tasks, company, mine));
+        console.log(renderBoardCompact(tasks, company, mine, hiddenDone, hiddenRejected));
       }
     } else if (subcmd === "next-ready") {
       // kobo-356: the pick-up queue for an idle crew worker — event-driven (called from

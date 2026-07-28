@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runTask, compareReadyOrder, STATE_LABEL } from "../../src/vendor/mpr-plugins/task/index";
-import { listArchivedTasks, listTasks, readTask, taskFilePath, tasksDir, TASK_STATES, type TaskRecord } from "../../src/core/tasks/store";
+import { DEFAULT_ARCHIVE_DAYS, listArchivedTasks, listTasks, readTask, taskFilePath, tasksDir, TASK_STATES, type TaskRecord } from "../../src/core/tasks/store";
 import { COMPANIES_DIR, _setCompaniesDir } from "../../src/vendor/mpr-plugins/company/company-helpers";
 
 // Behavioural test for the task-board runner `runTask` — the shared engine that
@@ -841,5 +841,103 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("acme", "acme-2")!.state).toBe("in-progress");
     const board = (await run(["ls", "--company", "acme"])).output;
     expect(board).not.toContain("🚫 รอ"); // no dep-block overlay on the in-progress card
+  });
+
+  // kobo-570 — no-silent-caps: isOnBoard() (ADR 0002 P3, DEFAULT_ARCHIVE_DAYS window)
+  // hides done/rejected cards older than the window BEFORE either render function
+  // ever sees the list. That's an intentional, ADR-backed cap — the bug was that it
+  // never SAID so, so a `done 66` count silently read as "the whole board" when the
+  // real total was 332. Backdate a card's updatedTs straight in its store file (no
+  // store helper takes an arbitrary past timestamp) to push it out of the window.
+  const backdateOutsideWindow = (company: string, id: string) => {
+    const file = taskFilePath(company, id);
+    const rec = JSON.parse(readFileSync(file, "utf8"));
+    rec.updatedTs = Date.now() - (DEFAULT_ARCHIVE_DAYS + 1) * 24 * 60 * 60 * 1000;
+    writeFileSync(file, JSON.stringify(rec));
+  };
+
+  test("done card aged past the window → ls says how many it hid, both --full and compact (kobo-570)", async () => {
+    await run(["add", "recent", "--company", "pgw"]); // pgw-1 — stays inside the window
+    await run(["done", "pgw-1", "--company", "pgw"]);
+    await run(["add", "stale", "--company", "pgw"]); // pgw-2 — pushed outside
+    await run(["done", "pgw-2", "--company", "pgw"]);
+    backdateOutsideWindow("pgw", "pgw-2");
+
+    const compact = (await run(["ls", "--company", "pgw"])).output;
+    expect(compact).toContain("+1 done hidden");
+    expect(compact).toContain(`older than ${DEFAULT_ARCHIVE_DAYS}d`);
+    expect(compact).toContain("no flag to show them");
+    expect(compact).toContain(`${STATE_LABEL.done}(1)`); // the one still-visible done card is still counted
+
+    const full = (await run(["ls", "--company", "pgw", "--full"])).output;
+    expect(full).toContain("+1 done hidden");
+    expect(full).toContain("recent"); // the visible done card still renders
+    expect(full).not.toContain("stale"); // the aged-out one does not
+  });
+
+  // Edge case that would break a header-only label placement: when EVERY done card
+  // ages out, the DONE lane itself renders nothing (renderBoard skips empty lanes,
+  // renderBoardCompact's laneStr filters zero-count lanes out) — the hidden-count
+  // line must not depend on the lane rendering anything.
+  test("every done card aged out → hidden-count label still shows even though the DONE lane is empty (kobo-570)", async () => {
+    await run(["add", "only-done", "--company", "acme"]); // acme-1
+    await run(["done", "acme-1", "--company", "acme"]);
+    backdateOutsideWindow("acme", "acme-1");
+
+    const compact = (await run(["ls", "--company", "acme"])).output;
+    expect(compact).toContain("+1 done hidden");
+    expect(compact).not.toContain(`${STATE_LABEL.done}(`); // the lane itself carries no count — 0 done shown
+
+    const full = (await run(["ls", "--company", "acme", "--full"])).output;
+    expect(full).toContain("+1 done hidden");
+  });
+
+  // rejected shares the same isOnBoard window as done (store.ts:1583) — prove the
+  // label counts it separately and by the right word, not folded silently into "done".
+  test("rejected card aged past the window is counted and labeled separately from done (kobo-570)", async () => {
+    await run(["add", "no-good", "--company", "acme"]); // acme-1
+    await run(["reject", "acme-1", "--company", "acme", "--reason", "wrong approach"]);
+    expect(readTask("acme", "acme-1")!.state).toBe("rejected");
+    backdateOutsideWindow("acme", "acme-1");
+
+    const compact = (await run(["ls", "--company", "acme"])).output;
+    expect(compact).toContain("+1 rejected hidden");
+    expect(compact).not.toContain("done hidden"); // no done was ever created here — count isn't cross-contaminated
+  });
+
+  // next-ready shares the isOnBoard() filter (index.ts) but needsOwner() never
+  // matches a done/rejected card anyway — pin that the window is a no-op there, so
+  // it never needed (and doesn't get) the same label.
+  test("next-ready is unaffected by the isOnBoard window — no hidden-count label needed there (kobo-570)", async () => {
+    await run(["add", "old done", "--company", "acme"]); // acme-1
+    await run(["done", "acme-1", "--company", "acme"]);
+    backdateOutsideWindow("acme", "acme-1");
+    await run(["add", "pick me", "--company", "acme"]); // acme-2 — todo, unassigned, inside window
+    const r = await run(["next-ready", "--company", "acme"]);
+    expect(r.output).toContain("NEXT-READY acme-2");
+  });
+
+  // kobo-570 review round 1 (reviewer %107): hiddenDone/hiddenRejected used to be
+  // counted from the WHOLE board before the --mine filter ran, so `ls --mine`
+  // rendered a handful of your own cards next to a hidden-count drawn from
+  // everyone's aged-out done cards — misread as "N of MY done cards are hidden"
+  // when it was really the board total. Scope the count to `mine` same as the view.
+  test("ls --mine's hidden-count is scoped to mine, not the whole board (kobo-570)", async () => {
+    await run(["add", "mine, recent", "--company", "pgw", "--assignee", "patchwork"]); // pgw-1
+    await run(["done", "pgw-1", "--company", "pgw"]);
+    await run(["add", "mine, stale", "--company", "pgw", "--assignee", "patchwork"]); // pgw-2
+    await run(["done", "pgw-2", "--company", "pgw"]);
+    backdateOutsideWindow("pgw", "pgw-2");
+    // someone else's aged-out done card — must NOT count toward --mine's hidden total
+    await run(["add", "not mine, stale", "--company", "pgw", "--assignee", "eq3"]); // pgw-3
+    await run(["done", "pgw-3", "--company", "pgw"]);
+    backdateOutsideWindow("pgw", "pgw-3");
+
+    const mine = (await run(["ls", "--company", "pgw", "--mine", "--from", "patchwork"])).output;
+    expect(mine).toContain("+1 done hidden"); // only pgw-2, not pgw-3 too
+    expect(mine).not.toContain("+2 done hidden");
+
+    const whole = (await run(["ls", "--company", "pgw"])).output;
+    expect(whole).toContain("+2 done hidden"); // unscoped view still sees both
   });
 });
