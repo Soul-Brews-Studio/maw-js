@@ -28,6 +28,12 @@ describe("task command plugin standalone boundary", () => {
     // the plugin-coverage-gate's "did this PR touch the companion test" check has a
     // real, reviewable signal instead of an incidental file touch.
     expect(imports).toContain("../../../core/tasks/hey-spawn");
+    // kobo-587: `review`'s self-review check is now pane-aware (isSelfReviewPaneAware,
+    // reviewTask's --to-pane threading) — both new/changed symbols come from the SAME
+    // "../../core/tasks/store" specifier the plugin already imports, so the boundary
+    // itself doesn't move; pinned here (same reasoning as kobo-405 above) so this gate
+    // reflects a real check, not just "a file got touched".
+    expect(imports).toContain("../../../core/tasks/store");
   });
 
   // kobo-216 — task resolves its company through the STRICT resolver: --company wins,
