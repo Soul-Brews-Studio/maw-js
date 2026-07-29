@@ -25,8 +25,6 @@ import { checkBusyGuard, queueForDispatch } from "../../core/agent-status-guard"
 import { runPluginEventHooks } from "../../plugin/event-hooks";
 import { notifyLiveInboxReceiver } from "./live-inbox-notify";
 import { getPaneRoute } from "../../core/pane-routes";
-import { listCompanies, companyOracles } from "../../vendor/mpr-plugins/company/company-helpers";
-import { readCache as readOracleRegistryCache } from "../../core/fleet/registry-oracle-cache";
 // Pane-aware oracle extraction for the presence gate: unlike agent-status-guard's
 // (which takes the last `:`-segment → returns "0.2" for a crew pane address like
 // "13-patchwork:0.2"), this pulls the session slug → "patchwork". kobo-120: the gate
@@ -413,17 +411,41 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * registry (config.agents/namedPeers) differs by WHICH host runs this code,
  * so the same message would classify differently on different panes. Trying
  * it anyway (round 2, before this decision) would have pushed real senders
- * like `mba` (355 rows, real — its oracles are registered kobo company
+ * like `mba` (real, measured — its oracles are registered kobo company
  * members) into an unverifiable residual alongside the one genuinely
- * unverifiable case (`monkut-pod`/`kaen`, 7 rows, real but not a member of
- * any locally-registered company) — eq3 reversed that call once the oracle-
- * only accept-list was shown to already close every known-fake case without
- * it: `[fleet:monkut]` is rejected because "monkut" alone (not "kaen") is
- * not a registered oracle anywhere, not because "fleet" isn't a node.
+ * unverifiable case (`monkut-pod`/`kaen`, real but not a member of any
+ * locally-registered company) — eq3 reversed that call once the oracle-only
+ * accept-list was shown to already close every known-fake case without it:
+ * `[fleet:monkut]` is currently rejected because "monkut" alone (not "kaen")
+ * is not a registered oracle anywhere, not because "fleet" isn't a node.
+ *
+ * kobo-597 review round 2 (c4, open at this commit): "monkut" is real —
+ * ledger-verified (`message-ledger.sqlite`, `from_id='fleet:monkut'`,
+ * `state='delivered'`) — and the `monkut-pod`/`kaen` fix via the fleet
+ * oracle-registry cache above is itself per-host (the cache is populated by
+ * an OPT-IN `maw oracle scan`, not guaranteed to exist — same
+ * non-determinism class this whole paragraph argues against for the node
+ * half, now found on the oracle-known side too). Neither is patched here —
+ * see the card note for the open question eq3 is deciding.
  */
 function knownSenderOracles(): Set<string> {
   const now = Date.now();
   if (cachedKnownOracles && now - cachedKnownOraclesAt < KNOWN_ORACLES_TTL_MS) return cachedKnownOracles;
+  // kobo-597 round 2 review finding ①: company-helpers and registry-oracle-cache are
+  // LAZILY required here, not imported at this file's top level. comm-send.ts is
+  // foundational and loaded near-universally; a static top-level import forces
+  // company-helpers' module-scope `COMPANIES_DIR` (frozen once, at first import —
+  // company-helpers.ts's own doc comment) to compute EARLY, before some test files'
+  // deliberate "set MAW_DATA_DIR, THEN import" sequencing gets a chance to run
+  // (route-comm-autocreate.test.ts imports the `comm` barrel — which re-exports from
+  // this file — before setting its own MAW_DATA_DIR override, so a static import here
+  // silently froze the WRONG directory and made card auto-create read from a company
+  // registry that didn't exist, live-repro'd with a clean MAW_HOME). `require()` inside
+  // this function defers that freeze to the first call to `knownSenderOracles()` itself
+  // (which only ever happens via a worklog RENDER, never on the send/delivery path this
+  // regression hit), by which point env vars are already correctly set everywhere that matters.
+  const { listCompanies, companyOracles } = require("../../vendor/mpr-plugins/company/company-helpers") as typeof import("../../vendor/mpr-plugins/company/company-helpers");
+  const { readCache: readOracleRegistryCache } = require("../../core/fleet/registry-oracle-cache") as typeof import("../../core/fleet/registry-oracle-cache");
   const out = new Set<string>(["web"]); // kobo-386 — see the docstring above
   for (const c of listCompanies()) for (const o of companyOracles(c.name)) out.add(o);
   // kobo-597 round 2, measured gap: companyOracles alone still lost real rows whose
