@@ -365,19 +365,25 @@ describe("parseKnownSenderPrefix — real-corpus measurement (kobo-597 round 2, 
     return out;
   }
 
-  // Every real, currently-known sender bucket (measured, not guessed) must stay
-  // fully covered — a future regression that drops any of these goes red here,
-  // against the live corpus, not a synthetic fixture that can't catch a real gap.
-  const REAL_NODE_BUCKETS = ["m5", "mba", "monkut", "monkut-pod", "web", "local"];
+  // kobo-597 round 3 (eq3's final ruling): the classifier's declared universe
+  // is "oracle = a member of some company REGISTERED ON THE BOARD" — m5/mba/
+  // web/local are the node buckets that carry registered-company senders.
+  // `monkut`/`somsri` are deliberately EXCLUDED from this "must never lose"
+  // list — they're real but outside the declared universe, tracked as an
+  // honest residual in the dedicated test below, not folded in here.
+  const REAL_NODE_BUCKETS = ["m5", "mba", "web", "local"];
 
-  test("real senders cut = 0 across every known-real node bucket", () => {
+  test("real senders WITHIN the declared universe (registered company members) cut = 0", () => {
     const entries = loadKoboConversationEntries();
     if (!entries) return;
     const OLD_RE = /^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/;
     const before: Record<string, number> = {};
     const after: Record<string, number> = {};
     for (const e of entries) {
-      if (e.summary.startsWith("[m5:memberA]")) continue; // the ONE documented, eq3-approved exception — see the dedicated test below; not a real sender, excluded here so this test measures GENUINE loss, not this single known case
+      // kobo-597 round 3: rows OUTSIDE the declared universe (not a registered
+      // company member) are tracked as an honest residual in the dedicated
+      // test below, not folded into this "must never lose" measurement.
+      if (KNOWN_OUTSIDE_UNIVERSE.some((p) => e.summary.startsWith(p))) continue;
       const old = e.summary.match(OLD_RE);
       if (old && REAL_NODE_BUCKETS.includes(old[1])) before[old[1]] = (before[old[1]] ?? 0) + 1;
       const tag = parseKnownSenderPrefix(e.summary);
@@ -412,27 +418,49 @@ describe("parseKnownSenderPrefix — real-corpus measurement (kobo-597 round 2, 
     expect(checked).toBeGreaterThan(0); // the corpus must actually contain these — a 0-count run proves nothing
   });
 
-  // The ONE documented, explicitly-approved residual (eq3, card comment): a
-  // single row that is neither a registered oracle nor an oracle-hyphen-role
-  // shape — reported by name, not silently dropped. If this count ever grows,
-  // that's a real regression (a real sender newly lost) and must fail loud, not
-  // get silently absorbed into "well it's a residual."
-  test("the one documented residual (m5:memberA, not a registered oracle) is the ONLY row lost outside the real-node buckets", () => {
+  // kobo-597 round 3 — the DECLARED, closed residual: real senders that are
+  // genuinely outside this classifier's declared universe (not a member of
+  // any company registered on the board), reported by name per eq3's ruling
+  // — "declare it, don't silently absorb it." Checked against company.json
+  // for kobo/pgw/demo/smoke375 by hand (eq3): "monkut" and "somsri" are
+  // members of NONE of them.
+  //   - monkut, via the "[fleet:monkut] " shape — ledger-verified real
+  //     (message-ledger.sqlite: from_id='fleet:monkut', state='delivered'
+  //     x2) — the fleet's own top-level self-identity, not a company member
+  //     anywhere. ("[monkut:monkut]" itself is NOT in this list — it's
+  //     node===oracle self-reference, already accepted structurally above,
+  //     never reaches this residual check at all.)
+  //   - somsri — ledger-verified real (message-ledger.sqlite: from_id=
+  //     'm5:somsri', state='delivered'/'failed' x39), not a company member
+  //     anywhere either, discovered only once the fleet-cache fallback
+  //     (which used to mask this) was dropped for being per-host
+  // "monkut-pod"/"kaen" is deliberately NOT on this list — it read as
+  // substantive real task activity by eye, but the ledger is the authority,
+  // not a text read: kaen has ZERO rows in message-ledger.sqlite at any
+  // state. Correctly rejected, not a residual — a lesson in itself (verify
+  // against the structured record, not "this looks real").
+  // memberA is the one row that ISN'T real — not a registered oracle and not
+  // an oracle-role shape, correctly rejected on its own merits.
+  const KNOWN_OUTSIDE_UNIVERSE = ["[fleet:monkut] ", "[m5:somsri] ", "[m5:memberA]"];
+
+  test("the declared residual (outside the classifier's universe) is exactly this list — no unexplained drops", () => {
     const entries = loadKoboConversationEntries();
     if (!entries) return;
     const OLD_RE = /^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/;
-    const FAKE_PREFIXES = ["request", "room", "head", "re", "fleet", "patchwork"];
+    const FAKE_PREFIXES = ["request", "room", "head", "re", "fleet", "patchwork", "monkut-pod"]; // monkut-pod:kaen — ledger-verified NOT real (0 rows in message-ledger.sqlite), correctly rejected
     const unexplainedDrops: string[] = [];
+    let declaredResidualCount = 0;
     for (const e of entries) {
       const old = e.summary.match(OLD_RE);
       if (!old) continue;
       const tag = parseKnownSenderPrefix(e.summary);
       if (tag) continue; // still classified — fine
+      if (KNOWN_OUTSIDE_UNIVERSE.some((p) => e.summary.startsWith(p))) { declaredResidualCount++; continue; }
       if (/^\d+(-|$)/.test(old[1])) continue; // round 1's numeric-node rule — expected
-      if (old[1] === "monkut" || old[1] === "fleet") continue; // colon-3-part shape, round 1's rule (a) — expected
       if (FAKE_PREFIXES.includes(old[1])) continue; // confirmed-fake families — expected
       unexplainedDrops.push(e.summary.slice(0, 60));
     }
-    expect(unexplainedDrops).toEqual(["[m5:memberA] [poc2] member A หลัง set env"]);
+    expect(unexplainedDrops).toEqual([]); // any row NOT on the declared list is a real regression, must fail loud
+    expect(declaredResidualCount).toBeGreaterThan(0); // the declared residual must actually be present in the corpus — a 0-count run proves nothing
   });
 });

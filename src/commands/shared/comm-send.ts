@@ -412,50 +412,69 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * so the same message would classify differently on different panes. Trying
  * it anyway (round 2, before this decision) would have pushed real senders
  * like `mba` (real, measured — its oracles are registered kobo company
- * members) into an unverifiable residual alongside the one genuinely
- * unverifiable case (`monkut-pod`/`kaen`, real but not a member of any
- * locally-registered company) — eq3 reversed that call once the oracle-only
- * accept-list was shown to already close every known-fake case without it:
- * `[fleet:monkut]` is currently rejected because "monkut" alone (not "kaen")
- * is not a registered oracle anywhere, not because "fleet" isn't a node.
+ * members) into an unverifiable residual on the SAME per-host basis that got
+ * this whole approach reverted.
  *
- * kobo-597 review round 2 (c4, open at this commit): "monkut" is real —
- * ledger-verified (`message-ledger.sqlite`, `from_id='fleet:monkut'`,
- * `state='delivered'`) — and the `monkut-pod`/`kaen` fix via the fleet
- * oracle-registry cache above is itself per-host (the cache is populated by
- * an OPT-IN `maw oracle scan`, not guaranteed to exist — same
- * non-determinism class this whole paragraph argues against for the node
- * half, now found on the oracle-known side too). Neither is patched here —
- * see the card note for the open question eq3 is deciding.
+ * kobo-597 review round 3 (eq3's final ruling) — THE UNIVERSE THIS FUNCTION
+ * CLASSIFIES, stated explicitly so nobody reads a rejection as "not found,
+ * fix the registry": **an oracle is knowable here if and only if it is a
+ * member of some company REGISTERED ON THE BOARD** (`company.json`, git-synced
+ * fleet-wide per ADR 0002 — identical on every host, so classification is
+ * DETERMINISTIC across the fleet, not per-host). That is a real, principled
+ * boundary, not an implementation gap: `thawanban-coord` is INSIDE this
+ * universe (thawanban is a pgw company member) and must never be cut, while
+ * `monkut` and `somsri` are OUTSIDE it (checked every registered
+ * company.json by hand — kobo, pgw, demo, smoke375 — neither is a member of
+ * any of them) and their rejection is an honest, declared residual, not a
+ * bug to chase.
+ *
+ * Two sources were tried and dropped for the SAME reason — both are per-host
+ * state, so the identical message would classify differently depending on
+ * which pane renders it (non-determinism in a RENDER function is worse than
+ * an honestly-declared residual):
+ *   - `config.namedPeers`/`config.agents` — this machine's own peer list.
+ *     Anyone re-proposing a node/peer-config-based registry: this is why not.
+ *   - the fleet oracle-discovery cache (`registry-oracle-cache.ts`) — tried
+ *     in an earlier pass of this round, then dropped: it's populated by an
+ *     OPT-IN `maw oracle scan`, confirmed present on one reviewer's machine
+ *     and absent on another's for the exact same card. `companyOracles()`
+ *     alone is the only source that's the same on every host. (While that
+ *     source was still in the mix, `monkut-pod`/`kaen` looked like a THIRD
+ *     residual case, based on the message TEXT reading as substantive — the
+ *     real ledger says otherwise: `kaen` has ZERO rows in
+ *     `message-ledger.sqlite` at any state. Reading message content and
+ *     judging "this looks real" is not evidence; the ledger is. `kaen` is
+ *     correctly rejected, not a residual.)
+ *
+ * `monkut` and `somsri` (bare) are ledger-verified real
+ * (`message-ledger.sqlite`: `from_id='fleet:monkut'` state=`delivered` x2;
+ * `from_id='m5:somsri'` state=`delivered`/`failed` x39) but are genuinely
+ * outside this classifier's declared universe — not false negatives. The AC this
+ * card ships against is "real senders WITHIN the declared universe cut = 0"
+ * (not "every real sender anywhere, including ones outside a company
+ * roster") — see the kobo-597 card note for the exact residual count/list.
  */
 function knownSenderOracles(): Set<string> {
   const now = Date.now();
   if (cachedKnownOracles && now - cachedKnownOraclesAt < KNOWN_ORACLES_TTL_MS) return cachedKnownOracles;
-  // kobo-597 round 2 review finding ①: company-helpers and registry-oracle-cache are
-  // LAZILY required here, not imported at this file's top level. comm-send.ts is
-  // foundational and loaded near-universally; a static top-level import forces
-  // company-helpers' module-scope `COMPANIES_DIR` (frozen once, at first import —
-  // company-helpers.ts's own doc comment) to compute EARLY, before some test files'
-  // deliberate "set MAW_DATA_DIR, THEN import" sequencing gets a chance to run
-  // (route-comm-autocreate.test.ts imports the `comm` barrel — which re-exports from
-  // this file — before setting its own MAW_DATA_DIR override, so a static import here
-  // silently froze the WRONG directory and made card auto-create read from a company
-  // registry that didn't exist, live-repro'd with a clean MAW_HOME). `require()` inside
-  // this function defers that freeze to the first call to `knownSenderOracles()` itself
-  // (which only ever happens via a worklog RENDER, never on the send/delivery path this
-  // regression hit), by which point env vars are already correctly set everywhere that matters.
+  // kobo-597 review finding ①: company-helpers is LAZILY required here, not
+  // imported at this file's top level. comm-send.ts is foundational and loaded
+  // near-universally; a static top-level import forces company-helpers'
+  // module-scope `COMPANIES_DIR` (frozen once, at first import —
+  // company-helpers.ts's own doc comment) to compute EARLY, before some test
+  // files' deliberate "set MAW_DATA_DIR, THEN import" sequencing gets a chance
+  // to run (route-comm-autocreate.test.ts imports the `comm` barrel — which
+  // re-exports from this file — before setting its own MAW_DATA_DIR override,
+  // so a static import here silently froze the WRONG directory and made card
+  // auto-create read from a company registry that didn't exist, live-repro'd
+  // with a clean MAW_HOME). `require()` inside this function defers that
+  // freeze to the first call to `knownSenderOracles()` itself (which only
+  // ever happens via a worklog RENDER, never on the send/delivery path this
+  // regression hit), by which point env vars are already correctly set
+  // everywhere that matters.
   const { listCompanies, companyOracles } = require("../../vendor/mpr-plugins/company/company-helpers") as typeof import("../../vendor/mpr-plugins/company/company-helpers");
-  const { readCache: readOracleRegistryCache } = require("../../core/fleet/registry-oracle-cache") as typeof import("../../core/fleet/registry-oracle-cache");
   const out = new Set<string>(["web"]); // kobo-386 — see the docstring above
   for (const c of listCompanies()) for (const o of companyOracles(c.name)) out.add(o);
-  // kobo-597 round 2, measured gap: companyOracles alone still lost real rows whose
-  // oracle isn't a COMPANY member yet but IS a real, fleet-discovered oracle (e.g.
-  // `monkut-pod`/`kaen` — real, measured (see the kobo-597 card note), `kaen` never
-  // joined a company roster but shows up here). `readCache()` is the SAME
-  // oracle-registry cache `maw oracle scan`
-  // maintains (registry-oracle-cache.ts) — read-only, no scan triggered here.
-  const registry = readOracleRegistryCache();
-  if (registry) for (const entry of registry.oracles) out.add(entry.name);
   cachedKnownOracles = out;
   cachedKnownOraclesAt = now;
   return out;
