@@ -2575,12 +2575,32 @@ export function epicChildren(id: string, cards: TaskRecord[]): TaskRecord[] {
 }
 
 /**
- * Children that are NOT done — the set that blocks archiving (guard a) and drives
+ * Children that are NOT settled — the set that blocks archiving (guard a) and drives
  * the done-confirm prompt (guard b — the store allows the close, the caller
- * confirms). `done` is the only satisfied state; every other (incl. blocked) is open.
+ * confirms). Settled = `done` OR `rejected`.
+ *
+ * kobo-642: widened from `!== "done"` alone. `rejected` is a real terminal
+ * disposition ("done but not accepted", TaskState doc) that will never become
+ * `done` — counting it as still "open" made an epic with a rejected child
+ * permanently unarchivable, with no path out. Verified live on the real board
+ * (not hypothetical): kobo-239, kobo-227, kobo-65 are stuck exactly this way today
+ * (kobo-239/kobo-227 already `done` but can't archive; kobo-65 already `rejected`
+ * itself, same problem one level up). This fix is monotonic — it only REMOVES
+ * cards from the open-set, so it can unblock an epic but never newly block one;
+ * verified against all 25 epics on the kobo board that these are the only 3
+ * affected. Everything else that was genuinely open (blocked/in-progress/etc)
+ * still blocks, on purpose — this only settles `rejected`.
+ *
+ * NOTE (kobo-642, impact this widening has WITHOUT any other file changing):
+ * `handleTaskDoneRequest` (route.ts) calls this same function for its web
+ * done-confirm gate. A rejected-only-blocked epic will stop triggering that
+ * 409 needsConfirm prompt — and the `openChildren` id list the web UI shows
+ * inside that prompt will also stop listing rejected children. That's a real,
+ * user-visible behavior change on the web surface, shipping the moment THIS
+ * commit merges — not a route.ts edit, but a change to what route.ts computes.
  */
 export function openEpicChildren(id: string, cards: TaskRecord[]): TaskRecord[] {
-  return epicChildren(id, cards).filter((c) => c.state !== "done");
+  return epicChildren(id, cards).filter((c) => c.state !== "done" && c.state !== "rejected");
 }
 
 /**
