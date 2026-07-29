@@ -360,6 +360,190 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * measured: kobo-586's own investigation). That disambiguation is kobo-590's
  * scope, not this function's — callers rendering this result as "sender" must
  * carry the same caveat forward, not treat a non-null return as settled.
+ *
+ * kobo-597 — classification only (never enforcement/trust, that stays
+ * kobo-590's posture call — see the scope note below the accept-list, it's
+ * the reason this function does NOT check the node half at all): shapes are
+ * rejected — treated as NOT a tag at all, `null`, so the whole thing stays
+ * plain message text — because they cannot have been PRODUCED by anything in
+ * this codebase that constructs a real `[node:oracle]` tag:
+ *   (a) the oracle segment contains a `:` — `[fleet:monkut:monkut]` is a
+ *       real, DIFFERENT 3-part convention this file doesn't own; a genuine
+ *       oracle name never contains a colon (same char class the node segment
+ *       is already held to, one line up).
+ *   (b) the node segment is purely numeric or numeric-hyphen-prefixed
+ *       (`13`, `13-patchwork`, `31-kadan-reader`) — that is a raw tmux
+ *       SESSION name leaking through unstripped; this file already strips
+ *       exactly that `^\d+-` shape when resolving a sender FROM a session
+ *       name elsewhere (see the `session.replace(/^\d+-/, "")` sites in this
+ *       file) — no real `config.node` value is ever numeric-shaped.
+ *   (c) — round 2, replacing an earlier structural-rejection-only design —
+ *       the oracle segment is NOT a name any locally-registered company
+ *       recognizes as a real member (`knownSenderOracles()` below): a union
+ *       of every company's `companyOracles()` (git-synced fleet-wide per ADR
+ *       0002, so this works the same on any host in the fleet) plus the
+ *       literal `"web"` (kobo-386: the room-send handler always persists the
+ *       outbound turn under the CONSTANT identity `"web"` — a real,
+ *       system-generated sender, not an accident — a large share of every
+ *       company's conversation rows use it; see the kobo-597 card note for
+ *       the as-of-review-time count and the reproducible measurement
+ *       script, not repeated here since the worklog grows continuously).
+ *       This is an ACCEPT-list, not the reject-known-bad shape (a)/(b) are —
+ *       reviewer proved the reject-only design lets ANY novel two-word
+ *       bracket convention through forever (`[see:docs]`, `[note:x]`, tested
+ *       live, neither existed in the corpus before the test and both still
+ *       parsed as a sender). An accept-list closes that permanently: a brand
+ *       new bracket convention can only pass if its second word happens to
+ *       collide with a real registered oracle name, which is the same risk
+ *       every existing convention already carries, not a new one this rule
+ *       introduces.
+ *
+ * Deliberately NOT checking the node half (round 1 tried adding a node
+ * registry check too — reverted, not merely deferred): this function's job
+ * is CLASSIFICATION — "does this look like a sender tag" — never TRUST —
+ * "should this be believed as who really sent it." Rejecting on the node
+ * half would smuggle a trust judgment in here (kobo-335's forge-actor shape:
+ * an env var or claimed identity is never proof of the real sender) — that
+ * question is kobo-590's scope BY NAME, not this card's. Concretely: a node
+ * value has no fleet-wide synced source of truth the way company rosters do
+ * (company.json files are git-synced, ADR 0002; no equivalent exists for
+ * "which node names are real machines in the fleet") — a per-host node
+ * registry (config.agents/namedPeers) differs by WHICH host runs this code,
+ * so the same message would classify differently on different panes. Trying
+ * it anyway (round 2, before this decision) would have pushed real senders
+ * like `mba` (real, measured — its oracles are registered kobo company
+ * members) into an unverifiable residual on the SAME per-host basis that got
+ * this whole approach reverted.
+ *
+ * kobo-597 review round 3 (eq3's final ruling) — THE UNIVERSE THIS FUNCTION
+ * CLASSIFIES, stated explicitly so nobody reads a rejection as "not found,
+ * fix the registry": **an oracle is knowable here if and only if it is a
+ * member of some company REGISTERED ON THE BOARD** (`company.json`, git-synced
+ * fleet-wide per ADR 0002 — identical on every host, so classification is
+ * DETERMINISTIC across the fleet, not per-host). That is a real, principled
+ * boundary, not an implementation gap: `thawanban-coord` is INSIDE this
+ * universe (thawanban is a pgw company member) and must never be cut, while
+ * `monkut` and `somsri` are OUTSIDE it (checked every registered
+ * company.json by hand — kobo, pgw, demo, smoke375 — neither is a member of
+ * any of them) and their rejection is an honest, declared residual, not a
+ * bug to chase.
+ *
+ * Two sources were tried and dropped for the SAME reason — both are per-host
+ * state, so the identical message would classify differently depending on
+ * which pane renders it (non-determinism in a RENDER function is worse than
+ * an honestly-declared residual):
+ *   - `config.namedPeers`/`config.agents` — this machine's own peer list.
+ *     Anyone re-proposing a node/peer-config-based registry: this is why not.
+ *   - the fleet oracle-discovery cache (`registry-oracle-cache.ts`) — tried
+ *     in an earlier pass of this round, then dropped: it's populated by an
+ *     OPT-IN `maw oracle scan`, confirmed present on one reviewer's machine
+ *     and absent on another's for the exact same card. `companyOracles()`
+ *     alone is the only source that's the same on every host. (While that
+ *     source was still in the mix, `monkut-pod`/`kaen` looked like a THIRD
+ *     residual case, based on the message TEXT reading as substantive — the
+ *     real ledger says otherwise: `kaen` has ZERO rows in
+ *     `message-ledger.sqlite` at any state. Reading message content and
+ *     judging "this looks real" is not evidence; the ledger is. `kaen` is
+ *     correctly rejected, not a residual.)
+ *
+ * `monkut` and `somsri` (bare) are ledger-verified real
+ * (`message-ledger.sqlite`: `from_id='fleet:monkut'` state=`delivered` x2;
+ * `from_id='m5:somsri'` state=`delivered`/`failed` x39) but are genuinely
+ * outside this classifier's declared universe — not false negatives. The AC this
+ * card ships against is "real senders WITHIN the declared universe cut = 0"
+ * (not "every real sender anywhere, including ones outside a company
+ * roster") — see the kobo-597 card note for the exact residual count/list.
+ */
+function knownSenderOracles(): Set<string> {
+  const now = Date.now();
+  if (cachedKnownOracles && now - cachedKnownOraclesAt < KNOWN_ORACLES_TTL_MS) return cachedKnownOracles;
+  // kobo-597 review finding ①: company-helpers is LAZILY required here, not
+  // imported at this file's top level. comm-send.ts is foundational and loaded
+  // near-universally; a static top-level import forces company-helpers'
+  // module-scope `COMPANIES_DIR` (frozen once, at first import —
+  // company-helpers.ts's own doc comment) to compute EARLY, before some test
+  // files' deliberate "set MAW_DATA_DIR, THEN import" sequencing gets a chance
+  // to run (route-comm-autocreate.test.ts imports the `comm` barrel — which
+  // re-exports from this file — before setting its own MAW_DATA_DIR override,
+  // so a static import here silently froze the WRONG directory and made card
+  // auto-create read from a company registry that didn't exist, live-repro'd
+  // with a clean MAW_HOME). `require()` inside this function defers that
+  // freeze to the first call to `knownSenderOracles()` itself (which only
+  // ever happens via a worklog RENDER, never on the send/delivery path this
+  // regression hit), by which point env vars are already correctly set
+  // everywhere that matters.
+  const { listCompanies, companyOracles } = require("../../vendor/mpr-plugins/company/company-helpers") as typeof import("../../vendor/mpr-plugins/company/company-helpers");
+  const out = new Set<string>(["web"]); // kobo-386 — see the docstring above
+  for (const c of listCompanies()) for (const o of companyOracles(c.name)) out.add(o);
+  cachedKnownOracles = out;
+  cachedKnownOraclesAt = now;
+  return out;
+}
+let cachedKnownOracles: Set<string> | null = null;
+let cachedKnownOraclesAt = 0;
+const KNOWN_ORACLES_TTL_MS = 60_000; // company rosters change rarely; avoids re-reading every company file per worklog line
+/** Test-only: force the next `knownSenderOracles()` call to recompute. */
+export function _resetKnownSenderOraclesCache(): void { cachedKnownOracles = null; cachedKnownOraclesAt = 0; }
+
+/**
+ * kobo-597 (d): the oracle segment may carry a human-typed DIRECTIONAL suffix —
+ * `eq3→patchwork` (real sender eq3, addressing patchwork), `nai/conductor` (real
+ * sender nai, acting in the conductor role) — measured live against the real
+ * corpus (see the kobo-597 card note for the count), none of them a registered
+ * bare name, all of them a known name plus a
+ * `→` or `/`-delimited suffix. Split ONLY on those two delimiters (never `-`: a
+ * hyphen is already a legitimate character WITHIN a real oracle name — utils-pm,
+ * monkut-pod, logger-spy, kadan-reader — splitting on it would as often break a
+ * real compound name as it would rescue a suffixed one; `-` case left OUT of
+ * scope on purpose, see the kobo-597 card note). Returns the un-suffixed
+ * candidate, or the original string if there's no `→`/`/` in it.
+ */
+function stripDirectionalSuffix(oracle: string): string {
+  const i = oracle.search(/[→/]/);
+  return i === -1 ? oracle : oracle.slice(0, i);
+}
+
+/**
+ * kobo-597 (e) — a real oracle name may carry a HYPHEN-joined ROLE suffix:
+ * `thawanban-coord` (real oracle "thawanban" acting in the "coord" role) is
+ * the same shape kobo-586 already handles with a SPACE separator
+ * (`[m5:eq3 conductor]`) — this is that convention, just joined with `-`
+ * instead of a space. `front`/`conductor`/`coord`/`worker`/`reviewer` is the
+ * CLOSED, already-in-use crew-role vocabulary (front's own `coord.md` state
+ * file names exactly this set) — not a growable word-list, a fixed
+ * enumeration of an existing system concept this codebase already has a
+ * name for (the same 5 words `role` above captures for the space-separated
+ * form). Splitting on hyphen in GENERAL was tried and reverted: `[re:eq3-
+ * monkut-maw-update]`, a CONFIRMED-fake row, would also pass — "eq3" is a
+ * real name and a general split can't tell "real-name + role" apart from
+ * "real-name + unrelated-hyphenated-text" by shape alone. Requiring the
+ * suffix to be a MEMBER OF THIS 5-word closed set is what makes the
+ * difference: "update" is not a role in this system, "coord" is. Split on
+ * the LAST hyphen (not the first) so a hyphenated COMPOUND real name
+ * (`utils-pm`, `logger-spy`) keeps working if it ever also carries a role
+ * suffix (`logger-spy-worker` → prefix `logger-spy`, not `logger`).
+ */
+const ROLE_SUFFIXES = new Set(["front", "conductor", "coord", "worker", "reviewer"]);
+function stripHyphenRoleSuffix(oracle: string): string | null {
+  const i = oracle.lastIndexOf("-");
+  if (i === -1) return null;
+  const suffix = oracle.slice(i + 1);
+  return ROLE_SUFFIXES.has(suffix) ? oracle.slice(0, i) : null;
+}
+
+/**
+ * kobo-597 round 2 fix — this function has TWO callers with DIFFERENT needs,
+ * discovered when the accept-list broke one of them: `formatSignedMessage`'s
+ * double-prefix guard (below, `if (parseSignedPrefix(body)) return message`)
+ * only needs to know "does this text ALREADY look like a tag" — it must NOT
+ * re-stamp a message that starts with `[whatever:unregistered-name]`, or
+ * every message from an unrecognized sender would get double-tagged. That is
+ * a STRUCTURAL question, independent of whether the oracle is known. The
+ * render classifier (worklog/render.ts) needs the STRICTER accept-list
+ * question instead: "is this plausibly a REAL sender tag, worth showing as
+ * one." `parseSignedPrefix` stays purely structural (rules (a)/(b) only) so
+ * the double-prefix guard's contract never changes; `parseKnownSenderPrefix`
+ * (below) wraps it with the accept-list for the render use case.
  */
 export function parseSignedPrefix(text: string): { node: string; oracle: string; role?: string; rest: string } | null {
   // kobo-586 review round 3 (eq3's AC, supersedes an earlier "oracle = rest of the
@@ -372,9 +556,38 @@ export function parseSignedPrefix(text: string): { node: string; oracle: string;
   // message body — the caller renders it as its own badge next to the sender, never
   // concatenated into `rest`). The closing `]` itself is consumed by the regex but
   // captured by NEITHER group, so it can never leak into `rest` either (③).
-  const m = text.match(/^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/);
+  //
+  // kobo-597 (a): the oracle group excludes `:` too (same class as node) — a colon
+  // inside it means this is some OTHER bracket convention (e.g. `fleet:monkut:monkut`),
+  // not a 2-part node:oracle tag; the whole match fails and falls through to `rest`.
+  const m = text.match(/^\[([^\]\s:]+):([^\]\s:]+)(\s[^\]]*)?\](?:\s|$)/);
   if (!m) return null;
+  // kobo-597 (b): a session name leaking through unstripped (`13-patchwork`, bare
+  // `13`) is not a real node value — no configured node is ever numeric-shaped.
+  if (/^\d+(-|$)/.test(m[1])) return null;
   return { node: m[1], oracle: m[2], role: m[3]?.trim() || undefined, rest: text.slice(m[0].length) };
+}
+
+/**
+ * kobo-597 round 2 — the render-only classifier: `parseSignedPrefix`'s structural
+ * parse, PLUS the accept-list (c) and the two acceptance carve-outs (d) node===oracle
+ * self-reference and (e) a → or /-delimited directional suffix. See the docstring
+ * above `parseSignedPrefix` for why these two are split into separate functions.
+ */
+export function parseKnownSenderPrefix(text: string): { node: string; oracle: string; role?: string; rest: string } | null {
+  const m = parseSignedPrefix(text);
+  if (!m) return null;
+  // kobo-597 (c) — accept-list, not reject-list; see the docstring above `knownSenderOracles`.
+  // kobo-597 (d) — a node signing itself as its own oracle (`[m5:m5]`, `[monkut:monkut]`,
+  // measured real, see the kobo-597 card note for the count) is a machine-level
+  // self-announcement, not tied to any one
+  // oracle persona — always accepted, no registry lookup needed (structural, not a name).
+  const known = knownSenderOracles();
+  const isSelfReference = m.node === m.oracle;
+  const roleStripped = stripHyphenRoleSuffix(m.oracle);
+  const isKnownOracle = known.has(m.oracle) || known.has(stripDirectionalSuffix(m.oracle)) || (roleStripped !== null && known.has(roleStripped));
+  if (!isSelfReference && !isKnownOracle) return null;
+  return m;
 }
 
 /**

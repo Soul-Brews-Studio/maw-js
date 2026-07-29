@@ -35,7 +35,7 @@
  *   10:08  💬  m5:eq3 (conductor) → eq3.0  Tony: keep the hash field
  */
 
-import { parseSignedPrefix } from "../../commands/shared/comm-send";
+import { parseKnownSenderPrefix } from "../../commands/shared/comm-send";
 import type { WorklogEntry } from "./types";
 
 const ICON: Record<WorklogEntry["kind"], string> = {
@@ -73,7 +73,7 @@ function line(e: WorklogEntry): string {
   // (it's the ONLY kind sourced from UserPromptSubmit, per significant.ts) —
   // other kinds' summaries are self-authored (tool calls, PR events, etc.),
   // never someone else's message landing in this pane.
-  const tag = e.kind === "conversation" ? parseSignedPrefix(e.summary) : null;
+  const tag = e.kind === "conversation" ? parseKnownSenderPrefix(e.summary) : null;
   // kobo-586 round 3 (eq3's AC ②): a crew cell has multiple panes of ONE oracle,
   // distinguished by a ROLE typed after the sender (`[m5:eq3 conductor]`) — that
   // role is what actually tells two panes of the same oracle apart, so it must
