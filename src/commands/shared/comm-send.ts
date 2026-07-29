@@ -454,8 +454,13 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * fix the registry": **an oracle is knowable here if and only if it is a
  * member of some company REGISTERED ON THE BOARD** (`company.json` — a local
  * file written by the `company` command; as far as verified on this machine,
- * no automatic sync mechanism exists in this path, kobo-621). That is a real,
- * principled boundary, not an implementation gap: `thawanban-coord` is INSIDE this
+ * no automatic sync mechanism exists in this path, kobo-621 — same as the
+ * node registry rejected two paragraphs up, this roster is per-machine local
+ * state and can differ across hosts). The boundary itself is a deliberate
+ * DEFINITION of what this function classifies — membership is the intended
+ * universe, chosen on purpose — not a claim that the registry is fleet-
+ * uniform (kobo-621: verified it structurally isn't, regardless of init
+ * state): `thawanban-coord` is INSIDE this
  * universe (thawanban is a pgw company member) and must never be cut, while
  * `monkut` and `somsri` are OUTSIDE it (checked every registered
  * company.json by hand — kobo, pgw, demo, smoke375 — neither is a member of
