@@ -117,6 +117,20 @@ describe("mcp plugin standalone boundary (#2113)", () => {
     expect(lsCase).toContain('"--full"');
   });
 
+  // kobo-640: `needs` is the preferred dependency field on `maw_task add` — must be
+  // advertised in the MCP schema (server.ts) AND actually forwarded to the CLI as
+  // `--needs` (tools.ts), else an MCP caller has no way to reach the new flag at
+  // all even though the CLI accepts it. `parent` must still be forwarded too
+  // (deprecated alias, not removed).
+  test("kobo-640: maw_task tool exposes `needs` (add) and still forwards `parent`", () => {
+    const server = readFileSync(join(root, MCP_DIR, "server.ts"), "utf8");
+    expect(server).toContain("needs: z.array(z.string())");
+    const tools = readFileSync(join(root, MCP_DIR, "tools.ts"), "utf8");
+    const addCase = tools.slice(tools.indexOf('case "add": {'), tools.indexOf('case "move"'));
+    expect(addCase).toContain('argv.push("--needs", p)');
+    expect(addCase).toContain('argv.push("--parent", p)');
+  });
+
   // kobo-21/24: the maw_task tool wraps the CLI task board (spawns
   // `maw company task <verb>` via runMaw, like the other verb tools) — it must
   // NOT reach into core task logic directly. Pin the registration + that taskArgs

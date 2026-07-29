@@ -168,6 +168,25 @@ describe("taskArgs", () => {
     expect(() => taskArgs({ action: "add" })).toThrow(/title/);
   });
 
+  // kobo-640 — `needs` is the preferred dependency field; `parent` stays a
+  // working deprecated alias. Both may be given at once (union at the CLI, not
+  // a silent drop) — the mapper just emits both flag sets, in that order.
+  test("add: needs emits --needs (preferred alias for the old --parent)", () => {
+    expect(taskArgs({ action: "add", title: "t", needs: ["kobo-1", "kobo-2"] })).toEqual([
+      "company", "task", "add", "t",
+      "--needs", "kobo-1",
+      "--needs", "kobo-2",
+    ]);
+  });
+
+  test("add: needs + parent together emit both flag sets (needs first)", () => {
+    expect(taskArgs({ action: "add", title: "t", needs: ["kobo-1"], parent: ["kobo-2"] })).toEqual([
+      "company", "task", "add", "t",
+      "--needs", "kobo-1",
+      "--parent", "kobo-2",
+    ]);
+  });
+
   test("add: --state backlog (kobo-70) is passed through", () => {
     expect(taskArgs({ action: "add", title: "later", state: "backlog" }))
       .toEqual(["company", "task", "add", "later", "--state", "backlog"]);

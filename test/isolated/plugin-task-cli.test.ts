@@ -88,6 +88,44 @@ describe("maw company task runner (runTask)", () => {
     expect(readTask("pgw", "pgw-1")!.state).toBe("done");
   });
 
+  // kobo-640 — front-of-house rename: `--needs` is the primary dependency-link flag,
+  // `--parent` keeps working as a deprecated alias (no silent break of old scripts).
+  // Storage field stays `parentIds` on disk (that's kobo-641, not this card) — these
+  // tests assert the CLI/MCP surface only.
+  describe("--needs / --parent dependency flag (kobo-640)", () => {
+    test("--needs links a dependency exactly like the old --parent did", async () => {
+      await run(["add", "parent card", "--company", "kobo394"]); // kobo394-1
+      const r = await run(["add", "child card", "--company", "kobo394", "--needs", "kobo394-1"]);
+      expect(r.ok).toBe(true);
+      expect(readTask("kobo394", "kobo394-2")!.parentIds).toEqual(["kobo394-1"]);
+      expect(readTask("kobo394", "kobo394-2")!.state).toBe("blocked"); // dep pending, same as --parent behavior
+    });
+
+    test("--parent still works, but warns deprecated", async () => {
+      await run(["add", "parent card", "--company", "kobo394"]); // kobo394-1
+      const r = await run(["add", "child card", "--company", "kobo394", "--parent", "kobo394-1"]);
+      expect(r.ok).toBe(true);
+      expect(readTask("kobo394", "kobo394-2")!.parentIds).toEqual(["kobo394-1"]);
+      expect(r.output).toContain("deprecated");
+      expect(r.output).toContain("--needs");
+    });
+
+    test("both --needs and --parent together union — declared behavior, nothing silently dropped", async () => {
+      await run(["add", "a", "--company", "kobo394"]); // kobo394-1
+      await run(["add", "b", "--company", "kobo394"]); // kobo394-2
+      const r = await run(["add", "child", "--company", "kobo394", "--needs", "kobo394-1", "--parent", "kobo394-2"]);
+      expect(r.ok).toBe(true);
+      expect(readTask("kobo394", "kobo394-3")!.parentIds).toEqual(["kobo394-1", "kobo394-2"]);
+      expect(r.output).toContain("deprecated"); // the --parent half still warns
+    });
+
+    test("--needs alone does NOT warn deprecated", async () => {
+      await run(["add", "parent card", "--company", "kobo394"]); // kobo394-1
+      const r = await run(["add", "child card", "--company", "kobo394", "--needs", "kobo394-1"]);
+      expect(r.output).not.toContain("deprecated");
+    });
+  });
+
   // kobo-394 — echo-truth: a verb whose write gets reconcile-clobbered back to blocked
   // must ECHO that real on-disk result, not the pre-overwrite optimistic value it
   // intended (the "echo-lie" observed live — start/claim printed a hardcoded
