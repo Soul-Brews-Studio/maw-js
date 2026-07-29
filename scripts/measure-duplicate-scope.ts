@@ -182,8 +182,16 @@ function main() {
     `body > 500 chars: ${over500}/${tasks.length} (${((100 * over500) / tasks.length).toFixed(1)}%), median body length: ${medianLen}`,
   );
   console.log(`corpus content sitting outside the 500-char window: ${outsidePct.toFixed(1)}%`);
+  // A card with NO body structurally cannot contain the story-template opener —
+  // not a rare miss, a logical impossibility (kobo-608 round 6, head reviewer):
+  // counting it in the denominator understates the rate among cards that could
+  // actually carry it. Print the denominator that can actually answer the
+  // question, named, plus what that count is as a share of every card — the
+  // reader picks which question they want, never guesses which one a bare
+  // fraction answers.
+  const cardsWithBody = tasks.filter((t) => (t.body ?? "").length > 0).length;
   console.log(
-    `cards whose VISIBLE window carries the story-template opener: ${withStoryTemplateInWindow}/${tasks.length} (${((100 * withStoryTemplateInWindow) / tasks.length).toFixed(1)}%)`,
+    `cards whose VISIBLE window carries the story-template opener: ${withStoryTemplateInWindow}/${cardsWithBody} cards-with-body (${cardsWithBody ? ((100 * withStoryTemplateInWindow) / cardsWithBody).toFixed(1) : "0.0"}%) — of all ${tasks.length} cards that's ${((100 * withStoryTemplateInWindow) / tasks.length).toFixed(1)}%`,
   );
 }
 
