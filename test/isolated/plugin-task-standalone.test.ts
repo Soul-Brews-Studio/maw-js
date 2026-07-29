@@ -482,4 +482,27 @@ describe("task command plugin standalone boundary", () => {
     expect(mentionsBlock).toContain("agedNote");
     expect(mentionsBlock).toContain("DEFAULT_ARCHIVE_DAYS");
   });
+
+  // kobo-608 — addTask() now runs a duplicate-scope check at its own chokepoint
+  // (every real card-creation path funnels through it, so the CLI gets this for
+  // free without a separate call). `add`'s echo must surface the non-persisted
+  // `scopeWarnings` field the same soft-warn style as the neighboring
+  // approve/parent-not-found warns (kobo-222/kobo-72) — never block, never throw.
+  // The durable half (a note on the card itself) is store-level and covered in
+  // store.test.ts's "addTask kobo-608 duplicate-scope wiring" describe block, not
+  // here — this file only pins the CLI's own echo.
+  test("add echoes t.scopeWarnings as a soft warn, same style as the approve/parent warns (kobo-608)", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "../../src/vendor/mpr-plugins/task/index.ts"),
+      "utf8",
+    );
+    const addStart = src.indexOf("const t = addTask({");
+    const lsStart = src.indexOf('subcmd === "ls"');
+    const addBlock = src.slice(addStart, lsStart);
+    expect(addBlock).toContain("t.scopeWarnings?.length");
+    expect(addBlock).toContain("possibly overlaps");
+    // guard, not a throw/exit — creation already happened on the line above
+    const warnIdx = addBlock.indexOf("t.scopeWarnings?.length");
+    expect(addBlock.slice(warnIdx, warnIdx + 40)).not.toContain("throw");
+  });
 });
