@@ -795,10 +795,18 @@ async function send() {
   try {
     const res = await post('/api/room/send', { room: roomId, to: lead, text: text, from: 'web', company: company }); // web turn tagged human (kobo-248); company explicit (kobo-598 — room ids collide across companies, e.g. "head-crew-skill" existed under both "kobo" and "demo")
     $('text').value = ''; autogrow();
+    // kobo-599: kobo-598 made the API honest (persisted:false + relayOnly:true when the
+    // room id isn't tracked by any company), but this screen never read either field —
+    // same "server tells the truth, screen still shows the old happy status" shape as
+    // kobo-580/591. Checked FIRST, before the notified check below — not saved to the
+    // room is the more surprising fact for someone about to go re-read that room later.
+    if (res && res.persisted === false) {
+      var notifyPart = res.notified === false ? (' (and the lead was NOT notified either — ' + (res.notifyError || 'nudge failed') + ')') : '';
+      setStatus('sent to ' + lead + ' — but NOT saved to this room (' + (res.note || 'this room id is not tracked') + ')' + notifyPart, true);
     // kobo-506: the turn is saved either way (persist is decoupled from the nudge,
     // kobo-249) — but a failed nudge means the lead was never told, so say so distinctly
     // from the normal "waiting" status instead of silently claiming success.
-    if (res && res.notified === false) {
+    } else if (res && res.notified === false) {
       setStatus('sent, saved — but the lead was NOT notified (' + (res.notifyError || 'nudge failed') + ') — they may not see this until they check the room', true);
     } else {
       setStatus('sent to ' + lead + ' — waiting…');

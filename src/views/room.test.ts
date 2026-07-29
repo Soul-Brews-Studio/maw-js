@@ -1678,4 +1678,52 @@ describe("Brainstorm Room 2-pane chat view (kobo-258)", () => {
       expect(statusEl.className).not.toContain("err");
     });
   });
+
+  // kobo-599 — kobo-598 made the API honest (persisted:false + relayOnly:true for an
+  // untracked room id), but this screen never read either field, so the compose box kept
+  // showing the normal happy status. Same class as kobo-580/591 (backend fixed, screen
+  // still shows the old answer). Proves the SCREEN reads the new fields, not just that
+  // the API returns them (route.test.ts already covers the API side).
+  test("kobo-599: persisted:false shows a DISTINCT status naming relay-only, not the normal 'waiting' message", async () => {
+    const doc = fakeRoomDoc();
+    const statusEl = doc.createElement("div"); statusEl.id = "status";
+    await withSendGlobals(doc, { ok: true, room: "no-such-room", to: "eq3", persisted: false, relayOnly: true, note: "room is not tracked" }, async () => {
+      const { send, setLead } = loadSendEnv();
+      setLead("eq3");
+      doc.getElementById("text").value = "urgent turn";
+      await send();
+      expect(statusEl.textContent).toContain("NOT saved to this room");
+      expect(statusEl.textContent).toContain("room is not tracked"); // names the actual reason, not a generic message
+      expect(statusEl.textContent).not.toContain("waiting"); // never reads as the normal happy status
+      expect(statusEl.className).toContain("err"); // visually distinct too
+      expect(doc.getElementById("text").value).toBe(""); // the turn WAS relayed — composer still clears
+    });
+  });
+
+  test("kobo-599: persisted:false AND notified:false → both facts named in one status, not just one", async () => {
+    const doc = fakeRoomDoc();
+    const statusEl = doc.createElement("div"); statusEl.id = "status";
+    await withSendGlobals(doc, { ok: true, room: "no-such-room", to: "eq3", persisted: false, relayOnly: true, note: "room is not tracked", notified: false, notifyError: "nudge exited 1" }, async () => {
+      const { send, setLead } = loadSendEnv();
+      setLead("eq3");
+      doc.getElementById("text").value = "urgent turn";
+      await send();
+      expect(statusEl.textContent).toContain("NOT saved to this room");
+      expect(statusEl.textContent).toContain("NOT notified either");
+      expect(statusEl.textContent).toContain("nudge exited 1");
+    });
+  });
+
+  test("kobo-599: persisted:true (or field absent) → unchanged happy/notified-false behavior, no regression", async () => {
+    const doc = fakeRoomDoc();
+    const statusEl = doc.createElement("div"); statusEl.id = "status";
+    await withSendGlobals(doc, { ok: true, room: "r1", to: "eq3", persisted: true, relayOnly: false }, async () => {
+      const { send, setLead } = loadSendEnv();
+      setLead("eq3");
+      doc.getElementById("text").value = "fine turn";
+      await send();
+      expect(statusEl.textContent).toBe("sent to eq3 — waiting…");
+      expect(statusEl.className).not.toContain("err");
+    });
+  });
 });
