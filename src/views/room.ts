@@ -867,7 +867,7 @@ let pickerRowEls = []; // kobo-392: DOM rows parallel to pickerItems, for keyboa
 let pickerActiveIndex = 0; // kobo-392: the row Tab/Enter select (mouseover keeps this in sync)
 function tagQueryAt(value, caret) {
   const head = value.slice(0, caret);
-  const m = head.match(/(?:^|\s)@([a-z0-9][a-z0-9_.-]*)$/i);
+  const m = head.match(/(?:^|\\s)@([a-z0-9][a-z0-9_.-]*)$/i);
   return m ? { start: caret - m[1].length - 1, query: m[1].toLowerCase() } : null;
 }
 function closePicker() { $('picker').style.display = 'none'; $('picker').replaceChildren(); pickerItems = []; pickerRowEls = []; pickerActiveIndex = 0; }
