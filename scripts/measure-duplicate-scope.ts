@@ -138,6 +138,7 @@ function main() {
   let totalEpicPairs = 0;
   let excludedByWindow = 0;
   let survivingWithEarlierStillOpen = 0;
+  let survivingWithEarlierClosed = 0;
   for (const kids of byEpic.values()) {
     const sortedKids = [...kids].sort((a, b) => a.ts - b.ts);
     for (let i = 0; i < sortedKids.length; i++) {
@@ -147,12 +148,21 @@ function main() {
           excludedByWindow++;
         } else if (OPEN_STATES.has(sortedKids[j].state)) {
           survivingWithEarlierStillOpen++;
+        } else {
+          survivingWithEarlierClosed++;
         }
       }
     }
   }
+  // 3-bucket split by construction (excluded / earlier-still-open /
+  // earlier-closed) — print all 3 so they visibly sum to the total, and name
+  // the denominator for "still open" explicitly: it's a share of the pairs
+  // that SURVIVED the window, not of all candidate pairs (kobo-608 round 7,
+  // head reviewer — same defect class as the story-template line fixed one
+  // round earlier: a bare count next to two others that don't visibly sum).
+  const survivedWindow = survivingWithEarlierStillOpen + survivingWithEarlierClosed;
   console.log(
-    `shared-epic candidate pairs: ${totalEpicPairs}, excluded by BATCH_WINDOW_MS (${BATCH_WINDOW_MS / 60000}min): ${excludedByWindow}, surviving with earlier sibling still open (reachable by the signal): ${survivingWithEarlierStillOpen}`,
+    `shared-epic candidate pairs: ${totalEpicPairs}, excluded by BATCH_WINDOW_MS (${BATCH_WINDOW_MS / 60000}min): ${excludedByWindow}, surviving the window: ${survivedWindow} (earlier sibling still open: ${survivingWithEarlierStillOpen}/${survivedWindow} — reachable by the signal; earlier sibling already closed: ${survivingWithEarlierClosed}/${survivedWindow})`,
   );
   console.log();
 
