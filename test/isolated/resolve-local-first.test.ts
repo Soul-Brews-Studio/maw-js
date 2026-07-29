@@ -100,9 +100,27 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), ()
 }));
 
 // tmux module — stub so sdk can import without a real tmux socket
+// kobo-596: `.run()` must actually exist and return SOMETHING resolveOraclePane
+// can parse — an empty class here (its prior shape) makes `new Tmux().run(...)`
+// throw "not a function" on every call, silently swallowed by the old
+// try/catch-and-fall-back-to-raw-target code. That's a real, previously
+// invisible mock gap: this test's "(1) local hit" case exercises the exact
+// tmux pane-resolution path, and this stub never actually let it succeed —
+// kobo-596's new degraded-diagnostics surfaced it (this file's own tests were
+// silently degraded the whole time, not just the "no network" case they name).
+// `tmuxListPanesShouldThrow` lets ONE test (below) simulate the real
+// resolveOraclePane failure kobo-596's reviewer said they'd trigger and check
+// live output for — everything else keeps the working default.
+let tmuxListPanesShouldThrow = false;
 mock.module(join(import.meta.dir, "../../src/core/transport/tmux"), () => ({
   tmux: {},
-  Tmux: class {},
+  Tmux: class {
+    async run() {
+      if (tmuxListPanesShouldThrow) throw new Error("tmux server not running");
+      return "0 claude\n"; // single-pane window → resolveOraclePane returns the target unchanged, no error
+    }
+    async tryRun() { return "0 claude\n"; }
+  },
   tmuxCmd: () => "tmux",
   resolveSocket: () => null,
   withPaneLock: async (_target: string, fn: () => Promise<unknown>) => fn(),
@@ -138,6 +156,7 @@ describe("local-first routing (#411)", () => {
     curlFetchUrl = "";
     fakeSessions = [];
     fakeCurlResponse = { ok: false, status: 0, data: null };
+    tmuxListPanesShouldThrow = false; // kobo-596: default to the working mock; one test opts in
     originalExit = process.exit;
     originalLog = console.log;
     originalError = console.error;
@@ -183,7 +202,30 @@ describe("local-first routing (#411)", () => {
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalled).toBe(true);
     expect(curlFetchCalled).toBe(false);
-    expect(consoleOut.some(l => l.includes("delivered"))).toBe(true);
+    expect(consoleOut.some(l => l.includes("landed"))).toBe(true); // kobo-596: local-send wording, "delivered" → "landed"
+  });
+
+  // kobo-596 (option C) — the live-triggered case reviewer said they'd check:
+  // resolveOraclePane's own tmux call actually throws (not a synthetic
+  // diagnostics object built by hand), through the REAL cmdSend path. The
+  // receipt must say DEGRADED, not silently print "landed"/"delivered" as if
+  // resolution had gone cleanly — that silent fallback is the exact defect
+  // this card exists to close.
+  test("kobo-596: resolveOraclePane's tmux call really throws → receipt reads degraded, not landed/delivered", async () => {
+    fakeSessions = [
+      { name: "08-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: true }] },
+    ];
+    tmuxListPanesShouldThrow = true;
+
+    await cmdSend("white:mawjs", "hello local");
+
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalled).toBe(true); // the send itself still goes through — degraded, not blocked
+    const line = consoleOut.find(l => l.includes("degraded"));
+    expect(line).toBeDefined();
+    expect(line).toContain("tmux server not running"); // the real error, not swallowed
+    expect(consoleOut.some(l => l.includes("landed"))).toBe(false); // must NOT ALSO claim the clean-path wording
+    expect(consoleOut.some(l => l.includes("delivered"))).toBe(false); // must NOT silently fall back to the old lie either
   });
 
   // ── Case 2: local miss + remote hit ───────────────────────────────────────

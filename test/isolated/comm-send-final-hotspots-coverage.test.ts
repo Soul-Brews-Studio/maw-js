@@ -280,7 +280,7 @@ describe("comm-send final hotspots", () => {
     expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "local:session:oracle", message: "[test-node:sender] ship it" } }]);
     expect(logMessageCalls[0]).toMatchObject({ route: "local", message: "[test-node:sender] ship it" });
     expect(sleepCalls).toEqual([150]);
-    expect(logs.join("\n")).toContain("delivered");
+    expect(logs.join("\n")).toContain("landed"); // kobo-596: local-send wording, "delivered" → "landed"
   });
 
   test("receiver inbox returning ok:false does not hide resolver detail on final miss", async () => {

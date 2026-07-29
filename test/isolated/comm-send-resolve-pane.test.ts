@@ -139,6 +139,42 @@ describe("resolveOraclePane — H1 defensive refactor", () => {
     expect(result).toBe("my-session:oracle");
     (_rTmuxAgain.Tmux.prototype as any).run = origRun;
   });
+
+  // kobo-596 (option C) — the return VALUE has always been unchanged-on-error
+  // (Case 6 above); what was missing is any way for a caller to tell that
+  // apart from "resolution wasn't needed at all" (Cases 3/4/5, also
+  // unchanged). The diagnostics out-param is the new signal.
+  test("kobo-596: Tmux.run throws → diagnostics.degraded=true + the real error message, when the caller asks for it", async () => {
+    const _rTmuxAgain = await import("../../src/core/transport/tmux");
+    const origRun = (_rTmuxAgain.Tmux.prototype as any).run;
+    (_rTmuxAgain.Tmux.prototype as any).run = async () => { throw new Error("tmux not running"); };
+    const diagnostics: { degraded?: boolean; error?: string } = {};
+    const result = await resolveOraclePane("my-session:oracle", {}, {}, diagnostics);
+    expect(result).toBe("my-session:oracle");
+    expect(diagnostics.degraded).toBe(true);
+    expect(diagnostics.error).toContain("tmux not running");
+    (_rTmuxAgain.Tmux.prototype as any).run = origRun;
+  });
+
+  // The 3 other "unchanged target" paths (single-pane, no-agent-found,
+  // already-pane-specific/pane-id short-circuits) are NOT errors — a caller
+  // passing diagnostics must not see degraded=true for a genuinely clean
+  // resolution that just happened to need no suffix.
+  test("kobo-596: diagnostics stays empty on the legitimate no-change paths (not degraded)", async () => {
+    const d1: { degraded?: boolean } = {};
+    await resolveOraclePane("session:window.2", {}, {}, d1); // already pane-specific
+    expect(d1.degraded).toBeUndefined();
+
+    runReturnValue = "0 zsh\n"; // single-pane window
+    const d2: { degraded?: boolean } = {};
+    await resolveOraclePane("my-session:oracle", {}, {}, d2);
+    expect(d2.degraded).toBeUndefined();
+
+    runReturnValue = "0 zsh\n1 bash\n"; // no agent pane found
+    const d3: { degraded?: boolean } = {};
+    await resolveOraclePane("my-session:oracle", {}, {}, d3);
+    expect(d3.degraded).toBeUndefined();
+  });
 });
 
 describe("resolveOraclePane — kobo-36 channel→pane routing", () => {

@@ -911,7 +911,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     // would still pass a bare "delivered"+target check, which is why that
     // alone is a hollow pin — reviewer .1 finding). The captured tail-line
     // (small, already-truncated) stays visible in both modes.
-    const deliveredLine = outs.find((o) => o.includes("delivered"));
+    const deliveredLine = outs.find((o) => o.includes("landed")); // kobo-596: "delivered" -> "landed"
     expect(deliveredLine).toBeDefined();
     expect(deliveredLine).toContain("08-mawjs:0");
     expect(deliveredLine).toContain("(24 chars)"); // "[white:test-oracle] ping".length === 24 (signed body, not raw text)
@@ -931,7 +931,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping", false, { verbose: true }));
 
-    const deliveredLine = outs.find((o) => o.includes("delivered"));
+    const deliveredLine = outs.find((o) => o.includes("landed")); // kobo-596: "delivered" -> "landed"
     expect(deliveredLine).toBeDefined();
     expect(deliveredLine).toContain("08-mawjs:0: [white:test-oracle] ping"); // full body, byte-equiv to pre-368
     expect(deliveredLine).not.toContain("chars)"); // NOT the compact char-count form
@@ -971,7 +971,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping"));
 
-    expect(outs.some((o) => o.includes("delivered"))).toBe(true);
+    expect(outs.some((o) => o.includes("landed"))).toBe(true); // kobo-596: "delivered" -> "landed"
     expect(outs.some((o) => o.includes("⤷"))).toBe(false);
   });
 
@@ -983,7 +983,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
 
     await run(() => cmdSend("white:mawjs", "ping"));
 
-    expect(outs.some((o) => o.includes("delivered"))).toBe(true);
+    expect(outs.some((o) => o.includes("landed"))).toBe(true); // kobo-596: "delivered" -> "landed"
     expect(outs.some((o) => o.includes("⤷"))).toBe(false);
   });
 
@@ -1049,6 +1049,8 @@ describe("cmdSend — peer target (federation)", () => {
     expect(emitFeedCalls[0]).toMatchObject({ event: "MessageSend", node: "white", port: 5000 });
     // kobo-368: default is compact (target + char-count), NOT the full echoed
     // message — assert the body is genuinely ABSENT (reviewer .1 hollow-pin finding).
+    // kobo-596 touched only the LOCAL send path's wording — the peer/federation
+    // path here is a different console.log, still says "delivered" untouched.
     const deliveredLine = outs.find((o) => o.includes("delivered"));
     expect(deliveredLine).toBeDefined();
     expect(deliveredLine).toContain("mba");
@@ -1071,6 +1073,8 @@ describe("cmdSend — peer target (federation)", () => {
 
     await run(() => cmdSend("mba:mawjs", "ping", false, { verbose: true }));
 
+    // kobo-596 touched only the LOCAL send path's wording — the peer/federation
+    // path here is a different console.log, still says "delivered" untouched.
     const deliveredLine = outs.find((o) => o.includes("delivered"));
     expect(deliveredLine).toBeDefined();
     expect(deliveredLine).toContain("mawjs: [white:test-oracle] ping"); // full body, byte-equiv to pre-368
@@ -1127,6 +1131,8 @@ describe("cmdSend — peer target (federation)", () => {
 
     await run(() => cmdSend("mba:mawjs", "ping"));
 
+    // kobo-596 touched only the LOCAL send path — this is the peer/federation
+    // console.log, untouched, still says "delivered".
     expect(outs.some((o) => o.includes("delivered"))).toBe(true);
     expect(outs.some((o) => o.includes("⤷"))).toBe(false);
   });

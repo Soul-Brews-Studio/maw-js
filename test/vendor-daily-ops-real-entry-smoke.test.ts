@@ -129,7 +129,7 @@ describe("daily ops real-entry contract smokes", () => {
       await waitForCapture(paneId, ready);
 
       const sendOutput = cli(repo, env, ["send", target, `${sendSentinel} from real top-level send`, "--no-verify-submit"]);
-      expect(sendOutput).toContain("delivered");
+      expect(sendOutput).toContain("landed"); // kobo-596: "delivered" -> "landed" (send-enter below is a separate plugin, untouched)
       await waitForCapture(paneId, sendSentinel);
 
       run(["tmux", "send-keys", "-t", paneId, "-l", `printf '${sendSentinel}-enter\\n'`], { timeout: 5_000 });

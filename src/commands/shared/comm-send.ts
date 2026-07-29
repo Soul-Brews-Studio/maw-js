@@ -55,6 +55,25 @@ import { extractOracleName as extractPaneOracle } from "./target-cwd";
  * pane, not the default `.0` main pane). No mapping / stale pane → fall
  * through to the existing lowest-agent-pane default (backward-compatible).
  */
+/**
+ * kobo-596 (option C): resolution can fail for reasons that have nothing to do
+ * with the target being wrong (a transient tmux error, a race with the pane
+ * dying/respawning) — the function's existing contract is to fall back to the
+ * unchanged raw target rather than throw, so every OTHER caller keeps working
+ * unmodified. But a caller that's about to print a delivery RECEIPT (cmdSend)
+ * needs to know that fallback happened, because "resolved cleanly to pane X"
+ * and "resolution failed, guessing pane X" are different levels of confidence
+ * that the send is even reaching the RIGHT pane — collapsing them is exactly
+ * the class of over-claiming receipt this card exists to close. Optional and
+ * additive: omitted by the other 9 call sites, so nothing about their behavior
+ * changes; a caller that wants to know passes a mutable object and reads it
+ * back after the call.
+ */
+export interface OraclePaneResolution {
+  degraded?: boolean;
+  error?: string;
+}
+
 /** @internal */
 export async function resolveOraclePane(
   target: string,
@@ -64,6 +83,7 @@ export async function resolveOraclePane(
     getPaneRouteFn?: typeof getPaneRoute;
   } = {},
   route: { oracle?: string; channel?: string } = {},
+  diagnostics?: OraclePaneResolution,
 ): Promise<string> {
   // Already pane-specific — honor caller's choice.
   if (/\.[0-9]+$/.test(target)) return target;
@@ -106,7 +126,18 @@ export async function resolveOraclePane(
 
     if (agentIndexes.length === 0) return target;
     return `${target}.${Math.min(...agentIndexes)}`;
-  } catch {
+  } catch (e) {
+    // kobo-596 (option C): this used to fail SILENTLY — same return value
+    // (the unchanged raw target) as the deliberate short-circuits above, with
+    // no way for a caller to tell "resolution wasn't needed" apart from
+    // "resolution was needed and failed." Surface the failure through the
+    // optional diagnostics out-param instead of changing the return type
+    // (every other call site of this function passes nothing and is
+    // unaffected).
+    if (diagnostics) {
+      diagnostics.degraded = true;
+      diagnostics.error = e instanceof Error ? e.message : String(e);
+    }
     return target;
   }
 }
@@ -1631,8 +1662,12 @@ export async function cmdSend(
     // registered channel→pane mapping (e.g. task-events → coord pane). The oracle
     // key derives from the user's query (bare name; node prefix / -oracle suffix
     // stripped by the registry). No channel → registry consult is a no-op.
+    // kobo-596 (option C): capture whether resolution degraded (tmux error,
+    // silently fell back to the raw target) — read after the call, threaded
+    // through to the receipt print at the bottom of this function.
+    const paneResolution: OraclePaneResolution = {};
     const target = await resolveOraclePane(
-      result.target, {}, { oracle: query, channel: opts.channel },
+      result.target, {}, { oracle: query, channel: opts.channel }, paneResolution,
     );
     if (opts.inboxOnly) {
       const inbox = await writeReceiverInbox(target);
@@ -1784,10 +1819,23 @@ export async function cmdSend(
       lastLine,
       signed: true,
     }, config.port || 3456);
-    if (opts.verbose) {
-      console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
+    // kobo-596 (option A) — "delivered" claimed more than this code path can
+    // verify: it proves the keystrokes were successfully written into SOME
+    // pane's input box (sendKeys didn't throw) — never that the pane belongs
+    // to the right, live session, and never that a person read it. "landed"
+    // is the word that matches what's actually checked here; it still does
+    // NOT imply a human received or read the message, only that text reached
+    // a pane. (kobo-596 option C, immediately below) when pane resolution
+    // itself degraded — resolveOraclePane hit a tmux error and silently fell
+    // back to the raw, unresolved target — that fallback must be visible
+    // here, not just internally logged: the text may have landed in the
+    // WRONG pane (or a dead one) with nothing about "landed" catching that.
+    if (paneResolution.degraded) {
+      console.log(`\x1b[33m⚠ sent (pane resolution degraded)\x1b[0m → ${target} \x1b[90m— tmux pane lookup failed (${paneResolution.error}), sent to the raw target as a fallback; verify this reached the right pane\x1b[0m`);
+    } else if (opts.verbose) {
+      console.log(`\x1b[32mlanded\x1b[0m → ${target}: ${outboundMessage}`);
     } else {
-      console.log(`\x1b[32mdelivered\x1b[0m → ${target} (${outboundMessage.length} chars)`);
+      console.log(`\x1b[32mlanded\x1b[0m → ${target} (${outboundMessage.length} chars)`);
     }
     // kobo-368: the captured tail-line stays in BOTH modes — it's a small, already-
     // truncated (cfgLimit) diagnostic snippet of what the RECEIVER'S pane now shows,
