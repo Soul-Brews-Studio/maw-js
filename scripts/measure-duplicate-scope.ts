@@ -162,7 +162,7 @@ function main() {
   // round earlier: a bare count next to two others that don't visibly sum).
   const survivedWindow = survivingWithEarlierStillOpen + survivingWithEarlierClosed;
   console.log(
-    `shared-epic candidate pairs: ${totalEpicPairs}, excluded by BATCH_WINDOW_MS (${BATCH_WINDOW_MS / 60000}min): ${excludedByWindow}, surviving the window: ${survivedWindow} (earlier sibling still open: ${survivingWithEarlierStillOpen}/${survivedWindow} — reachable by the signal; earlier sibling already closed: ${survivingWithEarlierClosed}/${survivedWindow})`,
+    `shared-epic candidate pairs: ${totalEpicPairs} · excluded by BATCH_WINDOW_MS: ${excludedByWindow} · survived window: ${survivedWindow} · of those ${survivedWindow}, earlier sibling still open: ${survivingWithEarlierStillOpen} (reachable by the signal), already closed: ${survivingWithEarlierClosed}`,
   );
   console.log();
 
