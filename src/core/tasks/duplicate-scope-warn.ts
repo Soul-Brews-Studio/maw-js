@@ -27,16 +27,20 @@
  *   SAME underlying issue described in two languages with almost no shared
  *   vocabulary (kobo-582/kobo-399: one framed in Thai around cross-cell verdict
  *   delivery, one in English around cross-company ping leak — real bug-for-bug
- *   duplicate, near-zero trigram overlap) is a SEMANTIC match, not a lexical
- *   one. No n-gram/token-overlap heuristic reaches that without an embedding
- *   model, which this card deliberately does not add (out of scope — a
- *   card-creation-time check needs to stay cheap and synchronous). Measured
- *   against the frozen labeled set (see this module's own test file and the
- *   kobo-608 card note for the reproducible measurement + exact recall): this
- *   design did not catch that shape either. A declared, honest residual, not a
- *   bug to chase by loosening anything — see the threshold discipline note
- *   below for why "loosen it" is exactly the failure mode this card exists to
- *   close.
+ *   duplicate, measured trigram score 0.060, well under any reasonable cutoff)
+ *   is a SEMANTIC match, not a lexical one. No n-gram/token-overlap heuristic
+ *   reaches that without an embedding model, which this card deliberately does
+ *   not add (out of scope — a card-creation-time check needs to stay cheap and
+ *   synchronous). This is a CLASS, not a single pair: any two cards on the
+ *   same topic where one leans heavily Thai-language and the other leans
+ *   heavily English/technical-identifier language will share little
+ *   vocabulary regardless of content overlap — the language-distribution
+ *   breakdown of this corpus (head reviewer's independent measurement, kobo-
+ *   608 card note c11) is the reproducible source for how much of the board
+ *   falls in that shape; re-run it there rather than trusting a number frozen
+ *   in this comment. A declared, honest residual, not a bug to chase by
+ *   loosening anything — see the threshold discipline note below for why
+ *   "loosen it" is exactly the failure mode this card exists to close.
  *
  * THRESHOLD DESIGN — SELF-RELATIVE, NOT A BAKED-IN CONSTANT (round 2 of this
  * card's own design, reversing round 1): the first version fixed a single
@@ -68,13 +72,57 @@
  * reverted — see `OUTLIER_K`'s own doc comment for the full story; K=5 also
  * independently gives the same 2/3 recall, so the result holds across a real
  * range around the textbook value, not a knife-edge coincidence at one pick).
- * Measured (frozen 2026-07-29T01:11:13Z snapshot, kobo-608 card note has the
- * reproducible script) against the 3-pair labeled set + full negative
- * control: this catches 2 of 3 labeled pairs (kobo-548/kobo-569, kobo-588/
- * kobo-589 — round 1's fixed-threshold design caught only the first) at a
- * 27.0% per-card warn rate (38/141 cards would get >=1 warning). A manual
- * spot-check of 8 of those 38 flagged cards found 4 read as genuinely
- * sensible on inspection and 4 as noise.
+ * Measured (frozen 2026-07-29T01:11:13Z snapshot, 514 cards / 137 currently
+ * open, kobo-608 card note has the reproducible script) against the 3-pair
+ * labeled set + full negative control: this catches 2 of 3 labeled pairs
+ * (kobo-548/kobo-569, kobo-588/kobo-589 — round 1's fixed-threshold design
+ * caught only the first). Because the labeled set is only 3 pairs, recall can
+ * only ever read 0%/33%/67%/100% — too coarse a scale to tell a genuinely
+ * good mechanism from a lucky one; read it as "consistent with working", not
+ * as a capability number.
+ *
+ * WARN-RATE — DENOMINATOR MUST BE STATED, NOT JUST THE PERCENT (review round
+ * 1 finding, reviewer caught this reading two different questions as if they
+ * were one): walking every one of the 514 cards in ts-order as if it were the
+ * candidate at its own real creation moment, comparing only against cards
+ * that already existed and were still open at that instant — the same
+ * simulation this feature actually runs in production — **42/514 (8.2%) of
+ * all card-creation events across this corpus's history would have received
+ * ≥1 warning.** (An earlier draft of this comment quoted "27.0%" against a
+ * denominator of "cards still open at snapshot time" (141, later corrected to
+ * 137) — a different, less meaningful question: it answers "of what's open
+ * right now, how much looks similar to something else also open right now",
+ * not "how often would a person creating a card actually see this warning".
+ * The two numbers are both real; only the second is what a user experiences.)
+ * Of the 60 total warning-pairs in that sweep: 54 similar-text, 6 shared-
+ * parent, 0 shared-epic.
+ *
+ * SHARED-EPIC FIRED ZERO TIMES ON REAL DATA — measured, not assumed (review
+ * round 1 flagged this as suspicious and asked it be checked instead of
+ * quietly left to read as if two structural signals were both active).
+ * Reason, also measured: of 202 same-epic candidate-pairs in the corpus, 131
+ * (65%) fall inside `BATCH_WINDOW_MS` (ordinary decompose siblings, created
+ * seconds apart) — and of the 71 that survive the window, 100% have their
+ * earlier sibling ALREADY CLOSED by the time the later one would be compared
+ * against it — on this board, an epic's earlier children tend to reach a
+ * closed state before a later, unrelated sibling gets added under the same
+ * epic. Net: shared-epic is not broken, it is structurally near-unreachable
+ * given how this board's epics are actually used day to day — kept because
+ * it's cheap/exact/zero-cost-when-idle and the shape it exists for (kobo-524/
+ * kobo-564, filed under the same still-open parent kobo-525) is real, just
+ * currently rare.
+ *
+ * CREATOR-BASED RESTRICTION — MEASURED AND REJECTED (review round 2 raised
+ * "should shared-parent/shared-epic only warn when `by` differs, since a
+ * late add to an existing epic is usually the SAME person who did the
+ * original decompose?"): checked against the one confirmed real duplicate —
+ * kobo-524 and kobo-564 were BOTH created by `eq3`, same creator. All 6 of
+ * the shared-parent pairs found in the real-corpus sweep above are also
+ * same-creator pairs. Restricting to different-creator-only would have
+ * missed the one real case this card has ground truth for. Not implemented.
+ *
+ * A manual spot-check of 8 of 38 flagged cards (an earlier, pre-batch-guard
+ * sweep) found 4 read as genuinely sensible on inspection and 4 as noise.
  *
  * BATCH-DECOMPOSE FALSE-POSITIVE CLASS (found in that same spot-check, fixed
  * before shipping): 2 of the 4 "noise" flags were sibling cards from the SAME
@@ -90,7 +138,13 @@
  * similarly pairs remains, e.g. kobo-122/kobo-411 at 492 hours apart, no
  * batch relationship at all — a different, harder problem this card does not
  * claim to solve), but it measurably removes the ONE class this spot-check
- * could name precisely and explain.
+ * could name precisely and explain. A card added LATER to an epic that
+ * already has several open children is a separate, NOT-yet-fixed noise
+ * shape (review round 2): the window only protects same-batch siblings, not
+ * a sibling added afterward — see the shared-epic measurement above for why
+ * this hasn't shown up on real data yet, and the note-cap in store.ts's
+ * addTask() for the defensive mitigation (a long note is capped, not
+ * suppressed) if/when it does.
  */
 
 import type { TaskRecord, TaskState } from "./store";

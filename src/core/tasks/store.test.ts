@@ -51,6 +51,8 @@ import {
   needsOwner,
   nextTaskId,
   noteTask,
+  __setTaskNoterForTest,
+  __resetTaskNoterForTest,
   openEpicChildren,
   parentStateResolver,
   prOpenedReview,
@@ -2581,6 +2583,50 @@ describe("addTask kobo-608 duplicate-scope wiring", () => {
     const second = addTask({ company: "kobo", title: "second child", by: "eq3", epic: epic.id, skipDuplicateScopeCheck: true });
     expect(second.scopeWarnings).toBeUndefined();
     expect(readTask("kobo", second.id)!.notes ?? []).toHaveLength(0);
+  });
+
+  // kobo-608 review round 1 — reviewer PROVED (by running it, not reading code)
+  // that a detector throw used to propagate out of addTask() and block card
+  // creation entirely: a warn-only feature had become a hard dependency of the
+  // write path every real caller in the fleet shares. This is the regression-
+  // boundary test Tony asked every PR that inserts code into a shared path to
+  // carry from now on: break the NEW code deliberately, then confirm the OLD
+  // path (card creation itself) still works — not just "the new code works
+  // when nothing is wrong", which every other test in this file already covers.
+  // `body` typed as a non-string reaches past the public TS surface the same
+  // way a real HTTP JSON body could (no runtime validation on that field before
+  // it reaches cardText()'s `.slice()` call) — a realistic malformed-input
+  // shape, not a contrived injection.
+  test("mutation-anchor: a throwing detector does NOT block card creation — fail-open, not fail-closed", () => {
+    const existing = addTask({ company: "kobo", title: "existing open card to compare against", by: "eq3" });
+    backdateTs("kobo", existing.id, 10 * 60 * 1000); // outside the 5-min batch window — otherwise findSimilarOpenCards early-returns before ever reaching the code that throws
+    const hostileBody = 12345 as unknown as string; // realistic malformed input: JSON body isn't runtime-validated as a string before it reaches titleBodySimilarity's cardText()
+    const created = addTask({ company: "kobo", title: "candidate", by: "eq3", body: hostileBody });
+    expect(created.id).toBeTruthy();
+    expect(created.scopeWarnings).toBeUndefined(); // degraded to no-warning, not a thrown error
+    const fresh = readTask("kobo", created.id)!; // separate read — the card is REALLY persisted, not just an in-memory survivor
+    expect(fresh.title).toBe("candidate");
+    const wl = readWorklog("kobo");
+    expect(wl.some((e) => e.kind === "error" && e.task === created.id && e.summary.includes("kobo-608 scope-check failed"))).toBe(true);
+  });
+
+  test("mutation-anchor: a throwing durable-note write does NOT make addTask() look like it failed — the card is already real", () => {
+    const epic = addTask({ company: "kobo", title: "epic", by: "eq3", kind: "epic" });
+    const first = addTask({ company: "kobo", title: "first child", by: "eq3", epic: epic.id });
+    backdateTs("kobo", first.id, 10 * 60 * 1000);
+    __setTaskNoterForTest(() => { throw new Error("simulated note-write failure"); });
+    try {
+      const second = addTask({ company: "kobo", title: "second child", by: "eq3", epic: epic.id });
+      expect(second.id).toBeTruthy(); // addTask did not throw
+      expect(second.scopeWarnings?.length).toBe(1); // the in-memory warning still made it to the caller
+      const fresh = readTask("kobo", second.id)!; // separate read — the card is REALLY persisted
+      expect(fresh.title).toBe("second child");
+      expect(fresh.notes ?? []).toHaveLength(0); // the note itself genuinely didn't land — not silently faked
+      const wl = readWorklog("kobo");
+      expect(wl.some((e) => e.kind === "error" && e.task === second.id && e.summary.includes("kobo-608 durable note failed"))).toBe(true);
+    } finally {
+      __resetTaskNoterForTest();
+    }
   });
 
   test("askTask (comment-reply subcard) never warns — always skips, by design (tightly parent-scoped already)", () => {
