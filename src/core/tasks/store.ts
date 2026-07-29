@@ -20,6 +20,7 @@ import { appendWorklog, openClaims, readWorklog, worklogCacheProbe } from "../wo
 import type { WorklogEntry, WorklogKind } from "../worklog/types";
 import { notifyParentOfSubcardDone } from "./notify";
 import { classifySignTiers, type DiffFile } from "./sign-tier-classifier";
+import { findSimilarOpenCards, type ScopeOverlapWarning } from "./duplicate-scope-warn";
 
 export type TaskState =
   | "backlog"
@@ -428,6 +429,7 @@ export interface AddTaskInput {
   reviewReason?: string; // kobo-218: born-in-approve deploy-approval card carries WHY (the Approve lane invariant — every card says why it's in Tony's queue)
   room?: string; // kobo-244: brainstorm-room artifact id this card is distilled from (provenance)
   crewGate?: boolean; // kobo-327: mark a crew-cell card at creation/dispatch → merge needs a crew pre-sign too (closes the head-merges-before-crew race)
+  skipDuplicateScopeCheck?: boolean; // kobo-608: system-templated/tightly-scoped call sites opt out explicitly, per-site, with a reason comment — never left to accident of wiring order
 }
 
 /**
@@ -436,7 +438,7 @@ export interface AddTaskInput {
  * mean "started" (the `maw hey [request:]` dispatch path) pass state explicitly.
  * The assignee picks the work up themselves later via `start`/`claim`.
  */
-export function addTask(input: AddTaskInput): TaskRecord {
+export function addTask(input: AddTaskInput): TaskRecord & { scopeWarnings?: ScopeOverlapWarning[] } {
   const ts = Date.now();
   const assignee = input.assignee ?? null;
   const task: TaskRecord = {
@@ -478,6 +480,18 @@ export function addTask(input: AddTaskInput): TaskRecord {
     }
   }
 
+  // kobo-608: computed BEFORE persisting — reads only cards that already exist
+  // on disk, so the candidate can never self-match its own not-yet-written file.
+  // Chokepoint by design (front's instruction): every real create path funnels
+  // through this one function, so the check runs once here, not per-caller.
+  const scopeWarnings = input.skipDuplicateScopeCheck
+    ? []
+    : findSimilarOpenCards(
+        input.company,
+        { title: input.title, body: input.body, parentIds: input.parentIds, epic: input.epic },
+        { listTasks, now: ts },
+      );
+
   // Race-safe id allocation: compute candidate, claim it exclusively; on a
   // collision recompute and retry. Bounded so a pathological loop can't hang.
   const MAX_ATTEMPTS = 5;
@@ -489,7 +503,29 @@ export function addTask(input: AddTaskInput): TaskRecord {
     }
   }
   emit(task, input.by, "task-created", `created ${task.id}: ${task.title}`);
-  return task;
+
+  if (scopeWarnings.length) {
+    // Durable trace, not just an in-memory value for this one caller — the
+    // in-memory `scopeWarnings` on the return dies with this call; nobody
+    // reading the card later could tell it was ever warned. The note carries
+    // THREE fields, not "warned already": (1) which card(s) it might overlap,
+    // (2) the score, (3) that it was created anyway (creation never blocks —
+    // kobo-608 AC). This is deliberate, not verbose-for-its-own-sake: today's
+    // labeled set is only 3 pairs (recall can only read 0/33/67/100%, too
+    // coarse to tell a good mechanism from a lucky one). Every warning that
+    // keeps all 3 fields becomes a future labeled example — in a few weeks
+    // there will be dozens of real (pair, score, human-decision) rows, which
+    // is the only way to re-tune this without tuning toward today's 3
+    // positive examples (explicitly rejected once already, see K=6 in
+    // duplicate-scope-warn.ts). Trimming this note to "possibly duplicate"
+    // throws that data away. Don't shorten it.
+    const detail = scopeWarnings
+      .map((w) => `${w.id} (${w.reason}${w.score !== undefined ? `, score ${w.score.toFixed(3)}` : ""})`)
+      .join(", ");
+    noteTask(input.company, task.id, "system", `⚠ possible scope overlap with ${detail} — created anyway (kobo-608)`);
+  }
+
+  return scopeWarnings.length ? { ...task, scopeWarnings } : task;
 }
 
 /**
@@ -1716,7 +1752,10 @@ export function pendingMentions(company: string, forWho?: string): PendingMentio
  */
 export function askTask(company: string, parentId: string, question: string, to: string, by: string): TaskRecord | null {
   if (!readTask(company, parentId)) return null; // parent must exist to hang the subcard under
-  return addTask({ company, title: question, by, epic: parentId, assignee: mentionKey(to) });
+  // kobo-608: skip — a comment-reply subcard is already tightly scoped under
+  // one specific parent; it can't be "two people independently duplicating
+  // an unrelated card" by construction.
+  return addTask({ company, title: question, by, epic: parentId, assignee: mentionKey(to), skipDuplicateScopeCheck: true });
 }
 
 export interface BlockInput {
