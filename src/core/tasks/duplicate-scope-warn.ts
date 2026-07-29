@@ -23,22 +23,58 @@
  *     text without a tokenizer. Catches a same-topic pair phrased with
  *     genuinely overlapping vocabulary (kobo-548/kobo-569, kobo-588/kobo-589).
  *
- *   OUTSIDE the universe, by measurement, not by omission: a pair that's the
- *   SAME underlying issue described in two languages with almost no shared
- *   vocabulary (kobo-582/kobo-399: one framed in Thai around cross-cell verdict
- *   delivery, one in English around cross-company ping leak — real bug-for-bug
- *   duplicate, measured trigram score 0.060, well under any reasonable cutoff)
- *   is a SEMANTIC match, not a lexical one. No n-gram/token-overlap heuristic
- *   reaches that without an embedding model, which this card deliberately does
- *   not add (out of scope — a card-creation-time check needs to stay cheap and
- *   synchronous). This is a CLASS, not a single pair: any two cards on the
- *   same topic where one leans heavily Thai-language and the other leans
- *   heavily English/technical-identifier language will share little
- *   vocabulary regardless of content overlap — the language-distribution
- *   breakdown of this corpus (head reviewer's independent measurement, kobo-
- *   608 card note c11) is the reproducible source for how much of the board
- *   falls in that shape; re-run it there rather than trusting a number frozen
- *   in this comment. A declared, honest residual, not a bug to chase by
+ *   OUTSIDE the universe, by measurement, not by omission — TWO classes:
+ *
+ *   (1) CROSS-LANGUAGE: the detector compares trigrams of the same title+body
+ *   window it always sees (see class (2) below) — a pair that's the SAME
+ *   underlying issue described with one card leaning heavily Thai and the
+ *   other leaning heavily English/technical-identifier will share only
+ *   common/functional words in that window, regardless of content overlap.
+ *   kobo-582/kobo-399 (one framed in Thai around cross-cell verdict delivery,
+ *   one in English around cross-company ping leak — real bug-for-bug
+ *   duplicate) measures 0.060: the only overlapping English tokens in kobo-
+ *   582's own window are "card", "pane", "that", "tony" — purely functional
+ *   words, not topic words. This is a SEMANTIC match, not a lexical one; no
+ *   n-gram/token-overlap heuristic reaches it without an embedding model,
+ *   deliberately out of scope (a card-creation-time check needs to stay cheap
+ *   and synchronous). NOT a thai-only-vs-english-only label (a label misses
+ *   most of the real class — a card that's 95% Thai and one that's 95%
+ *   English are BOTH "mixed" under any coarse label, yet still miss each
+ *   other): measured on the corpus's own trigram window (title+body[:500],
+ *   the exact text the detector reads — head reviewer's independent
+ *   measurement, kobo-608 card note c17, re-run there rather than trusting a
+ *   number frozen in this comment; c11 published an earlier, WRONG number
+ *   measured from title-only, retracted in c16/c17): of 514 cards, 172 (33%)
+ *   have 0% Thai characters in that window and 175 (34%) have ≥50% Thai —
+ *   a pair straddling those two ends is structurally invisible to this
+ *   detector. Validated against 3 known-answer pairs (c18): kobo-582/kobo-399
+ *   straddles the two ends and IS a known-miss; kobo-524/kobo-564 and kobo-
+ *   548/kobo-569 both sit near the SAME end of the scale (not straddling) and
+ *   are correctly caught/not-caught for OTHER reasons — confirms this class
+ *   explains the one case we have ground truth for, without over-claiming
+ *   coverage of cases we don't (3 pairs is context, not a sample size claim).
+ *
+ *   (2) OUTSIDE THE 500-CHARACTER WINDOW: `cardText()` below caps body at
+ *   500 chars — a real, board-wide blind spot, not a rare edge (head
+ *   reviewer's measurement, kobo-608 card note c20): 90.1% of cards have a
+ *   body longer than 500 chars (median 1,617), so the detector's own working
+ *   text is a truncated PREFIX for nearly every real card, and 75.1% of the
+ *   corpus's total body content sits outside that prefix, unread by either
+ *   signal. Concrete real miss: kobo-562's distinguishing content — the
+ *   identifiers `parse-args` (char 974), `permissive` (char 1048),
+ *   `positional` (char 1306) — sits entirely past the cap; a conductor nearly
+ *   filed a duplicate of it and this detector would not have fired. Made
+ *   worse by what IS inside the window: 64.9% of bodies carry this
+ *   codebase's own story-template opener ("As a ..., I want ..., so that
+ *   ...") inside the first 500 chars — so the visible window is disproportio-
+ *   nately boilerplate every card shares, while the words that actually
+ *   distinguish one card from another often live past it. Not fixed here
+ *   (raising the cap is a real behavior change, not a doc fix — the 500-char
+ *   choice itself was never re-examined against this data) — declared so a
+ *   future miss reads as "known, bounded, tracked" rather than "silently
+ *   broken".
+ *
+ *   Both classes are declared, honest residuals, not bugs to chase by
  *   loosening anything — see the threshold discipline note below for why
  *   "loosen it" is exactly the failure mode this card exists to close.
  *
@@ -169,7 +205,7 @@ function trigrams(s: string | undefined): Set<string> {
 }
 
 function cardText(t: Pick<TaskRecord, "title" | "body">): string {
-  return `${t.title} ${(t.body ?? "").slice(0, 500)}`; // body capped — a 500-char lead carries the topic; a 5000-word card shouldn't dominate the trigram vocabulary over a 50-word one
+  return `${t.title} ${(t.body ?? "").slice(0, 500)}`; // body capped — a 500-char lead carries the topic; a 5000-word card shouldn't dominate the trigram vocabulary over a 50-word one. This is a measured, declared blind spot, not a free assumption — see module docstring's "OUTSIDE THE 500-CHARACTER WINDOW" class (90.1% of real cards exceed this cap; kobo-562 is a real miss caused by it)
 }
 
 function plainJaccard(a: Set<string>, b: Set<string>): number {
