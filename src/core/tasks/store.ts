@@ -161,7 +161,7 @@ export interface TaskRecord {
   prevState?: TaskState; // flow state to return to on unblock
   reviewer?: string; // who should review/take over (set when state = review, optional)
   reviewReason?: string; // why it needs review (optional)
-  reviewerPane?: string; // kobo-587: the tmux %pane-id that ACCEPTED the review (same pane-grain binding as crewSignedByPane, kobo-346). Set only when `review --to` named an independent PANE, not just an independent oracle name — this is what lets resolveReviewer treat a same-oracle-different-pane reviewer as independent instead of falling to human. Live-resolved in the accepting caller's shell → agent-settable → DEFENSE-IN-DEPTH, not airtight (same ceiling as kobo-346, and kobo-460's pane-id-reuse-across-sessions applies here too).
+  reviewerPane?: string; // kobo-587: the tmux %pane-id that `--to-pane` resolved to and that the DISPATCHING caller verified is (a) a live pane, (b) in the caller's own tmux session, and (c) not the caller's own pane (same pane-grain binding as crewSignedByPane, kobo-346) — NOT proof anyone at that pane has looked at anything yet, only that a distinct, same-session pane was named. This is what lets resolveReviewer treat a same-oracle-different-pane reviewer as independent instead of falling to human. Live-resolved in the DISPATCHING caller's shell (not the reviewer's) → agent-settable → DEFENSE-IN-DEPTH, not airtight (same ceiling as kobo-346, and kobo-460's pane-id-reuse-across-sessions applies here too).
   rejectReason?: string; // why the card was rejected (kobo-101) — MANDATORY on reject, kept to learn (Nothing is Deleted)
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
   parentIds?: string[]; // card→card deps (ADR 0003 A) — blocked-by-dependency is DERIVED, never stored
@@ -679,11 +679,15 @@ export function parseReviewTarget(to: string): { oracle: string; pane: string | 
  * kobo-587: the pane-aware sibling of isSelfReview, mirroring kobo-346's sign-pane
  * guard shape. A `--to` naming the SAME oracle as the assignee is normally self-review
  * (isSelfReview's rule, unchanged) — UNLESS `to` is pane-qualified (`oracle@%id`) AND
- * that pane differs from the CALLER's own live pane: that proves a genuinely distinct
- * pane of the same crew oracle is accepting the review, not the executor rubber-
- * stamping itself. Any of: different oracle, bare (non-pane-qualified) `to`, or no
- * caller pane → falls straight back to isSelfReview's original behavior (AC4: zero
- * change for every pre-existing, non-pane-qualified caller).
+ * that pane differs from the CALLER's own live pane: that proves the DISPATCHING
+ * caller named an address that resolves to a live, same-session, distinct pane — NOT
+ * that anyone at that pane has looked at the card, only that this isn't the executor
+ * naming its own pane. (The CLI layer, resolvePaneIdInCallerSession, is what restricts
+ * "distinct pane" to the caller's own tmux session — kobo-587 review-round-2: without
+ * that, any resolvable address anywhere, including a different company's pane, counted.)
+ * Any of: different oracle, bare (non-pane-qualified) `to`, or no caller pane → falls
+ * straight back to isSelfReview's original behavior (AC4: zero change for every
+ * pre-existing, non-pane-qualified caller).
  * CEILING: pane ids are agent-settable and not guaranteed stable across a tmux server
  * restart (kobo-460) — same defense-in-depth ceiling as kobo-346, never airtight.
  */

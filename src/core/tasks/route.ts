@@ -647,8 +647,11 @@ export async function handleTaskEditRequest(request: Request): Promise<Response>
   if (typeof body.reviewer !== "string") return Response.json({ ok: false, error: "reviewer is required" }, { status: 400 });
   const existing = readTask(company, id);
   if (!existing) return Response.json({ ok: false, error: `task not found: ${id}` }, { status: 404 });
-  // kobo-328: refuse setting the executor as reviewer from the board too (UI↔CLI
-  // parity — the CLI `review --to <doer>` refuses, the web button must as well).
+  // kobo-328: refuse setting the executor as reviewer from the board too. NOT full
+  // UI↔CLI parity as of kobo-587 — the CLI gained a pane-aware `--to-pane` path
+  // (isSelfReviewPaneAware) that can accept a same-oracle reviewer on a distinct pane;
+  // a browser edit isn't a tmux pane, so the web path deliberately stays on the plain
+  // oracle-name-only isSelfReview below — stricter than the CLI, not equal to it.
   const wantReviewer = body.reviewer.trim();
   if (isSelfReview(existing, wantReviewer)) {
     return Response.json({ ok: false, error: `${wantReviewer} is the assignee/executor of ${id} — self-review banned (executor≠reviewer, kobo-328)` }, { status: 409 });

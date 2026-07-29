@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { runTask } from "../../src/vendor/mpr-plugins/task/index";
+import { runTask, sameTmuxSession } from "../../src/vendor/mpr-plugins/task/index";
 import { addTask, isSelfReview, isSelfReviewPaneAware, parseReviewTarget, readTask, resolveReviewer } from "../../src/core/tasks/store";
 
 // kobo-587: a crew cell shares ONE oracle name across MANY tmux panes ("N panes, 1
@@ -14,6 +14,19 @@ import { addTask, isSelfReview, isSelfReviewPaneAware, parseReviewTarget, readTa
 // dispatch that records `reviewerPane`, which resolveReviewer now honors as proof of
 // independence. Precedent: kobo-346 made SIGN pane-aware the same way; kobo-328's
 // self-review ban itself is NOT touched — same-pane is still refused (AC2).
+//
+// review-round-2 (reviewer %104, PR#386 c1 — real live tmux probe, 4 cases): the FIRST
+// version resolved `--to-pane` against ANY tmux address, including a DIFFERENT
+// company's pane (`30-stitch:0.2 --to-pane 28-bob:0.2` was silently accepted —
+// companyScopeViolation only checks the bare oracle name, never the pane). Fixed by
+// requiring the target to be in the CALLER's own tmux session (sameTmuxSession, tested
+// below) — "N panes, 1 soul" means one crew CELL = one session, not "any live pane
+// anywhere". AC1 CEILING, stated plainly per the reviewer's ask: this suite's CLI-level
+// tests run with `TMUX` deleted (no real tmux in CI), so `resolvePaneIdInCallerSession`
+// always returns null there and every CLI case below exercises the REFUSE/fallback
+// path only — the "system accepts + records reviewerPane" behavior is proven at the
+// pure-function level (isSelfReviewPaneAware, sameTmuxSession) and was verified
+// manually by the reviewer against real tmux panes, NOT by an automated CI run.
 
 describe("kobo-587: parseReviewTarget", () => {
   test("bare oracle name → no pane", () => {
@@ -24,6 +37,29 @@ describe("kobo-587: parseReviewTarget", () => {
   });
   test("malformed pane suffix (not %digits) → treated as no pane info", () => {
     expect(parseReviewTarget("stitch@notapane")).toEqual({ oracle: "stitch", pane: null });
+  });
+});
+
+// review-round-2: the session-scoping fix itself, at the pure-logic level —
+// resolvePaneIdInCallerSession (the impure tmux-querying wrapper around this) can't be
+// exercised in CI without a real tmux session (see file header AC1 ceiling note), but
+// the JUDGMENT it makes — same session vs different session — is plain string
+// comparison and fully covered here without needing tmux at all.
+describe("kobo-587 review-round-2: sameTmuxSession", () => {
+  test("same session name on both sides → true", () => {
+    expect(sameTmuxSession("30-stitch", "30-stitch")).toBe(true);
+  });
+  test("different session names (the exact cross-company case the reviewer probed) → false", () => {
+    expect(sameTmuxSession("30-stitch", "28-bob")).toBe(false);
+  });
+  test("caller session unresolved (null) → false, never treated as a match", () => {
+    expect(sameTmuxSession(null, "30-stitch")).toBe(false);
+  });
+  test("target session unresolved (null) → false, never treated as a match", () => {
+    expect(sameTmuxSession("30-stitch", null)).toBe(false);
+  });
+  test("both null → false", () => {
+    expect(sameTmuxSession(null, null)).toBe(false);
   });
 });
 

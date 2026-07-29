@@ -259,20 +259,37 @@ function resolveSignerPane(): string | null {
 }
 
 /**
- * kobo-587: resolve an ARBITRARY tmux target address (e.g. "30-stitch:0.2", the same
- * session:window.pane form `maw hey` already addresses) to its live tmux %pane-id — the
- * `--to-pane` sibling of resolveSignerPane() (which only ever resolves THIS pane). Used
- * so `review --to <oracle> --to-pane <addr>` lets the operator type the human-readable
- * address they already coordinate with, not a raw %id. Returns null on any resolve
- * failure (unknown pane, no tmux, dead session) — caller then falls back to the
- * original oracle-name-only self-review check (AC4), never silently treats a failed
- * resolve as "independent".
+ * kobo-587: are these two tmux session names the SAME crew cell? Pure so it's testable
+ * without a real tmux — the actual session-name lookups happen in
+ * resolvePaneIdInCallerSession() below, this just judges the two strings.
  */
-function resolvePaneIdForAddress(addr: string): string | null {
+export function sameTmuxSession(callerSession: string | null, targetSession: string | null): boolean {
+  return !!callerSession && !!targetSession && callerSession === targetSession;
+}
+
+/**
+ * kobo-587 review-round-2 (reviewer %104 finding on PR#386 c1, probed live): resolving
+ * ANY tmux address let `--to-pane` reach a pane OUTSIDE the caller's own company —
+ * `companyScopeViolation` only checks the bare oracle NAME (see its call site above),
+ * never the pane's actual session, so `--to-pane 28-bob:0.2` (a different company's
+ * session entirely) silently resolved and got accepted as "independent". The card's own
+ * premise is "N panes, 1 soul" — ONE crew CELL, which in this fleet's convention is ONE
+ * tmux session — so a pane outside the CALLER's own session is never "the same crew, a
+ * different pane" no matter what oracle name it reports. Returns null (→ caller falls
+ * back to the original oracle-name-only self-review check, AC4) unless BOTH resolve AND
+ * share the same tmux session. CEILING (kobo-460, unchanged): pane/session identity is
+ * agent-settable and not guaranteed stable across a tmux server restart — defense-in-
+ * depth, never airtight, same as kobo-346's sign-pane guard.
+ */
+function resolvePaneIdInCallerSession(addr: string): string | null {
   if (!process.env.TMUX) return null;
   try {
-    const out = Bun.spawnSync(["tmux", "display-message", "-t", addr, "-p", "#{pane_id}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
-    return /^%\d+$/.test(out) ? out : null;
+    const callerArgv = ["tmux", "display-message", ...(process.env.TMUX_PANE ? ["-t", process.env.TMUX_PANE] : []), "-p", "#{session_name}"];
+    const callerSession = Bun.spawnSync(callerArgv, { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || null;
+    const out = Bun.spawnSync(["tmux", "display-message", "-t", addr, "-p", "#{session_name}\t#{pane_id}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
+    const [targetSession, paneId] = out.split("\t");
+    if (!sameTmuxSession(callerSession, targetSession ?? null)) return null;
+    return /^%\d+$/.test(paneId ?? "") ? paneId : null;
   } catch {
     return null;
   }
@@ -804,12 +821,16 @@ export async function runTask(
       // form `maw hey` already uses, e.g. "30-stitch:0.2") — live-resolved to its real
       // tmux %pane-id and compared against THIS pane's own %id, so a crew's worker pane
       // can hand a card to a DIFFERENT pane of the same oracle without tripping the
-      // self-review refusal. A resolve failure (dead pane, no tmux) is silently ignored
-      // — never treated as proof of independence — and the call falls back to the
-      // original oracle-name-only check untouched (AC4).
+      // self-review refusal. resolvePaneIdInCallerSession additionally REQUIRES the
+      // target to be in the caller's OWN tmux session (kobo-587 review-round-2: an
+      // earlier version resolved ANY address, including a different company's pane —
+      // "N panes, 1 soul" means one crew CELL, i.e. one session, not "any live pane").
+      // A resolve/session-mismatch failure (dead pane, no tmux, different session) is
+      // silently ignored — never treated as proof of independence — and the call falls
+      // back to the original oracle-name-only check untouched (AC4).
       let toForReview = flags["--to"];
       if (flags["--to"] && flags["--to-pane"]) {
-        const targetPaneId = resolvePaneIdForAddress(flags["--to-pane"]);
+        const targetPaneId = resolvePaneIdInCallerSession(flags["--to-pane"]);
         if (targetPaneId) toForReview = `${flags["--to"]}@${targetPaneId}`;
       }
       if (toForReview && isSelfReviewPaneAware(existing, toForReview, resolveSignerPane())) {
