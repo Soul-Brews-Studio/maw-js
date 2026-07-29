@@ -211,7 +211,7 @@ function trigrams(s: string | undefined): Set<string> {
 }
 
 function cardText(t: Pick<TaskRecord, "title" | "body">): string {
-  return `${t.title} ${(t.body ?? "").slice(0, 500)}`; // body capped — a 500-char lead carries the topic; a 5000-word card shouldn't dominate the trigram vocabulary over a 50-word one. This is a measured, declared blind spot, not a free assumption — see module docstring's "OUTSIDE THE 500-CHARACTER WINDOW" class (90.1% of real cards exceed this cap; kobo-562 is a real miss caused by it)
+  return `${t.title} ${(t.body ?? "").slice(0, 500)}`; // body capped — a short lead carries the topic; a long card shouldn't dominate the trigram vocabulary over a short one. This is a measured, declared blind spot, not a free assumption — see module docstring's "OUTSIDE THE 500-CHARACTER WINDOW" class and scripts/measure-duplicate-scope.ts for current coverage numbers (kobo-562 is a real miss caused by it)
 }
 
 function plainJaccard(a: Set<string>, b: Set<string>): number {
