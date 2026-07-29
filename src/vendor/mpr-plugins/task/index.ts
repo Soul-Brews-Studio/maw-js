@@ -3,7 +3,8 @@
  * docs/company/0001). Agents use the maw_task MCP tool; the top-level `maw task`
  * is a deprecation shim (one release) that forwards to the shared runner.
  *
- *   maw company task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a] [--parent id,...] [--body "...md..."]
+ *   maw company task add "<title>" [--repo r] [--dept d] [--epic e] [--assignee a] [--needs id,...] [--body "...md..."]
+ *     --needs = dependency link (kobo-640; --parent still works as a deprecated alias — do not confuse with pane-parent)
  *   maw company task ls [--company c] [--mine] [--for <who>]  # BLOCKED group · ☑ N/M checklist · --for = decision queue
  *   maw company task start <id>
  *   maw company task claim <id>
@@ -518,11 +519,11 @@ export async function runTask(
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reason": String, "--deploy-required": Boolean, "--no-deploy-required": Boolean, "--crew-gate": Boolean,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--needs": [String], "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reason": String, "--deploy-required": Boolean, "--no-deploy-required": Boolean, "--crew-gate": Boolean,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
-      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--kind epic|task --repo r --dept d --epic e --assignee a --parent id --body text --state backlog|todo|approve (approve → --reason required)]' };
+      if (!title) return { ok: false, error: 'usage: maw company task add "<title>" [--kind epic|task --repo r --dept d --epic e --assignee a --needs id --body text --state backlog|todo|approve (approve → --reason required)] (--parent still accepted, deprecated alias for --needs)' };
       const company = resolveCompany(flags["--company"], me);
       if (!company) return { ok: false, error: "no company — pass --company <c> (could not resolve from config)" };
       // --kind (kobo-72): mark a container card (epic). Default/absent = task.
@@ -549,10 +550,19 @@ export async function runTask(
         const err = badFlagValue(label, v as string | undefined);
         if (err) return { ok: false, error: err };
       }
-      // --parent repeatable AND comma-separated: --parent a,b --parent c → [a,b,c]
-      const parentIds = (flags["--parent"] ?? []).flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
-      const badParent = parentIds.find((p) => p.startsWith("-"));
+      // --needs repeatable AND comma-separated: --needs a,b --needs c → [a,b,c] (kobo-640).
+      // --parent kept as a deprecated alias — same parsing, both flags union into one
+      // parentIds list (declared behavior when both are given, not a silent drop).
+      const needsIds = (flags["--needs"] ?? []).flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
+      const badNeeds = needsIds.find((p) => p.startsWith("-"));
+      if (badNeeds) return { ok: false, error: badFlagValue("--needs", badNeeds)! };
+      const legacyParentIds = (flags["--parent"] ?? []).flatMap((s) => s.split(",")).map((s) => s.trim()).filter(Boolean);
+      const badParent = legacyParentIds.find((p) => p.startsWith("-"));
       if (badParent) return { ok: false, error: badFlagValue("--parent", badParent)! };
+      if (legacyParentIds.length) {
+        console.log(`  \x1b[33m⚠ --parent is deprecated, use --needs instead\x1b[0m`);
+      }
+      const parentIds = [...new Set([...needsIds, ...legacyParentIds])];
       // kobo-222: a born-in-approve card (deploy/money-path) carries the 9-section
       // template — PREFILL it when the creator gives no --body, so Tony gets the full
       // decision picture. A supplied body is kept as-is (warned below if it skips sections).

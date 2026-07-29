@@ -48,7 +48,8 @@ export interface TaskInput {
   epic?: string;       // add
   state?: string;      // add (backlog|todo) / move (target flow state)
   assignee?: string;   // add
-  parent?: string[];   // add (repeatable deps)
+  needs?: string[];    // add (repeatable deps, preferred — kobo-640)
+  parent?: string[];   // add (repeatable deps, deprecated alias for `needs`, kobo-640) — also reused by dep (see below)
   body?: string;       // add
   op?: string;         // dep (required: add|rm)
   mine?: boolean;      // ls
@@ -190,7 +191,8 @@ export function taskArgs(input: TaskInput): string[] {
       if (input.reason) argv.push("--reason", input.reason); // kobo-218: add --state approve → deploy-approval card carries WHY (CLI enforces reason)
       if (input.assignee) argv.push("--assignee", input.assignee);
       if (input.reviewer) argv.push("--reviewer", input.reviewer);
-      for (const p of input.parent ?? []) argv.push("--parent", p);
+      for (const p of input.needs ?? []) argv.push("--needs", p);
+      for (const p of input.parent ?? []) argv.push("--parent", p); // deprecated alias, kobo-640
       if (input.body) argv.push("--body", input.body);
       if (input.deployRequired === true) argv.push("--deploy-required"); // kobo-274 override
       else if (input.deployRequired === false) argv.push("--no-deploy-required");
