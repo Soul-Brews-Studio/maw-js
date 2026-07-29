@@ -4,10 +4,37 @@
  *
  * Board Truth's own diagnosis (the card's evidence section): everyone who opened
  * a duplicate this session already knew the rule "check before you open" — the
- * rule failed because checking means reading ~500 open titles by eye, and the
- * fastest known real pair (kobo-588/kobo-589) was 6 minutes apart. "Be more
- * careful" cannot fix a check that's too slow for a human to run in time; this
- * is a machine check instead.
+ * rule failed because checking means reading every open title by eye, and the
+ * fastest known real pair (kobo-588/kobo-589) landed within minutes of each
+ * other. "Be more careful" cannot fix a check that's too slow for a human to
+ * run in time; this is a machine check instead.
+ *
+ * NO MEASURED NUMBERS LIVE IN THIS COMMENT, ON PURPOSE — read this section
+ * before adding one back. Every number this feature has ever published in
+ * prose (a docstring, a card comment) has independently failed
+ * re-verification once: measured against the wrong text window, measured on
+ * a commit that had already moved under it, or simply couldn't be reproduced
+ * at all — by three different people, on three separate rounds, none of them
+ * careless. That's not one person's bad luck; it's a property of writing a
+ * number derived from a growing, mutable board into a comment that reads as
+ * permanent fact and gets merged. Board Truth already names the fix for the
+ * identical shape at the list level ("lists expire, rules don't" — a frozen
+ * name-list is the wrong artifact; a frozen number computed FROM that same
+ * kind of list has the identical shelf life). What belongs here instead:
+ * the RULE (what counts as a match, what doesn't) and the METHOD (how to
+ * measure it). What a number was on a given date belongs on the kobo-608
+ * card, tagged with the measurement date and the snapshot path it was taken
+ * from — and even there, treat it as a historical record of that date, never
+ * as a claim about the board today.
+ *
+ * MEASURE IT YOURSELF — `bun scripts/measure-duplicate-scope.ts --tasks-dir
+ * <dir>` — never trust a number typed into prose, including this one. The
+ * script re-implements nothing: it calls the real exported `findSimilarOpenCards`
+ * so it can't silently drift from what actually ships. Point it at a frozen
+ * snapshot copy for a reproducible before/after comparison (never a live,
+ * still-growing directory — two sequential live reads aren't comparable, the
+ * exact mistake this card's own design process caught itself making once)
+ * or at a live company's tasks dir for a one-off read.
  *
  * DECLARED UNIVERSE (same discipline as kobo-597's `knownSenderOracles`, and
  * for the identical reason: state what the detector CAN see, so a miss reads as
@@ -23,56 +50,48 @@
  *     text without a tokenizer. Catches a same-topic pair phrased with
  *     genuinely overlapping vocabulary (kobo-548/kobo-569, kobo-588/kobo-589).
  *
- *   OUTSIDE the universe, by measurement, not by omission — TWO classes:
+ *   OUTSIDE the universe, by measurement, not by omission — TWO declared classes:
  *
  *   (1) CROSS-LANGUAGE: the detector compares trigrams of the same title+body
  *   window it always sees (see class (2) below) — a pair that's the SAME
  *   underlying issue described with one card leaning heavily Thai and the
  *   other leaning heavily English/technical-identifier will share only
- *   common/functional words in that window, regardless of content overlap.
- *   kobo-582/kobo-399 (one framed in Thai around cross-cell verdict delivery,
- *   one in English around cross-company ping leak — real bug-for-bug
- *   duplicate) measures 0.060: the only overlapping English tokens in kobo-
- *   582's own window are "card", "pane", "that", "tony" — purely functional
- *   words, not topic words. This is a SEMANTIC match, not a lexical one; no
- *   n-gram/token-overlap heuristic reaches it without an embedding model,
- *   deliberately out of scope (a card-creation-time check needs to stay cheap
- *   and synchronous). NOT a thai-only-vs-english-only label (a label misses
- *   most of the real class — a card that's 95% Thai and one that's 95%
- *   English are BOTH "mixed" under any coarse label, yet still miss each
- *   other): measured on the corpus's own trigram window (title+body[:500],
- *   the exact text the detector reads — head reviewer's independent
- *   measurement, kobo-608 card note c17, re-run there rather than trusting a
- *   number frozen in this comment; c11 published an earlier, WRONG number
- *   measured from title-only, retracted in c16/c17): of 514 cards, 172 (33%)
- *   have 0% Thai characters in that window and 175 (34%) have ≥50% Thai —
- *   a pair straddling those two ends is structurally invisible to this
- *   detector. Validated against 3 known-answer pairs (c18): kobo-582/kobo-399
- *   straddles the two ends and IS a known-miss; kobo-524/kobo-564 and kobo-
- *   548/kobo-569 both sit near the SAME end of the scale (not straddling) and
- *   are correctly caught/not-caught for OTHER reasons — confirms this class
- *   explains the one case we have ground truth for, without over-claiming
- *   coverage of cases we don't (3 pairs is context, not a sample size claim).
+ *   common/functional words in that window, regardless of content overlap
+ *   (kobo-582/kobo-399: one framed in Thai around cross-cell verdict
+ *   delivery, one in English around cross-company ping leak — a real
+ *   bug-for-bug duplicate this detector does not catch; the overlapping
+ *   English tokens in kobo-582's own window are purely functional words —
+ *   "card", "pane", "that", "tony" — not topic words). This is a SEMANTIC
+ *   match, not a lexical one; no n-gram/token-overlap heuristic reaches it
+ *   without an embedding model, deliberately out of scope (a
+ *   card-creation-time check needs to stay cheap and synchronous). NOT a
+ *   thai-only-vs-english-only LABEL (a coarse label misses most of the real
+ *   class — a card that's overwhelmingly Thai and one that's overwhelmingly
+ *   English are BOTH "mixed" under any two/three-bucket label, yet still miss
+ *   each other): the real measure is each card's Thai-character RATIO within
+ *   the detector's own window (title+body[:500]) — a pair sitting at opposite
+ *   ends of that ratio is structurally invisible to this detector, regardless
+ *   of how the exact distribution looks on any given day. Run the script for
+ *   the current distribution and the current known-miss validation.
  *
  *   (2) OUTSIDE THE 500-CHARACTER WINDOW: `cardText()` below caps body at
- *   500 chars — a real, board-wide blind spot, not a rare edge (head
- *   reviewer's measurement, kobo-608 card note c20): 90.1% of cards have a
- *   body longer than 500 chars (median 1,617), so the detector's own working
- *   text is a truncated PREFIX for nearly every real card, and 75.1% of the
- *   corpus's total body content sits outside that prefix, unread by either
- *   signal. Concrete real miss: kobo-562's distinguishing content — the
- *   identifiers `parse-args` (char 974), `permissive` (char 1048),
- *   `positional` (char 1306) — sits entirely past the cap; a conductor nearly
- *   filed a duplicate of it and this detector would not have fired. Made
- *   worse by what IS inside the window: 64.9% of bodies carry this
- *   codebase's own story-template opener ("As a ..., I want ..., so that
- *   ...") inside the first 500 chars — so the visible window is disproportio-
- *   nately boilerplate every card shares, while the words that actually
- *   distinguish one card from another often live past it. Not fixed here
- *   (raising the cap is a real behavior change, not a doc fix — the 500-char
- *   choice itself was never re-examined against this data) — declared so a
- *   future miss reads as "known, bounded, tracked" rather than "silently
- *   broken".
+ *   500 chars. Measured (not assumed) to be a real, board-wide blind spot,
+ *   not a rare edge: most real cards carry a body well past this cap, so the
+ *   detector's own working text is a truncated PREFIX for nearly every real
+ *   card, and a large share of the corpus's total body content sits past
+ *   that prefix, unread by either signal. Concrete real miss: kobo-562's
+ *   distinguishing content — the identifiers `parse-args`, `permissive`,
+ *   `positional` — sits entirely past the cap; a conductor nearly filed a
+ *   duplicate of it and this detector would not have fired. Made worse by
+ *   what IS inside the window: this codebase's own story-template opener
+ *   ("As a ..., I want ..., so that ...") shows up inside the visible prefix
+ *   on a large share of cards — so the visible window is disproportionately
+ *   boilerplate every card shares, while the words that actually distinguish
+ *   one card from another often live past it. Not fixed here (raising the cap
+ *   is a real behavior change, not a doc fix — the 500-char choice itself was
+ *   never re-examined against this data) — declared so a future miss reads as
+ *   "known, bounded, tracked" rather than "silently broken". Run the script
+ *   for the current coverage numbers.
  *
  *   Both classes are declared, honest residuals, not bugs to chase by
  *   loosening anything — see the threshold discipline note below for why
@@ -100,85 +119,72 @@
  * `OUTLIER_K` and `OUTLIER_FLOOR` below are still fixed constants, but of a
  * different, disclosed kind: they scale a PER-EVENT statistic, not a raw
  * similarity score, so they don't encode "how similar is similar" for any
- * particular corpus size the way round 1's `0.1045` did. `OUTLIER_K` is the
- * standard "modified z-score" outlier convention (3.5/0.6745 ≈ 5.19,
- * Iglewicz & Hoaglin) — chosen from statistics literature, not tuned to this
- * card's own labeled examples (an earlier pass picked K=6 by scanning for a
- * value where a 2nd labeled pair started passing; caught in review and
- * reverted — see `OUTLIER_K`'s own doc comment for the full story; K=5 also
- * independently gives the same 2/3 recall, so the result holds across a real
- * range around the textbook value, not a knife-edge coincidence at one pick).
- * Measured (frozen 2026-07-29T01:11:13Z snapshot, 514 cards / 137 currently
- * open, kobo-608 card note has the reproducible script) against the 3-pair
- * labeled set + full negative control: this catches 2 of 3 labeled pairs
- * (kobo-548/kobo-569, kobo-588/kobo-589 — round 1's fixed-threshold design
- * caught only the first). Because the labeled set is only 3 pairs, recall can
- * only ever read 0%/33%/67%/100% — too coarse a scale to tell a genuinely
- * good mechanism from a lucky one; read it as "consistent with working", not
- * as a capability number.
+ * particular corpus size the way round 1's fixed threshold did. `OUTLIER_K`
+ * is the standard "modified z-score" outlier convention from the statistics
+ * literature (Iglewicz & Hoaglin) — chosen from that literature, not tuned to
+ * this card's own labeled examples (an earlier pass DID pick a value that
+ * way, by scanning for where a 2nd labeled pair started passing; caught in
+ * review and reverted — see `OUTLIER_K`'s own doc comment for the full
+ * story). Recall against the labeled set is deliberately not quoted here: the
+ * labeled set itself is a small, fixed number of pairs, coarse enough that
+ * a recall fraction reads as more precise than it is — run the script,
+ * read the result as "consistent with working", not as a capability number.
  *
- * WARN-RATE — DENOMINATOR MUST BE STATED, NOT JUST THE PERCENT (review round
- * 1 finding, reviewer caught this reading two different questions as if they
- * were one): walking every one of the 514 cards in ts-order as if it were the
- * candidate at its own real creation moment, comparing only against cards
- * that already existed and were still open at that instant — the same
- * simulation this feature actually runs in production — **42/514 (8.2%) of
- * all card-creation events across this corpus's history would have received
- * ≥1 warning.** (An earlier draft of this comment quoted "27.0%" against a
- * denominator of "cards still open at snapshot time" (141, later corrected to
- * 137) — a different, less meaningful question: it answers "of what's open
- * right now, how much looks similar to something else also open right now",
- * not "how often would a person creating a card actually see this warning".
- * The two numbers are both real; only the second is what a user experiences.)
- * Of the 60 total warning-pairs in that sweep: 54 similar-text, 6 shared-
- * parent, 0 shared-epic.
+ * WARN-RATE — WHEN YOU RUN THE SCRIPT, STATE THE DENOMINATOR, NOT JUST THE
+ * PERCENT (review round 1 finding, reviewer caught an earlier version of
+ * this comment reading two different questions as if they were one): the
+ * question that matches what a real user experiences is the SEQUENTIAL one —
+ * walk every card in creation order as if it were the candidate at its own
+ * real creation moment, comparing only against cards that already existed
+ * and were still open at that instant (the script does exactly this,
+ * matching what `addTask()` actually runs in production). A DIFFERENT,
+ * LESS MEANINGFUL question — "of what's open right now, how much looks
+ * similar to something else also open right now" — produces a different
+ * number from the same corpus; the two are both real, only the first is what
+ * a person creating a card actually sees. State which one you're quoting.
  *
- * SHARED-EPIC FIRED ZERO TIMES ON REAL DATA — measured, not assumed (review
- * round 1 flagged this as suspicious and asked it be checked instead of
- * quietly left to read as if two structural signals were both active).
- * Reason, also measured: of 202 same-epic candidate-pairs in the corpus, 131
- * (65%) fall inside `BATCH_WINDOW_MS` (ordinary decompose siblings, created
- * seconds apart) — and of the 71 that survive the window, 100% have their
- * earlier sibling ALREADY CLOSED by the time the later one would be compared
- * against it — on this board, an epic's earlier children tend to reach a
- * closed state before a later, unrelated sibling gets added under the same
- * epic. Net: shared-epic is not broken, it is structurally near-unreachable
- * given how this board's epics are actually used day to day — kept because
- * it's cheap/exact/zero-cost-when-idle and the shape it exists for (kobo-524/
- * kobo-564, filed under the same still-open parent kobo-525) is real, just
- * currently rare.
+ * SHARED-EPIC RUNS COLD ON REAL DATA MORE OFTEN THAN IT RUNS AT ALL —
+ * measured, not assumed (review round 1 flagged this as suspicious and asked
+ * it be checked instead of quietly left to read as if two structural signals
+ * were equally active). Reason, also measured (run the script's shared-epic
+ * section for current numbers): most same-epic candidate pairs fall inside
+ * `BATCH_WINDOW_MS` (ordinary decompose siblings, created together) — and of
+ * the ones that survive the window, on this board an epic's earlier children
+ * overwhelmingly tend to reach a closed state before a later, unrelated
+ * sibling gets added under the same epic. Net: shared-epic is not broken, it
+ * is structurally near-unreachable given how this board's epics are actually
+ * used day to day — kept because it's cheap/exact/zero-cost-when-idle and the
+ * shape it exists for (kobo-524/kobo-564, filed under the same still-open
+ * parent kobo-525) is real, just currently rare.
  *
  * CREATOR-BASED RESTRICTION — MEASURED AND REJECTED (review round 2 raised
  * "should shared-parent/shared-epic only warn when `by` differs, since a
  * late add to an existing epic is usually the SAME person who did the
  * original decompose?"): checked against the one confirmed real duplicate —
- * kobo-524 and kobo-564 were BOTH created by `eq3`, same creator. All 6 of
- * the shared-parent pairs found in the real-corpus sweep above are also
- * same-creator pairs. Restricting to different-creator-only would have
- * missed the one real case this card has ground truth for. Not implemented.
+ * kobo-524 and kobo-564 were BOTH created by the same oracle. Every
+ * shared-parent pair found in a real-corpus sweep was also a same-creator
+ * pair. Restricting to different-creator-only would have missed the one real
+ * case this card has ground truth for. Not implemented.
  *
- * A manual spot-check of 8 of 38 flagged cards (an earlier, pre-batch-guard
- * sweep) found 4 read as genuinely sensible on inspection and 4 as noise.
- *
- * BATCH-DECOMPOSE FALSE-POSITIVE CLASS (found in that same spot-check, fixed
- * before shipping): 2 of the 4 "noise" flags were sibling cards from the SAME
- * epic decompose (kobo-417/kobo-420/kobo-416, all children of kobo-414,
- * created 0.096 SECONDS apart) — a legitimate task breakdown, not a mistake,
- * flagged only because siblings describing one feature naturally share
- * vocabulary. The real duplicate in the labeled set (kobo-524/kobo-564) was
- * created 14.8 HOURS apart — an enormous, clean separation from the
- * decompose-batch timing. `BATCH_WINDOW_MS` excludes an existing open card
- * from EITHER signal if it was created within that window of "now" (the
- * candidate's own creation moment) — this is NOT a full fix for lexical false
- * positives in general (a longer tail of genuinely-unrelated-but-worded-
- * similarly pairs remains, e.g. kobo-122/kobo-411 at 492 hours apart, no
- * batch relationship at all — a different, harder problem this card does not
- * claim to solve), but it measurably removes the ONE class this spot-check
+ * BATCH-DECOMPOSE FALSE-POSITIVE CLASS (found during design, fixed before
+ * shipping): a manual spot-check of an early, pre-batch-guard sweep found
+ * sibling cards from the SAME epic decompose (kobo-417/kobo-420/kobo-416,
+ * all children of kobo-414, created together within the same short burst) —
+ * a legitimate task breakdown, not a mistake, flagged only because siblings
+ * describing one feature naturally share vocabulary. The real duplicate in
+ * the labeled set (kobo-524/kobo-564) was created a large, clean gap apart —
+ * nowhere near decompose-batch timing. `BATCH_WINDOW_MS` excludes an existing
+ * open card from EITHER signal if it was created within that window of "now"
+ * (the candidate's own creation moment) — this is NOT a full fix for lexical
+ * false positives in general (a longer tail of genuinely-unrelated-but-
+ * worded-similarly pairs remains, e.g. kobo-122/kobo-411, no batch
+ * relationship at all — a different, harder problem this card does not claim
+ * to solve), but it measurably removes the ONE class an early spot-check
  * could name precisely and explain. A card added LATER to an epic that
- * already has several open children is a separate, NOT-yet-fixed noise
- * shape (review round 2): the window only protects same-batch siblings, not
- * a sibling added afterward — see the shared-epic measurement above for why
- * this hasn't shown up on real data yet, and the note-cap in store.ts's
+ * already has several open children is a separate, NOT-yet-fixed noise shape
+ * (review round 2): the window only protects same-batch siblings, not a
+ * sibling added afterward — see the shared-epic note above for why this
+ * hasn't shown up on real data yet, and the note-cap in store.ts's
  * addTask() for the defensive mitigation (a long note is capped, not
  * suppressed) if/when it does.
  */
