@@ -20,6 +20,7 @@ import { appendWorklog, openClaims, readWorklog, worklogCacheProbe } from "../wo
 import type { WorklogEntry, WorklogKind } from "../worklog/types";
 import { notifyParentOfSubcardDone } from "./notify";
 import { classifySignTiers, type DiffFile } from "./sign-tier-classifier";
+import { findSimilarOpenCards, type ScopeOverlapWarning } from "./duplicate-scope-warn";
 
 export type TaskState =
   | "backlog"
@@ -429,6 +430,23 @@ export interface AddTaskInput {
   reviewReason?: string; // kobo-218: born-in-approve deploy-approval card carries WHY (the Approve lane invariant — every card says why it's in Tony's queue)
   room?: string; // kobo-244: brainstorm-room artifact id this card is distilled from (provenance)
   crewGate?: boolean; // kobo-327: mark a crew-cell card at creation/dispatch → merge needs a crew pre-sign too (closes the head-merges-before-crew race)
+  skipDuplicateScopeCheck?: boolean; // kobo-608: system-templated/tightly-scoped call sites opt out explicitly, per-site, with a reason comment — never left to accident of wiring order
+  openCardsForScopeCheck?: TaskRecord[]; // kobo-608 review round 2: a batch caller (decomposeEpic) that already read the whole board once can pass that snapshot in, instead of paying listTasks(company) again per child (measured: ≈91ms/518 cards — 10 children re-reading it 10x is +1s for no new information, since same-batch siblings are excluded by BATCH_WINDOW_MS regardless of whether they're in the snapshot)
+}
+
+// kobo-608 review round 1: injectable seam (same shape as __setPrDiffFetcherForTest /
+// __setHeadShaFetcherForTest elsewhere in this codebase, kobo-546's own lesson —
+// no MAW_TEST_MODE branch around a fallible call, an injectable override instead)
+// so a test can force the post-persist durable-note write to throw and prove
+// addTask() still returns the already-created card rather than looking like it
+// failed (review round 1: the card exists but a thrown error here would make the
+// caller believe creation itself failed and re-create a duplicate).
+let taskNoterForScopeWarning: typeof noteTask = noteTask;
+export function __setTaskNoterForTest(fn: typeof noteTask): void {
+  taskNoterForScopeWarning = fn;
+}
+export function __resetTaskNoterForTest(): void {
+  taskNoterForScopeWarning = noteTask;
 }
 
 /**
@@ -437,7 +455,7 @@ export interface AddTaskInput {
  * mean "started" (the `maw hey [request:]` dispatch path) pass state explicitly.
  * The assignee picks the work up themselves later via `start`/`claim`.
  */
-export function addTask(input: AddTaskInput): TaskRecord {
+export function addTask(input: AddTaskInput): TaskRecord & { scopeWarnings?: ScopeOverlapWarning[] } {
   const ts = Date.now();
   const assignee = input.assignee ?? null;
   const task: TaskRecord = {
@@ -479,6 +497,30 @@ export function addTask(input: AddTaskInput): TaskRecord {
     }
   }
 
+  // kobo-608 review round 1 (reviewer proved this by running it, not reading
+  // code): a warn-only feature must NEVER be a hard dependency of the write
+  // path every caller in the fleet shares. computed BEFORE persisting — reads
+  // only cards that already exist on disk, so the candidate can never
+  // self-match its own not-yet-written file. Chokepoint by design (front's
+  // instruction): every real create path funnels through this one function,
+  // so the check runs once here, not per-caller. FAIL-OPEN: any throw here
+  // (a malformed card file, an edge case in scoring — anything) must never
+  // block card creation; caught below, logged, degrades to "no warning" for
+  // this one call only.
+  let scopeWarnings: ScopeOverlapWarning[] = [];
+  let scopeCheckError: string | undefined;
+  if (!input.skipDuplicateScopeCheck) {
+    try {
+      scopeWarnings = findSimilarOpenCards(
+        input.company,
+        { title: input.title, body: input.body, parentIds: input.parentIds, epic: input.epic },
+        { listTasks: input.openCardsForScopeCheck ? () => input.openCardsForScopeCheck! : listTasks, now: ts },
+      );
+    } catch (e) {
+      scopeCheckError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   // Race-safe id allocation: compute candidate, claim it exclusively; on a
   // collision recompute and retry. Bounded so a pathological loop can't hang.
   const MAX_ATTEMPTS = 5;
@@ -490,7 +532,52 @@ export function addTask(input: AddTaskInput): TaskRecord {
     }
   }
   emit(task, input.by, "task-created", `created ${task.id}: ${task.title}`);
-  return task;
+
+  if (scopeCheckError) {
+    emit(task, "system", "error", `kobo-608 scope-check failed, degraded to no-warning for this card: ${scopeCheckError}`);
+  }
+
+  if (scopeWarnings.length) {
+    // Durable trace, not just an in-memory value for this one caller — the
+    // in-memory `scopeWarnings` on the return dies with this call; nobody
+    // reading the card later could tell it was ever warned. The note carries
+    // THREE fields, not "warned already": (1) which card(s) it might overlap,
+    // (2) the score, (3) that it was created anyway (creation never blocks —
+    // kobo-608 AC). This is deliberate, not verbose-for-its-own-sake: today's
+    // labeled set is only 3 pairs (recall can only read 0/33/67/100%, too
+    // coarse to tell a good mechanism from a lucky one). Every warning that
+    // keeps all 3 fields becomes a future labeled example — in a few weeks
+    // there will be dozens of real (pair, score, human-decision) rows, which
+    // is the only way to re-tune this without tuning toward today's 3
+    // positive examples (explicitly rejected once already, see K=6 in
+    // duplicate-scope-warn.ts). Trimming this note to "possibly duplicate"
+    // throws that data away. Don't shorten it.
+    //
+    // Capped at 5 pairs (+ a "N more" tail) — review round 1 measured a real
+    // 14-pair case (a title matching an existing generic-titled card) where
+    // an uncapped note would list all 14; a long-lived epic with many still-
+    // open children could do the same via shared-epic. Sorted strongest-first
+    // by findSimilarOpenCards already, so truncation drops the weakest, not
+    // the most useful signal.
+    const CAP = 5;
+    const shown = scopeWarnings.slice(0, CAP);
+    const detail = shown
+      .map((w) => `${w.id} (${w.reason}${w.score !== undefined ? `, score ${w.score.toFixed(3)}` : ""})`)
+      .join(", ");
+    const tail = scopeWarnings.length > CAP ? ` (+${scopeWarnings.length - CAP} more)` : "";
+    // kobo-608 review round 1: noteTask runs AFTER the card is already durably
+    // written — its failure must never surface as if addTask() itself failed
+    // (the card exists; a thrown error here would make the caller believe
+    // creation failed and re-create a duplicate, which is worse than no note
+    // at all). Best-effort only.
+    try {
+      taskNoterForScopeWarning(input.company, task.id, "system", `⚠ possible scope overlap with ${detail}${tail} — created anyway (kobo-608)`);
+    } catch (e) {
+      emit(task, "system", "error", `kobo-608 durable note failed (card exists, warning not persisted): ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return scopeWarnings.length ? { ...task, scopeWarnings } : task;
 }
 
 /**
@@ -1762,7 +1849,10 @@ export function pendingMentions(company: string, forWho?: string): PendingMentio
  */
 export function askTask(company: string, parentId: string, question: string, to: string, by: string): TaskRecord | null {
   if (!readTask(company, parentId)) return null; // parent must exist to hang the subcard under
-  return addTask({ company, title: question, by, epic: parentId, assignee: mentionKey(to) });
+  // kobo-608: skip — a comment-reply subcard is already tightly scoped under
+  // one specific parent; it can't be "two people independently duplicating
+  // an unrelated card" by construction.
+  return addTask({ company, title: question, by, epic: parentId, assignee: mentionKey(to), skipDuplicateScopeCheck: true });
 }
 
 export interface BlockInput {
@@ -2542,8 +2632,16 @@ export function decomposeEpic(company: string, epicId: string, children: Decompo
   }
 
   const result: DecomposeResult = { epic: epicId, created: [], skipped: [], depWarnings: [] };
+  // kobo-608 review round 2: read the board ONCE and reuse it both for the
+  // idempotent-skip check below and every child's duplicate-scope check —
+  // decomposeEpic used to implicitly pay listTasks(company) once per child
+  // (measured ≈91ms/518 cards; a 10-child decompose = +1s of pure re-reading
+  // for no new information, since same-batch siblings are excluded from the
+  // scope check by BATCH_WINDOW_MS regardless of whether they're in the
+  // snapshot — a slightly-stale list here changes nothing observable).
+  const allOpenCards = listTasks(company);
   // Existing titles under the epic → idempotent skip (re-run safety).
-  const existing = new Map(epicChildren(epicId, listTasks(company)).map((c) => [c.title, c.id] as const));
+  const existing = new Map(epicChildren(epicId, allOpenCards).map((c) => [c.title, c.id] as const));
   // index → created/existing id, so a `$N` sibling ref resolves even to a skipped child.
   const idByIndex: (string | null)[] = children.map(() => null);
 
@@ -2554,7 +2652,7 @@ export function decomposeEpic(company: string, epicId: string, children: Decompo
     const already = existing.get(title);
     if (already) { result.skipped.push({ index: i, id: already, title }); idByIndex[i] = already; continue; }
     try {
-      const card = addTask({ company, by, title, epic: epicId, body: child.body, assignee: child.assignee ?? null, reviewer: child.reviewer });
+      const card = addTask({ company, by, title, epic: epicId, body: child.body, assignee: child.assignee ?? null, reviewer: child.reviewer, openCardsForScopeCheck: allOpenCards });
       result.created.push({ index: i, id: card.id, title });
       idByIndex[i] = card.id;
     } catch (e) {

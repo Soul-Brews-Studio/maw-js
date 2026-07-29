@@ -406,7 +406,13 @@ export async function handleTaskCreateRequest(request: Request): Promise<Respons
       return Response.json({ ok: false, error: e instanceof Error ? e.message : "epic loop rejected" }, { status: 409 });
     }
   }
-  return Response.json({ ok: true, task: { id: created.id, title: created.title, epic: created.epic ?? null, state: created.state } });
+  return Response.json({
+    ok: true,
+    task: { id: created.id, title: created.title, epic: created.epic ?? null, state: created.state },
+    // kobo-608: non-persisted — only this immediate response carries it; the
+    // durable trace already lives on the card as a note (addTask posts it).
+    ...(task.scopeWarnings?.length ? { scopeWarnings: task.scopeWarnings } : {}),
+  });
 }
 
 /**
@@ -548,6 +554,8 @@ export async function handleTaskApproveRequest(request: Request): Promise<Respon
     return Response.json({ ok: true, mode: "mark" });
   }
   // NO pr → spawn the execution-card as a containment child (epic) of the work-card.
+  // kobo-608: skip — title is system-templated (`deploy ${work.title}`), not a
+  // new idea a human typed; nothing to compare it against would mean anything.
   const exec = addTask({
     company,
     title: `deploy ${work.title}`,
@@ -555,6 +563,7 @@ export async function handleTaskApproveRequest(request: Request): Promise<Respon
     assignee: work.assignee,
     state: "in-progress",
     epic: work.id,
+    skipDuplicateScopeCheck: true,
   });
   return Response.json({
     ok: true,

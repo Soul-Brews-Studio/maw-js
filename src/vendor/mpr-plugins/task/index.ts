@@ -577,6 +577,15 @@ export async function runTask(
         crewGate: Boolean(flags["--crew-gate"]), // kobo-327: crew-cell card → merge needs crew + head sign
       });
       console.log(`\x1b[32m✚ created\x1b[0m ${t.id} \x1b[90m(${t.state})\x1b[0m: ${t.title}`);
+      // kobo-608: guide (not block) — possible scope overlap with an existing open
+      // card. Creation already succeeded above; this is a soft warn, same style as
+      // the approve/parent warns below. The full trace (pair + score + "created
+      // anyway") is also a durable note on the card itself, not just this line.
+      if (t.scopeWarnings?.length) {
+        for (const w of t.scopeWarnings) {
+          console.log(`  \x1b[33m⚠ possibly overlaps ${w.id} (${w.reason}${w.score !== undefined ? `, score ${w.score.toFixed(3)}` : ""}): ${w.title}\x1b[0m`);
+        }
+      }
       // kobo-222: guide (not block) — an approve-card whose body skips required sections
       // gets a soft warn listing them, so the approver knows what's still missing.
       if (addState === "approve") {
