@@ -219,7 +219,9 @@ describe("task command plugin standalone boundary", () => {
     expect(src).toContain("compareReadyOrder");
     expect(src).toContain("sort(compareReadyOrder)");
     expect(src).toContain("parentStateResolver");
-    expect(src).toContain('"--parent"'); // add accepts parent deps
+    expect(src).toContain('"--needs"'); // kobo-640: add accepts dependency deps via --needs (preferred)
+    expect(src).toContain('"--parent"'); // kobo-640: --parent still accepted, deprecated alias for --needs
+    expect(src).toContain("--parent is deprecated"); // kobo-640: legacy flag warns, doesn't silently vanish
     expect(src).toContain("checklistProgress"); // eq3-009c: body checklist N/M on the board
     expect(src).toContain('"--body"'); // add accepts a body
     expect(src).toContain("blockTask"); // eq3-009b: explicit block/unblock + kinds + for
