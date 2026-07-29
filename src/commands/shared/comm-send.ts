@@ -411,8 +411,9 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  *   (c) — round 2, replacing an earlier structural-rejection-only design —
  *       the oracle segment is NOT a name any locally-registered company
  *       recognizes as a real member (`knownSenderOracles()` below): a union
- *       of every company's `companyOracles()` (git-synced fleet-wide per ADR
- *       0002, so this works the same on any host in the fleet) plus the
+ *       of every company's `companyOracles()` (a local file written by the
+ *       `company` command — as far as verified, no automatic sync mechanism
+ *       exists in this path, kobo-621) plus the
  *       literal `"web"` (kobo-386: the room-send handler always persists the
  *       outbound turn under the CONSTANT identity `"web"` — a real,
  *       system-generated sender, not an accident — a large share of every
@@ -436,10 +437,12 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * half would smuggle a trust judgment in here (kobo-335's forge-actor shape:
  * an env var or claimed identity is never proof of the real sender) — that
  * question is kobo-590's scope BY NAME, not this card's. Concretely: a node
- * value has no fleet-wide synced source of truth the way company rosters do
- * (company.json files are git-synced, ADR 0002; no equivalent exists for
- * "which node names are real machines in the fleet") — a per-host node
- * registry (config.agents/namedPeers) differs by WHICH host runs this code,
+ * value has no registry file at all in this codebase — company rosters at
+ * least have `company.json` (a local file written by the `company` command;
+ * as far as verified, no automatic sync mechanism exists in this path,
+ * kobo-621), while no equivalent file exists for "which node names are real
+ * machines in the fleet" — a per-host node registry (config.agents/namedPeers)
+ * differs by WHICH host runs this code,
  * so the same message would classify differently on different panes. Trying
  * it anyway (round 2, before this decision) would have pushed real senders
  * like `mba` (real, measured — its oracles are registered kobo company
@@ -449,10 +452,15 @@ function aclSenderOracle(_config: ReturnType<typeof loadConfig>, senderIdentity:
  * kobo-597 review round 3 (eq3's final ruling) — THE UNIVERSE THIS FUNCTION
  * CLASSIFIES, stated explicitly so nobody reads a rejection as "not found,
  * fix the registry": **an oracle is knowable here if and only if it is a
- * member of some company REGISTERED ON THE BOARD** (`company.json`, git-synced
- * fleet-wide per ADR 0002 — identical on every host, so classification is
- * DETERMINISTIC across the fleet, not per-host). That is a real, principled
- * boundary, not an implementation gap: `thawanban-coord` is INSIDE this
+ * member of some company REGISTERED ON THE BOARD** (`company.json` — a local
+ * file written by the `company` command; as far as verified on this machine,
+ * no automatic sync mechanism exists in this path, kobo-621 — same as the
+ * node registry rejected in the paragraph directly above, this roster is
+ * per-machine local state and can differ across hosts). The boundary itself
+ * is a deliberate DEFINITION of what this function classifies — membership
+ * is the intended universe, chosen on purpose — not a claim that the
+ * registry is fleet-uniform (kobo-621: verified it structurally isn't,
+ * regardless of init state): `thawanban-coord` is INSIDE this
  * universe (thawanban is a pgw company member) and must never be cut, while
  * `monkut` and `somsri` are OUTSIDE it (checked every registered
  * company.json by hand — kobo, pgw, demo, smoke375 — neither is a member of
