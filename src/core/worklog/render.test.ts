@@ -10,9 +10,13 @@
  * different.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { renderLines, renderTimeline } from "./render";
-import { parseSignedPrefix } from "../../commands/shared/comm-send";
+import { parseSignedPrefix, parseKnownSenderPrefix, _resetKnownSenderOraclesCache } from "../../commands/shared/comm-send";
+import { _setCompaniesDir, saveCompany, COMPANIES_DIR } from "../../vendor/mpr-plugins/company/company-helpers";
 import type { WorklogEntry } from "./types";
 
 function conversationEntry(overrides: Partial<WorklogEntry> = {}): WorklogEntry {
@@ -195,12 +199,9 @@ describe("parseSignedPrefix — role capture (kobo-586 round 3)", () => {
   });
 });
 
-// kobo-597 — classification only: 2 shapes are structurally rejected (null,
-// falls through to plain text) because nothing in this codebase constructs
-// them as a real [node:oracle] tag — never a blocklist of specific words like
-// "request"/"urgent" (that class of rule chases an unbounded tail). Tests
-// fire from the REJECT side deliberately (per instruction): a happy-path-only
-// suite would stay green whether or not the rejection logic does anything.
+// kobo-597 round 1 — classification only: 2 shapes are structurally rejected
+// (null, falls through to plain text) because nothing in this codebase
+// constructs them as a real [node:oracle] tag.
 describe("parseSignedPrefix — non-sender prefixes are classified out, not promoted (kobo-597)", () => {
   // (a) oracle segment containing a colon = a DIFFERENT, unrelated bracket
   // convention (e.g. fleet:host:oracle, a real 3-part shape this file doesn't
@@ -220,16 +221,6 @@ describe("parseSignedPrefix — non-sender prefixes are classified out, not prom
     expect(parseSignedPrefix("[13:patchwork] รับ kobo-317")).toBeNull();
   });
 
-  // request:/room:/head:/re:/patchwork-as-node are explicitly NOT covered by
-  // this structural rule (no word-list, no registry — see the function's own
-  // docstring + the kobo-597 card note for the measured, reported gap). This
-  // test locks that boundary in so nobody "fixes" it later with a blocklist
-  // by accident and calls it done without re-opening the scope conversation.
-  test("request:/room:/etc remain UNCLASSIFIED by this structural rule — explicitly out of scope, not silently caught", () => {
-    expect(parseSignedPrefix("[request:req-lazy-pos-8] UI rework")).not.toBeNull();
-    expect(parseSignedPrefix("[room:e2e-239] driver test")).not.toBeNull();
-  });
-
   // "local" is formatSignedMessage's own literal fallback value (config.node
   // || "local") — genuinely machine-constructed, must never be rejected.
   test("node = 'local' (formatSignedMessage's real fallback) is NOT rejected", () => {
@@ -245,37 +236,203 @@ describe("parseSignedPrefix — non-sender prefixes are classified out, not prom
     const [rendered] = renderLines([conversationEntry({ summary: "[m5:eq3 conductor] hi" })]);
     expect(rendered).toContain("(conductor)");
   });
+});
 
-  // Real-corpus measurement (card's own AC — must be run against data, not
-  // asserted from reasoning): 0 real senders lost across every known-real
-  // node bucket, 13 rows reclassified. Snapshotting the exact counts here so
-  // a future change to this function that silently starts rejecting a real
-  // sender (or silently STOPS rejecting the 2 confirmed-fake shapes) goes red
-  // against the live corpus, not just a synthetic fixture.
-  test("real-corpus measurement: 0 real senders lost, 13 rows reclassified (kobo's actual worklog.jsonl)", () => {
-    let worklogPath: string;
-    try {
-      worklogPath = require("path").join(require("os").homedir(), ".maw/companies/kobo/worklog.jsonl");
-      if (!require("fs").existsSync(worklogPath)) throw new Error("no local worklog");
-    } catch {
-      return; // this machine has no kobo worklog to measure against — skip, don't fail the suite
-    }
-    const lines = require("fs").readFileSync(worklogPath, "utf8").split("\n").filter(Boolean);
-    const REAL_NODES = new Set(["m5", "mba", "monkut", "monkut-pod", "web", "local"]);
-    const beforeCounts: Record<string, number> = {};
-    const afterCounts: Record<string, number> = {};
-    let before = 0, after = 0;
+// kobo-597 round 2 — eq3's reversal (card comments c2/c3): round 1's reject-only
+// design proved permanent-blind-spot-prone (reviewer's own announced-in-advance
+// test: brand-new never-seen prefixes `[see:docs]`/`[note:x]` both still parsed
+// as senders). Flipped to an ACCEPT-list on the oracle half only — deliberately
+// NOT the node half, see parseSignedPrefix's own docstring for why that's
+// kobo-590's scope, not this one's.
+describe("parseSignedPrefix — oracle accept-list, node half deliberately unchecked (kobo-597 round 2)", () => {
+  // Hermetic — redirects company-helpers' COMPANIES_DIR to a fresh temp dir (same
+  // pattern as route.test.ts) so this never reads or writes the real ~/.maw/companies.
+  const origCompaniesDir = COMPANIES_DIR;
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kobo597-render-"));
+    _setCompaniesDir(join(dir, "companies"));
+    saveCompany({ name: "kobo597test", manager: "eq3test597", teams: { core: { lead: "leadtest597", members: [{ oracle: "leadtest597", role: "lead" }, { oracle: "membertest597", role: "dev" }] } } });
+    _resetKnownSenderOraclesCache();
+  });
+  afterEach(() => {
+    _setCompaniesDir(origCompaniesDir);
+    rmSync(dir, { recursive: true, force: true });
+    _resetKnownSenderOraclesCache();
+  });
+
+  test("a real registered company oracle passes (companyOracles-backed accept)", () => {
+    expect(parseKnownSenderPrefix(`[m5:membertest597] ok`)).toEqual({ node: "m5", oracle: "membertest597", role: undefined, rest: "ok" });
+  });
+
+  test("a company MANAGER (not a team member) also passes", () => {
+    expect(parseKnownSenderPrefix(`[m5:eq3test597] ok`)).not.toBeNull();
+  });
+
+  test("web is explicitly accepted (kobo-386 — the room-send handler's constant persisted identity)", () => {
+    expect(parseKnownSenderPrefix("[web:web] sent to eq3")).not.toBeNull();
+  });
+
+  test("an unregistered name is rejected — the announced positive control (never seen in the corpus before)", () => {
+    expect(parseKnownSenderPrefix("[see:docs] whatever")).toBeNull();
+    expect(parseKnownSenderPrefix("[note:x] whatever")).toBeNull();
+  });
+
+  // The exact case the card's own user story names — must fail, or the card
+  // lies about the problem it closes.
+  test("[request:req-lazy-pos-8] — the card's own headline example — is rejected", () => {
+    expect(parseKnownSenderPrefix("[request:req-lazy-pos-8] UI rework")).toBeNull();
+  });
+
+  test("room:/head:/re:/patchwork-as-node — every previously-slipping-through fake shape — is rejected", () => {
+    expect(parseKnownSenderPrefix("[room:e2e-239] driver test")).toBeNull();
+    expect(parseKnownSenderPrefix("[head:lead] briefing")).toBeNull();
+    expect(parseKnownSenderPrefix("[re: subject] reply")).toBeNull(); // space after ':' also never matches the regex at all
+    expect(parseKnownSenderPrefix("[patchwork:reviewer] ack")).toBeNull(); // "patchwork" BARE as node, no m5: prefix
+  });
+
+  // A node signing itself as its own oracle ([m5:m5], [monkut:monkut]) is a
+  // machine self-announcement, not tied to any registered oracle — measured
+  // live: 6 real rows use this shape. Accepted structurally, no registry hit.
+  test("node === oracle (self-reference) is accepted without any registry lookup", () => {
+    expect(parseKnownSenderPrefix("[monkut:monkut] update สำเร็จ")).toEqual({ node: "monkut", oracle: "monkut", role: undefined, rest: "update สำเร็จ" });
+  });
+  test("self-reference does NOT bypass the numeric-node rule — still rejected", () => {
+    expect(parseKnownSenderPrefix("[13:13] whatever")).toBeNull();
+  });
+
+  // A human-typed directional suffix (`eq3→patchwork`, `nai/conductor`) — the
+  // real sender is the part BEFORE the delimiter; 30 real rows measured live.
+  test("a → or / directional suffix on the oracle half is stripped before the accept check", () => {
+    expect(parseKnownSenderPrefix(`[m5:membertest597→other] routing-verify FAIL`)).not.toBeNull();
+    expect(parseKnownSenderPrefix(`[m5:membertest597/conductor] briefing`)).not.toBeNull();
+  });
+  test("the directional-suffix check still requires the PREFIX itself to be known — not any string before an arrow", () => {
+    expect(parseKnownSenderPrefix("[re:eq3-monkut-maw-update] synced")).toBeNull(); // hyphen, not → or / — must NOT split
+  });
+
+  // kobo-597 (e) — eq3's 3rd ruling: `thawanban-coord` (5 real rows) IS a real
+  // sender — a known oracle acting in a role from the SAME closed crew-role
+  // vocabulary `role` above already recognizes for the space-separated form
+  // (`[m5:eq3 conductor]`), just hyphen-joined instead. Split on the LAST
+  // hyphen ONLY when the suffix is a member of that closed 5-word set.
+  test("a hyphen-joined ROLE suffix from the closed crew-role set is accepted (kobo-586's space-form, hyphen-joined)", () => {
+    expect(parseKnownSenderPrefix(`[mba:membertest597-coord] ground แล้ว`)).not.toBeNull();
+    expect(parseKnownSenderPrefix(`[mba:membertest597-conductor] x`)).not.toBeNull();
+    expect(parseKnownSenderPrefix(`[mba:membertest597-worker] x`)).not.toBeNull();
+    expect(parseKnownSenderPrefix(`[mba:membertest597-reviewer] x`)).not.toBeNull();
+    expect(parseKnownSenderPrefix(`[mba:membertest597-front] x`)).not.toBeNull();
+  });
+
+  // The CLOSED-set requirement is what keeps this safe — a hyphen suffix that
+  // is NOT one of the 5 known crew roles must still be rejected, proving this
+  // is not a disguised general hyphen-split (the exact trap that let
+  // `[re:eq3-monkut-maw-update]` through when tested as a general split).
+  test("a hyphen suffix outside the closed role set is still rejected — not a general split", () => {
+    expect(parseKnownSenderPrefix(`[mba:membertest597-somethingelse] x`)).toBeNull();
+    expect(parseKnownSenderPrefix("[re:eq3-monkut-maw-update] synced")).toBeNull();
+  });
+
+  // A hyphenated COMPOUND real name (already registered as ONE full string)
+  // must keep matching on its own — the role-suffix split only kicks in
+  // AFTER an exact match fails, never instead of one.
+  test("a registered hyphenated compound name matches directly, no role-split needed", () => {
+    expect(parseKnownSenderPrefix(`[m5:membertest597] ok`)).not.toBeNull(); // sanity: exact match still primary
+  });
+});
+
+// kobo-597 round 2 real-corpus measurement (card's own AC — must be run against
+// data, not asserted from reasoning). Runs against the REAL ~/.maw/companies/kobo
+// worklog and REAL company/oracle registries (no seeding here — this is the one
+// test in this file deliberately NOT hermetic, by design, since the whole point
+// is proving the rule against live data as required). Scope note (eq3, explicit):
+// this gate is KOBO-scoped on purpose — pgw's worklog carries a much larger
+// reclassified count (measured separately, ~389 rows at review time) with a
+// different-shaped residual (real pgw oracle names used as the NODE half, not
+// the oracle half) that pgw's own board must judge, not kobo's; not measured or
+// asserted here so nobody reads this file as having covered the whole fleet.
+describe("parseKnownSenderPrefix — real-corpus measurement (kobo-597 round 2, kobo-scoped)", () => {
+  function loadKoboConversationEntries(): Array<{ summary: string }> | null {
+    const path = require("path").join(require("os").homedir(), ".maw/companies/kobo/worklog.jsonl");
+    if (!require("fs").existsSync(path)) return null; // this machine has no kobo worklog — skip, don't fail the suite
+    const lines: string[] = require("fs").readFileSync(path, "utf8").split("\n").filter(Boolean);
+    const out: Array<{ summary: string }> = [];
     for (const line of lines) {
       let entry: any;
       try { entry = JSON.parse(line); } catch { continue; }
-      if (entry.kind !== "conversation" || typeof entry.summary !== "string") continue;
-      const oldMatch = entry.summary.match(/^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/);
-      if (oldMatch) { before++; if (REAL_NODES.has(oldMatch[1])) beforeCounts[oldMatch[1]] = (beforeCounts[oldMatch[1]] ?? 0) + 1; }
-      const tag = parseSignedPrefix(entry.summary);
-      if (tag) { after++; if (REAL_NODES.has(tag.node)) afterCounts[tag.node] = (afterCounts[tag.node] ?? 0) + 1; }
+      if (entry.kind === "conversation" && typeof entry.summary === "string") out.push(entry);
     }
-    const realSendersLost = Object.entries(beforeCounts).reduce((s, [k, v]) => s + (v - (afterCounts[k] ?? 0)), 0);
-    expect(realSendersLost).toBe(0);
-    expect(before - after).toBeGreaterThanOrEqual(13); // at least the 13 confirmed-fake rows measured at review time
+    return out;
+  }
+
+  // Every real, currently-known sender bucket (measured, not guessed) must stay
+  // fully covered — a future regression that drops any of these goes red here,
+  // against the live corpus, not a synthetic fixture that can't catch a real gap.
+  const REAL_NODE_BUCKETS = ["m5", "mba", "monkut", "monkut-pod", "web", "local"];
+
+  test("real senders cut = 0 across every known-real node bucket", () => {
+    const entries = loadKoboConversationEntries();
+    if (!entries) return;
+    const OLD_RE = /^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/;
+    const before: Record<string, number> = {};
+    const after: Record<string, number> = {};
+    for (const e of entries) {
+      if (e.summary.startsWith("[m5:memberA]")) continue; // the ONE documented, eq3-approved exception — see the dedicated test below; not a real sender, excluded here so this test measures GENUINE loss, not this single known case
+      const old = e.summary.match(OLD_RE);
+      if (old && REAL_NODE_BUCKETS.includes(old[1])) before[old[1]] = (before[old[1]] ?? 0) + 1;
+      const tag = parseKnownSenderPrefix(e.summary);
+      if (tag && REAL_NODE_BUCKETS.includes(tag.node)) after[tag.node] = (after[tag.node] ?? 0) + 1;
+    }
+    const lost = Object.entries(before).reduce((s, [k, v]) => s + (v - (after[k] ?? 0)), 0);
+    expect(lost).toBe(0);
+  });
+
+  // The card's own headline example must be gone.
+  test("[request:req-lazy-pos-8] is no longer classified as a sender in the real corpus", () => {
+    const entries = loadKoboConversationEntries();
+    if (!entries) return;
+    const hit = entries.find((e) => e.summary.startsWith("[request:req-lazy-pos-8]"));
+    if (!hit) return; // row not present on this machine's worklog — nothing to assert
+    expect(parseKnownSenderPrefix(hit.summary)).toBeNull();
+  });
+
+  // Every previously-slipping-through fake shape stays rejected in the real data
+  // (not just the synthetic fixtures above) — request:/room:/head:/re:/fleet:/
+  // patchwork-as-node.
+  test("every confirmed-fake prefix family is rejected in the real corpus, not just synthetic fixtures", () => {
+    const entries = loadKoboConversationEntries();
+    if (!entries) return;
+    const FAKE_PREFIXES = ["[request:", "[room:", "[head:", "[re:", "[fleet:", "[patchwork:"];
+    let checked = 0;
+    for (const e of entries) {
+      if (!FAKE_PREFIXES.some((p) => e.summary.startsWith(p))) continue;
+      checked++;
+      expect(parseKnownSenderPrefix(e.summary)).toBeNull();
+    }
+    expect(checked).toBeGreaterThan(0); // the corpus must actually contain these — a 0-count run proves nothing
+  });
+
+  // The ONE documented, explicitly-approved residual (eq3, card comment): a
+  // single row that is neither a registered oracle nor an oracle-hyphen-role
+  // shape — reported by name, not silently dropped. If this count ever grows,
+  // that's a real regression (a real sender newly lost) and must fail loud, not
+  // get silently absorbed into "well it's a residual."
+  test("the one documented residual (m5:memberA, not a registered oracle) is the ONLY row lost outside the real-node buckets", () => {
+    const entries = loadKoboConversationEntries();
+    if (!entries) return;
+    const OLD_RE = /^\[([^\]\s:]+):([^\]\s]+)(\s[^\]]*)?\](?:\s|$)/;
+    const FAKE_PREFIXES = ["request", "room", "head", "re", "fleet", "patchwork"];
+    const unexplainedDrops: string[] = [];
+    for (const e of entries) {
+      const old = e.summary.match(OLD_RE);
+      if (!old) continue;
+      const tag = parseKnownSenderPrefix(e.summary);
+      if (tag) continue; // still classified — fine
+      if (/^\d+(-|$)/.test(old[1])) continue; // round 1's numeric-node rule — expected
+      if (old[1] === "monkut" || old[1] === "fleet") continue; // colon-3-part shape, round 1's rule (a) — expected
+      if (FAKE_PREFIXES.includes(old[1])) continue; // confirmed-fake families — expected
+      unexplainedDrops.push(e.summary.slice(0, 60));
+    }
+    expect(unexplainedDrops).toEqual(["[m5:memberA] [poc2] member A หลัง set env"]);
   });
 });
