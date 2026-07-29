@@ -1,7 +1,13 @@
 /**
  * openPrLinkedRepos — the board-driven repo discovery that lets pr-watch poll a
  * repo whose PRs drive cards even when no local worktree/fleet-window exists for
- * it (kobo-33 e2e gap). Hermetic: temp MAW_DATA_DIR, no gh / no worktree scan.
+ * it (kobo-33 e2e gap). This file only exercises `listTasks`/`findTasksByPr`
+ * (task-store reads), never `pollPrsOnce` itself — so `MAW_DATA_DIR` alone is
+ * genuinely sufficient HERE. ⚠️ Do NOT copy this line into a test that calls
+ * `pollPrsOnce`/`saveSnapshotAtomic` — that path also needs `mawStatePath()`
+ * isolation (`MAW_HOME`/`MAW_STATE_DIR`, a DIFFERENT var), which is exactly
+ * the gap a kobo-631 incident hit for real (see `pr-watch-resilience.test.ts`'s
+ * file-header comment for the full account) — use `MAW_HOME` there instead.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
@@ -64,8 +70,12 @@ describe("findCardByPrAnywhere", () => {
     card("kobo", "kobo-34", { state: "review", pr: 80, repo: "meganechan/maw-js" });
     card("pgw", "pgw-9", { state: "in-progress", pr: 5, repo: "acme/pgw" });
 
-    expect(findCardByPrAnywhere(80)).toEqual({ company: "kobo", taskId: "kobo-34" });
-    expect(findCardByPrAnywhere(5)).toEqual({ company: "pgw", taskId: "pgw-9" });
+    // kobo-631: findCardsByPrAnywhere/findCardByPrAnywhere now also carry the
+    // card's own `assignee` — pr-watch uses it instead of the shared GitHub
+    // login as pingOnMerge's notify target (kobo-217: every merge shares ONE
+    // account, never a real oracle).
+    expect(findCardByPrAnywhere(80)).toEqual({ company: "kobo", taskId: "kobo-34", assignee: null });
+    expect(findCardByPrAnywhere(5)).toEqual({ company: "pgw", taskId: "pgw-9", assignee: null });
   });
 
   it("ignores done cards and returns null when no card owns the PR", async () => {
@@ -305,18 +315,23 @@ describe("pollPrsOnce — mergeable-state write is wired correctly (kobo-594)", 
     expect(src.match(/"pr",\s*"list"/g)?.length).toBe(1);
   });
 
-  it("the mergeable write runs BEFORE firstRun/prev===cur early-returns — every poll, not just on a state transition", () => {
+  it("the mergeable write runs BEFORE the firstRun/prev===cur early-out — every poll, not just on a state transition", () => {
+    // kobo-631: the two separate `if (firstRun) continue;` / `if (prev ===
+    // cur) continue;` lines this test used to pin were combined into one
+    // `if (firstRun || prev === cur) { entries[key] = ...; continue; }` as
+    // part of fixing a different bug (a PR's snapshot entry must not commit
+    // before its own worklog side-effect has landed — see the ordering
+    // comment right above this block in pr-watch.ts). The guard this test
+    // actually cares about — mergeable-write before the early-out — still
+    // holds; only its source shape changed.
     const writeIdx = src.indexOf("setTaskPrMergeState(");
-    const firstRunContinueIdx = src.indexOf("if (firstRun) continue;");
-    const prevCurContinueIdx = src.indexOf("if (prev === cur) continue;");
+    const earlyOutIdx = src.indexOf("if (firstRun || prev === cur)");
     expect(writeIdx).toBeGreaterThan(-1);
-    expect(firstRunContinueIdx).toBeGreaterThan(-1);
-    expect(prevCurContinueIdx).toBeGreaterThan(-1);
-    // if this ever flips (write moved AFTER either continue), the write only
+    expect(earlyOutIdx).toBeGreaterThan(-1);
+    // if this ever flips (write moved AFTER the early-out), the write only
     // fires on a PR's own open/merge/close edge — an OPEN PR that stays OPEN
     // while a SIBLING PR flips it conflicting would never update again.
-    expect(writeIdx).toBeLessThan(firstRunContinueIdx);
-    expect(writeIdx).toBeLessThan(prevCurContinueIdx);
+    expect(writeIdx).toBeLessThan(earlyOutIdx);
   });
 
   it("the write is gated on cur === \"OPEN\" and truthy pr.mergeable/mergeStateStatus — never fires on a failed/rate-limited gh call", () => {
