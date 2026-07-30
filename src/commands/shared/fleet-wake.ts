@@ -17,6 +17,32 @@ import {
 export { firstStderrLine, isSshTransportError, runWakeLoopFailSoft } from "./fleet-wake-failsoft";
 export type { WakeStep, WakeLoopResult } from "./fleet-wake-failsoft";
 
+/**
+ * Resolve a fleet-config `repo` field to an absolute cwd.
+ *
+ * Two conventions exist across maw setups, and both must be supported:
+ *   - flat (#748): `repo` is already the full path segment under ghqRoot,
+ *     e.g. "projects/neo-oracle" → <ghqRoot>/projects/neo-oracle. This is
+ *     the shape some environments use when repos aren't ghq-managed.
+ *   - github.com-nested (the `ghq` tool's own default, and the shape
+ *     `fleet-init-scan.ts`/`fleet-sync.ts` actually write): `repo` is
+ *     "org/repo" → <ghqRoot>/github.com/org/repo.
+ *
+ * getGhqRoot() returns the BARE root and documents that github.com-nested
+ * callers must append the suffix themselves — a contract this function
+ * previously violated by only trying the flat shape (#748 fixed one class
+ * of wrong-cwd bug but introduced this one for the more common ghq layout).
+ * Try flat first to preserve existing #748 behavior, then fall back to nested.
+ */
+function resolveRepoCwd(repo: string): string {
+  const ghqRoot = getGhqRoot();
+  const flatPath = join(ghqRoot, repo);
+  if (existsSync(flatPath)) return flatPath;
+  const nestedPath = join(ghqRoot, "github.com", repo);
+  if (existsSync(nestedPath)) return nestedPath;
+  return flatPath;
+}
+
 export async function cmdSleep() {
   const sessions = loadFleet();
   let killed = 0;
@@ -72,17 +98,15 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
       process.stdout.write(`  \x1b[90m⏳\x1b[0m ${progress} ${sess.name}...`);
 
       const first = sess.windows[0];
-      // #748 — Oracle repos live at <ghqRoot>/<repo> directly (e.g. /root/projects/neo-oracle),
-      // not under github.com/<org>/<repo>. Falling back to /root via missing-cwd was making
-      // every Oracle session inherit Labubu's CLAUDE.md identity.
-      const firstPath = join(getGhqRoot(), first.repo);
       // #748 follow-up — tmux silently falls back to $HOME when -c <missing-path>,
       // which re-surfaces the wrong-CLAUDE.md bug if ghqRoot resolves to a stale value
       // (e.g. test fixture leak setting "/tmp/nope"). Refuse to spawn into a missing
       // path; raise a clear error instead of silently inheriting the wrong identity.
+      const firstPath = resolveRepoCwd(first.repo);
       if (!existsSync(firstPath)) {
         throw new Error(
           `wake: refusing to spawn ${sess.name} — cwd "${firstPath}" does not exist. ` +
+          `Tried flat (<ghqRoot>/${first.repo}) and github.com-nested (<ghqRoot>/github.com/${first.repo}). ` +
           `Check ghqRoot resolution (config.ghqRoot, $GHQ_ROOT, \`ghq root\`) and fleet config repo "${first.repo}".`,
         );
       }
@@ -100,7 +124,7 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
 
       for (let i = 1; i < sess.windows.length; i++) {
         const win = sess.windows[i];
-        const winPath = join(getGhqRoot(), win.repo);
+        const winPath = resolveRepoCwd(win.repo);
         if (!existsSync(winPath)) {
           // Skip rather than throw — first-window throw already surfaced the
           // root cause; per-window failures should fail-soft so other windows
