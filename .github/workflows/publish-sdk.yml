@@ -50,7 +50,7 @@ jobs:
       - name: Run SDK tests
         run: bun test packages/sdk/
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
