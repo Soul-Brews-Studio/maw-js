@@ -49,6 +49,11 @@ let spawnPlans: SpawnPlan[] = [];
 let spawnCalls: Array<{ args: string[]; opts: any }> = [];
 let spawnSyncCalls: string[][] = [];
 let spawnSyncImpl: (args: string[]) => { stdout?: Uint8Array } = () => ({ stdout: encode("scrollback") });
+// spawnSyncCalls/spawnSyncImpl are named for parity with the old synchronous
+// seam, but capture-pane now goes through the same Bun.spawn mock as the live
+// PTY wrapper (both call the global Bun.spawn — see installSpawnMocks below,
+// which routes ["tmux","capture-pane",...] invocations to spawnSyncImpl's
+// result instead of the spawnPlans queue used for the live wrapper process).
 let readers: ControlledReader[] = [];
 let stdinWrites: Uint8Array[] = [];
 let procKills = 0;
@@ -108,12 +113,45 @@ function makeWs(): MockWs {
   };
 }
 
+// A capture-pane invocation ["tmux","capture-pane",...] now goes through the
+// same Bun.spawn seam as the live PTY wrapper (pty.ts's default spawnCapture
+// shells out via Bun.spawn + reads its stdout stream to completion, replacing
+// the old Bun.spawnSync call). This mock detects that shape and returns a
+// process whose `stdout` is a one-shot ReadableStream instead of a live
+// reader, honoring spawnSyncImpl/spawnSyncCalls so existing assertions keep
+// working unchanged.
+function isCapturePaneArgs(args: string[]): boolean {
+  return args[0] === "tmux" && args[1] === "capture-pane";
+}
+
 function installSpawnMocks() {
   (Bun as any).spawnSync = (args: string[]) => {
     spawnSyncCalls.push(args);
     return spawnSyncImpl(args);
   };
   (Bun as any).spawn = (args: string[], opts: any) => {
+    if (isCapturePaneArgs(args)) {
+      spawnSyncCalls.push(args);
+      let result: { stdout?: Uint8Array };
+      let thrown: unknown;
+      try {
+        result = spawnSyncImpl(args);
+      } catch (err) {
+        thrown = err;
+        result = { stdout: new Uint8Array(0) };
+      }
+      const bytes = result.stdout ?? new Uint8Array(0);
+      return {
+        stdout: new ReadableStream<Uint8Array>({
+          start(controller) {
+            if (thrown) { controller.error(thrown); return; }
+            controller.enqueue(bytes);
+            controller.close();
+          },
+        }),
+        exited: thrown ? Promise.reject(thrown).catch(() => 1) : Promise.resolve(0),
+      };
+    }
     spawnCalls.push({ args, opts });
     const plan = spawnPlans.shift() ?? { autoEnd: true };
     const reader = new ControlledReader(plan.chunks ?? [], plan.autoEnd ?? true);
@@ -238,6 +276,7 @@ describe("PTY websocket bridge", () => {
     spawnSyncImpl = () => ({ stdout: encode("cached screen") });
     const late = makeWs();
     handlePtyMessage(late as any, JSON.stringify({ type: "attach", target: "cached:main" }));
+    await eventually(() => late.sent.length >= 3, "cached replay + attached delivery");
 
     expect(late.sent.map(decode)).toEqual([
       "cached screen",

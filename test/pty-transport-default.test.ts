@@ -52,7 +52,7 @@ function makeHarness(options: {
   colsLimit?: number;
   rowsLimit?: number;
   spawnPlans?: SpawnPlan[];
-  spawnSync?: (args: string[]) => { stdout?: Uint8Array };
+  spawnCapture?: (args: string[]) => Promise<{ stdout?: Uint8Array }> | { stdout?: Uint8Array };
   groupedImpl?: (sessionName: string, ptySessionName: string, opts: unknown) => Promise<void>;
   setOptionImpl?: (session: string, option: string, value: string) => Promise<void>;
   listSessionGroupsImpl?: () => Promise<Array<{ name: string; group: string }>>;
@@ -61,7 +61,7 @@ function makeHarness(options: {
   const readers: ControlledReader[] = [];
   const stdinWrites: Uint8Array[] = [];
   const spawnCalls: Array<{ args: string[]; opts: any }> = [];
-  const spawnSyncCalls: string[][] = [];
+  const spawnCaptureCalls: string[][] = [];
   const groupedCalls: Array<{ sessionName: string; ptySessionName: string; opts: any }> = [];
   const setOptionCalls: Array<{ session: string; option: string; value: string }> = [];
   const killSessionCalls: string[] = [];
@@ -77,9 +77,11 @@ function makeHarness(options: {
     env: () => options.envHost === undefined ? {} as NodeJS.ProcessEnv : { MAW_HOST: options.envHost } as NodeJS.ProcessEnv,
     platform: () => options.platform ?? "linux",
     now: () => 123456,
-    spawnSync: (args: string[]) => {
-      spawnSyncCalls.push(args);
-      return (options.spawnSync ?? (() => ({ stdout: encode("scrollback") })))(args) as ReturnType<typeof Bun.spawnSync>;
+    spawnCapture: async (args: string[]) => {
+      spawnCaptureCalls.push(args);
+      const impl = options.spawnCapture ?? (() => ({ stdout: encode("scrollback") }));
+      const result = await impl(args);
+      return { stdout: result.stdout ?? new Uint8Array(0), exitCode: 0 };
     },
     spawn: (args: string[], opts: any) => {
       spawnCalls.push({ args, opts });
@@ -143,7 +145,7 @@ function makeHarness(options: {
     readers,
     stdinWrites,
     spawnCalls,
-    spawnSyncCalls,
+    spawnCaptureCalls,
     groupedCalls,
     setOptionCalls,
     killSessionCalls,
@@ -182,7 +184,7 @@ describe("ptyDeps", () => {
     expect(typeof deps.cfgTimeout).toBe("function");
     expect(typeof deps.cfgLimit).toBe("function");
     expect(typeof deps.spawn).toBe("function");
-    expect(typeof deps.spawnSync).toBe("function");
+    expect(typeof deps.spawnCapture).toBe("function");
     expect(typeof deps.env()).toBe("object");
     expect(typeof deps.platform()).toBe("string");
     expect(typeof deps.now()).toBe("number");
@@ -220,7 +222,7 @@ describe("createPtyHandlers", () => {
       opts: { cols: 200, rows: 1, window: "oracle" },
     });
     expect(h.setOptionCalls[0]).toEqual({ session: "maw-pty-123456-1", option: "status", value: "off" });
-    expect(h.spawnSyncCalls[0]).toEqual(["tmux", "capture-pane", "-t", "demo:oracle", "-p", "-e", "-J", "-S", "-2000"]);
+    expect(h.spawnCaptureCalls[0]).toEqual(["tmux", "capture-pane", "-t", "demo:oracle", "-p", "-e", "-J", "-S", "-2000"]);
     expect(h.spawnCalls[0].args[0]).toBe("/usr/bin/expect");
     expect(h.spawnCalls[0].opts).toMatchObject({ stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true });
     expect(h.spawnCalls[0].opts.env.TERM).toBe("xterm-256color");
@@ -251,6 +253,7 @@ describe("createPtyHandlers", () => {
     const late = makeWs();
     h.handlePtyMessage(late as any, JSON.stringify({ type: "attach", target: "cached:main" }));
     expect(h.clearedTimers).toHaveLength(1);
+    await eventually(() => late.sent.length >= 3, "cached replay + attached delivery");
     expect(late.sent.map(decode)).toEqual([
       "scrollback",
       "\r\n",
@@ -268,7 +271,7 @@ describe("createPtyHandlers", () => {
     const h = makeHarness({
       host: "remote.example",
       setOptionImpl: async () => { throw new Error("option unsupported"); },
-      spawnSync: () => { throw new Error("capture failed"); },
+      spawnCapture: () => { throw new Error("capture failed"); },
       spawnPlans: [{ autoEnd: true }],
     });
     const ws = makeWs();
@@ -323,7 +326,7 @@ describe("createPtyHandlers", () => {
   });
 
   test("fresh and cached capture failures do not abort attach", async () => {
-    const h = makeHarness({ spawnSync: () => { throw new Error("tmux target disappeared"); }, spawnPlans: [{ chunks: ["first"], autoEnd: false }] });
+    const h = makeHarness({ spawnCapture: () => { throw new Error("tmux target disappeared"); }, spawnPlans: [{ chunks: ["first"], autoEnd: false }] });
     const first = makeWs();
     h.handlePtyMessage(first as any, JSON.stringify({ type: "attach", target: "capture-fail:0" }));
     await eventually(() => first.sent.map(decode).includes("first"), "capture failure fresh output");
@@ -335,6 +338,7 @@ describe("createPtyHandlers", () => {
 
     const late = makeWs();
     h.handlePtyMessage(late as any, JSON.stringify({ type: "attach", target: "capture-fail:0" }));
+    await eventually(() => late.sent.length >= 1, "attached delivery despite capture failure");
     expect(late.sent.map(decode)).toEqual([
       JSON.stringify({ type: "attached", target: "capture-fail:0" }),
     ]);
@@ -347,7 +351,7 @@ describe("createPtyHandlers", () => {
     noReplay.handlePtyMessage(liveOnly as any, JSON.stringify({ type: "attach", target: "follow:0", replayLines: 0 }));
     await eventually(() => liveOnly.sent.map(decode).includes(JSON.stringify({ type: "detached", target: "follow:0" })), "no-replay detach");
 
-    expect(noReplay.spawnSyncCalls).toEqual([]);
+    expect(noReplay.spawnCaptureCalls).toEqual([]);
     expect(liveOnly.sent.map(decode)).toEqual([
       JSON.stringify({ type: "attached", target: "follow:0" }),
       "live",
@@ -358,11 +362,12 @@ describe("createPtyHandlers", () => {
     const firstViewer = makeWs();
     shared.handlePtyMessage(firstViewer as any, JSON.stringify({ type: "attach", target: "follow:shared", replayLines: 0 }));
     await eventually(() => firstViewer.sent.map(decode).includes("first"), "shared follow output");
-    expect(shared.spawnSyncCalls).toEqual([]);
+    expect(shared.spawnCaptureCalls).toEqual([]);
 
     const secondViewer = makeWs();
     shared.handlePtyMessage(secondViewer as any, JSON.stringify({ type: "attach", target: "follow:shared", replayLines: 0 }));
-    expect(shared.spawnSyncCalls).toEqual([]);
+    await eventually(() => secondViewer.sent.length >= 1, "no-replay cached join delivery");
+    expect(shared.spawnCaptureCalls).toEqual([]);
     expect(secondViewer.sent.map(decode)).toEqual([
       JSON.stringify({ type: "attached", target: "follow:shared" }),
     ]);
@@ -373,7 +378,7 @@ describe("createPtyHandlers", () => {
     bounded.handlePtyMessage(withReplay as any, JSON.stringify({ type: "attach", target: "follow:1", replayLines: 12 }));
     await eventually(() => bounded.spawnCalls.length === 1, "bounded replay spawn");
 
-    expect(bounded.spawnSyncCalls[0]).toEqual(["tmux", "capture-pane", "-t", "follow:1", "-p", "-e", "-J", "-S", "-12"]);
+    expect(bounded.spawnCaptureCalls[0]).toEqual(["tmux", "capture-pane", "-t", "follow:1", "-p", "-e", "-J", "-S", "-12"]);
   });
 
   test("#P2 sweep kills untracked maw-pty-* sessions, sparing tracked and non-maw sessions", async () => {
@@ -421,6 +426,94 @@ describe("createPtyHandlers", () => {
     // P3 is fire-and-forget alongside session creation — poll for the kill.
     await eventually(() => h.killSessionCalls.includes("maw-pty-stale"), "P3 stale-orphan kill");
     expect(h.killSessionCalls).not.toContain("maw-pty-other");
+    await h.finishReaders();
+  });
+
+  test("ordering: replay bytes reach a joining viewer before live output that arrives mid-capture", async () => {
+    // Regression guard for the spawnSync→async conversion: capture-pane is no
+    // longer a blocking call, so there is a real await gap between a second
+    // viewer's cached-session join starting and it being registered into
+    // session.viewers. If live PTY output were (incorrectly) delivered to
+    // that viewer during the gap, it would arrive before — or interleaved
+    // with — the replay. This pins the correct order: replay text, then
+    // "\r\n", then "attached", then (only after that) any live bytes.
+    let releaseCapture!: (bytes: Uint8Array) => void;
+    const captureGate = new Promise<Uint8Array>((resolve) => { releaseCapture = resolve; });
+    let captureCallCount = 0;
+    const h = makeHarness({
+      spawnPlans: [{ chunks: [], autoEnd: false }], // first (owning) viewer's live PTY; no output yet
+      // First call is the owner's own fresh-attach replay (resolves right
+      // away, matching the structural guarantee for that path). Only the
+      // second call — the joiner's cached-session replay — hangs on the gate,
+      // isolating the race we actually want to exercise.
+      spawnCapture: async () => {
+        captureCallCount += 1;
+        if (captureCallCount === 1) return { stdout: new Uint8Array(0) };
+        return { stdout: await captureGate };
+      },
+    });
+
+    const owner = makeWs();
+    h.handlePtyMessage(owner as any, JSON.stringify({ type: "attach", target: "race:0" }));
+    await eventually(() => h.spawnCalls.length === 1, "owner session created");
+
+    // Second viewer joins the now-cached session — this kicks off another
+    // replayCapture() that hangs on captureGate until we release it below.
+    const joiner = makeWs();
+    h.handlePtyMessage(joiner as any, JSON.stringify({ type: "attach", target: "race:0" }));
+    await flush(); // let the join reach the (still-pending) replayCapture await
+
+    // Capture is still in flight. The invariant under test: `joiner` must not
+    // be a registered viewer yet, so even though the owner's live PTY stream
+    // is open and could emit at any moment, nothing can reach `joiner` ahead
+    // of its replay — there is no live frame in its queue.
+    expect(joiner.sent).toEqual([]);
+
+    releaseCapture(new TextEncoder().encode("replayed screen"));
+    await eventually(() => joiner.sent.length >= 3, "joiner replay + attached delivery");
+
+    expect(joiner.sent.map(decode)).toEqual([
+      "replayed screen",
+      "\r\n",
+      JSON.stringify({ type: "attached", target: "race:0" }),
+    ]);
+
+    await h.finishReaders();
+  });
+
+  test("re-attach after detach on the same socket rejoins (epoch supersedes the stale detach)", async () => {
+    // Regression guard for the spawnSync→async conversion's first cut, which
+    // tracked abandon state in a one-shot WeakSet flag set on every detach and
+    // close. A client that detached and later re-attached on the SAME socket
+    // would have that stale flag consumed after the re-attach's (now async)
+    // replay, silently aborting the join → the terminal never came back. The
+    // attach-epoch snapshot supersedes the stale detach instead, so a
+    // detach→re-attach cycle rejoins normally (as it did pre-async).
+    const h = makeHarness({ spawnPlans: [{ chunks: ["initial output"], autoEnd: false, killThrows: true }] });
+    const ws = makeWs();
+
+    h.handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target: "reattach:0" }));
+    await eventually(() => ws.sent.map(decode).includes("initial output"), "initial attach output");
+
+    // Detach — under the old one-shot flag this poisoned the socket for any
+    // future attach; the session stays cached with a pending cleanup timer.
+    h.handlePtyMessage(ws as any, JSON.stringify({ type: "detach" }));
+    expect(h.timerCallbacks).toHaveLength(1);
+
+    // Re-attach on the same socket to the still-cached session — must rejoin.
+    ws.sent.length = 0;
+    h.handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target: "reattach:0" }));
+    await eventually(
+      () => ws.sent.map(decode).includes(JSON.stringify({ type: "attached", target: "reattach:0" })),
+      "re-attach rejoin",
+    );
+
+    expect(ws.sent.map(decode)).toEqual([
+      "scrollback",
+      "\r\n",
+      JSON.stringify({ type: "attached", target: "reattach:0" }),
+    ]);
+
     await h.finishReaders();
   });
 });
