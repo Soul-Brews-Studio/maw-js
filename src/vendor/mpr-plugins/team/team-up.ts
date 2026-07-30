@@ -352,7 +352,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
         run: async () => {
           if (item.pane) await tmux.run("kill-window", "-t", `${item.pane.sessionName ?? session}:${item.pane.windowName}`);
           const repoPath = await getWorktreeRepoRoot();
-          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath, channels: memberChannels(charter, item.member), engines: charter.engines }, { cmdWakeFn: deps.cmdWakeFn });
         },
       });
     } else if (item.state === "live") {
@@ -376,7 +376,7 @@ export async function cmdTeamUp(team: string, opts: TeamUpOptions = {}, deps: Te
         item,
         run: async () => {
           const repoPath = await getWorktreeRepoRoot();
-          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath, channels: memberChannels(charter, item.member) }, { cmdWakeFn: deps.cmdWakeFn });
+          await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath, channels: memberChannels(charter, item.member), engines: charter.engines }, { cmdWakeFn: deps.cmdWakeFn });
         },
       });
     }

@@ -165,6 +165,12 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("any-agent", "codex")).toBe("codex --search");
   });
 
+  test("engine param resolves command from ad-hoc engines map", () => {
+    fakeConfig.commands = { default: "claude --dangerously-skip-permissions" };
+    expect(buildCommandFromConfig(testConfig(), "any-agent", { engine: "omx", engines: { omx: ["omx", "--direct", "--madmax"] } })).toBe("omx --direct --madmax");
+    expect(buildCommandInDirFromConfig(testConfig(), "any-agent", "/tmp/x", { engine: "omx", engines: { omx: ["omx", "--direct", "--madmax"] } })).toBe("omx --direct --madmax");
+  });
+
   test("engine param requires configured seed engines instead of runtime built-ins", () => {
     fakeConfig.commands = { default: "claude" };
     fakeConfig.engines = { codex: { name: "codex", cmd: "codex" } };

@@ -71,6 +71,7 @@ export function memberWakeOptions(
     engine: opts.engine,
     session: opts.session,
     repoPath: opts.repoPath,
+    ...(opts.engines ? { engines: opts.engines } : {}),
     ...(channels ? { channels: true } : {}),
   };
   if (member.worktree === false) return base;

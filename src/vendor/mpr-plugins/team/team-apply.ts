@@ -151,7 +151,7 @@ export async function cmdTeamApply(teamOrPath: string, opts: TeamApplyOptions = 
       const command = engineCommand(launchEngine, { resume: false, engines: charter.engines }, config);
       actions.push({ kind: "spawn", role: item.role, state: item.state, action: opts.apply ? "spawn member" : "would spawn member", command });
       if (opts.apply) {
-        await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath: repoRoot, channels: item.member.channels === true }, { cmdWakeFn: deps.cmdWakeFn });
+        await wakeMember(targetRepoSlug, item.member, { engine: launchEngine, session, repoPath: repoRoot, channels: item.member.channels === true, engines: charter.engines }, { cmdWakeFn: deps.cmdWakeFn });
       }
       continue;
     }

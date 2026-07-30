@@ -15,6 +15,7 @@ import { cmdTeamUp, quickCharter } from "../../src/vendor/mpr-plugins/team/team-
 import { cmdTeamDown, TEAM_LIFECYCLE_GUARD_WINDOW } from "../../src/vendor/mpr-plugins/team/team-down";
 import { cmdTeamApply } from "../../src/vendor/mpr-plugins/team/team-apply";
 import { isUserError } from "../../src/core/util/user-error";
+import { buildCommandInDirFromConfig } from "../../src/config/command-logic";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -742,6 +743,59 @@ members:
     expect(result.actions[0]).toMatchObject({
       role: "builder",
       command: "claude --model claude-opus-4-8 --dangerously-skip-permissions --channels plugin:discord@claude-plugins-official",
+    });
+  });
+
+  test("wake path honors charter engine command without appending default (no missing separator)", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, ".maw", "teams", "charter-engine.yaml"), `
+name: charter-engine
+session: charter-session
+engines:
+  omx:
+    - "omx"
+    - --direct
+    - "--madmax"
+members:
+  - role: coder-1
+    engine: omx
+    worktree: true
+`, "utf-8");
+    const wakes: Array<{ oracle: string; opts: any; command: string }> = [];
+    const { tmux } = fakeTmux([]);
+
+    const cfg = {
+      ...config,
+      commands: {
+        ...config.commands,
+        default: "ANTHROPIC_MODEL=claude-opus-4-8 command claude --dangerously-skip-permissions",
+      },
+    } as any;
+
+    await cmdTeamUp("charter-engine", {}, {
+      cwd: root,
+      tmux,
+      loadConfigFn: () => cfg,
+      cmdWakeFn: async (oracle: string, opts: any) => {
+        const command = buildCommandInDirFromConfig(cfg, oracle, root, opts);
+        wakes.push({ oracle, opts, command });
+        return command;
+      },
+      sleep: async () => {},
+      logger: () => {},
+    });
+
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]).toMatchObject({
+      oracle: expect.stringContaining("maw-team-up-"),
+      opts: {
+        wt: "coder-1",
+        engine: "omx",
+        session: "charter-session",
+        repoPath: root,
+        engines: { omx: ["omx", "--direct", "--madmax"] },
+      },
+      command: "omx --direct --madmax",
     });
   });
 

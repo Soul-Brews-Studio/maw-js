@@ -437,6 +437,8 @@ export interface WakeOptions {
   sessionId?: string;
   fromSnapshot?: boolean;
   snapshotId?: string;
+  /** Charter-level engine override map (e.g. `engines.omx`). */
+  engines?: Record<string, unknown>;
   /** Filesystem layout for newly-created worktrees (#1850): default nested, legacy sibling via --layout legacy. */
   layout?: WorktreeLayout;
   /** Force Discord channel launch for Claude-like engines (#1999). */
@@ -476,14 +478,18 @@ function isAttachOnlyWake(opts: WakeOptions): boolean {
 type WakeCommandOptions = Pick<WakeOptions, "engine" | "parentSessionId" | "sessionId" | "channels"> & {
   /** Strip engine resume/continue placeholders for reboot-rehydrated dead panes (#2391). */
   freshLaunch?: boolean;
+  /** Optional charter-scoped engine overrides (e.g. `engines.omx`). */
+  engines?: Record<string, unknown>;
 };
 
 function buildWakeCommand(windowName: string, cwd: string, opts: WakeCommandOptions): string {
   const commandOpts = opts.channels
-    ? { engine: opts.engine, channels: ["plugin:discord@claude-plugins-official"], fresh: opts.freshLaunch }
+    ? { engine: opts.engine, channels: ["plugin:discord@claude-plugins-official"], fresh: opts.freshLaunch, engines: opts.engines }
     : opts.freshLaunch
-      ? { engine: opts.engine, fresh: true }
-      : opts.engine;
+      ? { engine: opts.engine, fresh: true, engines: opts.engines }
+      : opts.engine
+        ? { engine: opts.engine, engines: opts.engines }
+        : { engines: opts.engines };
   return prefixCommandWithSpawnSessionEnv(
     buildCommandInDir(windowName, cwd, commandOpts),
     { explicit: opts.parentSessionId, sessionId: opts.sessionId, cwd },

@@ -11,6 +11,8 @@ const DISCORD_CHANNEL_PLUGIN = "plugin:discord@claude-plugins-official";
 
 export interface BuildCommandOpts {
   engine?: string;
+  /** Per-call override map for engine command definitions (used by team wake paths). */
+  engines?: Record<string, unknown>;
   channels?: string[];
   channelEnv?: Record<string, string>;
   devChannels?: boolean;
@@ -29,6 +31,24 @@ export type BuildCommandInput = string | BuildCommandOpts | undefined;
 
 function normalizeBuildCommandOpts(input?: BuildCommandInput): BuildCommandOpts {
   return typeof input === "string" ? { engine: input } : { ...(input || {}) };
+}
+
+function flattenEngineValue(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap((item) => flattenEngineValue(item));
+  if (typeof value === "string") return [value.trim()].filter(Boolean);
+  if (value == null) return [];
+  return [String(value).trim()].filter(Boolean);
+}
+
+function resolveAdhocEngine(engines: Record<string, unknown> | undefined, key: string): string | undefined {
+  if (!engines) return undefined;
+  const value = engines[key];
+  const command = flattenEngineValue(value).join(" ").trim();
+  return command || undefined;
+}
+
+function makeAdhocEngine(key: string, command: string): EngineDef {
+  return { name: key, cmd: command };
 }
 
 function hasChannelsFlag(cmd: string): boolean {
@@ -124,9 +144,10 @@ function commandKeyForAgent(
 ): string {
   const keys = enginePatternKeysForConfig(config);
   const known = new Set(engineNamesForConfig(config));
+  const hasAdhocEngine = (engine: string): boolean => Boolean(opts.engines && Object.prototype.hasOwnProperty.call(opts.engines, engine));
 
   if (opts.engine) {
-    if (known.has(opts.engine)) return opts.engine;
+    if (known.has(opts.engine) || hasAdhocEngine(opts.engine)) return opts.engine;
     const knownList = [...known].sort().join(", ") || "none";
     throw new UserError(`engine '${opts.engine}' not resolvable — known: [${knownList}]; define it in config.engines/config.commands or check charter`);
   }
@@ -161,7 +182,10 @@ function selectEngineForAgent(
   agentName: string,
   opts: BuildCommandOpts,
 ): EngineDef {
-  return resolveEngine(commandKeyForAgent(config, agentName, opts), config);
+  const key = commandKeyForAgent(config, agentName, opts);
+  const override = resolveAdhocEngine(opts.engines, key);
+  if (override) return makeAdhocEngine(key, override);
+  return resolveEngine(key, config);
 }
 
 function engineHas(engine: EngineDef | null, capability: string): boolean {
