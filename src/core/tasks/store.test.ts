@@ -1819,6 +1819,21 @@ describe("containment / epic (kobo-45)", () => {
     expect(openEpicChildren(epic, listTasks("pgw")).map((c) => c.id)).toEqual([b]);
   });
 
+  test("kobo-642: a rejected child is settled, not open — openEpicChildren excludes it", () => {
+    const { epic, a, b } = family();
+    completeTask("pgw", a, "eq3");
+    rejectTask("pgw", b, "eq3", "duplicate of another card");
+    // both children now settled (done + rejected) — neither counts as open anymore
+    expect(openEpicChildren(epic, listTasks("pgw"))).toEqual([]);
+  });
+
+  test("kobo-642: a genuinely open (in-progress) sibling still blocks alongside a rejected one", () => {
+    const { epic, a, b } = family();
+    rejectTask("pgw", a, "eq3", "duplicate");
+    // b left in its default state (todo) — still open on purpose; only rejected settles
+    expect(openEpicChildren(epic, listTasks("pgw")).map((c) => c.id)).toEqual([b]);
+  });
+
   test("epicRollup = N/M done; allDone flips only when every child done (still no auto-close)", () => {
     const { epic, a, b } = family();
     expect(epicRollup(epic, listTasks("pgw"))).toEqual({ done: 0, total: 2, allDone: false });
