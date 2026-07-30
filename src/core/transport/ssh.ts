@@ -1,6 +1,7 @@
 import { loadConfig } from "../../config";
 import { tmuxCmd, Tmux } from "./tmux";
 import { isAgentCommandForConfig } from "../agent-detect";
+import { delimiter as pathDelimiter } from "path";
 
 export type HostExecTransport = "local" | "ssh";
 
@@ -89,7 +90,11 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
 
   function pathWithCommonLocalBins(env: NodeJS.ProcessEnv): string {
     const current = env.PATH ?? process.env.PATH ?? "";
-    const parts = current.split(":").filter(Boolean);
+    // #T069 — split on the platform PATH delimiter (`:` on POSIX, `;` on Windows)
+    // so pm2-launched processes on Windows pick up the prefix bins instead of
+    // collapsing the whole PATH into one bucket. Joins with the same delimiter
+    // so the resulting string is parseable by both bash (POSIX) and cmd.exe.
+    const parts = current.split(pathDelimiter).filter(Boolean);
     return [
       "/opt/homebrew/bin",
       "/opt/homebrew/sbin",
@@ -99,7 +104,7 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
       "/usr/sbin",
       "/sbin",
       ...parts,
-    ].filter((dir, index, all) => all.indexOf(dir) === index).join(":");
+    ].filter((dir, index, all) => all.indexOf(dir) === index).join(pathDelimiter);
   }
 
   /** Transport — run on oracle host. local → bash -c | remote → ssh */
