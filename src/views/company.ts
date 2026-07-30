@@ -956,6 +956,18 @@ function waitFor(task) {
   }
   return null;
 }
+// kobo-647 — the dependency-edge label, split out (mirrors waitFor above) so the
+// wording is behaviorally testable, not just string-pinned. Says "needs" now, not
+// "parent" — kobo-640 already renamed the CLI/MCP side; this closes the same gap
+// on the one user-visible string still using the old word (company.ts:1161, was).
+// Scope stops here on purpose: the containment plane (parentRefOf/epic tooltip,
+// below) still says "parent" — 639's own vocabulary table never assigned a word
+// to containment, only to the needs/epic LINK NAMES, so changing it now would be
+// a guess, not a decision this card is authorized to make.
+function dependencyMissingLabel(task) {
+  if (!task.dependency || !task.dependency.missing.length) return null;
+  return '⚠ needs ไม่พบ: ' + task.dependency.missing.join(', ');
+}
 
 // kobo-62 — card metadata relocated OFF the board face into the detail modal:
 // dept · parent-chip (↳ epic, click = filter family) · wait (X→Y). The parent-chip
@@ -1158,7 +1170,8 @@ function taskCard(task, opts) {
   // dep-pending card state="blocked", so gate on the real state — no overlay on a
   // review/in-progress card. (blocked ≠ terminal, so kobo-246 terminal-gate holds.)
   if (task.state === 'blocked' && task.dependency && task.dependency.blockedBy.length) meta.appendChild(el('span', 'pill attn', '🚫 รอ: ' + task.dependency.blockedBy.join(', ')));
-  if (task.dependency && task.dependency.missing.length) meta.appendChild(el('span', 'pill wait', '⚠ parent ไม่พบ: ' + task.dependency.missing.join(', ')));
+  const dml = dependencyMissingLabel(task);
+  if (dml) meta.appendChild(el('span', 'pill wait', dml));
   if (task.needsOwner) meta.appendChild(el('span', 'pill attn', '⚑ ยังไม่มีเจ้าของ')); // derived needs-owner (kobo-14)
   if (task.stale) meta.appendChild(el('span', 'pill wait', '⏳ stuck? ball on?')); // soft stuck-decision badge (mawjs-5) — visual only
   meta.appendChild(el('span', 't-id', text(task.id))); // id demoted — subtle, pushed right
