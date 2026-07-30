@@ -31,7 +31,48 @@ function conversationEntry(overrides: Partial<WorklogEntry> = {}): WorklogEntry 
   };
 }
 
+// kobo-656 — renderLines()/renderTimeline() call parseKnownSenderPrefix()
+// (render.ts:76), which resolves "is this a known sender oracle" against the
+// REAL company registry unless COMPANIES_DIR is redirected. Every fixture in
+// this file that names a sender oracle in a tag ("eq3", "thawanban", "somsri")
+// only passed on a dev machine because those happen to be REAL, registered
+// oracles on this machine's own board — pure coincidence, not a guarantee.
+// Proven the hard way: `HOME=$(mktemp -d) bun run test:src` reproduces CI's
+// exact failures locally. Same sandbox pattern as the
+// "oracle accept-list" describe below (already hermetic) — factored out so
+// every describe that calls renderLines/renderTimeline shares it, instead of
+// only the one block that happened to need it when it was written.
+//
+// NOT applied to "parseSignedPrefix — role capture" below: those tests call
+// `parseSignedPrefix` only (the structural node/oracle/role splitter), never
+// `parseKnownSenderPrefix` — no registry involved, sandboxing it would be a
+// no-op. NOT applied to the real-corpus measurement describe at the bottom of
+// this file either: that block is DELIBERATELY non-hermetic by design (its
+// own comment says so) — it exists specifically to validate against this
+// machine's REAL ~/.maw/companies/kobo data; redirecting COMPANIES_DIR there
+// would defeat its entire purpose, not fix a bug.
+function useRegistrySandbox(): void {
+  const origCompaniesDir = COMPANIES_DIR;
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kobo656-render-"));
+    _setCompaniesDir(join(dir, "companies"));
+    saveCompany({
+      name: "kobo656test",
+      manager: "eq3",
+      teams: { core: { lead: "eq3", members: [{ oracle: "eq3", role: "lead" }, { oracle: "thawanban", role: "dev" }, { oracle: "somsri", role: "dev" }] } },
+    });
+    _resetKnownSenderOraclesCache();
+  });
+  afterEach(() => {
+    _setCompaniesDir(origCompaniesDir);
+    rmSync(dir, { recursive: true, force: true });
+    _resetKnownSenderOraclesCache();
+  });
+}
+
 describe("worklog render — sender vs receiver (kobo-586)", () => {
+  useRegistrySandbox(); // kobo-656 — renderLines() resolves sender tags against the registry
   // The real kobo-586 near-miss shape: eq3.0 (lead) is the RECEIVER of a hey
   // from thawanban, about cards eq3's OWN conductor opened — reading the old
   // render, eq3.0 looks like the speaker of its own message.
@@ -122,6 +163,7 @@ describe("worklog render — sender vs receiver (kobo-586)", () => {
 // the two failure modes that "pass silently" to a glance: the role text quietly
 // disappearing, or the closing `]` leaking into the message body.
 describe("worklog render — sender role badge, distinct from the message body (kobo-586 round 3)", () => {
+  useRegistrySandbox(); // kobo-656 — renderLines() resolves sender tags against the registry
   // AC ①: the SENDER captured is node:oracle only — "conductor" must never end
   // up glued onto the oracle name as part of the sender identity itself.
   test("① sender is node:oracle only — the role never becomes part of the sender string", () => {
@@ -203,6 +245,11 @@ describe("parseSignedPrefix — role capture (kobo-586 round 3)", () => {
 // (null, falls through to plain text) because nothing in this codebase
 // constructs them as a real [node:oracle] tag.
 describe("parseSignedPrefix — non-sender prefixes are classified out, not promoted (kobo-597)", () => {
+  // kobo-656 — only the last test in this block ("kobo-586's role-badge case
+  // is unaffected") calls renderLines() and needs this; the other 4 call
+  // parseSignedPrefix directly (no registry involved) and don't care — safe
+  // to share the same sandbox across the whole block regardless.
+  useRegistrySandbox();
   // (a) oracle segment containing a colon = a DIFFERENT, unrelated bracket
   // convention (e.g. fleet:host:oracle, a real 3-part shape this file doesn't
   // own) — a genuine oracle name never contains a colon.
