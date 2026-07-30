@@ -2,6 +2,11 @@ import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, 
 import { join } from "path";
 import { info, warn } from "./verbosity";
 
+function createPluginLink(src: string, dest: string) {
+  // Windows non-admin processes can create directory junctions, but not file symlinks (#T-069)
+  symlinkSync(src, dest, process.platform === "win32" ? "junction" : "dir");
+}
+
 /** Allowlist: only http/https URLs may be used as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
 
@@ -17,7 +22,7 @@ function linkBundledPlugins(pluginDir: string, bundled: string): number {
     const dest = join(pluginDir, d);
     if (!isPluginDir(src)) continue;
     if (existsSync(dest)) continue; // already linked / user dir / valid symlink
-    symlinkSync(src, dest);
+    createPluginLink(src, dest);
     linked++;
   }
   return linked;

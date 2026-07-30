@@ -250,6 +250,16 @@ export function buildCommandFromConfig(
     cmd = cmd.replace(/\s*--dangerously-skip-permissions\b/g, "");
   }
 
+  // Windows MSYS2 pty needs winpty for interactive TUI engines (#T-069)
+  if (
+    process.platform === "win32" &&
+    process.env.MAW_NO_WINPTY !== "1" &&
+    isClaudeLikeEngine(engine?.name, config) &&
+    !cmd.trim().startsWith("winpty ")
+  ) {
+    cmd = `winpty ${cmd}`;
+  }
+
   return cmd;
 }
 
