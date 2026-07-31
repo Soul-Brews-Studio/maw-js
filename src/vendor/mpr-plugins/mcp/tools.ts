@@ -14,7 +14,7 @@ export type InboxAction = "status" | "list" | "read";
 export type CompanyAction = "ls" | "tree" | "attach";
 export type DeptAction = "assign" | "members" | "learn" | "knowledge";
 export type TaskAction =
-  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "review" | "hold" | "approve" | "need-answer" | "pr" | "sign" | "merge" | "done" | "deployed" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
+  | "add" | "ls" | "start" | "move" | "claim" | "assign" | "ask" | "mentions" | "comment" | "comments" | "review" | "hold" | "approve" | "need-answer" | "pr" | "sign" | "merge" | "done" | "deployed" | "external-wait" | "evidence" | "ready-for-review" | "reopen" | "note" | "edit" | "epic" | "dep" | "decompose" | "block" | "unblock" | "archive";
 
 /** One child in a decompose plan (kobo-146 C7). Mirror of the store's DecomposeChild — kept local so tools.ts stays a pure argv mapper with no core import. */
 export interface DecomposePlanChild {
@@ -59,9 +59,18 @@ export interface TaskInput {
   force?: boolean;     // assign: --force-reassign (reassign is friction, correction only — kobo-219)
   gate?: boolean;      // hold: --gate — route the brake to the approve lane (Tony's queue), not review (kobo-224)
   reviewer?: string;   // add (persistent per-card reviewer, kobo-144)
-  role?: string;       // sign (required): crew|head — which gate tier is signing (kobo-327)
+  reviewerCell?: string; // add/review: durable Cell v2 reviewer routing (--reviewer-cell)
+  role?: string;       // sign (required): crew|head — which merge-gate tier is signing (kobo-327)
   evidence?: string;   // sign (kobo-501): scope of what justified this sign — mirrors CLI --evidence (undeclared|diff-read|test-run|test-run+mutation); omitted = undeclared, never guessed
   evidenceLocus?: string; // sign (kobo-501): where that evidence lives — mirrors CLI --evidence-locus (required once evidence is above diff-read)
+  evidenceScope?: string; // evidence: producer|independent|epic structured evidence scope
+  changed?: string;    // evidence: what changed
+  verified?: string;   // evidence: how it was verified
+  ref?: string;        // evidence: optional branch/ref
+  sha?: string;        // evidence: optional commit/content sha
+  locus?: string;      // evidence: where the proof lives
+  limitations?: string; // evidence: what this proof does NOT cover
+  trigger?: string;    // external-wait: named signal that wakes the card
   crewGate?: boolean;  // add (kobo-327): mark a crew-cell card → merge needs crew + head sign
   method?: string;     // merge (kobo-327): merge|squash|rebase (default merge)
   singleTier?: boolean; // merge (kobo-331): declare a genuine no-crew card → head-only merge (explicit escape from fail-closed)
@@ -183,6 +192,9 @@ export function taskArgs(input: TaskInput): string[] {
   switch (action) {
     case "add": {
       if (!input.title) throw new Error("task add requires a title");
+      if (input.state && !["backlog", "todo", "approve"].includes(input.state)) {
+        throw new Error("task add state must be backlog, todo or approve (use dedicated verbs for review/external-wait/wait-for-deploy)");
+      }
       const argv = ["company", "task", "add", input.title];
       if (input.repo) argv.push("--repo", input.repo);
       if (input.dept) argv.push("--dept", input.dept);
@@ -191,6 +203,7 @@ export function taskArgs(input: TaskInput): string[] {
       if (input.reason) argv.push("--reason", input.reason); // kobo-218: add --state approve → deploy-approval card carries WHY (CLI enforces reason)
       if (input.assignee) argv.push("--assignee", input.assignee);
       if (input.reviewer) argv.push("--reviewer", input.reviewer);
+      if (input.reviewerCell) argv.push("--reviewer-cell", input.reviewerCell);
       for (const p of input.needs ?? []) argv.push("--needs", p);
       for (const p of input.parent ?? []) argv.push("--parent", p); // deprecated alias, kobo-640
       if (input.body) argv.push("--body", input.body);
@@ -202,6 +215,9 @@ export function taskArgs(input: TaskInput): string[] {
     case "move": {
       const mid = needId("move");
       if (!input.state) throw new Error("task move requires a state (backlog|todo|ready|approve|need-answer)");
+      if (!["backlog", "todo", "ready", "approve", "need-answer", "wait-for-deploy"].includes(input.state)) {
+        throw new Error("task move state must be backlog, todo, ready, approve, need-answer or wait-for-deploy (use review/external-wait dedicated verbs)");
+      }
       const argv = ["company", "task", "move", mid, input.state];
       // kobo-191/218: moving into approve OR need-answer carries a mandatory reason
       // (both are Tony's queues — forward it so the CLI doesn't reject the MCP move).
@@ -262,6 +278,29 @@ export function taskArgs(input: TaskInput): string[] {
       return ["company", "task", "done", needId("done"), ...common()];
     case "deployed": // kobo-275 — wait-for-deploy → done (manual deploy-drain)
       return ["company", "task", "deployed", needId("deployed"), ...common()];
+    case "external-wait": {
+      const wid = needId("external-wait");
+      if (!input.trigger) throw new Error("task external-wait requires trigger (the external signal that wakes the card)");
+      return ["company", "task", "external-wait", wid, "--trigger", input.trigger, ...common()];
+    }
+    case "evidence": {
+      const evid = needId("evidence");
+      if (!input.evidenceScope || !input.changed || !input.verified || !input.locus || !input.limitations) {
+        throw new Error("task evidence requires evidenceScope, changed, verified, locus and limitations");
+      }
+      const argv = ["company", "task", "evidence", evid, "--scope", input.evidenceScope, "--changed", input.changed, "--verified", input.verified, "--locus", input.locus, "--limitations", input.limitations];
+      if (input.ref) argv.push("--ref", input.ref);
+      if (input.sha) argv.push("--sha", input.sha);
+      return [...argv, ...common()];
+    }
+    case "ready-for-review":
+      return ["company", "task", "ready-for-review", needId("ready-for-review"), ...common()];
+    case "reopen": {
+      const rid = needId("reopen");
+      const argv = ["company", "task", "reopen", rid];
+      if (input.state) argv.push("--state", input.state);
+      return [...argv, ...common()];
+    }
     case "unblock":
       return ["company", "task", "unblock", needId("unblock"), ...common()];
     case "note": {
@@ -328,6 +367,7 @@ export function taskArgs(input: TaskInput): string[] {
     case "review": {
       const argv = ["company", "task", "review", needId("review")];
       if (input.to) argv.push("--to", input.to);
+      if (input.reviewerCell) argv.push("--reviewer-cell", input.reviewerCell);
       if (input.reason) argv.push("--reason", input.reason);
       return [...argv, ...common()];
     }

@@ -47,7 +47,7 @@ export function stateBadge(task) {
   const state = (task && task.state) || 'todo';
   const LABEL = {
     backlog: 'Backlog', todo: 'Todo', ready: 'Ready', 'in-progress': 'In Progress',
-    review: 'Review', 'need-answer': 'Need answer', approve: 'Approve', 'wait-for-deploy': 'Wait for deploy', blocked: 'Blocked', done: 'Done', rejected: 'Rejected',
+    review: 'Review', 'need-answer': 'Need answer', approve: 'Approve', 'wait-for-deploy': 'Wait for deploy', 'external-wait': 'External wait', blocked: 'Blocked', done: 'Done', rejected: 'Rejected',
   };
   let label = LABEL[state] || state;
   if (state === 'blocked' && task && task.block && task.block.for) label += ' →' + task.block.for;
@@ -122,14 +122,14 @@ export function parseCardId(search) {
 // kobo-194: which board columns can collapse (parking + terminal lanes) — active
 // flow lanes (todo…done, incl. approve) are NEVER collapsed. Kept as a literal set
 // so a rebase that adds a lane (e.g. approve, kobo-189) leaves it untouched.
-export const COLLAPSIBLE_COLS = ["backlog", "rejected", "wait-for-deploy"];
+export const COLLAPSIBLE_COLS = ["backlog", "rejected", "wait-for-deploy", "external-wait"];
 
 // kobo-273 — collapsible columns whose DEFAULT is OPEN (chevron can fold them, but
 // they show by default). wait-for-deploy is a live deploy reminder — hiding it by
 // default would defeat the "merged≠live, don't forget deploy" purpose. backlog/rejected
 // stay default-collapsed (dormant parking). Kept as a literal set for the same
 // rebase-safety reason as COLLAPSIBLE_COLS.
-export const DEFAULT_OPEN_COLS = ["wait-for-deploy"];
+export const DEFAULT_OPEN_COLS = ["wait-for-deploy", "external-wait"];
 
 // kobo-194: is `col` collapsed right now? Only collapsible columns can be; among
 // them the default is COLLAPSED, overridden per-column by the persisted state
@@ -260,7 +260,7 @@ function companyBody(): string {
     .col.lane-empty { display:none; }
     .col-backlog h2 { color:var(--muted); } .col-todo h2 { color:var(--warn); }
     .col-ready h2 { color:var(--ok); } /* kobo-133 — deps cleared, green light to start */
-    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-need-answer h2 { color:var(--warn); } .col-approve h2 { color:var(--link); } .col-wait-for-deploy h2 { color:var(--link); } /* kobo-273 — merged≠live park */ .col-done h2 { color:var(--ok); }
+    .col-in-progress h2 { color:var(--accent); } .col-review h2 { color:var(--epic); } .col-need-answer h2 { color:var(--warn); } .col-approve h2 { color:var(--link); } .col-wait-for-deploy h2 { color:var(--link); } /* kobo-273 — merged≠live park */ .col-external-wait h2 { color:var(--warn); } /* Cell v2 — non-WIP wait on named external trigger */ .col-done h2 { color:var(--ok); }
     .col-blocked h2 { color:var(--bad); } /* kobo-199 — Blocked is now a normal grid column (was the floating attention lane, kobo-55) */
     .col-rejected h2 { color:var(--warn); } /* kobo-101 — terminal "not accepted", parallel to Done */
     .task { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-3); }
@@ -274,6 +274,7 @@ function companyBody(): string {
     .task.st-need-answer { border-left-color:var(--warn); } /* kobo-218 — Tony's decision queue */
     .task.st-approve { border-left-color:var(--link); } /* kobo-189 — human gate (gold) */
     .task.st-wait-for-deploy { border-left-color:var(--link); } /* kobo-273 — merged, awaiting deploy */
+    .task.st-external-wait { border-left-color:var(--warn); } /* Cell v2 — waiting on external signal */
     .task.st-done { border-left-color:var(--ok); }
     .task.st-blocked { border-left-color:var(--bad); }
     /* kobo-62 — progressive card face: title + assignee avatar on one row. */
@@ -371,6 +372,7 @@ function companyBody(): string {
     .pill.state { font-weight:700; text-transform:uppercase; letter-spacing:.04em; font-size:var(--t-xs); }
     .pill.state.st-backlog { color:var(--muted); }
     .pill.state.st-wait-for-deploy { color:var(--link); } /* kobo-273 */
+    .pill.state.st-external-wait { color:var(--warn); border-color:var(--bd-warn); }
     .pill.state.st-todo { color:var(--warn); border-color:var(--bd-warn); }
     .pill.state.st-ready { color:var(--ok); border-color:var(--bd-ok); }
     .pill.state.st-in-progress { color:var(--accent); border-color:var(--bd-accent); }
@@ -734,6 +736,7 @@ function companyBody(): string {
           <div class="col col-need-answer"><h2><span>❓&nbsp;Need&nbsp;answer</span><span class="count" id="c-need-answer">0</span></h2><div id="need-answer"></div></div>
           <div class="col col-approve"><h2><span>Approve</span><span class="count" id="c-approve">0</span></h2><div id="approve"></div></div>
           <div class="col col-wait-for-deploy"><h2><button class="col-chevron" type="button" data-col="wait-for-deploy" aria-label="toggle wait-for-deploy">▸</button><span>⏳&nbsp;Wait&nbsp;for&nbsp;deploy</span><span class="count" id="c-wait-for-deploy">0</span></h2><div id="wait-for-deploy"></div></div>
+          <div class="col col-external-wait"><h2><button class="col-chevron" type="button" data-col="external-wait" aria-label="toggle external-wait">▸</button><span>⏳&nbsp;External&nbsp;wait</span><span class="count" id="c-external-wait">0</span></h2><div id="external-wait"></div></div>
           <div class="col col-blocked"><h2><span>⚑&nbsp;Blocked</span><span class="count" id="c-blocked">0</span></h2><div id="blocked"></div></div>
           <div class="col col-done"><h2><span>Done</span><span class="count" id="c-done">0</span></h2><div id="done"></div></div>
           <div class="col col-rejected"><h2><button class="col-chevron" type="button" data-col="rejected" aria-label="toggle rejected">▸</button><span>Rejected</span><span class="count" id="c-rejected">0</span></h2><div id="rejected"></div></div>
@@ -2211,7 +2214,7 @@ function renderMentions(tasks) {
 }
 
 const FLOW = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'approve', 'done'];
-const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'need-answer', 'approve', 'wait-for-deploy', 'blocked', 'done', 'rejected']; // board columns = flow + need-answer (kobo-218, off-flow Tony queue) + wait-for-deploy (kobo-273, merged≠live park) + Blocked (kobo-199, off-flow) + Rejected terminal lane (kobo-101)
+const COLS = ['backlog', 'todo', 'ready', 'in-progress', 'review', 'need-answer', 'approve', 'wait-for-deploy', 'external-wait', 'blocked', 'done', 'rejected']; // board columns = flow + need-answer (kobo-218, off-flow Tony queue) + wait-for-deploy (kobo-273, merged≠live park) + external-wait (Cell v2, non-WIP named trigger) + Blocked (kobo-199, off-flow) + Rejected terminal lane (kobo-101)
 // kobo-199 — lanes that VANISH from the grid when they hold 0 cards. Parking
 // (backlog/rejected) never join — they use the 194/197 reveal control. Blocked is
 // deliberately EXEMPT (always-on) so it never "disappears" — honoring Tony's original
@@ -2366,7 +2369,7 @@ function renderBoard(tasks) {
   // are real board columns; the Blocked lane is separate (off-flow, below).
   for (const s of COLS) { cols[s] = $(s); cols[s].replaceChildren(); }
   const attn = $('blocked'); attn.replaceChildren();
-  const counts = { backlog: 0, todo: 0, ready: 0, 'in-progress': 0, review: 0, 'need-answer': 0, approve: 0, 'wait-for-deploy': 0, done: 0, rejected: 0, blocked: 0 };
+  const counts = { backlog: 0, todo: 0, ready: 0, 'in-progress': 0, review: 0, 'need-answer': 0, approve: 0, 'wait-for-deploy': 0, 'external-wait': 0, done: 0, rejected: 0, blocked: 0 };
   // Off-flow = block state (explicit OR dependency) OR derived needs-owner — ONE
   // Blocked lane, mirroring the CLI board. kobo-255/slice-A: a dep-pending card now
   // IS state="blocked" (state = source of truth), so group by the real state — no

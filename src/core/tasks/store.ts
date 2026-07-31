@@ -31,6 +31,7 @@ export type TaskState =
   | "need-answer" // kobo-218 — Tony's DECISION queue ("จะเอายังไง"), off-flow; distinct from approve (yes/no gate) and blocked (waiting on another card)
   | "approve" // kobo-189 — human gate between review (worker-checked) and done (merged)
   | "wait-for-deploy" // kobo-273 — merged≠live park lane: a deploy-required card waits here after PR merge until the manual deploy lands, then → done
+  | "external-wait" // Cell v2: non-WIP wait for a named external trigger
   | "done"
   | "rejected" // terminal disposition (kobo-101) — "done but not accepted", parallel to done
   | "blocked"; // off-flow (ADR 0003 B) — renamed from the dead needs-attention slot
@@ -44,6 +45,7 @@ export const TASK_STATES: TaskState[] = [
   "need-answer",
   "approve",
   "wait-for-deploy",
+  "external-wait",
   "done",
   "rejected",
   "blocked",
@@ -51,7 +53,7 @@ export const TASK_STATES: TaskState[] = [
 
 // Linear flow columns. Both `need-answer` (kobo-218) and `blocked` are OFF-flow
 // Tony/dependency detours — surfaced as their own lanes, never a progression step.
-export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "approve", "wait-for-deploy", "done"];
+export const TASK_FLOW: TaskState[] = ["backlog", "todo", "ready", "in-progress", "review", "approve", "wait-for-deploy", "external-wait", "done"];
 
 // Terminal dispositions — a finished card. Derived off-flow signals (a still-pending
 // dependency, needs-owner) must NOT re-surface it: a done/rejected card doesn't care
@@ -123,6 +125,19 @@ export interface TaskComment {
   fromNote?: number; // origin note ts when copied from a question-note (kobo-142 migration) — idempotency marker + provenance
 }
 
+/** Cell v2 evidence is durable card state, not pane memory or prose-only comments. */
+export interface TaskEvidenceBlock {
+  scope: "producer" | "independent" | "epic";
+  changed: string;
+  verified: string;
+  ref?: string;
+  sha?: string;
+  locus: string;
+  limitations: string;
+  by: string;
+  ts: number;
+}
+
 /** Card role (kobo-45). `epic` = a container card; children point up to it via
  * the `epic` field. Absent/`task` = a normal card. epic is NOT a new entity — it
  * reuses TaskRecord, so it gets timeline/comment/state for free (spec). */
@@ -161,7 +176,12 @@ export interface TaskRecord {
   block?: TaskBlock; // set when state = blocked (explicit block — ADR 0003 B)
   prevState?: TaskState; // flow state to return to on unblock
   reviewer?: string; // who should review/take over (set when state = review, optional)
+  reviewerCellId?: string; // Cell v2: durable cross-cell reviewer routing
   reviewReason?: string; // why it needs review (optional)
+  reviewRejectCount?: number; // Cell v2: review rejection loop count
+  readyForExternalReviewAt?: number; // readiness/sign gate for cross-cell notification
+  externalWaitTrigger?: string; // required wake signal while state=external-wait
+  evidence?: TaskEvidenceBlock[]; // structured producer/independent/epic evidence
   reviewerPane?: string; // kobo-587: the tmux %pane-id that `--to-pane` resolved to and that the DISPATCHING caller verified is (a) a live pane, (b) in the caller's own tmux session, and (c) not the caller's own pane (same pane-grain binding as crewSignedByPane, kobo-346) — NOT proof anyone at that pane has looked at anything yet, only that a distinct, same-session pane was named. This is what lets resolveReviewer treat a same-oracle-different-pane reviewer as independent instead of falling to human. Live-resolved in the DISPATCHING caller's shell (not the reviewer's) → agent-settable → DEFENSE-IN-DEPTH, not airtight (same ceiling as kobo-346, and kobo-460's pane-id-reuse-across-sessions applies here too).
   rejectReason?: string; // why the card was rejected (kobo-101) — MANDATORY on reject, kept to learn (Nothing is Deleted)
   requestId?: string; // dispatch correlation id — set for auto-created tasks (idempotency key)
@@ -427,6 +447,7 @@ export interface AddTaskInput {
   parentIds?: string[]; // card→card deps (ADR 0003 A) — child is blocked until each parent is done/archived
   body?: string; // free text / markdown checklist (ADR 0003 C)
   reviewer?: string; // kobo-144: persistent per-card reviewer (resolve chain head)
+  reviewerCellId?: string;
   reviewReason?: string; // kobo-218: born-in-approve deploy-approval card carries WHY (the Approve lane invariant — every card says why it's in Tony's queue)
   room?: string; // kobo-244: brainstorm-room artifact id this card is distilled from (provenance)
   crewGate?: boolean; // kobo-327: mark a crew-cell card at creation/dispatch → merge needs a crew pre-sign too (closes the head-merges-before-crew race)
@@ -477,6 +498,7 @@ export function addTask(input: AddTaskInput): TaskRecord & { scopeWarnings?: Sco
   if (input.parentIds?.length) task.parentIds = [...new Set(input.parentIds)]; // dedupe, drop if empty
   if (input.body?.length) task.body = input.body;
   if (input.reviewer) task.reviewer = input.reviewer; // kobo-144: persistent per-card reviewer
+  if (input.reviewerCellId) task.reviewerCellId = input.reviewerCellId;
   if (input.reviewReason) task.reviewReason = input.reviewReason; // kobo-218: born-in-approve card's WHY
   if (input.room) task.room = input.room; // kobo-244: room-artifact provenance (bidirectional link)
   if (input.crewGate) task.crewGate = true; // kobo-327: crew-cell card → merge needs crew + head sign
@@ -588,10 +610,19 @@ export function addTask(input: AddTaskInput): TaskRecord & { scopeWarnings?: Sco
 export function claimTask(company: string, id: string, oracle: string, opts?: { crewGate?: boolean }): TaskRecord | null {
   const task = readTask(company, id);
   if (!task) return null;
+  const reviewerTakesOverWork = task.state === "review" && task.reviewer === oracle;
   task.assignee = oracle;
   task.state = "in-progress";
-  delete task.reviewer;
-  delete task.reviewReason;
+  // Cell v2 preserves reviewer routing across close/reopen and normal worker
+  // pickup. If the REVIEWER explicitly claims a card out of review, that is a
+  // real hand-off/takeover; clear the reviewer fields so the board does not show
+  // the new doer as their own pending reviewer.
+  if (reviewerTakesOverWork) {
+    delete task.reviewer;
+    delete task.reviewerPane;
+    delete task.reviewerCellId;
+    delete task.reviewReason;
+  }
   if (opts?.crewGate && !task.crewGate) task.crewGate = true; // kobo-333: crew-dispatch stamp
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253: pending dep → snaps back to blocked
@@ -787,6 +818,7 @@ export function isSelfReviewPaneAware(task: TaskRecord, to: string, callerPane: 
 
 export interface ReviewInput {
   to?: string; // requested reviewer / next person (optional → anyone) — may be `oracle@%paneId` (kobo-587)
+  cellId?: string;
   reason?: string;
 }
 
@@ -806,6 +838,7 @@ export function reviewTask(company: string, id: string, by: string, opts: Review
     task.reviewer = target.oracle; // kobo-587: store the bare oracle name — reviewerPane is the separate, explicit independence proof
     if (target.pane) task.reviewerPane = target.pane; else delete task.reviewerPane;
   }
+  if (opts.cellId) task.reviewerCellId = opts.cellId;
   if (opts.reason) task.reviewReason = opts.reason; else delete task.reviewReason;
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: review + pending dep → blocked (blocked wins)
@@ -906,6 +939,51 @@ export function setTaskPr(company: string, id: string, pr: number, by: string, r
   task.updatedTs = Date.now();
   writeTaskWithDepGuard(task); // kobo-253 EDGE: PR up but dep still pending → blocked, not review
   emitDepGuardedResult(task, by, "task-review", `review ${task.id} (PR #${pr}): ${task.title}`);
+  return task;
+}
+
+/** Structured evidence and readiness gate. A producer block is required before external review. */
+export function addTaskEvidence(
+  company: string,
+  id: string,
+  by: string,
+  block: Omit<TaskEvidenceBlock, "by" | "ts">,
+): TaskRecord | null {
+  if (!block.changed.trim() || !block.verified.trim() || !block.locus.trim() || !block.limitations.trim()) return null;
+  const task = readTask(company, id);
+  if (!task) return null;
+  if (block.scope === "independent" && task.evidence?.some((e) => e.scope === "producer" && e.locus === block.locus)) return null;
+  task.evidence = [...(task.evidence ?? []), { ...block, by, ts: Date.now() }];
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", `evidence ${task.id} (${block.scope}): ${task.title}`);
+  return task;
+}
+
+export function markReadyForExternalReview(company: string, id: string, by: string): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task || !task.evidence?.some((e) => e.scope === "producer")) return null;
+  task.readyForExternalReviewAt = Date.now();
+  task.updatedTs = task.readyForExternalReviewAt;
+  writeTaskRecord(task);
+  emit(task, by, "task-review", `ready for external review ${task.id}: ${task.title}`);
+  return task;
+}
+
+export function isReadyForExternalReview(task: TaskRecord): boolean {
+  return task.state === "review" && !!task.readyForExternalReviewAt && !!task.evidence?.some((e) => e.scope === "producer");
+}
+
+/** Park on an external signal without consuming worker WIP. */
+export function externalWaitTask(company: string, id: string, by: string, trigger: string): TaskRecord | null {
+  if (!trigger.trim()) return null;
+  const task = readTask(company, id);
+  if (!task) return null;
+  task.state = "external-wait";
+  task.externalWaitTrigger = trigger.trim();
+  task.updatedTs = Date.now();
+  writeTaskRecord(task);
+  emit(task, by, "task-updated", `external-wait ${task.id}: ${task.externalWaitTrigger}`);
   return task;
 }
 
@@ -1411,8 +1489,7 @@ export function completeTask(company: string, id: string, by: string): TaskRecor
   const task = readTask(company, id);
   if (!task) return null;
   task.state = "done";
-  delete task.reviewer;
-  delete task.reviewReason;
+  // Preserve reviewer/reviewerPane/reviewerCellId and readiness as card lineage.
   delete task.block; // done auto-clears an explicit block (ADR 0003 B)
   delete task.prevState;
   task.updatedTs = Date.now();
@@ -1499,16 +1576,28 @@ export function rejectTask(company: string, id: string, by: string, reason: stri
   const task = readTask(company, id);
   if (!task) return null;
   if (task.state === "done" || task.state === "rejected") return null; // terminal — can't reject
-  task.state = "rejected";
+  task.reviewRejectCount = (task.reviewRejectCount ?? 0) + 1;
+  task.state = task.reviewRejectCount >= 2 ? "need-answer" : "rejected";
   task.rejectReason = reason;
-  delete task.reviewer;
-  delete task.reviewReason;
+  // Preserve reviewer routing across close/reopen and record the rejection reason.
   delete task.block; // reject auto-clears an explicit block (mirrors done)
   delete task.prevState;
   task.updatedTs = Date.now();
   writeTaskRecord(task);
-  emit(task, by, "task-rejected", `rejected ${task.id}: ${task.title} — ${reason}`);
+  emit(task, by, "task-rejected", `${task.state === "need-answer" ? "need-answer" : "rejected"} ${task.id}: ${task.title} — ${reason}`);
   releaseAllClaims(task);
+  return task;
+}
+
+/** Reopen a closed card without losing its accountable owner or reviewer routing. */
+export function reopenTask(company: string, id: string, by: string, state: TaskState = "todo"): TaskRecord | null {
+  const task = readTask(company, id);
+  if (!task || (task.state !== "done" && task.state !== "rejected")) return null;
+  if (!["backlog", "todo", "ready", "review"].includes(state)) return null;
+  task.state = state;
+  task.updatedTs = Date.now();
+  writeTaskWithDepGuard(task);
+  emitDepGuardedResult(task, by, "task-updated", `reopened ${task.id} → ${task.state}: ${task.title}`);
   return task;
 }
 
@@ -2113,6 +2202,8 @@ export function taskNextAction(task: TaskRecord): string {
       return "ยังไม่พร้อม (backlog)";
     case "wait-for-deploy":
       return "merged ✓ — รอ deploy ขึ้น live (kobo-273)";
+    case "external-wait":
+      return `รอสัญญาณภายนอก${task.externalWaitTrigger ? ` (${task.externalWaitTrigger})` : " (ไม่ระบุ trigger)"}`;
     case "done":
       return "เสร็จแล้ว ✓";
     case "rejected":

@@ -33,6 +33,7 @@ import { loadConfig } from "maw-js/config";
 import { companyOfOracleStrict, companyScopeViolation } from "../../../core/worklog/company-scope";
 import {
   addTask,
+  addTaskEvidence,
   archiveOldDone,
   archiveTask,
   askTask,
@@ -47,6 +48,7 @@ import {
   commentClarityError,
   commentTask,
   completeTask,
+  externalWaitTask,
   decomposeEpic,
   DEFAULT_ARCHIVE_DAYS,
   dependencyBlock,
@@ -68,6 +70,7 @@ import {
   parsePrRepo,
   readTask,
   rejectTask,
+  reopenTask,
   resolveReviewer,
   isSelfReview,
   isSelfReviewPaneAware,
@@ -94,6 +97,8 @@ import {
   type SignEvidenceScope,
   moveTask,
   markDeployedTask,
+  markReadyForExternalReview,
+  isReadyForExternalReview,
 editTask,
   startTask,
   taskNextAction,
@@ -330,6 +335,7 @@ export const STATE_LABEL: Record<TaskState, string> = {
   "need-answer": "NEED-ANSWER",
   "approve": "APPROVE",
   "wait-for-deploy": "WAIT-DEPLOY",
+  "external-wait": "EXTERNAL-WAIT",
   "done": "DONE",
   "rejected": "REJECTED",
   "blocked": "BLOCKED",
@@ -519,7 +525,7 @@ export async function runTask(
 
     if (subcmd === "add") {
       const flags = parseFlags(args.slice(1), {
-        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--needs": [String], "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reason": String, "--deploy-required": Boolean, "--no-deploy-required": Boolean, "--crew-gate": Boolean,
+        "--repo": String, "--dept": String, "--epic": String, "--assignee": String, "--company": String, "--from": String, "--needs": [String], "--parent": [String], "--body": String, "--state": String, "--kind": String, "--reviewer": String, "--reviewer-cell": String, "--reason": String, "--deploy-required": Boolean, "--no-deploy-required": Boolean, "--crew-gate": Boolean,
       }, 0);
       const me = await resolveActor(flags["--from"]);
       const title = flags._.join(" ").trim(); // positionals only — flag values excluded
@@ -582,7 +588,7 @@ export async function runTask(
       const t = addTask({
         company, title, by: me, kind: addKind,
         dept: flags["--dept"], epic: flags["--epic"], repo: flags["--repo"], assignee: flags["--assignee"] ?? null,
-        parentIds, body: addBody, state: addState, reviewer: flags["--reviewer"], deployRequired,
+        parentIds, body: addBody, state: addState, reviewer: flags["--reviewer"], reviewerCellId: flags["--reviewer-cell"], deployRequired,
         reviewReason: addState === "approve" ? flags["--reason"]!.trim() : undefined, // kobo-218: Approve lane invariant — carry the WHY
         crewGate: Boolean(flags["--crew-gate"]), // kobo-327: crew-cell card → merge needs crew + head sign
       });
@@ -816,14 +822,59 @@ export async function runTask(
         }
         return { ok: false, error: `task not found: ${id}` };
       }
-      console.log(`\x1b[33m✗ rejected\x1b[0m ${t.id}: ${t.title} \x1b[90m— ${reason}\x1b[0m`);
+      const rejectLabel = t.state === "need-answer" ? "❓ need-answer" : "✗ rejected";
+      console.log(`\x1b[33m${rejectLabel}\x1b[0m ${t.id}: ${t.title} \x1b[90m— ${reason}\x1b[0m`);
       // Poke the doer whose work was rejected so they see the decision + reason.
       if (t.assignee && t.assignee !== me && t.assignee !== "any") {
-        ping(t.assignee, `[task] ${me} rejected ${t.id}: ${reason}`);
+        ping(t.assignee, `[task] ${me} ${t.state === "need-answer" ? "moved to need-answer after repeated reject" : "rejected"} ${t.id}: ${reason}`);
         console.log(`  \x1b[36m→ pinged ${t.assignee}\x1b[0m`);
       }
+    } else if (subcmd === "evidence") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--scope": String, "--changed": String, "--verified": String, "--ref": String, "--sha": String, "--locus": String, "--limitations": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      const scope = flags["--scope"] as "producer" | "independent" | "epic" | undefined;
+      if (!id || !scope || !flags["--changed"] || !flags["--verified"] || !flags["--locus"] || !flags["--limitations"]) return { ok: false, error: "usage: maw company task evidence <id> --scope producer|independent|epic --changed <text> --verified <text> --locus <path/origin> --limitations <text> [--ref <ref> --sha <sha>]" };
+      if (!["producer", "independent", "epic"].includes(scope)) return { ok: false, error: "--scope must be producer, independent or epic" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = addTaskEvidence(company, id, me, { scope, changed: flags["--changed"], verified: flags["--verified"], ref: flags["--ref"], sha: flags["--sha"], locus: flags["--locus"], limitations: flags["--limitations"] });
+      if (!t) return { ok: false, error: "task not found or evidence scope/locus invalid" };
+      console.log(`\x1b[36m▣ evidence\x1b[0m ${t.id} (${scope}): ${t.title}`);
+    } else if (subcmd === "ready-for-review") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: "usage: maw company task ready-for-review <id>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = markReadyForExternalReview(company, id, me);
+      if (!t) return { ok: false, error: "task not found or missing producer evidence" };
+      console.log(`\x1b[32m✓ ready for external review\x1b[0m ${t.id}: ${t.title}`);
+      const readyRv = isReadyForExternalReview(t) ? notifyReviewer(t, me) : null;
+      if (readyRv) console.log(`  \x1b[36m→ pinged ${readyRv}\x1b[0m`);
+    } else if (subcmd === "reopen") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--state": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id) return { ok: false, error: "usage: maw company task reopen <id> [--state todo|backlog|ready|review]" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = reopenTask(company, id, me, (flags["--state"] as TaskState | undefined) ?? "todo");
+      if (!t) return { ok: false, error: `cannot reopen task: ${id}` };
+      console.log(`\x1b[36m↻ reopened\x1b[0m ${t.id} → ${t.state}: ${t.title}`);
+    } else if (subcmd === "external-wait") {
+      const flags = parseFlags(args.slice(1), { "--company": String, "--from": String, "--trigger": String }, 0);
+      const me = await resolveActor(flags["--from"]);
+      const id = flags._[0];
+      if (!id || !flags["--trigger"]) return { ok: false, error: "usage: maw company task external-wait <id> --trigger <signal>" };
+      const company = resolveCompany(flags["--company"], me);
+      if (!company) return { ok: false, error: "no company — pass --company <c>" };
+      const t = externalWaitTask(company, id, me, flags["--trigger"]);
+      if (!t) return { ok: false, error: "task not found or trigger is empty" };
+      console.log(`\x1b[33m⏸ external-wait\x1b[0m ${t.id} (${t.externalWaitTrigger}): ${t.title}`);
     } else if (subcmd === "review") {
-      const flags = parseFlags(args.slice(1), { "--company": String, "--to": String, "--to-pane": String, "--reason": String, "--from": String }, 0);
+      const flags = parseFlags(args.slice(1), { "--company": String, "--to": String, "--to-pane": String, "--reviewer-cell": String, "--reason": String, "--from": String }, 0);
       const me = await resolveActor(flags["--from"]);
       const id = flags._[0];
       if (!id) return { ok: false, error: 'usage: maw company task review <id> [--to <oracle>] [--to-pane <tmux-addr>] [--reason "<text>"]' };
@@ -855,7 +906,7 @@ export async function runTask(
       if (toForReview && isSelfReviewPaneAware(existing, toForReview, resolveSignerPane())) {
         return { ok: false, error: `refuse: ${flags["--to"]} is the assignee/executor of ${id} — self-review banned (executor≠reviewer, kobo-328). Route --to an independent reviewer.` };
       }
-      const t = reviewTask(company, id, me, { to: toForReview, reason: flags["--reason"] });
+      const t = reviewTask(company, id, me, { to: toForReview, cellId: flags["--reviewer-cell"], reason: flags["--reason"] });
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
       // kobo-328: surface when no independent reviewer exists — resolveReviewer fell to
@@ -863,8 +914,9 @@ export async function runTask(
       if (resolveReviewer(t) === "human") console.log(`  \x1b[33m⚠ no independent reviewer — falls to human (Tony)\x1b[0m`);
       // kobo-144: notify the RESOLVED reviewer (reviewer field → creator → human),
       // not only an explicit --to — a plain `review` still pokes whoever's up.
-      const rv = notifyReviewer(t, me);
+      const rv = isReadyForExternalReview(t) ? notifyReviewer(t, me) : null;
       if (rv) console.log(`  \x1b[36m→ pinged ${rv}\x1b[0m`);
+      else if (!isReadyForExternalReview(t)) console.log("  \x1b[33m⚠ reviewer notification withheld: missing structured producer evidence/readiness gate\x1b[0m");
     } else if (subcmd === "hold") {
       // kobo-144: reviewer's brake — pull a card into review from any state so it
       // can't proceed until looked at (big change / unsure). Reviewer stays the
@@ -895,7 +947,7 @@ export async function runTask(
       } else {
         console.log(`\x1b[35m⏸ hold\x1b[0m ${t.id} \x1b[90m→ ${resolveReviewer(t)}\x1b[0m: ${t.title}${flags["--reason"] ? ` \x1b[90m(${flags["--reason"]})\x1b[0m` : ""}`);
       }
-      const hrv = notifyReviewer(t, me);
+      const hrv = isReadyForExternalReview(t) ? notifyReviewer(t, me) : null;
       if (hrv) console.log(`  \x1b[36m→ pinged ${hrv}\x1b[0m`);
     } else if (subcmd === "approve") {
       // kobo-191: the reviewer routes a BIG-work card (money/hash/live/deploy/
@@ -996,7 +1048,7 @@ export async function runTask(
       if (!t) return { ok: false, error: `task not found: ${id}` };
       console.log(`\x1b[35m⟳ review\x1b[0m ${t.id} \x1b[33m(PR #${pr})\x1b[0m${t.repo ? ` \x1b[90m${t.repo}\x1b[0m` : ""} \x1b[90m(${taskNextAction(t)})\x1b[0m: ${t.title}`);
       // kobo-144: PR up = card in review → poke the resolved reviewer to look.
-      const prRv = notifyReviewer(t, me);
+      const prRv = isReadyForExternalReview(t) ? notifyReviewer(t, me) : null;
       if (prRv) console.log(`  \x1b[36m→ pinged ${prRv}\x1b[0m`);
       // kobo-546: stamp the required tiers from what the PR ACTUALLY touches, at
       // PR-open — the worker sees the real cost early instead of a crewGate flag

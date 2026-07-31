@@ -197,6 +197,19 @@ describe("taskArgs", () => {
       .toEqual(["company", "task", "add", "deploy m5", "--state", "approve", "--reason", "restart maw-server"]);
   });
 
+  test("add: rejects schema-wide states that the CLI add verb cannot accept (MCP/CLI parity)", () => {
+    expect(() => taskArgs({ action: "add", title: "bad", state: "review" })).toThrow(/add state/);
+    expect(() => taskArgs({ action: "add", title: "bad", state: "external-wait" })).toThrow(/add state/);
+    expect(() => taskArgs({ action: "add", title: "bad", state: "wait-for-deploy" })).toThrow(/add state/);
+  });
+
+  test("add/review: reviewerCell forwards --reviewer-cell for Cell v2 routing", () => {
+    expect(taskArgs({ action: "add", title: "cell work", reviewer: "eq3", reviewerCell: "eq3-b" }))
+      .toEqual(["company", "task", "add", "cell work", "--reviewer", "eq3", "--reviewer-cell", "eq3-b"]);
+    expect(taskArgs({ action: "review", id: "kobo-3", to: "eq3", reviewerCell: "eq3-b" }))
+      .toEqual(["company", "task", "review", "kobo-3", "--to", "eq3", "--reviewer-cell", "eq3-b"]);
+  });
+
   test("move: id + state → company task move argv (kobo-70)", () => {
     expect(taskArgs({ action: "move", id: "kobo-5", state: "backlog", company: "kobo" }))
       .toEqual(["company", "task", "move", "kobo-5", "backlog", "--company", "kobo"]);
@@ -214,6 +227,11 @@ describe("taskArgs", () => {
     expect(taskArgs({ action: "move", id: "kobo-5", state: "need-answer", reason: "A or B?" }))
       .toEqual(["company", "task", "move", "kobo-5", "need-answer", "--reason", "A or B?"]);
     expect(() => taskArgs({ action: "move", id: "kobo-5", state: "need-answer" })).toThrow(/reason/);
+  });
+
+  test("move: rejects schema-wide states that require dedicated verbs (MCP/CLI parity)", () => {
+    expect(() => taskArgs({ action: "move", id: "kobo-5", state: "review" })).toThrow(/move state/);
+    expect(() => taskArgs({ action: "move", id: "kobo-5", state: "external-wait" })).toThrow(/move state/);
   });
 
   test("approve: id + reason → company task approve argv; missing reason/id throws (kobo-191)", () => {
@@ -279,6 +297,19 @@ describe("taskArgs", () => {
     expect(taskArgs({ action: "deployed", id: "kobo-3" })).toEqual(["company", "task", "deployed", "kobo-3"]);
     expect(taskArgs({ action: "deployed", id: "kobo-3", company: "kobo", from: "eq3" }))
       .toEqual(["company", "task", "deployed", "kobo-3", "--company", "kobo", "--from", "eq3"]);
+  });
+
+  test("Cell v2 MCP actions map to CLI verbs", () => {
+    expect(taskArgs({ action: "external-wait", id: "kobo-3", trigger: "provider callback" }))
+      .toEqual(["company", "task", "external-wait", "kobo-3", "--trigger", "provider callback"]);
+    expect(taskArgs({ action: "ready-for-review", id: "kobo-3" }))
+      .toEqual(["company", "task", "ready-for-review", "kobo-3"]);
+    expect(taskArgs({ action: "reopen", id: "kobo-3", state: "review" }))
+      .toEqual(["company", "task", "reopen", "kobo-3", "--state", "review"]);
+    expect(taskArgs({ action: "evidence", id: "kobo-3", evidenceScope: "producer", changed: "fields", verified: "named test", locus: "worktree", limitations: "no UI" }))
+      .toEqual(["company", "task", "evidence", "kobo-3", "--scope", "producer", "--changed", "fields", "--verified", "named test", "--locus", "worktree", "--limitations", "no UI"]);
+    expect(() => taskArgs({ action: "external-wait", id: "kobo-3" })).toThrow(/trigger/);
+    expect(() => taskArgs({ action: "evidence", id: "kobo-3", evidenceScope: "producer" })).toThrow(/changed/);
   });
 
   test("id-required verbs throw without an id", () => {
