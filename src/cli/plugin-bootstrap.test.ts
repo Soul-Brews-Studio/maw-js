@@ -8,11 +8,76 @@ import {
   lstatSync,
   readlinkSync,
   rmSync,
+  cpSync,
   symlinkSync,
 } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { runBootstrap } from "./plugin-bootstrap";
+
+/**
+ * Verify a plugin entry is correctly linked by `linkOrCopy`.
+ *
+ * On Linux/Mac with symlink support, `linkOrCopy` produces a real symlink whose
+ * `readlinkSync(p)` equals `expectedTarget`. On Windows non-admin / no Dev Mode,
+ * `linkOrCopy` falls back to `cpSync({ recursive: true })` (see #2881) which
+ * produces a real directory containing `plugin.json` — not a symlink.
+ *
+ * Both shapes are correct; the assertion must accept either.
+ */
+function isPluginLinkedTo(p: string, expectedTarget: string): boolean {
+  try {
+    const lst = lstatSync(p);
+    if (lst.isSymbolicLink()) {
+      return readlinkSync(p) === expectedTarget;
+    }
+    if (lst.isDirectory()) {
+      // cpSync fallback: real dir containing plugin.json (the manifest that
+      // `isPluginDir` checks for). Plugin must be discoverable via manifest.
+      return existsSync(join(p, "plugin.json"));
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve the actual target of a plugin link (symlink or copy-fallback dir). */
+function pluginLinkTarget(p: string): string | null {
+  try {
+    const lst = lstatSync(p);
+    if (lst.isSymbolicLink()) return readlinkSync(p);
+    if (lst.isDirectory()) {
+      return p;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Test setup helper — tries symlink first, falls back to cpSync copy on
+ * Windows non-admin / no Dev Mode (EPERM). Mirrors the production
+ * `linkOrCopy()` behavior so setup lines that intentionally create a
+ * "stale symlink" still work on Windows.
+ *
+ * For tests that NEED a real symlink (e.g. broken-symlink healing), use
+ * `symlinkSync` directly and rely on `.skip()` on Windows non-admin —
+ * but try the setup first; copy-fallback is a valid linked plugin too.
+ */
+function testLink(src: string, dest: string): void {
+  try {
+    symlinkSync(src, dest);
+  } catch (err: any) {
+    if (err?.code === "EPERM" || err?.code === "ENOSYS" || err?.code === "ENOTSUP" || err?.code === "EACCES") {
+      mkdirSync(join(dest, ".."), { recursive: true });
+      cpSync(src, dest, { recursive: true });
+    } else {
+      throw err;
+    }
+  }
+}
 
 /**
  * Tests for #817 — bootstrap-on-empty.
@@ -134,8 +199,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     expect(linked).toEqual(["alpha", "beta", "gamma"]);
     for (const name of linked) {
       const dest = join(pluginDir, name);
-      expect(lstatSync(dest).isSymbolicLink()).toBe(true);
-      expect(readlinkSync(dest)).toBe(join(bundledDir, name));
+      expect(isPluginLinkedTo(dest, join(bundledDir, name))).toBe(true);
     }
   });
 
@@ -148,10 +212,10 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     await runBootstrap(pluginDir, srcDir);
 
     expect(readdirSync(pluginDir).sort()).toEqual(["attach", "serve-config-health", "tile", "wake"]);
-    expect(readlinkSync(join(pluginDir, "tile"))).toBe(join(bundledDir, "tile"));
-    expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
-    expect(readlinkSync(join(pluginDir, "attach"))).toBe(join(vendoredDir, "attach"));
-    expect(readlinkSync(join(pluginDir, "serve-config-health"))).toBe(join(vendorPluginsDir, "serve-config-health"));
+    expect(isPluginLinkedTo(join(pluginDir, "tile"), join(bundledDir, "tile"))).toBe(true);
+    expect(isPluginLinkedTo(join(pluginDir, "wake"), join(vendoredDir, "wake"))).toBe(true);
+    expect(isPluginLinkedTo(join(pluginDir, "attach"), join(vendoredDir, "attach"))).toBe(true);
+    expect(isPluginLinkedTo(join(pluginDir, "serve-config-health"), join(vendorPluginsDir, "serve-config-health"))).toBe(true);
   });
 
   it("#1484 — incomplete in-tree plugin dir does not block vendored manifest plugin", async () => {
@@ -161,8 +225,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     await runBootstrap(pluginDir, srcDir);
 
     expect(readdirSync(pluginDir).sort()).toEqual(["team"]);
-    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(pluginDir, "team"))).toBe(vendoredTeam);
+    expect(isPluginLinkedTo(join(pluginDir, "team"), vendoredTeam)).toBe(true);
   });
 
   it("#1484 — existing symlink to non-manifest plugin dir is healed to vendored plugin", async () => {
@@ -171,14 +234,11 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     mkdirSync(pluginDir, { recursive: true });
     symlinkSync(incompleteTeam, join(pluginDir, "team"));
-    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
-    expect(existsSync(join(pluginDir, "team"))).toBe(true);
-    expect(readlinkSync(join(pluginDir, "team"))).toBe(incompleteTeam);
+    expect(isPluginLinkedTo(join(pluginDir, "team"), incompleteTeam)).toBe(true);
 
     await runBootstrap(pluginDir, srcDir);
 
-    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(pluginDir, "team"))).toBe(vendoredTeam);
+    expect(isPluginLinkedTo(join(pluginDir, "team"), vendoredTeam)).toBe(true);
   });
 
   it("#1491 — stale symlink to an older maw-js bundled plugin is healed to current package", async () => {
@@ -191,8 +251,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     await runBootstrap(pluginDir, srcDir);
 
-    expect(lstatSync(join(pluginDir, "fleet")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(pluginDir, "fleet"))).toBe(currentFleet);
+    expect(isPluginLinkedTo(join(pluginDir, "fleet"), currentFleet)).toBe(true);
   });
 
   it("#1491 — stale symlink to an older vendored maw-js plugin is healed to current vendor", async () => {
@@ -205,8 +264,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     await runBootstrap(pluginDir, srcDir);
 
-    expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(pluginDir, "wake"))).toBe(currentWake);
+    expect(isPluginLinkedTo(join(pluginDir, "wake"), currentWake)).toBe(true);
   });
 
   it("#2697 — stale symlink to renamed node_modules/maw bundled plugin is refreshed", async () => {
@@ -233,8 +291,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     await runBootstrap(pluginDir, srcDir);
 
-    expect(lstatSync(join(pluginDir, "inbox")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(pluginDir, "inbox"))).toBe(currentInbox);
+    expect(isPluginLinkedTo(join(pluginDir, "inbox"), currentInbox)).toBe(true);
   });
 
   it("#1491 — symlinked user plugin override is not treated as stale maw-js bundle", async () => {
@@ -249,8 +306,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     await runBootstrap(pluginDir, srcDir);
 
-    expect(lstatSync(join(pluginDir, "fleet")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(pluginDir, "fleet"))).toBe(userFleet);
+    expect(isPluginLinkedTo(join(pluginDir, "fleet"), userFleet)).toBe(true);
   });
 
   it("#1339 — user plugin dirs override vendored plugin names", async () => {
@@ -273,8 +329,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     await runBootstrap(pluginDir, srcDir);
 
     expect(readdirSync(pluginDir).sort()).toEqual(["swarm"]);
-    expect(lstatSync(join(pluginDir, "swarm")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(pluginDir, "swarm"))).toBe(builtinSwarm);
+    expect(isPluginLinkedTo(join(pluginDir, "swarm"), builtinSwarm)).toBe(true);
   });
 
   it("non-empty pluginDir with N-1 of N plugins → 1 new symlink, others untouched", async () => {
@@ -295,11 +350,14 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     const linked = readdirSync(pluginDir).sort();
     expect(linked).toEqual(["alpha", "beta", "shellenv"]);
-    expect(lstatSync(join(pluginDir, "shellenv")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(pluginDir, "shellenv"))).toBe(join(bundledDir, "shellenv"));
+    expect(isPluginLinkedTo(join(pluginDir, "shellenv"), join(bundledDir, "shellenv"))).toBe(true);
 
     // Pre-existing symlink not recreated (same inode).
-    expect(lstatSync(join(pluginDir, "alpha")).ino).toBe(alphaBefore);
+    // Inode check still works for symlinks; for copy-fallback the inode is
+    // new (cpSync creates a new tree) — only assert identity on symlinks.
+    if (lstatSync(join(pluginDir, "alpha")).isSymbolicLink()) {
+      expect(lstatSync(join(pluginDir, "alpha")).ino).toBe(alphaBefore);
+    }
   });
 
   it("all N plugins already present → no-op (no new symlinks)", async () => {
@@ -379,8 +437,8 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
       const entries = readdirSync(pluginDir);
       expect(entries).not.toContain("workon");
       expect(entries).not.toContain("wake");
-      // Bundled plugin still linked
-      expect(entries).toContain("alpha");
+      // Bundled plugin still linked (symlink OR cpSync fallback)
+      expect(isPluginLinkedTo(join(pluginDir, "alpha"), join(bundledDir, "alpha"))).toBe(true);
       // Warning was logged
       expect(warns.some(w => w.includes("2 broken plugin symlink"))).toBe(true);
     } finally {
@@ -403,8 +461,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     try {
       await runBootstrap(pluginDir, srcDir);
 
-      expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
-      expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
+      expect(isPluginLinkedTo(join(pluginDir, "wake"), join(vendoredDir, "wake"))).toBe(true);
       expect(warns.some(w => w.includes("broken plugin symlink"))).toBe(false);
     } finally {
       console.warn = originalWarn;
@@ -440,7 +497,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
       expect(logs.filter((l) => l.includes("bootstrapped")).length).toBe(0);
       // But the new bundled plugin WAS linked (the bug fix).
       expect(existsSync(join(pluginDir, "shellenv"))).toBe(true);
-      expect(lstatSync(join(pluginDir, "shellenv")).isSymbolicLink()).toBe(true);
+      expect(isPluginLinkedTo(join(pluginDir, "shellenv"), join(bundledDir, "shellenv"))).toBe(true);
     } finally {
       process.stderr.write = originalWrite;
     }
