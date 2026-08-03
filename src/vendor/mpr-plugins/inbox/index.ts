@@ -105,8 +105,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     // ─── Legacy ψ/inbox/ subcommands ───
     if (sub === "read") {
-      // maw inbox read <id>  — mark as read
-      await cmdInboxMarkRead(args[1] ?? "");
+      // maw inbox read <id|N> — display and mark as read
+      if (!args[1]) return { ok: false, error: "usage: maw inbox read <id|N>", output: out() };
+      await cmdInboxRead(args[1]);
     } else if (sub === "drain") {
       // maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]
       const rest = args.slice(1);

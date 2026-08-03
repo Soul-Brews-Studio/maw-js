@@ -115,7 +115,7 @@ describe("/api/send queued inbox live notification (#2057)", () => {
     ]);
   });
 
-  test("uses actual unread total in the gentle tmux status ping (#2792)", async () => {
+  test("does not turn a historical unread backlog into permanent badge noise", async () => {
     const h = harness({ countUnreadInbox: () => 24 });
 
     const res = await h.app.handle(postSend(
@@ -130,7 +130,7 @@ describe("/api/send queued inbox live notification (#2057)", () => {
       "-t",
       "50-atlas",
       "status-right",
-      "#[fg=colour220,bold]📬 inbox:24#[default]",
+      "#[fg=colour220,bold]📬 inbox:1#[default]",
     ]);
     expect(h.calls.at(-1)).toEqual([
       "tmux.run",
@@ -139,7 +139,7 @@ describe("/api/send queued inbox live notification (#2057)", () => {
       "5000",
       "-t",
       "50-atlas:atlas-oracle",
-      "📬 inbox +24 from m5:mawjs — ว่างแล้วค่อย maw inbox (ψ/inbox/msg.md)",
+      "📬 inbox +1 from m5:mawjs — ว่างแล้วค่อย maw inbox (ψ/inbox/msg.md)",
     ]);
   });
 

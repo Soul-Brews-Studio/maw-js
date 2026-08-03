@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import type { Session } from "../../core/transport/ssh";
 import type { ReceiverInboxResult } from "./receiver-inbox";
-import { updateInboxStatusBadge } from "./inbox-status-badge";
+import { incrementInboxStatusBadge } from "./inbox-status-badge";
 
 export type LiveInboxNotifyStatus = "sent" | "not-live" | "failed";
 
@@ -101,18 +101,10 @@ export async function notifyLiveInboxReceiver(
   const target = resolveLiveInboxNotificationTarget(inbox.oracle, sessions);
   if (!target) return { status: "not-live", reason: `no live tmux pane resolved for inbox receiver '${inbox.oracle}'` };
 
-  let unreadCount: number;
-  try {
-    unreadCount = await (deps.countUnread ?? countUnreadInboxFiles)(inbox.inboxDir);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return { status: "failed", target, reason: `count unread inbox failed for ${inbox.inboxDir}: ${reason}` };
-  }
-
-  // Badge is stronger Layer-2 awareness, but advisory: do not drop the
-  // durable inbox write or transient status ping if tmux status-right cannot
-  // be decorated in this environment.
-  await updateInboxStatusBadge(target, unreadCount, { tmux: deps.tmux });
+  // The badge counts arrivals since the receiver's last inbox check. It must
+  // not inherit months of legacy read:false files and become permanent noise.
+  const badge = await incrementInboxStatusBadge(target, { tmux: deps.tmux });
+  const unreadCount = badge.status === "failed" ? 1 : badge.unread;
 
   const message = formatInboxNotification(inbox, from, unreadCount);
   try {

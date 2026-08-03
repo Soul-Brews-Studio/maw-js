@@ -632,24 +632,20 @@ export function loadInboxMessages(inboxDir: string): InboxMessage[] {
 }
 
 
-function countUnreadMessages(messages: InboxMessage[]): number {
-  return messages.filter((msg) => !msg.frontmatter.read).length;
-}
-
-async function refreshCurrentInboxStatusBadge(messages: InboxMessage[]): Promise<void> {
+async function clearCurrentInboxStatusBadge(): Promise<void> {
   if (!process.env.TMUX) return;
   try {
     const session = (await hostExec(`${tmuxCmd()} display-message -p '#S'`)).trim();
     if (!session) return;
-    await updateInboxStatusBadge(session, countUnreadMessages(messages));
+    await updateInboxStatusBadge(session, 0);
   } catch {
-    // Badge refresh is advisory UI; inbox reads/listing must stay reliable.
+    // Badge clearing is advisory UI; inbox reads/listing must stay reliable.
   }
 }
 export async function cmdInboxLs(opts: { unread?: boolean; from?: string; last?: number } = {}) {
   const inboxDir = resolveInboxDir();
   let msgs = loadInboxMessages(inboxDir);
-  await refreshCurrentInboxStatusBadge(msgs);
+  await clearCurrentInboxStatusBadge();
   if (opts.unread) msgs = msgs.filter(m => !m.frontmatter.read);
   if (opts.from) msgs = msgs.filter(m => m.frontmatter.from === opts.from);
   if (!msgs.length) { console.log("\x1b[90mno inbox messages\x1b[0m"); return; }
@@ -658,14 +654,14 @@ export async function cmdInboxLs(opts: { unread?: boolean; from?: string; last?:
   const FROM_W = 14;
   const WHEN_W = 10;
   console.log(`\n\x1b[36mINBOX\x1b[0m (${msgs.length} total)\n`);
-  console.log(`  ${"R"} ${"FROM".padEnd(FROM_W)} ${"WHEN".padEnd(WHEN_W)} SUBJECT`);
-  console.log(`  ${"-"} ${"-".repeat(FROM_W)} ${"-".repeat(WHEN_W)} ${"-".repeat(44)}`);
-  for (const msg of shown) {
+  console.log(`  ${"#".padStart(2)} ${"R"} ${"FROM".padEnd(FROM_W)} ${"WHEN".padEnd(WHEN_W)} SUBJECT`);
+  console.log(`  ${"--"} ${"-"} ${"-".repeat(FROM_W)} ${"-".repeat(WHEN_W)} ${"-".repeat(44)}`);
+  for (const [index, msg] of shown.entries()) {
     const dot = msg.frontmatter.read ? "\x1b[90m○\x1b[0m" : "\x1b[32m●\x1b[0m";
     const from = msg.frontmatter.from.slice(0, FROM_W).padEnd(FROM_W);
     const when = relativeTime(msg.timestamp).padEnd(WHEN_W);
     const subject = msg.body.replace(/\n/g, " ").slice(0, 50);
-    console.log(`  ${dot} ${from} ${when} ${subject}`);
+    console.log(`  ${String(index + 1).padStart(2)} ${dot} ${from} ${when} ${subject}`);
   }
   console.log();
 }
@@ -699,14 +695,13 @@ export async function cmdInboxMarkRead(id: string) {
     return;
   }
   writeFileSync(msg.path, updated);
-  await refreshCurrentInboxStatusBadge(loadInboxMessages(resolveInboxDir()));
+  await clearCurrentInboxStatusBadge();
   console.log(`\x1b[32m✓\x1b[0m marked read: ${msg.filename}`);
 }
 
 // Legacy write shim — used by the oracle inbox skill
 export async function cmdInboxRead(target?: string) {
   const msgs = loadInboxMessages(resolveInboxDir());
-  await refreshCurrentInboxStatusBadge(msgs);
   if (!msgs.length) { console.log("\x1b[90mno inbox messages\x1b[0m"); return; }
   const n = target ? parseInt(target) : NaN;
   const msg = !target ? msgs[0]
@@ -715,6 +710,8 @@ export async function cmdInboxRead(target?: string) {
   if (!msg) { console.error(`\x1b[31merror\x1b[0m: not found: ${target}`); return; }
   console.log(`\n\x1b[36m${msg.filename}\x1b[0m\n\x1b[90mfrom: ${msg.frontmatter.from}  ${msg.timestamp.toISOString()}\x1b[0m\n`);
   console.log(msg.body);
+  if (!msg.frontmatter.read) await cmdInboxMarkRead(msg.id);
+  else await clearCurrentInboxStatusBadge();
 }
 
 // Legacy write shim

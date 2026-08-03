@@ -194,9 +194,58 @@ describe("inbox plugin standalone boundary (#2329)", () => {
       "tmux display-message -p '#S'",
     ]);
     expect(statusBadgeCalls).toEqual([
-      { target: "mock-session", unread: 1 },
+      { target: "mock-session", unread: 0 },
       { target: "mock-session", unread: 0 },
     ]);
+  });
+
+  test("checking the inbox clears the arrival badge without rewriting unread history", async () => {
+    const inbox = join(psiPath, "inbox");
+    const message = join(inbox, "2026-06-09_00-03_sender_unread.md");
+    writeFileSync(message, [
+      "---",
+      "from: sender",
+      "timestamp: 2026-06-09T00:03:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "new arrival",
+    ].join("\n"));
+
+    const prevTmux = process.env.TMUX;
+    process.env.TMUX = "/tmp/tmux-test/default,123,0";
+    try {
+      const listed = await handler({ source: "cli", args: ["--unread", "--last", "5"] } as any);
+      expect(listed.ok).toBe(true);
+      expect(listed.output).toContain("new arrival");
+    } finally {
+      if (prevTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = prevTmux;
+    }
+
+    expect(readFileSync(message, "utf8")).toContain("read: false");
+    expect(statusBadgeCalls).toEqual([{ target: "mock-session", unread: 0 }]);
+  });
+
+  test("read displays the selected message and marks it read", async () => {
+    const inbox = join(psiPath, "inbox");
+    const message = join(inbox, "2026-06-09_00-04_sender_consume.md");
+    writeFileSync(message, [
+      "---",
+      "from: sender",
+      "timestamp: 2026-06-09T00:04:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "consume me",
+    ].join("\n"));
+
+    const result = await handler({ source: "cli", args: ["read", "1"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("consume me");
+    expect(result.output).toContain("marked read");
+    expect(readFileSync(message, "utf8")).toContain("read: true");
   });
 
   test("local inbox write and relative time are non-destructive and deterministic", async () => {

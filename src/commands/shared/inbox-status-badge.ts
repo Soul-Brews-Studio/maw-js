@@ -2,6 +2,7 @@ import { Tmux } from "../../core/transport/tmux";
 
 export const INBOX_BADGE_BASE_OPTION = "@maw_inbox_status_right_base";
 const BADGE_RE = /#\[fg=colour220,bold\]📬 inbox:\d+#\[default\]\s*/g;
+const BADGE_COUNT_RE = /#\[fg=colour220,bold\]📬 inbox:(\d+)#\[default\]/;
 
 export interface InboxStatusBadgeDeps {
   tmux?: Pick<Tmux, "run">;
@@ -24,6 +25,11 @@ export function formatInboxStatusBadge(unread: number): string {
 
 export function stripInboxStatusBadge(statusRight: string): string {
   return statusRight.replace(BADGE_RE, "").trimStart();
+}
+
+export function inboxStatusBadgeCount(statusRight: string): number {
+  const value = Number.parseInt(statusRight.match(BADGE_COUNT_RE)?.[1] ?? "0", 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 async function showOption(tmux: Pick<Tmux, "run">, session: string, option: string): Promise<string> {
@@ -80,5 +86,30 @@ export async function updateInboxStatusBadge(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return { status: "failed", session, unread: count, reason };
+  }
+}
+
+/** Increment the session-local arrival counter without inheriting old unread files. */
+export async function incrementInboxStatusBadge(
+  target: string,
+  deps: InboxStatusBadgeDeps = {},
+): Promise<InboxStatusBadgeResult> {
+  const session = sessionFromTarget(target);
+  const tmux = deps.tmux ?? new Tmux();
+  if (!session) return { status: "failed", session, unread: 0, reason: "missing tmux session target" };
+
+  try {
+    const savedBase = await showOption(tmux, session, INBOX_BADGE_BASE_OPTION).catch(() => "");
+    const current = await showOption(tmux, session, "status-right").catch(() => "");
+    const base = savedBase || stripInboxStatusBadge(current);
+    if (!savedBase) await tmux.run("set-option", "-t", session, INBOX_BADGE_BASE_OPTION, base);
+
+    const count = inboxStatusBadgeCount(current) + 1;
+    const next = `${formatInboxStatusBadge(count)} ${base}`.trimEnd();
+    await tmux.run("set-option", "-t", session, "status-right", next);
+    return { status: "set", session, unread: count };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { status: "failed", session, unread: 0, reason };
   }
 }
