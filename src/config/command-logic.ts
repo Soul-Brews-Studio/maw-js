@@ -131,7 +131,7 @@ function commandKeyForAgent(
     throw new UserError(`engine '${opts.engine}' not resolvable — known: [${knownList}]; define it in config.engines/config.commands or check charter`);
   }
 
-  let key = defaultEngineNameForConfig(config);
+  let key = "";
 
   for (const pattern of keys) {
     if (pattern === "default") continue;
@@ -140,6 +140,8 @@ function commandKeyForAgent(
       break;
     }
   }
+
+  if (!key) key = defaultEngineNameForConfig(config);
 
   return key;
 }
