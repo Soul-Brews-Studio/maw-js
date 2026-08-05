@@ -61,6 +61,21 @@ function validateExtFields(
     }
   }
 
+  // autoRestart: boolean. Consumed by engine-crash.ts to respawn crashed
+  // agents. Field was declared in types.ts + wired to engine but never
+  // whitelisted here, so validateConfig() silently stripped it and
+  // /api/config returned undefined even when the user set it. Symptom:
+  // operators enabling autoRestart in maw.config.json saw no effect and
+  // no warning — a UX bug where documented behavior was unreachable via
+  // config. Reproduced symmetrically on both vm200 and oracle-world.
+  if ("autoRestart" in raw) {
+    if (typeof raw.autoRestart === "boolean") {
+      result.autoRestart = raw.autoRestart;
+    } else {
+      warn("autoRestart", "must be a boolean");
+    }
+  }
+
   // pin: string if present
   if ("pin" in raw) {
     if (typeof raw.pin === "string") {

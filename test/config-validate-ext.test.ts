@@ -22,6 +22,7 @@ describe("validateConfig extended fields", () => {
       federationToken: "0123456789abcdef",
       allowPeersWithoutToken: true,
       trustLoopback: false,
+      autoRestart: true,
       pin: "1234",
       zenoh: {
         locator: "ws/127.0.0.1:7447",
@@ -57,6 +58,7 @@ describe("validateConfig extended fields", () => {
       federationToken: "0123456789abcdef",
       allowPeersWithoutToken: true,
       trustLoopback: false,
+      autoRestart: true,
       pin: "1234",
       zenoh: {
         locator: "ws/127.0.0.1:7447",
@@ -93,6 +95,7 @@ describe("validateConfig extended fields", () => {
       federationToken: "too-short",
       allowPeersWithoutToken: "true",
       trustLoopback: "false",
+      autoRestart: "true",
       pin: 123,
       zenoh: {
         locator: 123,
@@ -135,6 +138,7 @@ describe("validateConfig extended fields", () => {
       "[maw] config warning: federationToken must be at least 16 characters, using default",
       "[maw] config warning: allowPeersWithoutToken must be a boolean, using default",
       "[maw] config warning: trustLoopback must be a boolean, using default",
+      "[maw] config warning: autoRestart must be a boolean, using default",
       "[maw] config warning: pin must be a string, using default",
       "[maw] config warning: scout must be a boolean, using default",
       "[maw] config warning: discovery.transport must be one of: scout, zenoh, both, off, using default",
