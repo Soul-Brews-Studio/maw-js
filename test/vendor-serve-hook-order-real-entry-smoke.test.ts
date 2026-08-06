@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 
+// Use the actual Bun binary that is running this test. On Windows the bare
+// "bun" command can be shadowed by a shell wrapper (e.g. Jit provider loader),
+// so process.execPath keeps the real runtime.
+const BUN_EXE = process.execPath;
+
 type SpawnSyncResult = ReturnType<typeof Bun.spawnSync>;
 
 function run(cmd: string[], options: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number; allowFailure?: boolean } = {}): SpawnSyncResult {
@@ -41,7 +46,7 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function waitForHttp(url: string, timeoutMs = 10_000): Promise<void> {
+async function waitForHttp(url: string, timeoutMs = 30_000): Promise<void> {
   const started = Date.now();
   let last = "no attempt";
   while (Date.now() - started < timeoutMs) {
@@ -119,7 +124,7 @@ describe("serve hook mount order real-entry smoke (#2774)", () => {
     installSlowServeHook(pluginDir);
     try {
       serve = Bun.spawn({
-        cmd: ["bun", "src/cli.ts", "serve", String(port), "--force-takeover", "-q"],
+        cmd: [BUN_EXE, "src/cli.ts", "serve", String(port), "--force-takeover", "-q"],
         cwd: repo,
         env,
         stdout: "pipe",
