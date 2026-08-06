@@ -3,7 +3,7 @@
  * installFromDir / installFromTarball / installFromUrl
  */
 
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { basename, join, resolve } from "path";
@@ -271,15 +271,16 @@ export async function installFromTarball(
   // #864 — rename pluginRoot (not staging): when github/npm wrapped in a
   // single subdir, pluginRoot points at the subdir and staging is its parent.
   try {
-    const { renameSync } = require("fs");
     renameSync(pluginRoot, dest);
   } catch {
-    // Cross-device fallback (rare). Fall back to cp -a then rm -rf.
-    spawnSync("cp", ["-a", pluginRoot + "/.", dest], { encoding: "utf8" });
+    // Cross-device fallback (rare). Fall back to a cross-platform recursive
+    // copy, then delete the staging source. Throw on copy failure so we never
+    // delete the only remaining extracted copy.
+    cpSync(pluginRoot, dest, { recursive: true, force: true });
   }
   // Clean up the staging tmpdir. When pluginRoot === staging this no-ops
   // (already moved); when pluginRoot was a subdir, staging is now empty
-  // (or has the cp leftovers in the cross-device case).
+  // (or has the copy leftovers in the cross-device case).
   rmSync(staging, { recursive: true, force: true });
 
   // #680 — persist lock entry on every successful tarball install. TOFU on

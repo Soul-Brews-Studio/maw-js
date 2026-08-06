@@ -5,6 +5,7 @@
 import type { LoadedPlugin } from "../../plugin/types";
 import { existsSync, mkdirSync, cpSync, readFileSync } from "fs";
 import { join, resolve } from "path";
+import { tmpdir } from "os";
 import { parseManifest } from "../../plugin/manifest";
 import { archiveToTmp } from "./plugins-ui";
 import { mawDataPath } from "../../core/xdg";
@@ -120,6 +121,6 @@ export function doRemove(name: string, discover: () => LoadedPlugin[]): void {
   if (!p) throw new UserError(`plugin not found: ${name}`);
   archiveToTmp(name, p.dir);
   console.log(
-    `\x1b[32m✓\x1b[0m removed ${name} → archived to /tmp/maw-plugin-${name}-*`,
+    `\x1b[32m✓\x1b[0m removed ${name} → archived to ${tmpdir()}/maw-plugin-${name}-*`,
   );
 }
