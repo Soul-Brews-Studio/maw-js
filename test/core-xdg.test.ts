@@ -18,6 +18,10 @@ import {
   mawStatePath,
 } from "../src/core/xdg";
 
+const expectPath = (received: string, expected: string) => {
+  expect(received.replace(/\\/g, "/")).toBe(expected.replace(/\\/g, "/"));
+};
+
 const ENV_KEYS = [
   "HOME",
   "MAW_HOME",
@@ -73,9 +77,9 @@ describe("maw XDG path resolver", () => {
     for (const key of ENV_KEYS) delete process.env[key];
     process.env.HOME = "/legacy-home";
 
-    expect(legacyMawPath()).toBe("/legacy-home/.maw");
-    expect(legacyMawPath("peers.json")).toBe("/legacy-home/.maw/peers.json");
-    expect(legacyMawPath("artifacts", "team")).toBe("/legacy-home/.maw/artifacts/team");
+    expectPath(legacyMawPath(), "/legacy-home/.maw");
+    expectPath(legacyMawPath("peers.json"), "/legacy-home/.maw/peers.json");
+    expectPath(legacyMawPath("artifacts", "team"), "/legacy-home/.maw/artifacts/team");
   });
 
   test("MAW_XDG flips runtime data/state/cache to XDG bases", () => {
@@ -87,11 +91,11 @@ describe("maw XDG path resolver", () => {
     process.env.XDG_CONFIG_HOME = "/xdg-config";
 
     expect(isMawXdgEnabled()).toBe(true);
-    expect(mawRuntimeHomeDir()).toBe("/xdg-state/maw");
-    expect(mawDataDir()).toBe("/xdg-data/maw");
-    expect(mawStateDir()).toBe("/xdg-state/maw");
-    expect(mawCacheDir()).toBe("/xdg-cache/maw");
-    expect(mawConfigDir()).toBe("/xdg-config/maw");
+    expectPath(mawRuntimeHomeDir(), "/xdg-state/maw");
+    expectPath(mawDataDir(), "/xdg-data/maw");
+    expectPath(mawStateDir(), "/xdg-state/maw");
+    expectPath(mawCacheDir(), "/xdg-cache/maw");
+    expectPath(mawConfigDir(), "/xdg-config/maw");
   });
 
   test("explicit maw env overrides beat XDG mode", () => {
@@ -102,11 +106,11 @@ describe("maw XDG path resolver", () => {
     process.env.MAW_STATE_DIR = "/maw-state";
     process.env.MAW_CACHE_DIR = "/maw-cache";
 
-    expect(mawConfigDir()).toBe("/maw-config");
-    expect(mawDataDir()).toBe("/maw-data");
-    expect(mawMessageLogPath()).toBe("/maw-data/maw-log.jsonl");
-    expect(mawStateDir()).toBe("/maw-state");
-    expect(mawCacheDir()).toBe("/maw-cache");
+    expectPath(mawConfigDir(), "/maw-config");
+    expectPath(mawDataDir(), "/maw-data");
+    expectPath(mawMessageLogPath(), "/maw-data/maw-log.jsonl");
+    expectPath(mawStateDir(), "/maw-state");
+    expectPath(mawCacheDir(), "/maw-cache");
   });
 
   test("MAW_HOME keeps instance mode isolated and ignores relative XDG bases", () => {
@@ -117,11 +121,11 @@ describe("maw XDG path resolver", () => {
     process.env.XDG_STATE_HOME = "relative-state";
     process.env.XDG_CACHE_HOME = "relative-cache";
 
-    expect(mawRuntimeHomeDir()).toBe("/maw-home");
-    expect(mawConfigDir()).toBe("/maw-home/config");
-    expect(mawDataDir()).toBe("/maw-home");
-    expect(mawStateDir()).toBe("/maw-home");
-    expect(mawCacheDir()).toBe("/maw-home");
+    expectPath(mawRuntimeHomeDir(), "/maw-home");
+    expectPath(mawConfigDir(), "/maw-home/config");
+    expectPath(mawDataDir(), "/maw-home");
+    expectPath(mawStateDir(), "/maw-home");
+    expectPath(mawCacheDir(), "/maw-home");
   });
 
   test("relative XDG env vars are ignored when MAW_HOME is absent", () => {

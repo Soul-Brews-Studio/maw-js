@@ -9,8 +9,16 @@ const envExample = readFileSync(join(repo, "scripts/hooks/maw-hooks.env.example"
 
 describe("local git hook installer (#1451)", () => {
   test("installer and post-commit template are executable", () => {
-    expect(statSync(join(repo, "scripts/install-git-hooks.sh")).mode & 0o111).not.toBe(0);
-    expect(statSync(join(repo, "scripts/hooks/post-commit")).mode & 0o111).not.toBe(0);
+    const isWindows = process.platform === "win32";
+    if (!isWindows) {
+      expect(statSync(join(repo, "scripts/install-git-hooks.sh")).mode & 0o111).not.toBe(0);
+      expect(statSync(join(repo, "scripts/hooks/post-commit")).mode & 0o111).not.toBe(0);
+    } else {
+      // Windows file systems do not preserve POSIX executable bits in git checkouts,
+      // but the files must still exist and contain a shebang.
+      expect(installer).toMatch(/^#!/m);
+      expect(hook).toMatch(/^#!/m);
+    }
   });
 
   test("post-commit delegates to package build script, not a duplicated bun build command", () => {
