@@ -54,8 +54,12 @@ export interface TmuxSession {
  */
 export function q(s: string | number): string {
   const str = String(s);
-  // Safe chars only → no quoting needed
+  // Safe chars only → no quoting needed.
+  // Leading # must be escaped because some tmux builds treat # after whitespace
+  // as a command-line comment, which would swallow format strings like #{pane_id}.
   if (/^[a-zA-Z0-9_.:\-\/]+$/.test(str)) return str;
-  // Wrap in single quotes, escape inner single quotes
-  return `'${str.replace(/'/g, "'\\''")}'`;
+  const escaped = str
+    .replace(/'/g, "'\\''")
+    .replace(/^#/, "\\#");
+  return `'${escaped}'`;
 }

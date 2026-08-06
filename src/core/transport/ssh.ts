@@ -98,6 +98,7 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
       "/bin",
       "/usr/sbin",
       "/sbin",
+      "/c/Users/MDES-DEV-NB/bin",
       ...parts,
     ].filter((dir, index, all) => all.indexOf(dir) === index).join(":");
   }

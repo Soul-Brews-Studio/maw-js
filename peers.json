@@ -1,0 +1,97 @@
+{
+  "peers": [
+    {
+      "name": "innova-bot",
+      "url": "http://localhost:7010",
+      "agent_type": "ai-bridge",
+      "auth": "none",
+      "endpoints": {
+        "swarm": "/api/swarm/status",
+        "telepathy_in": "/api/telepathy/inbox",
+        "telepathy_out": "/api/telepathy/transmit",
+        "ai_status": "/api/ai/status"
+      }
+    },
+    {
+      "name": "oracle",
+      "url": "http://localhost:47778",
+      "agent_type": "memory-store",
+      "auth": "none",
+      "endpoints": {
+        "health": "/api/health",
+        "learn": "/api/learn",
+        "handoff": "/api/handoff",
+        "search": "/api/search",
+        "list": "/api/list"
+      }
+    },
+    {
+      "name": "multi-proxy",
+      "url": "http://localhost:4322",
+      "agent_type": "llm-router",
+      "auth": "none",
+      "endpoints": {
+        "models": "/v1/models",
+        "chat": "/v1/chat/completions"
+      }
+    },
+    {
+      "name": "bagidea-office",
+      "url": "http://localhost:8787",
+      "agent_type": "office-shell",
+      "auth": "none",
+      "endpoints": {
+        "health": "/health",
+        "overlay": "/"
+      }
+    },
+    {
+      "name": "ollama",
+      "url": "http://localhost:11434",
+      "agent_type": "embed-local",
+      "auth": "none",
+      "endpoints": {
+        "tags": "/api/tags",
+        "embed": "/api/embed"
+      }
+    },
+    {
+      "name": "local_pc2",
+      "url": "http://localhost:7010",
+      "agent_type": "best-friend",
+      "auth": "via-innova-bot",
+      "note": "endfriend = best friend (เพื่อนรัก เพื่อนตาม) per Boss 22:59 BKK"
+    }
+  ],
+  "federation": {
+    "enabled": true,
+    "token_min_length": 16,
+    "warn_when_missing": true,
+    "boss_approved_skip": true
+  },
+  "consultation": {
+    "interval_min": 5,
+    "memory_only_safe": true,
+    "tools_allowed": [
+      "memory",
+      "skill_view",
+      "skill_manage",
+      "skills_list",
+      "cronjob"
+    ],
+    "tools_denied": [
+      "terminal",
+      "execute_code",
+      "read_file",
+      "write_file",
+      "patch"
+    ],
+    "channels": [
+      "oracle",
+      "innova-bot",
+      "mdes-proxy",
+      "cmdc",
+      "local_pc2"
+    ]
+  }
+}
