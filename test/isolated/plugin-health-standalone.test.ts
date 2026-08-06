@@ -76,6 +76,7 @@ beforeEach(() => {
     if (cmd === "pm2 jlist 2>/dev/null") return JSON.stringify([{ name: "maw", pid: 123, pm2_env: { status: "online" } }]);
     throw new Error(`unexpected execSync: ${cmd}`);
   };
+  // Default to linux; individual tests override with their own setPlatform().
   setPlatform("linux");
   globalThis.fetch = mock(async () => {
     if (fetchResult instanceof Error) throw fetchResult;
@@ -105,6 +106,7 @@ describe("health plugin standalone boundary", () => {
   });
 
   test("handler renders healthy local checks and delivery-faithful peer probes", async () => {
+    setPlatform("linux");
     config = {
       port: 5151,
       peers: ["http://peer-a"],
@@ -135,6 +137,7 @@ describe("health plugin standalone boundary", () => {
   });
 
   test("handler reports warning/failure fallbacks without throwing", async () => {
+    setPlatform("linux");
     tmuxError = new Error("tmux down");
     fetchResult = new Error("server down");
     config = { port: 6161, peers: ["http://offline"] };
@@ -157,13 +160,14 @@ describe("health plugin standalone boundary", () => {
     expect(result.output).not.toContain("pm2 maw");
   });
 
-  test("macOS memory and no-peer path stay standalone", async () => {
-    setPlatform("darwin");
+  test("Windows disk/memory fallback and no-peer path stay standalone", async () => {
+    // On native Windows the plugin must not call df/free; it falls back to
+    // PowerShell Get-PSDrive / Get-CimInstance via winDiskInfo/winMemInfo.
+    setPlatform("win32");
     fetchResult = { ok: true, status: 200, json: async () => ({ sessions: "unknown" }) };
     execHandler = (cmd: string) => {
-      if (cmd === "df -h /tmp | tail -1") throw new Error("df unavailable");
-      if (cmd === "vm_stat") return "Pages free: 10.\nPages inactive: 22.";
-      if (cmd === "sysctl -n hw.pagesize") return "4096\n";
+      if (cmd.includes("Get-PSDrive")) return "C 100G 25G 75G 25% /tmp"; // mocked PSDrive line
+      if (cmd.includes("FreePhysicalMemory")) return "12345\n";
       if (cmd === "pm2 jlist 2>/dev/null") return JSON.stringify([{ name: "other", pid: 9, pm2_env: { status: "online" } }]);
       throw new Error(`unexpected execSync: ${cmd}`);
     };
@@ -172,8 +176,8 @@ describe("health plugin standalone boundary", () => {
 
     expect(result.ok).toBe(true);
     expect(result.output).toContain("maw server         online (:4242, ? sessions, probe ok)");
-    expect(result.output).toContain("disk /tmp          unknown");
-    expect(result.output).toContain("memory             0MB available");
+    expect(result.output).toContain("disk               "); // win32 label, not "disk /tmp"
+    expect(result.output).toContain("memory             12345MB available");
     expect(result.output).toContain("peers              none configured");
   });
 });

@@ -1,6 +1,53 @@
 import { execSync } from "child_process";
 import { loadConfig, cfgTimeout, curlFetch, tmux } from "maw-js/sdk";
 
+// Windows has no df/free. Fall back to PowerShell Get-PSDrive / Get-CimInstance
+// so `maw health` works on win32 too (native Windows install, not just WSL).
+function isWin(): boolean {
+  return process.platform === "win32";
+}
+
+function winDiskInfo(): { free: string; pct: number } | null {
+  try {
+    // Get-PSDrive C shows Used/Free in bytes; pick the drive with least free %.
+    const out = execSync(
+      'powershell -NoProfile -Command "Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Free -gt 0 } | Select-Object Name,Used,Free"',
+      { encoding: "utf-8", windowsHide: true }
+    );
+    let best: { name: string; used: number; free: number; pct: number } | null = null;
+    for (const line of out.split(/\r?\n/)) {
+      // Get-PSDrive prints "<Name> <Used> <Free>" (bytes). Multi-char drive
+      // names are possible, so split on whitespace instead of single \w.
+      const cols = line.trim().split(/\s+/);
+      if (cols.length < 3) continue;
+      const name = cols[0];
+      const used = Number(cols[1]);
+      const free = Number(cols[2]);
+      if (!Number.isFinite(used) || !Number.isFinite(free)) continue;
+      const total = used + free;
+      const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+      if (!best || pct > best.pct) best = { name, used, free, pct };
+    }
+    if (!best) return null;
+    return { free: `${(best.free / 1024 / 1024 / 1024).toFixed(1)}G free`, pct: best.pct };
+  } catch {
+    return null;
+  }
+}
+
+function winMemInfo(): { availMB: number } | null {
+  try {
+    const out = execSync(
+      'powershell -NoProfile -Command "$os = Get-CimInstance Win32_OperatingSystem; [math]::Round($os.FreePhysicalMemory / 1024)"',
+      { encoding: "utf-8", windowsHide: true }
+    );
+    const mb = parseInt(out.trim(), 10);
+    return Number.isFinite(mb) ? { availMB: mb } : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function cmdHealth() {
   const checks: { name: string; status: string; detail: string }[] = [];
 
@@ -36,21 +83,32 @@ export async function cmdHealth() {
     checks.push({ name: "maw server", status: "fail", detail: "offline" });
   }
 
-  // 3. disk
+  // 3. disk — linux: df -h /tmp, win32: Get-PSDrive (#windows-native)
   try {
-    const df = execSync("df -h /tmp | tail -1", { encoding: "utf-8" }).trim();
-    const parts = df.split(/\s+/);
-    const avail = parts[3] || "?";
-    const pct = parseInt(parts[4] || "0");
-    checks.push({ name: "disk /tmp", status: pct > 90 ? "warn" : "ok", detail: `${avail} free` });
+    if (isWin()) {
+      const info = winDiskInfo();
+      if (info) {
+        checks.push({ name: "disk", status: info.pct > 90 ? "warn" : "ok", detail: `${info.free}` });
+      } else {
+        checks.push({ name: "disk", status: "warn", detail: "unknown" });
+      }
+    } else {
+      const df = execSync("df -h /tmp | tail -1", { encoding: "utf-8" }).trim();
+      const parts = df.split(/\s+/);
+      const avail = parts[3] || "?";
+      const pct = parseInt(parts[4] || "0");
+      checks.push({ name: "disk /tmp", status: pct > 90 ? "warn" : "ok", detail: `${avail} free` });
+    }
   } catch {
-    checks.push({ name: "disk /tmp", status: "warn", detail: "unknown" });
+    checks.push({ name: "disk", status: "warn", detail: "unknown" });
   }
 
-  // 4. memory — cross-platform: linux=free, macOS=vm_stat (#1121)
+  // 4. memory — cross-platform: linux=free, macOS=vm_stat (#1121), win32=Get-CimInstance
   try {
     let availMB = 0;
-    if (process.platform === "darwin") {
+    if (isWin()) {
+      availMB = winMemInfo()?.availMB ?? 0;
+    } else if (process.platform === "darwin") {
       // macOS: vm_stat reports pages free + inactive (reusable). Page size = 16384 on Apple Silicon, 4096 on Intel.
       const vm = execSync("vm_stat", { encoding: "utf-8" });
       const pageSize = parseInt(execSync("sysctl -n hw.pagesize", { encoding: "utf-8" }).trim() || "16384");
