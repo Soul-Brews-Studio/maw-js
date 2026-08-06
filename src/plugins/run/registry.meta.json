@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/run@v0.1.0-run",
+  "sha256": "c249fd922d4cca7fc3078f2b4612533be669a5c0c81431a4e6a04c37d7581eca",
+  "summary": "Type text into a tmux pane and submit with Enter \u2014 idiomatic for shells (#757).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:09Z",
+  "tier": "extra"
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/split@v0.1.0-split",
+  "sha256": "dc5deb7166aba84a0e0754ed3abdbfc6535e9aaf5af41226880ea7906edaf8d9",
+  "summary": "Split current tmux pane and attach to a session (vesicle beside).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:11Z",
+  "tier": "extra"
+}

@@ -1,0 +1,26 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "stop",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Stop ALL fleet sessions (all oracles).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "stop",
+    "aliases": [
+      "rest"
+    ],
+    "help": "maw stop — stop ALL oracle fleet sessions"
+  },
+  "api": {
+    "path": "/api/stop",
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

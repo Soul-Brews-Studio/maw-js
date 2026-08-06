@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/pair@v0.1.0-pair",
+  "sha256": "98eb1b96a2654fa1af50d50059528c700aef6f5ad5a521dbd161d7724228cc98",
+  "summary": "Bluetooth-style federation pairing \u2014 ephemeral code handshake (#573, facet 3 of #565).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:18:08Z",
+  "tier": "extra"
+}

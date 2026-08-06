@@ -1,0 +1,21 @@
+{
+  "name": "ping",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Ping peer nodes to check connectivity and auth status.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "ping",
+    "help": "maw ping [node] — ping all peers or a specific node"
+  },
+  "api": {
+    "path": "/api/ping",
+    "methods": [
+      "GET"
+    ]
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+}

@@ -1,0 +1,15 @@
+{
+  "name": "send",
+  "version": "1.1.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Top-level `maw send` is intercepted by the federation router (#1388) and behaves as an alias of `maw hey` — pane-inject + signed identity envelope + Enter. For raw text (no envelope, no Enter), use `maw send-text`.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "send",
+    "help": "maw send <target> \"<msg>\" — alias of maw hey; for raw text use maw send-text (#1915)"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+}

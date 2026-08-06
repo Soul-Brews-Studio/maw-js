@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/inbox@v0.1.0-inbox",
+  "sha256": "0f7127c091f4198507a0a753b954a9e4d3ab72f4e7f1a1f5d647bf2a4ea5eb67",
+  "summary": "Inbox messages + cross-scope approval queue (#842 Sub-C).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:40:03Z",
+  "tier": "extra"
+}

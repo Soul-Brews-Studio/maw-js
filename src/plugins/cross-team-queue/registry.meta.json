@@ -1,0 +1,10 @@
+{
+  "version": "0.1.2",
+  "source": "soul-brews-studio/maw-plugin-registry/cross-team-queue@v0.1.2-cross-team-queue",
+  "sha256": "3806f16b7673e63a4ac02d621ce3116b1f952b4baba54d7e92372e15edf9ea99",
+  "summary": "Unified inbox view across multiple oracle vaults",
+  "author": "Soul-Brews-Studio",
+  "license": "BUSL-1.1",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-cross-team-queue",
+  "addedAt": "2026-04-28T16:56:09Z"
+}

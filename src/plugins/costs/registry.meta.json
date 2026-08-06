@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/costs@v0.1.0-costs",
+  "sha256": "f1014bd6ad5a1c749bd329561b967afd4e8194826c4fe94e68045d12dfa5151e",
+  "summary": "Show token usage and estimated cost breakdown per agent.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:40:03Z",
+  "tier": "extra"
+}

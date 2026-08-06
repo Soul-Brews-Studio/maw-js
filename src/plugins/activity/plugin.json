@@ -1,0 +1,23 @@
+{
+  "name": "activity",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Classify pane activity by diffing peek snapshots.",
+  "cli": {
+    "command": "activity",
+    "help": "maw activity <pane> [--watch] [--json] [--stuck-only] [--window=<dur>] [--samples=N] [--sampler=peek|follow] | maw activity --all [--watch] [--json] [--stuck-only] [--window=<dur>] [--samples=N] [--sampler=peek|follow] - classify pane output as busy, idle, or stuck",
+    "flags": {
+      "--watch": "boolean",
+      "--all": "boolean",
+      "--json": "boolean",
+      "--stuck-only": "boolean",
+      "--window": "string",
+      "--samples": "string",
+      "--sampler": "string"
+    }
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/ui@v0.1.0-ui",
+  "sha256": "ae880f94c14cb98c651e5e5136953b4ee9cb464a220840ede5f83e38f3968606",
+  "summary": "Open or manage the maw web UI.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:40:04Z",
+  "tier": "extra"
+}

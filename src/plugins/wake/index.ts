@@ -1,0 +1,260 @@
+import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
+import { parseFlags } from "maw-js/sdk";
+
+export const command = {
+  name: "wake",
+  description: "Spawn or attach to an oracle session",
+};
+
+export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
+  // Dynamic imports — clean, one await, mockable
+  const { cmdWake } = await import("maw-js/commands/shared/wake");
+  const { cmdWakeAll } = await import("maw-js/commands/shared/fleet");
+  const { parseWakeTarget, ensureCloned } = await import("maw-js/commands/shared/wake-target");
+  const { fetchGitHubPrompt } = await import("maw-js/commands/shared/wake-resolve");
+
+  const logs: string[] = [];
+  const origLog = console.log;
+  const origError = console.error;
+  console.log = (...a: any[]) => {
+    if (ctx.writer) ctx.writer(...a);
+    else logs.push(a.map(String).join(" "));
+  };
+  console.error = (...a: any[]) => {
+    if (ctx.writer) ctx.writer(...a);
+    else logs.push(a.map(String).join(" "));
+  };
+
+  try {
+    if (ctx.source === "cli") {
+      const args = [...(ctx.args as string[])];
+
+      // #2569 — zero-arg `maw wake` derives the oracle from process.cwd(). Hand
+      // the `.` sentinel down the normal flow; cmdWake resolves it from the cwd
+      // and surfaces a clear error if the directory is not an oracle repo.
+      if (!args[0]) args[0] = ".";
+
+      if (args[0].toLowerCase() === "all") {
+        const flags = parseFlags(args, { "--kill": Boolean, "--all": Boolean, "--resume": Boolean }, 1);
+        await cmdWakeAll({ kill: flags["--kill"], all: flags["--all"], resume: flags["--resume"] });
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+
+      const flags = parseFlags(args, {
+        "--wt": String,
+        "--layout": String,
+        "--incubate": String, "--issue": Number,
+        "--pr": Number, "--repo": String, "--task": String,
+        "--fresh": Boolean, "--new": "--fresh", "--pick": Boolean, "--name": String, "--attach": Boolean, "-a": "--attach",
+        "--no-attach": Boolean, // #823 Bug B — register so it doesn't fall through to positional → wakeOpts.task
+        "--list": Boolean, "--ls": "--list",
+        "--dry-run": Boolean,
+        "--from-snapshot": Boolean,
+        "--snapshot": String,
+        "--keep-last": Number,
+        "--max-age": Number,
+        "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
+        "--split": Boolean,
+        "--all-local": Boolean,
+        "--peer": String,
+        "--parent": String,
+        "--parent-session-id": String,
+        "--session-id": String,
+      }, 1);
+
+      if (flags["--peer"]) {
+        return await forwardToPeer(flags["--peer"], args[0], flags);
+      }
+
+      const wakeOpts: {
+        task?: string; wt?: string; prompt?: string;
+        incubate?: string; fresh?: boolean; pick?: boolean; name?: string; attach?: boolean; listWt?: boolean;
+        dryRun?: boolean; noRehydrate?: boolean;
+        split?: boolean; urlRepoName?: string; allLocal?: boolean;
+        fromSnapshot?: boolean; snapshotId?: string;
+      snapshotRetention?: { keepLast?: number; maxAgeDays?: number };
+        snapshotRetention?: { keepLast?: number; maxAgeDays?: number };
+        layout?: "nested" | "legacy";
+        parentSessionId?: string; sessionId?: string;
+      } = {};
+      let issueNum: number | null = flags["--issue"] ?? null;
+      let repo: string | undefined = flags["--repo"];
+
+      const parsed = parseWakeTarget(args[0]);
+      const oracleName = parsed ? parsed.oracle : args[0];
+      if (parsed) {
+        await ensureCloned(parsed.slug);
+        if (parsed.issueNum) { issueNum = parsed.issueNum; repo = parsed.slug; }
+        // #769 — pass the FULL repo name through so detectSession resolves on
+        // the explicit URL intent rather than the stripped sub-token.
+        wakeOpts.urlRepoName = parsed.slug.split("/").pop();
+      }
+
+      if (flags["--wt"]) wakeOpts.wt = flags["--wt"];
+      if (flags["--layout"]) {
+        if (flags["--layout"] !== "nested" && flags["--layout"] !== "legacy") {
+          return { ok: false, error: "wake: --layout must be nested or legacy" };
+        }
+        wakeOpts.layout = flags["--layout"];
+      }
+      if (flags["--incubate"]) wakeOpts.incubate = flags["--incubate"];
+      if (flags["--fresh"]) wakeOpts.fresh = true;
+      if (flags["--pick"]) wakeOpts.pick = true;
+      if (flags["--name"]) wakeOpts.name = flags["--name"];
+      if (flags["--attach"]) wakeOpts.attach = true;
+      if (flags["--no-attach"]) wakeOpts.attach = false; // #823 Bug B — explicit opt-out; preserves default when neither flag is set
+      if (flags["--list"]) wakeOpts.listWt = true;
+      if (flags["--dry-run"]) wakeOpts.dryRun = true;
+      if (flags["--from-snapshot"]) wakeOpts.fromSnapshot = true;
+      if (flags["--snapshot"]) {
+        wakeOpts.snapshotId = flags["--snapshot"];
+        wakeOpts.fromSnapshot = true;
+      }
+      if (flags["--keep-last"] || flags["--max-age"]) {
+        wakeOpts.snapshotRetention = {};
+        if (flags["--keep-last"]) wakeOpts.snapshotRetention.keepLast = flags["--keep-last"];
+        if (flags["--max-age"]) wakeOpts.snapshotRetention.maxAgeDays = flags["--max-age"];
+      }
+      if (flags["--main"]) wakeOpts.noRehydrate = true;
+      if (flags["--split"]) wakeOpts.split = true;
+      if (flags["--all-local"]) wakeOpts.allLocal = true;
+      if (flags["--parent-session-id"] || flags["--parent"]) {
+        wakeOpts.parentSessionId = (flags["--parent-session-id"] as string | undefined) || (flags["--parent"] as string | undefined);
+      }
+      if (flags["--session-id"]) wakeOpts.sessionId = flags["--session-id"];
+
+      const positionals = flags._;
+      if (positionals.length > 0) wakeOpts.task = positionals[0];
+      if (positionals.length > 1) wakeOpts.prompt = positionals.slice(1).join(" ");
+
+      if (wakeOpts.incubate && !repo) { repo = wakeOpts.incubate; }
+      const prNum: number | null = flags["--pr"] ?? null;
+      if (issueNum) {
+        console.log(`\x1b[36m⚡\x1b[0m fetching issue #${issueNum}...`);
+        wakeOpts.prompt = await fetchGitHubPrompt("issue", issueNum, repo);
+        if (!wakeOpts.task) wakeOpts.task = `issue-${issueNum}`;
+      } else if (prNum) {
+        console.log(`\x1b[36m⚡\x1b[0m fetching PR #${prNum}...`);
+        wakeOpts.prompt = await fetchGitHubPrompt("pr", prNum, repo);
+        if (!wakeOpts.task) wakeOpts.task = `pr-${prNum}`;
+      } else if (flags["--task"]) {
+        wakeOpts.prompt = flags["--task"];
+      }
+
+      await cmdWake(oracleName, wakeOpts);
+      return { ok: true, output: logs.join("\n") || undefined };
+    }
+
+    // API source
+    const body = ctx.args as Record<string, unknown>;
+    const oracle = body.oracle as string | undefined;
+    if (!oracle) return { ok: false, error: "missing oracle name" };
+
+    const wakeOpts: {
+      task?: string; prompt?: string; wt?: string;
+      fresh?: boolean; pick?: boolean; name?: string; attach?: boolean; dryRun?: boolean; noRehydrate?: boolean;
+      fromSnapshot?: boolean; snapshotId?: string;
+      layout?: "nested" | "legacy";
+      parentSessionId?: string; sessionId?: string;
+    } = {};
+    if (body.task) wakeOpts.task = body.task as string;
+    if (body.wt) wakeOpts.wt = body.wt as string;
+    if (body.layout === "nested" || body.layout === "legacy") wakeOpts.layout = body.layout;
+    if (body.prompt) wakeOpts.prompt = body.prompt as string;
+    if (body.issue) {
+      const issueNum = body.issue as number;
+      wakeOpts.prompt = await fetchGitHubPrompt("issue", issueNum, body.repo as string | undefined);
+      if (!wakeOpts.task) wakeOpts.task = `issue-${issueNum}`;
+    } else if (body.pr) {
+      const prNum = body.pr as number;
+      wakeOpts.prompt = await fetchGitHubPrompt("pr", prNum, body.repo as string | undefined);
+      if (!wakeOpts.task) wakeOpts.task = `pr-${prNum}`;
+    }
+    if (body.fresh) wakeOpts.fresh = true;
+    if (body.pick) wakeOpts.pick = true;
+    if (typeof body.name === "string") wakeOpts.name = body.name;
+    if (body.attach) wakeOpts.attach = true;
+    if (body.dryRun) wakeOpts.dryRun = true;
+    if (body.noRehydrate || body.main || body.solo) wakeOpts.noRehydrate = true;
+    if (body.fromSnapshot) wakeOpts.fromSnapshot = true;
+    if (typeof body.snapshot === "string") {
+      wakeOpts.snapshotId = body.snapshot;
+      wakeOpts.fromSnapshot = true;
+    }
+    if (typeof body.keepLast === "number" || typeof body.maxAge === "number" || typeof body.maxAgeDays === "number") {
+      wakeOpts.snapshotRetention = {};
+      if (typeof body.keepLast === "number") wakeOpts.snapshotRetention.keepLast = body.keepLast;
+      const maxAge = typeof body.maxAgeDays === "number" ? body.maxAgeDays : body.maxAge;
+      if (typeof maxAge === "number") wakeOpts.snapshotRetention.maxAgeDays = maxAge;
+    }
+    if (typeof body.parentSessionId === "string") wakeOpts.parentSessionId = body.parentSessionId;
+    if (typeof body.parent === "string") wakeOpts.parentSessionId = body.parent;
+    if (typeof body.sessionId === "string") wakeOpts.sessionId = body.sessionId;
+
+    await cmdWake(oracle, wakeOpts);
+    return { ok: true, output: logs.join("\n") || undefined };
+  } catch (e: any) {
+    return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };
+  } finally {
+    console.log = origLog;
+    console.error = origError;
+  }
+}
+
+/**
+ * Forward a `maw wake` CLI invocation to a federation peer's /api/wake
+ * endpoint instead of spawning a local tmux session. Enables cross-node
+ * agent dispatch (e.g. brain → headless GPU node) without bespoke wrappers.
+ *
+ * Alias lookup goes through the maw state peers store (the same store
+ * managed by `maw peers`). Unknown alias surfaces as an `ok: false` plugin error
+ * rather than throwing, so the CLI layer prints a clean message. Network
+ * + non-2xx responses are mapped the same way.
+ *
+ * The forwarded body is a subset of CLI flags translated into the API
+ * handler's vocabulary (above): `oracle`, optional worktree `task`/`wt`,
+ * `prompt`, `issue`/`pr`/`repo`, `fresh`. Attach is intentionally not
+ * forwarded — there is no local tmux to attach to on the remote node.
+ */
+async function forwardToPeer(
+  alias: string,
+  oracle: string,
+  flags: Record<string, any>,
+): Promise<InvokeResult> {
+  const { resolvePeer } = await import("./internal/peer-resolve");
+  const peer = resolvePeer(alias);
+  if (!peer) return { ok: false, error: `unknown peer alias: ${alias} (see: maw peers list)` };
+
+  const positionals: string[] = Array.isArray(flags._) ? flags._ : [];
+  const body: Record<string, unknown> = { oracle };
+  if (positionals.length > 0) body.task = positionals[0];
+  if (flags["--wt"]) body.wt = flags["--wt"];
+  if (flags["--layout"]) body.layout = flags["--layout"];
+  if (flags["--task"]) body.prompt = flags["--task"];
+  if (flags["--issue"]) body.issue = flags["--issue"];
+  if (flags["--pr"]) body.pr = flags["--pr"];
+  if (flags["--repo"]) body.repo = flags["--repo"];
+  if (flags["--fresh"]) body.fresh = true;
+  if (flags["--pick"]) body.pick = true;
+  if (flags["--name"]) body.name = flags["--name"];
+
+  const { callPeerWake } = await import("./internal/peer-call");
+  let res: { ok: boolean; status?: number; data?: any };
+  try {
+    res = await callPeerWake(peer.url, body);
+  } catch (e: any) {
+    return { ok: false, error: `peer wake failed (${alias} ${peer.url}): ${e?.message || e}` };
+  }
+
+  if (!res?.ok) {
+    if (res?.status === 404) {
+      return { ok: false, error: `peer ${alias} does not support /api/wake (HTTP 404 at ${peer.url})` };
+    }
+    const detail = res?.data?.error || (res?.status ? `HTTP ${res.status}` : "no response");
+    return { ok: false, error: `peer wake failed (${alias} ${peer.url}): ${detail}` };
+  }
+
+  const summary = `\x1b[32m⚡\x1b[0m forwarded wake → ${alias} (${peer.url}) — ${oracle}`;
+  const remoteOut = typeof res.data?.output === "string" ? res.data.output : "";
+  return { ok: true, output: remoteOut ? `${summary}\n${remoteOut}` : summary };
+}

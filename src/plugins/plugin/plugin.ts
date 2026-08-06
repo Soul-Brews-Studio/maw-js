@@ -1,0 +1,16 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "plugin",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Plugin lifecycle — init, build, dev, install.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "plugin",
+    "help": "maw plugin <init|build|dev|install> [args]"
+  },
+  "weight": 10,
+  "tier": "standard"
+} as const);

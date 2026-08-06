@@ -1,0 +1,20 @@
+{
+  "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
+  "name": "rename",
+  "version": "0.1.2",
+  "description": "Rename tmux tabs/windows with Oracle-prefix auto-formatting; use tab to list or message tabs.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-rename",
+  "sdk": "^1.0.0-alpha",
+  "target": "js",
+  "capabilities": [
+    "tmux"
+  ],
+  "schemaVersion": 1,
+  "entry": "./src/index.ts",
+  "cli": {
+    "command": "rename",
+    "help": "maw rename <tab# or name> <new-name> — rename a tmux tab/window; see maw tab to list tabs"
+  }
+}

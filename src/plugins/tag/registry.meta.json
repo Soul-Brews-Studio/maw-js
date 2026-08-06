@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/tag@v0.1.0-tag",
+  "sha256": "e4e019b08bd2c40cad239836d6f195e5ded0bcb16cf7f98150870114e02ef4a3",
+  "summary": "Set pane metadata: title, custom options. Enables deterministic routing by agent name.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:11Z",
+  "tier": "extra"
+}

@@ -1,0 +1,225 @@
+import { loadConfig } from "maw-js/config";
+import { listSessions, sendKeys, getPaneCommand, resolveTarget, curlFetch } from "maw-js/sdk";
+import { runHook } from "maw-js/sdk";
+import { resolveOraclePane } from "maw-js/commands/shared/comm-send";
+import { appendFile, mkdir } from "fs/promises";
+import { hostname } from "os";
+import { dirname } from "path";
+import { mawMessageLogPath } from "../../../../core/xdg";
+
+const ORACLE_URL = () => process.env.ORACLE_URL || loadConfig().oracleUrl;
+
+interface ThreadResponse {
+  thread_id: number;
+  message_id: number;
+  status: string;
+  oracle_response?: {
+    content: string;
+    principles_found: number;
+    patterns_found: number;
+  } | null;
+}
+
+interface ThreadInfo {
+  thread: {
+    id: number;
+    title: string;
+    status: string;
+    created_at: string;
+  };
+  messages: {
+    id: number;
+    role: string;
+    content: string;
+    created_at: string;
+  }[];
+}
+
+/**
+ * Find or create a channel thread for a target.
+ * Convention: thread title = "channel:<target>"
+ */
+async function findChannelThread(target: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${ORACLE_URL()}/api/threads?limit=50`);
+    if (!res.ok) return null;
+    const data = await res.json() as { threads: { id: number; title: string; status: string }[] };
+    const channel = data.threads.find(t => t.title === `channel:${target}` && t.status !== "closed");
+    return channel?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Post message to oracle_thread (MCP persistence layer).
+ */
+async function postToThread(target: string, message: string): Promise<ThreadResponse | null> {
+  const threadId = await findChannelThread(target);
+  const body: Record<string, unknown> = {
+    message,
+    role: "claude",
+  };
+  if (threadId) {
+    body.thread_id = threadId;
+  } else {
+    body.title = `channel:${target}`;
+  }
+
+  try {
+    const res = await fetch(`${ORACLE_URL()}/api/thread`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.error(`\x1b[31merror\x1b[0m: Oracle API returned ${res.status}`);
+      return null;
+    }
+    return await res.json() as ThreadResponse;
+  } catch (e: any) {
+    console.error(`\x1b[31merror\x1b[0m: Oracle unreachable — ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Get thread message count.
+ */
+async function getThreadInfo(threadId: number): Promise<{ messageCount: number } | null> {
+  try {
+    const res = await fetch(`${ORACLE_URL()}/api/thread/${threadId}`);
+    if (!res.ok) return null;
+    const data = await res.json() as ThreadInfo;
+    return { messageCount: data.messages.length };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * maw talk-to <target> "message"
+ *
+ * 1. Post to oracle_thread (MCP) → persistent
+ * 2. Send maw hey to target → notification with context
+ *
+ * MCP first, hey after. Order matters.
+ */
+export async function cmdTalkTo(target: string, message: string, force = false) {
+  // Step 1: Post to oracle_thread
+  console.log(`\x1b[36m💬\x1b[0m posting to thread channel:${target}...`);
+  const threadResult = await postToThread(target, message);
+
+  if (!threadResult) {
+    console.error(`\x1b[33mwarn\x1b[0m: thread post failed — falling back to maw hey only`);
+  }
+
+  // Step 2: Build notification with context
+  const from = process.env.CLAUDE_AGENT_NAME || "cli";
+  let notification: string;
+  if (threadResult) {
+    const info = await getThreadInfo(threadResult.thread_id);
+    const msgCount = info?.messageCount ?? "?";
+    notification = [
+      `💬 channel:${target} (#${threadResult.thread_id}) — ${msgCount} msgs`,
+      `From: ${from}`,
+      "Message:",
+      message,
+      `→ Full copy saved in thread #${threadResult.thread_id}`,
+    ].join("\n");
+  } else {
+    notification = [
+      `💬 from ${from}`,
+      "Message:",
+      message,
+    ].join("\n");
+  }
+
+  // Step 3: Send hey with context
+  // Route through resolveTarget so the #758 writable filter (drop -view mirrors
+  // and federated peer records before the ambiguity check) applies to talk-to too.
+  // Cross-node targets use the same signed /api/send federation path as maw hey.
+  const config = loadConfig();
+  const sessions = await listSessions();
+  const resolved = resolveTarget(target, config, sessions);
+
+  if (resolved?.type === "peer") {
+    const res = await curlFetch(`${resolved.peerUrl}/api/send`, {
+      method: "POST",
+      body: JSON.stringify({ target: resolved.target, text: notification }),
+      timeout: 10000,
+      from: "auto",
+    });
+    if (res.ok && res.data?.ok) {
+      await runHook("after_send", { to: target, message: notification });
+      console.log(`\x1b[32m✓\x1b[0m thread #${threadResult?.thread_id ?? "?"} + sent → ${resolved.node}:${res.data.target || resolved.target}`);
+      return;
+    }
+
+    const reason = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
+    if (threadResult) {
+      console.log(`\x1b[32m✓\x1b[0m thread #${threadResult.thread_id} updated`);
+      console.log(`\x1b[33mwarn\x1b[0m: remote ${resolved.node}:${resolved.target} send failed: ${reason} — message saved to thread only`);
+      return;
+    }
+    throw new Error(`remote ${resolved.node}:${resolved.target} send failed: ${reason}`);
+  }
+
+  // Resolve to a specific pane: when the oracle window has multiple panes
+  // (team-agents spawned beside it), `send-keys -t session:window` would
+  // otherwise land in whichever pane is currently active, not the oracle's
+  // claude pane. Mirrors comm-send (#764).
+  const tmuxTarget =
+    resolved?.type === "local" || resolved?.type === "self-node"
+      ? await resolveOraclePane(resolved.target)
+      : null;
+  if (!tmuxTarget) {
+    // Thread was posted but target window not found — still useful
+    if (threadResult) {
+      console.log(`\x1b[32m✓\x1b[0m thread #${threadResult.thread_id} updated`);
+      const reason = resolved?.type === "error" ? resolved.detail : `window "${target}" not found`;
+      console.log(`\x1b[33mwarn\x1b[0m: ${reason} — message saved to thread only`);
+    } else {
+      const reason = resolved?.type === "error" ? resolved.detail : `window "${target}" not found`;
+      throw new Error(reason);
+    }
+    return;
+  }
+
+  // Check if agent is running
+  if (!force) {
+    const cmd = await getPaneCommand(tmuxTarget);
+    const isAgent = /claude|codex|node/i.test(cmd);
+    if (!isAgent) {
+      if (threadResult) {
+        console.log(`\x1b[32m✓\x1b[0m thread #${threadResult.thread_id} updated`);
+        console.log(`\x1b[33mwarn\x1b[0m: no active Claude in ${tmuxTarget} — message saved to thread only`);
+      } else {
+        throw new Error(`no active Claude session in ${tmuxTarget} (use --force)`);
+      }
+      return;
+    }
+  }
+
+  await sendKeys(tmuxTarget, notification);
+  await runHook("after_send", { to: target, message: notification });
+
+  // Log to maw-log.jsonl
+  const logFile = mawMessageLogPath();
+  const host = hostname();
+  const sid = process.env.CLAUDE_SESSION_ID || null;
+  const ch = threadResult ? `thread:${threadResult.thread_id}` : undefined;
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    from,
+    to: target,
+    target: tmuxTarget,
+    msg: message,
+    host,
+    sid,
+    ch,
+  }) + "\n";
+  try { await mkdir(dirname(logFile), { recursive: true }); await appendFile(logFile, line); } catch (e) { console.error(`\x1b[33m⚠\x1b[0m talk-to log write failed: ${e}`); }
+
+  console.log(`\x1b[32m✓\x1b[0m thread #${threadResult?.thread_id ?? "?"} + sent → ${tmuxTarget}`);
+}

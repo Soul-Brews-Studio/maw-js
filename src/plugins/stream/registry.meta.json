@@ -1,0 +1,5 @@
+{
+  "source": "soul-brews-studio/maw-plugin-registry/stream@v1.0.0",
+  "version": "v1.0.0",
+  "summary": "Mirror a tmux window into another session with link-window."
+}

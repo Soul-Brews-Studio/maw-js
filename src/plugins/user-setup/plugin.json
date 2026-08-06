@@ -1,0 +1,18 @@
+{
+  "name": "user-setup",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Audit Claude project-log directories and report safe prune candidates.",
+  "cli": {
+    "command": "user-setup",
+    "help": "maw user-setup [--dry-run] | maw user-setup projects audit --json",
+    "flags": {
+      "--dry-run": "boolean",
+      "--json": "boolean"
+    }
+  },
+  "tier": "extra",
+  "license": "MIT",
+  "schemaVersion": 1
+}

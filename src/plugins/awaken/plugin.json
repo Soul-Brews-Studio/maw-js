@@ -1,0 +1,44 @@
+{
+  "name": "awaken",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Bud + wake + fire /awaken — yeast-budding plus the awakening ritual in one verb.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "awaken",
+    "help": "maw awaken <name> [--from <oracle>] [--root] [--seed] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--nickname <pretty>] [--fast] [--split] [--dry-run] [--no-trigger]\n       Mirrors `maw bud` flags exactly. After bud (which already wakes), sends `/awaken` into the new oracle's Claude TUI.\n       Use --no-trigger to bud+wake without firing /awaken (debugging).\n       Use --trigger <text> to send a different slash command (e.g. --trigger /awaken --fast).",
+    "flags": {
+      "--from": "string",
+      "--from-repo": "string",
+      "--stem": "string",
+      "--org": "string",
+      "--repo": "string",
+      "--issue": "number",
+      "--note": "string",
+      "--nickname": "string",
+      "--trigger": "string",
+      "--no-trigger": "boolean",
+      "--fast": "boolean",
+      "--root": "boolean",
+      "--blank": "boolean",
+      "--pr": "boolean",
+      "--split": "boolean",
+      "--seed": "boolean",
+      "--dry-run": "boolean",
+      "--signal-on-birth": "boolean",
+      "--force": "boolean",
+      "--track-vault": "boolean",
+      "--sync-peers": "boolean"
+    }
+  },
+  "api": {
+    "path": "/api/awaken",
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+}

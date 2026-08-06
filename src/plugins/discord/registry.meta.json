@@ -1,0 +1,11 @@
+{
+  "version": "0.4.2+2c18c43",
+  "source": "soul-brews-studio/maw-plugin-registry/discord@2c18c43",
+  "sha256": "3ab1887c1e9da1cea220d7c11a5d7ff70e99df0752ddf4cd4e920bc999004c28",
+  "summary": "Discord fleet ops — tokens, status, bind, access, inventory. Hybrid pattern (token in pass, config in repo).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-05-22T01:03:03Z",
+  "tier": "extra"
+}

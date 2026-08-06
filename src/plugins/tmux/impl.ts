@@ -1,0 +1,1321 @@
+import { readdirSync, existsSync, readFileSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
+import { hostExec, tmux, tmuxCmd } from "../../../sdk";
+import { resolveFleetWindowSessionTarget, resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../../core/matcher/resolve-target";
+import { loadFleetEntries } from "../../shared/fleet-load";
+import { ghqList, ghqListSync } from "../../../core/ghq";
+import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
+import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
+import { checkPaneContextLimit, isLikelyAgentPaneCommand } from "../../shared/context-limit";
+import { isInfrastructureChannelSessionName } from "../../../core/matcher/channel-session";
+export {
+  PANE_TARGET_FORMAT,
+  paneTargetCandidatesFromListPanesOutput,
+  resolvePaneTargetFromCandidates,
+  resolvePaneTargetFromListPanesOutput,
+} from "../../shared/pane-target-resolver";
+import {
+  PANE_TARGET_FORMAT,
+  resolvePaneTargetFromListPanesOutput,
+  type PaneTargetResolution,
+} from "../../shared/pane-target-resolver";
+
+const TEAMS_DIR = join(homedir(), ".claude/teams");
+
+export interface ClaudeTeamSummary {
+  name: string;
+  memberCount: number;
+  configPath: string;
+}
+
+export function loadClaudeTeams(teamsDir = TEAMS_DIR): ClaudeTeamSummary[] {
+  if (!existsSync(teamsDir)) return [];
+  const teams: ClaudeTeamSummary[] = [];
+  for (const dir of readdirSync(teamsDir).sort()) {
+    const cfg = join(teamsDir, dir, "config.json");
+    if (!existsSync(cfg)) continue;
+    try {
+      const team = JSON.parse(readFileSync(cfg, "utf-8"));
+      teams.push({
+        name: dir,
+        memberCount: Array.isArray(team.members) ? team.members.length : 0,
+        configPath: cfg,
+      });
+    } catch { /* skip bad config */ }
+  }
+  return teams;
+}
+
+async function resolvePaneTargetForKill(target: string): Promise<PaneTargetResolution> {
+  const raw = await hostExec(`${tmuxCmd()} list-panes -a -F '${PANE_TARGET_FORMAT}'`).catch(() => "");
+  if (!raw.trim()) return { kind: "none" };
+  return resolvePaneTargetFromListPanesOutput(target, raw);
+}
+
+function listSessionNamesSync(): string[] {
+  try {
+    const result = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_name}"]);
+    if (result.exitCode !== 0) return [];
+    return new TextDecoder().decode(result.stdout).trim().split("\n").filter(Boolean);
+  } catch { return []; }
+}
+
+// #971 — process.stdout.isTTY is `undefined` (not false) in bun-bundled
+// binaries installed via curl. `!!undefined` → false, making attach always
+// fall to print-only. node:tty.isatty(1) checks the fd directly and works
+// in both source and bundled contexts. Wrapped in object for test mockability
+// (ES module namespace objects are frozen, bare `let` can't be reassigned).
+export const _tty = {
+  isStdoutTTY: (): boolean => {
+    const req = typeof require === "function" ? require : undefined;
+    const isatty = req?.("node:tty")?.isatty;
+    return typeof isatty === "function" ? isatty(1) : !!process.stdout.isTTY;
+  },
+  readChoice: (max: number): number | null => {
+    const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
+    process.stdout.write("  Select [1-" + max + "]: ");
+    const fd = openSync("/dev/tty", "r");
+    const buf = Buffer.alloc(8);
+    const n = readSync(fd, buf, 0, buf.length, null);
+    closeSync(fd);
+    const choice = parseInt(buf.slice(0, n).toString().trim(), 10);
+    return choice >= 1 && choice <= max ? choice : null;
+  },
+};
+
+export interface TmuxPeekOpts {
+  /** Number of lines from bottom of pane buffer. Default 30. */
+  lines?: number;
+  /** Include full scrollback (-S -). Overrides --lines. */
+  history?: boolean;
+}
+
+/**
+ * Resolve a user-supplied target into a tmux pane identifier suitable for
+ * `tmux capture-pane -pt <id>`.
+ *
+ * Resolution order:
+ *   1. Pane ID literal (e.g. "%776")
+ *   2. Fully-qualified session:w.p (e.g. "101-mawjs:0.1")
+ *   3. Team agent name → walk ~/.claude/teams/* /config.json, find member
+ *   4. Bare session name → <target>:0 (pane 0)
+ *
+ * Returns the resolved target and a human-readable "how I found it" note.
+ */
+export function resolveTmuxTarget(target: string): { resolved: string; source: string } | null {
+  // 1. Pane ID
+  if (/^%\d+$/.test(target)) return { resolved: target, source: "pane-id" };
+
+  // 2. session:w.p
+  if (/^[\w.-]+:\d+\.\d+$/.test(target)) return { resolved: target, source: "session:w.p" };
+
+  // 3. Team agent name — walk team configs
+  if (existsSync(TEAMS_DIR)) {
+    for (const dir of readdirSync(TEAMS_DIR)) {
+      const cfg = join(TEAMS_DIR, dir, "config.json");
+      if (!existsSync(cfg)) continue;
+      try {
+        const team = JSON.parse(readFileSync(cfg, "utf-8"));
+        for (const m of team.members ?? []) {
+          if (m?.name === target && m?.tmuxPaneId && m.tmuxPaneId !== "" && m.tmuxPaneId !== "in-process") {
+            return { resolved: m.tmuxPaneId, source: `team-agent (${dir})` };
+          }
+        }
+      } catch { /* skip bad config */ }
+    }
+  }
+
+  // 3.5 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2".
+  // Suffix-preferred via the canonical resolveSessionTarget so "mawjs" → "101-mawjs".
+  try {
+    const entries = loadFleetEntries();
+    const sessions = entries.map(e => ({ name: e.file.replace(/\.json$/, ""), windows: e.session.windows }));
+    const exact = sessions.find(s => s.name.toLowerCase() === target.trim().toLowerCase());
+    if (exact) {
+      return { resolved: exact.name, source: `fleet-stem (${exact.name})` };
+    }
+    const windowAlias = resolveFleetWindowSessionTarget(target, sessions);
+    if (windowAlias.kind === "fuzzy") {
+      return { resolved: windowAlias.match.name, source: `fleet-window (${windowAlias.match.name})` };
+    }
+    const r = resolveSessionTarget(target, sessions);
+    if (r.kind === "fuzzy") {
+      return { resolved: r.match.name, source: `fleet-stem (${r.match.name})` };
+    }
+    const prefix = resolveNumericFleetStemPrefix(target, sessions);
+    if (prefix.kind === "fuzzy") {
+      return { resolved: prefix.match.name, source: `fleet-stem (${prefix.match.name})` };
+    }
+  } catch { /* no fleet dir — fall through */ }
+
+  // 3.7 — Live tmux sessions (covers sessions not in fleet config).
+  const liveSessions = listSessionNamesSync().map(s => ({ name: s }));
+  if (liveSessions.length > 0) {
+    const r = resolveSessionTarget(target, liveSessions);
+    if (r.kind === "exact" || r.kind === "fuzzy") {
+      return { resolved: r.match.name, source: `live-session (${r.match.name})` };
+    }
+    const prefix = resolveNumericFleetStemPrefix(target, liveSessions);
+    if (prefix.kind === "fuzzy") {
+      return { resolved: prefix.match.name, source: `live-session (${prefix.match.name})` };
+    }
+  }
+
+  // 4. Bare session name — let tmux resolve to current/first pane
+  return { resolved: target, source: "session-name" };
+}
+
+export async function cmdTmuxPeek(target: string, opts: TmuxPeekOpts = {}): Promise<void> {
+  const { resolved, source } = resolveTmuxTarget(target)!;
+  const lines = opts.lines ?? 30;
+  const scroll = opts.history ? "-S -" : `-S -${lines}`;
+
+  let out: string;
+  try {
+    out = await hostExec(`tmux capture-pane -pt '${resolved}' ${scroll} -J`);
+  } catch (e: any) {
+    throw new Error(`tmux capture-pane failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`\x1b[90m▸ ${target} → ${resolved} [${source}]\x1b[0m`);
+  console.log(out);
+}
+
+export interface TmuxLsOpts {
+  /** Include every pane across every session (tmux list-panes -a). Default: current session only. */
+  all?: boolean;
+  /** JSON output for scripting. */
+  json?: boolean;
+  /** Compact: one line per session. Top-level `maw ls` and `maw ls -c` use this mode. */
+  compact?: boolean;
+  /** Verbose: full per-pane detail. Top-level `maw ls -v` opts into this mode. */
+  verbose?: boolean;
+  /** Roster: include sleeping oracles from ghq (compact mode only). */
+  roster?: boolean;
+  /** Sort sessions newest-first using tmux #{session_created}. */
+  recent?: boolean;
+  /** Limit recent mode to the N newest sessions. */
+  recentLimit?: number;
+  /** Filter sessions to those touched within activeThresholdSec. */
+  active?: boolean;
+  /** Activity threshold in seconds. Defaults to 30 minutes. */
+  activeThresholdSec?: number;
+  /** Filter rendered sessions/panes by node/session/query text. */
+  filter?: string;
+  /** Include infrastructure channel sessions such as *-discord. */
+  channels?: boolean;
+  /** Deprecated internal alias kept as a no-op so old compact callers cannot hide live orphans. */
+  oracleOnly?: boolean;
+  /** Hide live sessions that are not fleet-shaped/fleet-registered. */
+  fleetOnly?: boolean;
+  /** Include expensive verification/noise such as worktree-bind rows. */
+  verify?: boolean;
+  /** Include L2 Claude Code teams from ~/.claude/teams in maw ls output. */
+  teams?: boolean;
+}
+
+export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
+export type PaneActivity = "busy" | "idle" | "stuck" | "unknown";
+
+export interface PaneWorktreeJson {
+  path: string;
+  branch: string | null;
+  head: string | null;
+}
+
+export interface PaneProvenanceJson {
+  oracle: string | null;
+  machine: string | null;
+  session: string | null;
+  federation: string | null;
+  org: string | null;
+  repo: string | null;
+  commit: string | null;
+  engine: string | null;
+}
+
+export interface PaneActivityJson {
+  activity: PaneActivity;
+  activitySource: "context-limit" | "tmux-window-activity" | "unknown";
+  activityWindow: "30s";
+}
+
+interface AnnotatedPane {
+  id: string;
+  target: string;
+  session: string;
+  command: string | undefined;
+  title: string | undefined;
+  annotation: string; // "fleet: X" | "team: agent @ team-name" | "orphan" | ""
+  status: PaneStatus;
+  lastActivitySec: number;
+  sessionCreated?: number;
+  sessionActivity?: number;
+  source?: string;
+  cwd?: string;
+  top?: number;
+  left?: number;
+  w?: number;
+  h?: number;
+  paneIdx?: number;
+  winIdx?: number;
+  winName?: string;
+  active?: boolean;
+  window?: {
+    w?: number;
+    h?: number;
+    active?: boolean;
+  };
+  attached?: boolean;
+  attachedClients?: number;
+}
+
+export function classifyLsPaneActivity(status: PaneStatus): PaneActivity {
+  if (status === "frozen") return "stuck";
+  if (status === "active") return "busy";
+  if (status === "idle" || status === "stale") return "idle";
+  return "unknown";
+}
+
+export function paneActivityJson(pane: Pick<AnnotatedPane, "status">): PaneActivityJson {
+  const activity = classifyLsPaneActivity(pane.status);
+  return {
+    activity,
+    activitySource: activity === "stuck"
+      ? "context-limit"
+      : activity === "unknown"
+      ? "unknown"
+      : "tmux-window-activity",
+    activityWindow: "30s",
+  };
+}
+
+function sh(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+export interface PaneGitMetadata {
+  root: string;
+  branch: string | null;
+  head: string | null;
+  org: string | null;
+  repo: string | null;
+}
+
+function paneWindowName(target: string): string | null {
+  const afterColon = target.split(":").slice(1).join(":");
+  if (!afterColon) return null;
+  const match = /^(.*)\.\d+$/.exec(afterColon);
+  return (match?.[1] ?? afterColon).trim() || null;
+}
+
+function oracleNameForPane(session: string, target: string, configured?: string): string | null {
+  const window = paneWindowName(target);
+  if (window && !/^\d+$/.test(window)) return window;
+  const fallback = configured || session.replace(/^\d+-/, "");
+  if (!fallback) return null;
+  return fallback.endsWith("-oracle") ? fallback : `${fallback}-oracle`;
+}
+
+function repoPartsFromRemote(remote: string): { org: string | null; repo: string | null } {
+  const trimmed = remote.trim().replace(/\.git$/, "");
+  const match = /[:/]([^/:\s]+)\/([^/\s]+)$/.exec(trimmed);
+  return { org: match?.[1] ?? null, repo: match?.[2] ?? null };
+}
+
+function repoPartsFromPath(path: string): { org: string | null; repo: string | null } {
+  const parts = path.split("/").filter(Boolean);
+  const hostIndex = parts.lastIndexOf("github.com");
+  if (hostIndex >= 0 && parts[hostIndex + 1] && parts[hostIndex + 2]) {
+    return { org: parts[hostIndex + 1], repo: parts[hostIndex + 2] };
+  }
+  return { org: null, repo: parts.at(-1) ?? null };
+}
+
+export async function resolvePaneGitMetadata(cwd: string | undefined): Promise<PaneGitMetadata | null> {
+  const start = cwd?.trim();
+  if (!start) return null;
+  const root = (await hostExec(`git -C ${sh(start)} rev-parse --show-toplevel`).catch(() => "")).trim();
+  if (!root) return null;
+  const [branch, head, remote] = await Promise.all([
+    hostExec(`git -C ${sh(root)} branch --show-current`).catch(() => ""),
+    hostExec(`git -C ${sh(root)} rev-parse --short=8 HEAD`).catch(() => ""),
+    hostExec(`git -C ${sh(root)} config --get remote.origin.url`).catch(() => ""),
+  ]);
+  const parts = remote.trim() ? repoPartsFromRemote(remote) : repoPartsFromPath(root);
+  return {
+    root,
+    branch: branch.trim() || null,
+    head: head.trim() || null,
+    ...parts,
+  };
+}
+
+export async function describePaneWorktree(
+  cwd: string | undefined,
+  git?: PaneGitMetadata | null,
+): Promise<PaneWorktreeJson | null> {
+  const metadata = git === undefined ? await resolvePaneGitMetadata(cwd) : git;
+  if (!metadata) return null;
+  return {
+    path: metadata.root,
+    branch: metadata.branch,
+    head: metadata.head,
+  };
+}
+
+type ProvenanceConfig = { node?: string; oracle?: string; sessionIds?: Record<string, string> };
+
+async function loadProvenanceConfig(): Promise<ProvenanceConfig> {
+  try {
+    const mod = await import("../../../config");
+    return mod.loadConfig() as ProvenanceConfig;
+  } catch {
+    return {};
+  }
+}
+
+async function fallbackHostname(): Promise<string | null> {
+  try {
+    const os = await import("os");
+    return typeof os.hostname === "function" ? os.hostname() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function paneProvenance(
+  pane: Pick<AnnotatedPane, "target" | "session" | "command" | "cwd">,
+  config?: ProvenanceConfig,
+  git?: PaneGitMetadata | null,
+): Promise<PaneProvenanceJson> {
+  const resolvedConfig = config ?? await loadProvenanceConfig();
+  const metadata = git === undefined ? await resolvePaneGitMetadata(pane.cwd) : git;
+  const oracle = oracleNameForPane(pane.session, pane.target, resolvedConfig.oracle);
+  const machine = resolvedConfig.node || process.env.MAW_NODE || await fallbackHostname();
+  const logicalSession = (oracle && (resolvedConfig.sessionIds?.[oracle] || resolvedConfig.sessionIds?.[oracle.replace(/-oracle$/, "")]))
+    || process.env.MAW_SESSION_ID
+    || null;
+  return {
+    oracle,
+    machine,
+    session: logicalSession,
+    federation: oracle && machine ? `${machine}:${oracle}` : null,
+    org: metadata?.org ?? null,
+    repo: metadata?.repo ?? null,
+    commit: metadata?.head ?? null,
+    engine: pane.command?.trim() || null,
+  };
+}
+
+async function panesForJson(
+  panes: AnnotatedPane[],
+): Promise<Array<AnnotatedPane & PaneActivityJson & { worktree: PaneWorktreeJson | null; provenance: PaneProvenanceJson }>> {
+  const config = await loadProvenanceConfig();
+  return await Promise.all(panes.map(async (pane) => {
+    const git = await resolvePaneGitMetadata(pane.cwd);
+    return {
+      ...pane,
+      ...paneActivityJson(pane),
+      worktree: await describePaneWorktree(pane.cwd, git),
+      provenance: await paneProvenance(pane, config, git),
+    };
+  }));
+}
+
+async function markContextLimitedPanes(panes: AnnotatedPane[]): Promise<void> {
+  await Promise.all(panes.map(async (pane) => {
+    if (!isLikelyAgentPaneCommand(pane.command)) return;
+    if (!await checkPaneContextLimit(pane.target)) return;
+    pane.status = "frozen";
+    pane.annotation = pane.annotation
+      ? `${pane.annotation}; context-limit`
+      : "context-limit";
+  }));
+}
+
+export function parseSessionCreatedList(raw: string): Map<string, number> {
+  return parseSessionEpochList(raw);
+}
+
+export function parseSessionActivityList(raw: string): Map<string, number> {
+  return parseSessionEpochList(raw);
+}
+
+function parseSessionEpochList(raw: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    const [name, createdRaw] = line.split("\t");
+    const created = Number(createdRaw);
+    if (name && Number.isFinite(created) && created > 0) out.set(name, created);
+  }
+  return out;
+}
+
+export const DEFAULT_ACTIVE_THRESHOLD_SEC = 30 * 60;
+
+export function parseActiveDurationSeconds(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim().toLowerCase();
+  const match = /^(\d+)([smhd])?$/.exec(trimmed);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  if (!Number.isSafeInteger(value) || value <= 0) return undefined;
+  const unit = match[2] ?? "m";
+  const multiplier = unit === "s" ? 1
+    : unit === "m" ? 60
+    : unit === "h" ? 60 * 60
+    : 24 * 60 * 60;
+  return value * multiplier;
+}
+
+export function activeDurationArg(argv: string[], flag = "--active"): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === flag) {
+      const next = argv[i + 1];
+      return next && !next.startsWith("-") && parseActiveDurationSeconds(next) ? next : undefined;
+    }
+    if (arg.startsWith(`${flag}=`)) {
+      const value = arg.slice(flag.length + 1);
+      return parseActiveDurationSeconds(value) ? value : undefined;
+    }
+  }
+  return undefined;
+}
+
+export function formatSessionCreated(epochSeconds?: number): string {
+  if (!epochSeconds || !Number.isFinite(epochSeconds)) return "—";
+  const d = new Date(epochSeconds * 1000);
+  if (Number.isNaN(d.getTime())) return "—";
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function sessionNameFromPaneTarget(target: string): string {
+  return target.split(":")[0] || target;
+}
+
+function isFleetListSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
+  // Legacy `maw ls --fleet-only` filter: keep fleet-shaped sessions and
+  // registered fleet entries, hiding ad hoc/orphan tmux sessions.
+  const numericFleet = sessionName.match(/^\d+-(.+)$/);
+  if (numericFleet) return !numericFleet[1].startsWith("-");
+  return fleetSessions.has(sessionName);
+}
+
+function isOrphanListSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
+  if (isFleetListSession(sessionName, fleetSessions)) return false;
+  if (sessionName === "maw-view" || /-view$/.test(sessionName)) return false;
+  return true;
+}
+
+async function sessionCreatedTimes(): Promise<Map<string, number>> {
+  const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_created}'`).catch(() => "");
+  return parseSessionCreatedList(raw);
+}
+
+async function sessionActivityTimes(): Promise<Map<string, number>> {
+  const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_activity}'`).catch(() => "");
+  return parseSessionActivityList(raw);
+}
+
+interface TmuxLsState {
+  scope: AnnotatedPane[];
+  visibleTeams: ClaudeTeamSummary[];
+  currentSession: string;
+  activeThresholdSec: number;
+  nowEpoch: number;
+}
+
+async function collectTmuxLsState(opts: TmuxLsOpts = {}): Promise<TmuxLsState> {
+  const allPanes = await tmux.listPanes();
+  const currentSession = process.env.TMUX
+    ? (await hostExec("tmux display-message -p '#{session_name}'").catch(() => "")).trim()
+    : "";
+
+  // Fleet sessions for annotation
+  const fleetSessions = new Set<string>();
+  try {
+    for (const entry of loadFleetEntries()) {
+      fleetSessions.add(entry.file.replace(/\.json$/, ""));
+    }
+  } catch { /* no fleet dir */ }
+
+  // Team members for annotation: pane_id → "agent @ team-name"
+  const teamByPane = new Map<string, string>();
+  const l2Teams = opts.teams ? loadClaudeTeams() : [];
+  if (existsSync(TEAMS_DIR)) {
+    for (const dir of readdirSync(TEAMS_DIR).sort()) {
+      const cfg = join(TEAMS_DIR, dir, "config.json");
+      if (!existsSync(cfg)) continue;
+      try {
+        const team = JSON.parse(readFileSync(cfg, "utf-8"));
+        for (const m of team.members ?? []) {
+          if (m?.tmuxPaneId && m.tmuxPaneId !== "" && m.tmuxPaneId !== "in-process") {
+            teamByPane.set(m.tmuxPaneId, `${m.name} @ ${dir}`);
+          }
+        }
+      } catch { /* skip bad config */ }
+    }
+  }
+
+  const [createdBySession, activityBySession] = await Promise.all([
+    opts.recent ? sessionCreatedTimes() : Promise.resolve(new Map<string, number>()),
+    opts.active ? sessionActivityTimes() : Promise.resolve(new Map<string, number>()),
+  ]);
+  const nowEpoch = Math.floor(Date.now() / 1000);
+  const annotated: AnnotatedPane[] = allPanes.map(p => {
+    const ageSec = p.lastActivity ? nowEpoch - p.lastActivity : -1;
+    const status: PaneStatus = ageSec < 0 ? "unknown" : ageSec < 30 ? "active" : ageSec < 300 ? "idle" : "stale";
+    const session = sessionNameFromPaneTarget(p.target);
+    const annotation = annotatePane(p, fleetSessions, teamByPane)
+      || (isOrphanListSession(session, fleetSessions) ? "orphan" : "");
+    return {
+      id: p.id,
+      target: p.target,
+      session,
+      command: p.command,
+      title: p.title,
+      annotation,
+      status,
+      lastActivitySec: ageSec < 0 ? 0 : ageSec,
+      sessionCreated: createdBySession.get(session),
+      sessionActivity: activityBySession.get(session),
+      source: (p as { source?: string; node?: string }).source ?? (p as { node?: string }).node,
+      cwd: p.cwd,
+      top: p.top,
+      left: p.left,
+      w: p.w,
+      h: p.h,
+      paneIdx: p.paneIdx,
+      winIdx: p.winIdx,
+      winName: p.winName,
+      active: p.active,
+      window: p.window,
+      attached: p.attached,
+      ...(p.attachedClients !== undefined ? { attachedClients: p.attachedClients } : {}),
+    };
+  });
+
+  const visible = opts.channels
+    ? annotated
+    : annotated.filter(p => !isInfrastructureChannelSessionName(p.session, opts.filter ?? ""));
+
+  let scope = opts.all
+    ? visible
+    : visible.filter(p => p.target.startsWith(`${currentSession}:`));
+
+  const filter = opts.filter?.trim().toLowerCase();
+  if (filter) {
+    scope = scope.filter(p => [p.session, p.target, p.annotation, p.source]
+      .some(value => String(value ?? "").toLowerCase().includes(filter)));
+  }
+
+  let visibleTeams = opts.teams && opts.all && !opts.fleetOnly && !opts.active
+    ? l2Teams
+    : [];
+  if (filter) {
+    visibleTeams = visibleTeams.filter(team => [team.name, team.configPath, `${team.memberCount} members`]
+      .some(value => value.toLowerCase().includes(filter)));
+  }
+
+  if (opts.fleetOnly && !opts.roster && !opts.channels) {
+    scope = scope.filter(p => isFleetListSession(p.session, fleetSessions));
+  }
+
+  const activeThresholdSec = opts.activeThresholdSec ?? DEFAULT_ACTIVE_THRESHOLD_SEC;
+  if (opts.active) {
+    scope = scope.filter(p => {
+      const activity = p.sessionActivity;
+      if (!activity || !Number.isFinite(activity)) return false;
+      return nowEpoch - activity <= activeThresholdSec;
+    });
+  }
+
+  const recentSessionOrder = (items: AnnotatedPane[]): string[] => {
+    const byName = new Map<string, number | undefined>();
+    for (const p of items) {
+      if (!byName.has(p.session)) byName.set(p.session, p.sessionCreated);
+    }
+    return [...byName.entries()]
+      .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0) || a[0].localeCompare(b[0]))
+      .map(([name]) => name);
+  };
+
+  if (opts.recent) {
+    const ordered = recentSessionOrder(scope);
+    const limited = opts.recentLimit ? ordered.slice(0, opts.recentLimit) : ordered;
+    const order = new Map(limited.map((name, index) => [name, index]));
+    scope = scope
+      .filter(p => order.has(p.session))
+      .sort((a, b) => (order.get(a.session)! - order.get(b.session)!) || a.target.localeCompare(b.target));
+  }
+
+  await markContextLimitedPanes(scope);
+
+  return { scope, visibleTeams, currentSession, activeThresholdSec, nowEpoch };
+}
+
+async function tmuxLsJsonRowsFromState({ scope, visibleTeams }: Pick<TmuxLsState, "scope" | "visibleTeams">): Promise<unknown[]> {
+  const paneRows = await panesForJson(scope);
+  const teamRows = visibleTeams.map(team => ({
+    kind: "team",
+    id: `team:${team.name}`,
+    target: `team:${team.name}`,
+    session: team.name,
+    command: "team",
+    title: `L2 team (${team.memberCount} member${team.memberCount === 1 ? "" : "s"})`,
+    annotation: `team: ${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`,
+    status: "unknown",
+    lastActivitySec: 0,
+    source: "l2-team",
+    members: team.memberCount,
+    configPath: team.configPath,
+  }));
+  return [...paneRows, ...teamRows];
+}
+
+export async function tmuxLsJsonRows(opts: TmuxLsOpts = {}): Promise<unknown[]> {
+  return tmuxLsJsonRowsFromState(await collectTmuxLsState(opts));
+}
+
+/**
+ * List tmux panes with fleet + team annotations. Supersedes `maw panes`
+ * with smarter labeling — if a pane is a fleet oracle or a team agent,
+ * say so explicitly so operators don't need to cross-check configs.
+ */
+export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
+  const { scope, visibleTeams, currentSession, activeThresholdSec, nowEpoch } = await collectTmuxLsState(opts);
+
+  if (opts.json) {
+    console.log(JSON.stringify(await tmuxLsJsonRowsFromState({ scope, visibleTeams }), null, 2));
+    return;
+  }
+
+  if (!scope.length && visibleTeams.length === 0 && !(opts.compact && opts.roster)) {
+    console.log(opts.active
+      ? `\x1b[90mNo sessions active in the last ${formatDuration(activeThresholdSec)}.\x1b[0m`
+      : opts.all
+      ? "\x1b[90mNo panes found.\x1b[0m"
+      : `\x1b[90mNo panes in current session '${currentSession || "(none)"}'. Use --all for every session.\x1b[0m`);
+    return;
+  }
+
+  const STATUS_DOT: Record<PaneStatus, string> = {
+    frozen: "\x1b[33m⚠\x1b[0m",
+    active: "\x1b[32m●\x1b[0m",
+    idle: "\x1b[33m◐\x1b[0m",
+    stale: "\x1b[31m◌\x1b[0m",
+    unknown: "\x1b[90m·\x1b[0m",
+  };
+
+  const formatAge = (sec: number): string => {
+    if (sec <= 0) return "";
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+    return `${Math.floor(sec / 3600)}h${Math.floor((sec % 3600) / 60)}m`;
+  };
+
+  if (opts.compact && !opts.verbose) {
+    const bySession = new Map<string, AnnotatedPane[]>();
+    for (const p of scope) {
+      const sess = p.session;
+      if (!bySession.has(sess)) bySession.set(sess, []);
+      bySession.get(sess)!.push(p);
+    }
+    const bestStatus = (panes: AnnotatedPane[]): PaneStatus => {
+      if (panes.some(p => p.status === "frozen")) return "frozen";
+      if (panes.some(p => p.status === "active")) return "active";
+      if (panes.some(p => p.status === "idle")) return "idle";
+      if (panes.some(p => p.status === "stale")) return "stale";
+      return "unknown";
+    };
+    let worktrees: Awaited<ReturnType<typeof scanWorktrees>> = [];
+    if (opts.verify) {
+      try { worktrees = await scanWorktrees(); } catch { /* non-critical */ }
+    }
+    const wtBySession = new Map<string, typeof worktrees>();
+    for (const wt of worktrees) {
+      const mainName = wt.mainRepo.split("/").pop() || "";
+      if (!wtBySession.has(mainName)) wtBySession.set(mainName, []);
+      wtBySession.get(mainName)!.push(wt);
+    }
+
+    console.log();
+    const awakeNames = new Set<string>();
+    const sessionRows = [...bySession.entries()];
+    if (opts.recent) {
+      sessionRows.sort((a, b) => (b[1][0]?.sessionCreated ?? 0) - (a[1][0]?.sessionCreated ?? 0) || a[0].localeCompare(b[0]));
+      if (opts.recentLimit) sessionRows.splice(opts.recentLimit);
+      const sessionWidth = Math.max(18, ...sessionRows.map(([sess]) => sess.length));
+      console.log(`  ${pad("#", 3)} ${pad("SESSION", sessionWidth)} ${pad("CREATED", 19)} ${pad("STATUS", 6)} ${pad("PANES", 8)} AGENTS`);
+    }
+    for (const [index, [sess, panes]] of sessionRows.entries()) {
+      awakeNames.add(sess);
+      const dot = STATUS_DOT[bestStatus(panes)];
+      const count = `${panes.length} pane${panes.length !== 1 ? "s" : ""}`;
+      const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
+      const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
+      const activeTag = opts.active && panes[0]?.sessionActivity
+        ? `  \x1b[90mlast ${formatAge(Math.max(0, nowEpoch - panes[0].sessionActivity))}\x1b[0m`
+        : "";
+      const orphanTag = panes.length > 0 && panes.every(p => p.annotation === "orphan")
+        ? "  \x1b[33m[orphan]\x1b[0m"
+        : "";
+      if (opts.recent) {
+        const sessionWidth = Math.max(18, ...sessionRows.map(([name]) => name.length));
+        const created = formatSessionCreated(panes[0]?.sessionCreated);
+        const afterName = " ".repeat(Math.max(1, sessionWidth - sess.length + 1));
+        console.log(`  ${pad(String(index + 1), 3)} \x1b[36m${sess}\x1b[0m${afterName} ${created} ${pad(dot, 6)} ${pad(count, 8)}${agentTag}${activeTag}${orphanTag}`);
+      } else {
+        console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}${activeTag}${orphanTag}`);
+      }
+      for (const p of panes.filter(p => p.status === "frozen")) {
+        console.log(`    \x1b[33m⚠\x1b[0m \x1b[90m${p.target} context-limit — /compact needed\x1b[0m`);
+      }
+      const wts = wtBySession.get(sess) || [];
+      for (const wt of wts) {
+        const wtDot = wt.status === "active" ? "\x1b[32m├─\x1b[0m" : "\x1b[90m├─\x1b[0m";
+        const label = wt.status === "orphan" ? "orphan" : wt.status === "stale" ? "stale" : "worktree";
+        console.log(`    ${wtDot} \x1b[90m${wt.name}  (${label})\x1b[0m`);
+      }
+    }
+
+    for (const team of visibleTeams) {
+      const memberLabel = `${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`;
+      console.log(`  \x1b[90m·\x1b[0m \x1b[36m${team.name}\x1b[0m  \x1b[90m[team] L2 team (${memberLabel} in ~/.claude/teams/${team.name})\x1b[0m`);
+    }
+
+    if (opts.roster) {
+      try {
+        const repos = await ghqList();
+        const sleeping = repos
+          .filter(p => p.endsWith("-oracle"))
+          .map(p => p.split("/").pop()!)
+          .filter(name => !awakeNames.has(name))
+          .sort();
+        for (const name of sleeping) {
+          console.log(`  \x1b[90m· ${name}  (sleeping)\x1b[0m`);
+        }
+        const total = awakeNames.size + sleeping.length;
+        if (sleeping.length > 0) {
+          console.log();
+          console.log(`\x1b[90m  ${total} oracles — ${awakeNames.size} awake, ${sleeping.length} sleeping\x1b[0m`);
+        }
+      } catch { /* ghq unavailable */ }
+    }
+
+    console.log();
+    console.log(`\x1b[90m  → maw ls -v    full detail\x1b[0m`);
+    console.log();
+    return;
+  }
+
+  const targetWidth = Math.max(28, ...scope.map(p => p.target.length));
+
+  const createdWidth = opts.recent ? 20 : 0;
+  console.log();
+  console.log(opts.recent
+    ? `  \x1b[36;1m  ${pad("TARGET", targetWidth)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("CREATED", createdWidth)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`
+    : `  \x1b[36;1m  ${pad("TARGET", targetWidth)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
+  for (const p of scope) {
+    const dot = STATUS_DOT[p.status];
+    const age = formatAge(p.lastActivitySec);
+    const annotation = p.annotation === "orphan" ? "[orphan]" : p.annotation;
+    const annColored = p.annotation.startsWith("team:") ? `\x1b[36m${annotation}\x1b[0m`
+      : p.annotation.startsWith("fleet:") ? `\x1b[32m${annotation}\x1b[0m`
+      : p.annotation.startsWith("view:") ? `\x1b[90m${annotation}\x1b[0m`
+      : p.annotation === "orphan" ? `\x1b[33m${annotation}\x1b[0m`
+      : "";
+    const annPad = pad(annotation, 30);
+    const annRendered = annColored ? annColored + annPad.slice(annotation.length) : annPad;
+    const created = opts.recent ? `${pad(formatSessionCreated(p.sessionCreated), createdWidth)} ` : "";
+    console.log(`  ${dot} ${pad(p.target, targetWidth)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${created}${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
+  }
+  console.log();
+}
+
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
+  return `${Math.floor(sec / 86400)}d`;
+}
+
+function pad(s: string, n: number): string {
+  return s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length);
+}
+
+export interface TmuxSendOpts {
+  /** Append Enter after the command. Default true. Use --literal for raw keystrokes. */
+  literal?: boolean;
+  /** Bypass destructive-pattern deny-list. Required for rm/sudo/redirect/etc. */
+  allowDestructive?: boolean;
+  /** Bypass claude-pane refusal. Required to inject into a live claude session. */
+  force?: boolean;
+}
+
+// ❤️ Heartbeat #974 — per-pane cooldown + quota tracking.
+// Prevents rapid-fire send-keys spam from stale agent turns.
+export const _sendTracker = new Map<string, { lastTs: number; count: number; windowStart: number }>();
+const COOLDOWN_MS = 500;
+const QUOTA_PER_MINUTE = 100;
+const QUOTA_WINDOW_MS = 60_000;
+
+/**
+ * Send a command into a target tmux pane. Wraps `tmux send-keys` with
+ * three safety gates:
+ *
+ *   1. Destructive-command deny-list (unless --allow-destructive)
+ *   2. Refuse if pane is running a claude-like process (unless --force)
+ *   3. Pane existence check before sending
+ *
+ * Default appends Enter (Enter key after the literal); --literal sends
+ * the keys verbatim (useful for keystroke chains, escape sequences).
+ */
+export async function cmdTmuxSend(target: string, command: string, opts: TmuxSendOpts = {}): Promise<void> {
+  if (!command) {
+    throw new Error("usage: maw tmux send <target> <command> [--literal] [--allow-destructive] [--force]");
+  }
+
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+
+  // Gate 0 — cooldown + quota (Heartbeat #974)
+  if (!opts.force) {
+    const now = Date.now();
+    const prev = _sendTracker.get(resolved);
+    if (prev) {
+      if (now - prev.lastTs < COOLDOWN_MS) {
+        console.warn(`\x1b[33m⚠\x1b[0m send throttled: ${target} → cooldown (${COOLDOWN_MS}ms). Use --force to bypass.`);
+        return;
+      }
+      if (now - prev.windowStart > QUOTA_WINDOW_MS) {
+        prev.count = 0;
+        prev.windowStart = now;
+      }
+      if (prev.count >= QUOTA_PER_MINUTE) {
+        console.warn(`\x1b[33m⚠\x1b[0m send throttled: ${target} → quota (${QUOTA_PER_MINUTE}/min). Use --force to bypass.`);
+        return;
+      }
+      prev.lastTs = now;
+      prev.count++;
+    } else {
+      _sendTracker.set(resolved, { lastTs: now, count: 1, windowStart: now });
+    }
+  }
+
+  // Gate 1 — destructive-command deny-list
+  const destCheck = checkDestructive(command);
+  if (destCheck.destructive && !opts.allowDestructive) {
+    throw new Error(
+      `refusing to send: command matches destructive patterns:\n` +
+      destCheck.reasons.map(r => `  - ${r}`).join("\n") +
+      `\n  pass --allow-destructive to bypass (review carefully first)`
+    );
+  }
+
+  // Gate 2 — refuse if target pane is running claude (would inject into a live AI turn)
+  let paneCurrentCommand: string | undefined;
+  try {
+    const out = await hostExec(`tmux display-message -p -t '${resolved}' '#{pane_current_command}'`);
+    paneCurrentCommand = out.trim();
+  } catch (e: any) {
+    throw new Error(`pane lookup failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  }
+  if (isClaudeLikePane(paneCurrentCommand) && !opts.force) {
+    throw new Error(`refusing to send: pane '${resolved}' is running '${paneCurrentCommand}' (claude-like).\n  injecting keys would collide with the AI's turn.\n  pass --force to override (you really want to type into a live claude pane)`);
+  }
+
+  // Send
+  const args = opts.literal
+    ? `tmux send-keys -t '${resolved}' '${command.replace(/'/g, "'\\''")}'`
+    : `tmux send-keys -t '${resolved}' '${command.replace(/'/g, "'\\''")}' Enter`;
+
+  try {
+    await hostExec(args);
+  } catch (e: any) {
+    throw new Error(`send-keys failed for '${resolved}': ${e?.message || e}`);
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m sent to ${target} → ${resolved} \x1b[90m[${source}]${opts.literal ? " (literal)" : ""}${opts.allowDestructive ? " (destructive-allowed)" : ""}${opts.force ? " (force)" : ""}\x1b[0m`);
+}
+
+export interface TmuxSplitOpts {
+  /** Vertical (stacked) split. Default horizontal (side-by-side). */
+  vertical?: boolean;
+  /** Size percent for the new pane (1-99). Default 50. */
+  pct?: number;
+  /** Command to run in the new pane. Default: login shell. */
+  cmd?: string;
+}
+
+/**
+ * Split a target pane. Wraps `tmux split-window -t <target>`. Thin —
+ * intentionally NOT delegating to the maw split plugin (that one
+ * attaches to a fleet session; this one is a primitive split).
+ */
+export async function cmdTmuxSplit(target: string, opts: TmuxSplitOpts = {}): Promise<void> {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+
+  const pct = opts.pct ?? 50;
+  if (!Number.isFinite(pct) || pct < 1 || pct > 99) {
+    throw new Error(`--pct must be 1-99 (got ${pct})`);
+  }
+
+  const direction = opts.vertical ? "-v" : "-h";
+  const cmdSuffix = opts.cmd ? ` '${opts.cmd.replace(/'/g, "'\\''")}'` : "";
+  const tmuxCmd = `tmux split-window ${direction} -l ${pct}% -t '${resolved}'${cmdSuffix}`;
+
+  try {
+    await hostExec(tmuxCmd);
+  } catch (e: any) {
+    throw new Error(`split-window failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m split ${target} → ${resolved} \x1b[90m[${source}] ${opts.vertical ? "vertical" : "horizontal"} ${pct}%\x1b[0m`);
+}
+
+export interface TmuxKillOpts {
+  /** Bypass fleet/view session refusal. Required to kill a live oracle session. */
+  force?: boolean;
+  /** Kill the entire session (not just the pane/window target). */
+  session?: boolean;
+}
+
+/**
+ * Kill a target pane or session. Wraps `tmux kill-pane -t` or
+ * `tmux kill-session -t`. Refuses whole fleet/view session kills by default
+ * (Bug F class — never accidentally kill all live oracle windows).
+ */
+export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Promise<void> {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  let { resolved, source } = hit;
+
+  // #1502 — top-level `maw kill` routes here (`maw tmux kill`). Unknown
+  // natural names used to fall through as a bare tmux session target and
+  // fail with "can't find pane" even when `maw ls -v` showed an orphan pane
+  // by title/worktree role. Preserve exact/session handling above, but when
+  // the resolver only reached the final session-name fallback, consult pane
+  // titles, @maw_tile_role, and worktree dirname aliases before killing.
+  if (!opts.session && source === "session-name" && resolved === target) {
+    const paneHit = await resolvePaneTargetForKill(target);
+    if (paneHit.kind === "match") {
+      resolved = paneHit.candidate.resolved;
+      source = `${paneHit.candidate.source} (${paneHit.candidate.name})`;
+    } else if (paneHit.kind === "ambiguous") {
+      const lines = paneHit.candidates
+        .map(c => `    • ${c.name} → ${c.resolved}${c.target ? ` (${c.target})` : ""} [${c.source}]`)
+        .join("\n");
+      throw new Error(`'${target}' is ambiguous — matches ${paneHit.candidates.length} panes:\n${lines}\n  use the pane id or full session:window.pane target`);
+    }
+  }
+
+  // Fleet/view safety — extract session from resolved target
+  const session = resolved.split(":")[0] ?? "";
+  const fleetSessions = new Set<string>();
+  try {
+    for (const entry of loadFleetEntries()) {
+      fleetSessions.add(entry.file.replace(/\.json$/, ""));
+    }
+  } catch { /* no fleet dir */ }
+
+  if (opts.session && isFleetOrViewSession(session, fleetSessions) && !opts.force) {
+    throw new Error(`refusing to kill: session '${session}' is fleet or view.\n  killing the whole session would terminate live oracle windows (or a mirror).\n  pass --force to override (you really want to kill a fleet session)`);
+  }
+
+  const tmuxCmd = opts.session
+    ? `tmux kill-session -t '${session}'`
+    : `tmux kill-pane -t '${resolved}'`;
+
+  try {
+    await hostExec(tmuxCmd);
+  } catch (e: any) {
+    throw new Error(`kill failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m killed ${opts.session ? "session" : "pane"} ${target} → ${opts.session ? session : resolved} \x1b[90m[${source}]${opts.force ? " (force)" : ""}\x1b[0m`);
+}
+
+export interface TmuxLayoutOpts {
+  preset: string;
+}
+
+const VALID_LAYOUTS = ["even-horizontal", "even-vertical", "main-horizontal", "main-vertical", "tiled"] as const;
+
+/**
+ * Apply a layout preset to a window. Wraps `tmux select-layout -t <window> <preset>`.
+ */
+export async function cmdTmuxLayout(target: string, preset: string): Promise<void> {
+  if (!VALID_LAYOUTS.includes(preset as any)) {
+    throw new Error(`invalid layout '${preset}'. Valid: ${VALID_LAYOUTS.join(", ")}`);
+  }
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+
+  // Layouts apply to windows, not panes — strip pane index if present
+  const window = resolved.replace(/\.\d+$/, "");
+
+  try {
+    await hostExec(`tmux select-layout -t '${window}' ${preset}`);
+  } catch (e: any) {
+    throw new Error(`select-layout failed for '${window}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m layout ${preset} applied to ${target} → ${window} \x1b[90m[${source}]\x1b[0m`);
+}
+
+export interface TmuxPipePaneOpts {
+  /** Connect shell-command stdout to the pane as typed input (`pipe-pane -I`). */
+  input?: boolean;
+  /** Connect pane output to shell-command stdin (`pipe-pane -O`). Default true. */
+  output?: boolean;
+  /** Only open a new pipe when no pipe is already active (`pipe-pane -o`). */
+  onlyIfClosed?: boolean;
+}
+
+/**
+ * Pipe a pane through a shell command. Omit command to close the current pipe.
+ * Thin wrapper over `Tmux.pipePane()` with maw target resolution.
+ */
+export async function cmdTmuxPipePane(target: string, command?: string, opts: TmuxPipePaneOpts = {}): Promise<void> {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+
+  try {
+    await tmux.pipePane(resolved, command, opts);
+  } catch (e: any) {
+    throw new Error(`pipe-pane failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  }
+
+  const mode = `${opts.input ? "input" : ""}${opts.input && opts.output !== false ? "+" : ""}${opts.output === false && opts.input ? "" : "output"}` || "output";
+  const action = command === undefined ? "closed pipe" : `piped (${mode})`;
+  console.log(`[32m✓[0m ${action} ${target} → ${resolved} [90m[${source}]${opts.onlyIfClosed ? " (only-if-closed)" : ""}[0m`);
+}
+
+/** Toggle tmux synchronize-panes on a target window. */
+export async function cmdTmuxSynchronizePanes(target: string, on: boolean): Promise<void> {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+  const window = resolved.replace(/\.\d+$/, "");
+
+  try {
+    await tmux.synchronizePanes(window, on);
+  } catch (e: any) {
+    throw new Error(`synchronize-panes failed for '${window}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`[32m✓[0m synchronize-panes ${on ? "on" : "off"} for ${target} → ${window} [90m[${source}][0m`);
+}
+
+export interface TmuxAttachOpts {
+  /** Force print-only mode (no exec) regardless of TTY/$TMUX state. */
+  print?: boolean;
+  /** Attach read-only (`tmux attach-session -r`). */
+  readonly?: boolean;
+}
+
+/**
+ * Attach to a tmux session.
+ *
+ * Branch behavior (issue #962, fix for #395 print-only regression):
+ *   - Inside tmux ($TMUX set) + TTY → `tmux switch-client -t <target>`
+ *   - Outside tmux + TTY            → `tmux attach -t <target>`
+ *   - No TTY (script/pipe/CI)       → fall back to 3-line print (don't break automation)
+ *   - Explicit --print              → force print mode regardless of TTY
+ *
+ * Pre-#962 this was print-only (since #395, 2026-04-17). RFC #954's `a`
+ * alias surfaced the regression — operators expected `maw a foo` to attach,
+ * not just print instructions.
+ */
+export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+  // Preserve an explicit window target (`session:window`) so attach lands on
+  // that window instead of tmux's last-active window. Pane targets still attach
+  // at window granularity by stripping only the trailing `.pane` suffix.
+  const attachTarget = resolved.includes(":") ? resolved.replace(/\.\d+$/, "") : resolved;
+  const session = attachTarget.split(":")[0] ?? "";
+
+  // Pre-flight: check if resolved session is actually alive. If not, show
+  // recovery suggestions instead of printing stale instructions or failing.
+  const alive = listSessionNamesSync();
+  if (!alive.includes(session)) {
+    suggestRecovery(target, session, source);
+    return;
+  }
+
+  const isTty = _tty.isStdoutTTY();
+  const inTmux = !!process.env.TMUX;
+
+  const attachArgs = opts.readonly
+    ? ["attach", "-r", "-t", attachTarget]
+    : inTmux
+    ? ["switch-client", "-t", attachTarget]
+    : ["attach", "-t", attachTarget];
+  const printArgs = opts.readonly
+    ? ["attach", "-r", "-t", attachTarget]
+    : ["attach", "-t", attachTarget];
+
+  if (opts.print || !isTty) {
+    console.log(`\x1b[36mRun:\x1b[0m tmux ${printArgs.join(" ")}`);
+    console.log(`\x1b[90m  resolved: ${target} → ${attachTarget} [${source}]${opts.readonly ? " (read-only)" : ""}`);
+    console.log(`  detach with: Ctrl-b d\x1b[0m`);
+    return;
+  }
+
+  const result = Bun.spawnSync(["tmux", ...attachArgs], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+
+  if (result.exitCode !== 0) {
+    suggestRecovery(target, session, source);
+    return;
+  }
+}
+
+function suggestRecovery(target: string, session: string, source: string): void {
+  const candidates: Array<{ oracle: string; label: string }> = [];
+
+  if (source.startsWith("fleet-stem") || source.startsWith("fleet-window") || source.startsWith("live-session")) {
+    console.log(`\x1b[33m⚠\x1b[0m  ${session} matched but not running.`);
+    try {
+      const entries = loadFleetEntries();
+      const entry = entries.find(e => e.file.replace(/\.json$/, "") === session);
+      if (entry?.session?.windows?.[0]) {
+        const w = entry.session.windows[0];
+        const oracleName = w.name.replace(/-oracle$/, "");
+        const localPath = ghqFindOracleSync(w.repo);
+        const status = localPath ? "cloned" : "not cloned";
+        candidates.push({ oracle: oracleName, label: `${w.name} (${status})` });
+      }
+    } catch { /* fleet not available */ }
+  } else {
+    console.log(`\x1b[31m✗\x1b[0m  No session matches '${target}'.`);
+  }
+
+  for (const s of findSimilarOracles(target).slice(0, 5)) {
+    const wakeArg = wakeArgForSimilarOracle(s);
+    if (!candidates.some(c => c.oracle === wakeArg)) {
+      candidates.push({ oracle: wakeArg, label: s });
+    }
+  }
+
+  if (candidates.length === 0) {
+    process.exit(1);
+  }
+
+  if (candidates.length === 1) {
+    const picked = candidates[0];
+    console.log(`\n  \x1b[36m→\x1b[0m auto-selecting: ${picked.label}`);
+    console.log(`  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
+    const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    process.exit(result.exitCode ?? 0);
+  }
+
+  if (!_tty.isStdoutTTY()) {
+    console.log("");
+    for (const c of candidates) {
+      console.log(`  ${c.label} \x1b[90m→ maw wake ${c.oracle}\x1b[0m`);
+    }
+    process.exit(1);
+  }
+
+  // Inline the select using Bun.spawnSync — renders a numbered list and
+  // reads one keystroke via /dev/tty (avoids async issues with clack).
+  console.log("");
+  console.log("  Wake which oracle?");
+  for (let i = 0; i < candidates.length; i++) {
+    console.log(`  \x1b[36m${i + 1}\x1b[0m) ${candidates[i].label} \x1b[90m→ maw wake ${candidates[i].oracle}\x1b[0m`);
+  }
+  console.log("");
+
+  let choice: number | null = null;
+  try { choice = _tty.readChoice(candidates.length); } catch { /* non-interactive — ignore */ }
+  if (choice !== null) {
+    const picked = candidates[choice - 1];
+    console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
+    const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    process.exit(result.exitCode ?? 0);
+  }
+
+  process.exit(1);
+}
+
+function ghqFindOracleSync(slug: string): string | null {
+  try {
+    const repos = ghqListSync();
+    return repos.find(r => r.endsWith(`/${slug}`)) ?? null;
+  } catch { return null; }
+}
+
+function repoNameFromPath(path: string): string {
+  return path.split("/").pop() ?? "";
+}
+
+function repoSlugFromPath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length >= 2 ? parts.slice(-2).join("/") : repoNameFromPath(path);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+export function similarOracleCandidatesFromRepos(target: string, repos: string[]): string[] {
+  const lc = target.toLowerCase();
+  return uniqueStrings(
+    repos
+      .filter(r => {
+        const name = repoNameFromPath(r);
+        return name.endsWith("-oracle") && name.toLowerCase().includes(lc);
+      })
+      .map(repoSlugFromPath),
+  );
+}
+
+function wakeArgForSimilarOracle(candidate: string): string {
+  return candidate.includes("/") ? candidate : candidate.replace(/-oracle$/, "");
+}
+
+function findSimilarOracles(target: string): string[] {
+  try {
+    return similarOracleCandidatesFromRepos(target, ghqListSync());
+  } catch { return []; }
+}
+
+/**
+ * Pure annotation logic — given a pane + fleet session names + a team
+ * lookup map, return the one-line label for the "ANNOTATION" column.
+ * Exported for unit test.
+ *
+ * Precedence: team > fleet > view > orphan (claude-like unknown pane) > "".
+ */
+export function annotatePane(
+  p: { id: string; target: string; command?: string },
+  fleetSessions: Set<string>,
+  teamByPane: Map<string, string>,
+): string {
+  const session = p.target.split(":")[0] ?? "";
+  const team = teamByPane.get(p.id);
+  if (team) return `team: ${team}`;
+  if (fleetSessions.has(session)) return `fleet: ${session.replace(/^\d+-/, "")}`;
+  if (session === "maw-view" || /-view$/.test(session)) return `view: ${session}`;
+  if (isClaudeLikePane(p.command)) return "orphan";
+  return "";
+}

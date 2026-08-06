@@ -1,0 +1,24 @@
+{
+  "name": "take",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Move a tmux window from one oracle session to another (vesicle transport).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "take",
+    "aliases": [
+      "handover"
+    ],
+    "help": "maw take <session>:<window> [target-session] — move a window between sessions"
+  },
+  "api": {
+    "path": "/api/take",
+    "methods": [
+      "POST"
+    ]
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+}

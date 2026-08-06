@@ -1,0 +1,20 @@
+{
+  "$schema": "https://maw.soulbrews.studio/schema/plugin.json",
+  "name": "shellenv",
+  "version": "0.1.2",
+  "description": "Emit shell init code for eval-style zsh/bash integration, including maw warp.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-shellenv",
+  "sdk": "^1.0.0-alpha",
+  "target": "js",
+  "weight": 10,
+  "tier": "standard",
+  "capabilities": [],
+  "schemaVersion": 1,
+  "entry": "./src/index.ts",
+  "cli": {
+    "command": "shellenv",
+    "help": "maw shellenv <zsh|bash> — emit shell init code for eval-style integration and maw warp"
+  }
+}

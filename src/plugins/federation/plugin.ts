@@ -1,0 +1,32 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "federation",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Multi-node federation status, sync, and expansion planning.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "federation",
+    "aliases": [
+      "fed"
+    ],
+    "help": "maw federation <status|sync|expand> [host] [--port <port>] [--user <user>] [--oracle <name>] [--dry-run|--check|--prune|--force|--probe|--json] [--peers config|scout|both]",
+    "flags": {
+      "--dry-run": "boolean",
+      "--check": "boolean",
+      "--prune": "boolean",
+      "--force": "boolean",
+      "--verify": "boolean",
+      "--json": "boolean",
+      "--probe": "boolean",
+      "--peers": "string",
+      "--port": "string",
+      "--user": "string",
+      "--oracle": "string",
+      "--apply": "boolean"
+    }
+  },
+  "weight": 10
+} as const);

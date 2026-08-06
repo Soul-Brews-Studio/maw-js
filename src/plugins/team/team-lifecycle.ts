@@ -1,0 +1,395 @@
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, rmSync } from "fs";
+import { createHash } from "crypto";
+import { join, resolve as resolvePath } from "path";
+import { tmux } from "maw-js/sdk";
+import { defaultEngineNameForConfig, resolveEngine } from "../../../config/engine-registry";
+import { assertValidOracleName } from "maw-js/core/fleet/validate";
+import { prefixCommandWithSpawnSessionEnv } from "../../../core/fleet/parent-session";
+import { buildCommand, buildCommandInDir } from "../../../config/command";
+import { writeWorktreeEngineFile } from "../../../commands/shared/wake-session";
+import { loadConfig } from "../../../config/load";
+import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, currentLeadSessionId, type TeamConfig, type TeamMember } from "./team-helpers";
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+function asciiLaunchPromptFileName(role: string): string {
+  const slug = role
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "agent";
+  const hash = createHash("sha256").update(role).digest("hex").slice(0, 8);
+  return `${slug}-${hash}-spawn-prompt.md`;
+}
+
+function writeLaunchPromptFile(teamName: string, role: string, prompt: string): string | null {
+  try {
+    const launchPromptDir = join(TEAMS_DIR, teamName);
+    mkdirSync(launchPromptDir, { recursive: true });
+    const launchPromptPath = join(launchPromptDir, asciiLaunchPromptFileName(role));
+    writeFileSync(launchPromptPath, prompt);
+    return launchPromptPath;
+  } catch {
+    // Best-effort mirror only: the durable vault prompt below is the source of
+    // truth, and non-exec spawns must not fail just because the tool store is
+    // temporarily read-only or partially migrated.
+    return null;
+  }
+}
+
+/**
+ * Copy per-member inbox + findings to the vault mailbox, then archive the
+ * manifest. Extracted from cmdTeamShutdown so it can be called from both
+ * the alive=0 and alive>0 paths (#393 Bug G — --merge was unreachable
+ * when all members had already exited).
+ *
+ * Iterates `teammates` (not `alive`) so dead members' accumulated state
+ * still gets captured — the whole point of --merge is to preserve state
+ * at shutdown time, regardless of whether members are still live.
+ */
+export function mergeTeamKnowledge(name: string, teammates: Array<{ name: string }>) {
+  const PSI = resolvePsi();
+  const teamInboxDir = join(TEAMS_DIR, name, "inboxes");
+  for (const m of teammates) {
+    const dest = join(PSI, "memory", "mailbox", m.name);
+    mkdirSync(dest, { recursive: true });
+    // Copy inbox messages
+    const src = join(teamInboxDir, `${m.name}.json`);
+    if (existsSync(src)) {
+      copyFileSync(src, join(dest, `team-${name}-inbox.json`));
+    }
+    // Copy any findings from team dir
+    const memberDir = join(TEAMS_DIR, name, m.name);
+    if (existsSync(memberDir)) {
+      try {
+        for (const f of readdirSync(memberDir).filter(f => f.endsWith("_findings.md"))) {
+          copyFileSync(join(memberDir, f), join(dest, f));
+        }
+      } catch { /* best effort */ }
+    }
+    console.log(`  \x1b[36m↪\x1b[0m merged ${m.name} → ψ/memory/mailbox/${m.name}/`);
+  }
+  // Archive manifest instead of deleting
+  const manifestSrc = join(TEAMS_DIR, name, "config.json");
+  if (existsSync(manifestSrc)) {
+    const archiveDest = join(PSI, "memory", "mailbox", "teams", name);
+    mkdirSync(archiveDest, { recursive: true });
+    copyFileSync(manifestSrc, join(archiveDest, "manifest.json"));
+  }
+}
+
+
+function isCodexLikeSpawnEngine(engine: string, config: ReturnType<typeof loadConfig>): boolean {
+  try {
+    const resolved = resolveEngine(engine, config) as { name?: string; cmd?: string; processNames?: string[] };
+    const haystack = [engine, resolved.name, resolved.cmd, ...(resolved.processNames ?? [])]
+      .filter((value): value is string => typeof value === "string")
+      .join(" ");
+    return /(^|[\s/_-])(codex|omx)([\s/_-]|$)/i.test(haystack);
+  } catch {
+    return /^(codex|omx)$/i.test(engine);
+  }
+}
+
+function gitTopLevel(cwd: string): string | null {
+  try {
+    const proc = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"], { stdout: "pipe", stderr: "pipe" });
+    if (proc.exitCode !== 0) return null;
+    const top = new TextDecoder().decode(proc.stdout).trim();
+    return top ? resolvePath(top) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function assertTeamSpawnWorktreeIsolation(role: string, engine: string, opts: { cwd?: string }, config: ReturnType<typeof loadConfig>, currentCwd = process.cwd()): void {
+  if (!isCodexLikeSpawnEngine(engine, config)) return;
+  if (!opts.cwd) {
+    throw new Error(`codex-like team spawn for '${role}' requires --worktree/--cwd; refusing to run in the shared checkout (#2764)`);
+  }
+  const targetTop = gitTopLevel(opts.cwd);
+  const currentTop = gitTopLevel(currentCwd);
+  if (targetTop && currentTop && targetTop === currentTop) {
+    throw new Error(`codex-like team spawn for '${role}' must use an isolated git worktree, not the shared checkout: ${opts.cwd} (#2764)`);
+  }
+}
+
+// ─── maw team shutdown <name> ───
+
+export async function cmdTeamShutdown(name: string, opts: { force?: boolean; merge?: boolean } = {}) {
+  const team = loadTeam(name);
+  if (!team) {
+    throw new Error(`team not found: ${name} — check ~/.claude/teams/ for available teams`);
+  }
+
+  const teammates = team.members.filter(m => m.agentType !== "team-lead");
+  if (!teammates.length) {
+    console.log(`\x1b[90mNo teammates to shut down in '${name}'.\x1b[0m`);
+    return;
+  }
+
+  const panes = await tmux.listPaneIds();
+  const alive = teammates.filter(m =>
+    m.tmuxPaneId && m.tmuxPaneId !== "in-process" && m.tmuxPaneId !== "" && panes.has(m.tmuxPaneId)
+  );
+
+  if (!alive.length) {
+    console.log(`\x1b[90mAll teammates in '${name}' already exited. Cleaning up config...\x1b[0m`);
+    // #393 Bug G: --merge must still run when alive=0. Knowledge preservation
+    // is the whole point; gating it on alive count caused silent data loss.
+    if (opts.merge) {
+      mergeTeamKnowledge(name, teammates);
+    }
+    cleanupTeamDir(name);
+    if (opts.merge) console.log(`\x1b[32m✓\x1b[0m team '${name}' cleaned up (knowledge merged)`);
+    return;
+  }
+
+  console.log(`\x1b[36m⏳\x1b[0m shutting down ${alive.length} teammate(s) in '${name}'...`);
+
+  // Step 1: Send shutdown_request via inbox files
+  for (const m of alive) {
+    try {
+      writeShutdownRequest(name, m.name, "team teardown via maw team shutdown");
+      console.log(`  \x1b[90m↪ shutdown_request → ${m.name} (${m.tmuxPaneId})\x1b[0m`);
+    } catch (e) {
+      console.error(`  \x1b[31m✗\x1b[0m failed to send shutdown to ${m.name}: ${e}`);
+    }
+  }
+
+  // Step 2: Wait for panes to die (up to 30s)
+  const deadline = Date.now() + 30_000;
+  let remaining = alive.length;
+  while (Date.now() < deadline && remaining > 0) {
+    await sleep(1000);
+    const current = await tmux.listPaneIds();
+    remaining = alive.filter(m => current.has(m.tmuxPaneId!)).length;
+    if (remaining > 0 && Date.now() + 5000 > deadline) break;
+  }
+  // Step 3: Force-kill stragglers
+  const finalPanes = await tmux.listPaneIds();
+  for (const m of alive) {
+    if (!finalPanes.has(m.tmuxPaneId!)) {
+      console.log(`  \x1b[32m✓\x1b[0m ${m.name} shut down gracefully`);
+      continue;
+    }
+    if (opts.force) {
+      await tmux.killPane(m.tmuxPaneId!);
+      console.log(`  \x1b[33m⚠\x1b[0m force-killed ${m.name} (${m.tmuxPaneId})`);
+    } else {
+      console.error(`  \x1b[31m✗\x1b[0m ${m.name} did not respond to shutdown_request (use --force to kill)`);
+    }
+  }
+
+  // FUSION: merge team knowledge into individual oracle mailboxes
+  if (opts.merge) {
+    mergeTeamKnowledge(name, teammates);
+  }
+
+  cleanupTeamDir(name);
+  console.log(`\x1b[32m✓\x1b[0m team '${name}' shut down${opts.merge ? " (knowledge merged)" : ""}`);
+}
+
+
+function teamConfigHasNoMembers(name: string): boolean {
+  const team = loadTeam(name);
+  return Boolean(team && Array.isArray(team.members) && team.members.length === 0);
+}
+
+function sessionMatchesTeamName(sessionName: string, teamName: string): boolean {
+  return sessionName === teamName || sessionName.replace(/^\d+-/, "") === teamName;
+}
+
+export async function cmdTeamPrune(): Promise<string[]> {
+  let teamDirs: string[] = [];
+  try {
+    teamDirs = readdirSync(TEAMS_DIR).filter((name) => existsSync(join(TEAMS_DIR, name, "config.json")));
+  } catch {
+    teamDirs = [];
+  }
+
+  const sessions = await tmux.listSessions().catch(() => [] as Array<{ name: string }>);
+  const activeNames = new Set(sessions.map((session) => session.name));
+  const pruned: string[] = [];
+
+  for (const name of teamDirs) {
+    if (!teamConfigHasNoMembers(name)) continue;
+    if ([...activeNames].some((sessionName) => sessionMatchesTeamName(sessionName, name))) continue;
+    rmSync(join(TEAMS_DIR, name), { recursive: true, force: true });
+    pruned.push(name);
+  }
+
+  if (pruned.length === 0) {
+    console.log("\x1b[90mNo empty inactive teams to prune.\x1b[0m");
+  } else {
+    for (const name of pruned) console.log(`\x1b[32m✓\x1b[0m pruned empty team '${name}'`);
+    console.log(`\x1b[32m✓\x1b[0m pruned ${pruned.length} empty inactive team${pruned.length === 1 ? "" : "s"}`);
+  }
+  return pruned;
+}
+
+// ─── maw team create <name> ───
+export function cmdTeamCreate(name: string, opts: { description?: string } = {}) {
+  assertValidOracleName(name);
+
+  const PSI = resolvePsi();
+  const teamDir = join(PSI, "memory", "mailbox", "teams", name);
+
+  if (existsSync(join(teamDir, "manifest.json"))) {
+    throw new Error(`team '${name}' already exists at ${teamDir}`);
+  }
+
+  mkdirSync(teamDir, { recursive: true });
+
+  const manifest = {
+    name,
+    createdAt: Date.now(),
+    members: [] as string[],
+    description: opts.description || "",
+    leadSessionId: currentLeadSessionId(),
+  };
+  writeFileSync(join(teamDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+
+  // Bridge: write stub to tool store so list/status/shutdown can see this team (#393)
+  const toolTeamDir = join(TEAMS_DIR, name);
+  if (!existsSync(toolTeamDir)) {
+    mkdirSync(toolTeamDir, { recursive: true });
+    const stubConfig: TeamConfig = {
+      name,
+      description: opts.description || "",
+      members: [],
+      createdAt: Date.now(),
+      leadSessionId: currentLeadSessionId(),
+    };
+    writeFileSync(join(toolTeamDir, "config.json"), JSON.stringify(stubConfig, null, 2));
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m team '${name}' created`);
+  console.log(`  \x1b[90m${teamDir}/manifest.json\x1b[0m`);
+}
+
+// ─── maw team spawn <team> <role> ───
+export async function cmdTeamSpawn(
+  teamName: string,
+  role: string,
+  opts: { engine?: string; model?: string; prompt?: string; exec?: boolean; cwd?: string; parentSessionId?: string; sessionId?: string } = {},
+) {
+  const PSI = resolvePsi();
+  const teamDir = join(PSI, "memory", "mailbox", "teams", teamName);
+  const manifestPath = join(teamDir, "manifest.json");
+
+  if (!existsSync(manifestPath)) {
+    throw new Error(`team '${teamName}' not found — run: maw team create ${teamName}`);
+  }
+
+  // Check for past life
+  const agentMailbox = join(PSI, "memory", "mailbox", role);
+  let pastLife = false;
+  let standingOrders = "";
+  let latestFindings = "";
+
+  if (existsSync(agentMailbox)) {
+    pastLife = true;
+    const soPath = join(agentMailbox, "standing-orders.md");
+    if (existsSync(soPath)) {
+      standingOrders = readFileSync(soPath, "utf-8");
+    }
+    // Find latest *_findings.md
+    try {
+      const findings = readdirSync(agentMailbox)
+        .filter(f => f.endsWith("_findings.md"))
+        .sort()
+        .pop();
+      if (findings) {
+        const lines = readFileSync(join(agentMailbox, findings), "utf-8").split("\n");
+        latestFindings = lines.slice(-30).join("\n");
+      }
+    } catch { /* no findings */ }
+  }
+
+  // Build spawn prompt
+  const config = loadConfig();
+  const engine = opts.engine || config.defaultEngine || defaultEngineNameForConfig(config);
+  assertTeamSpawnWorktreeIsolation(role, engine, opts, config);
+  if (opts.cwd && existsSync(opts.cwd)) writeWorktreeEngineFile(opts.cwd, engine, console.log.bind(console));
+  const resolvedEngine = resolveEngine(engine, config);
+  const model = opts.model || resolvedEngine.model?.default;
+  const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const cwdPrefix = opts.cwd ? `cd ${shellQuote(opts.cwd)} && ` : "";
+  const parts: string[] = [];
+  parts.push(`You are '${role}' on team '${teamName}'.`);
+  if (opts.prompt) parts.push(opts.prompt);
+  if (standingOrders) parts.push(`## Standing Orders (from past life)\n${standingOrders}`);
+  if (latestFindings) parts.push(`## Last Known Findings\n${latestFindings}`);
+
+  const spawnPrompt = parts.join("\n\n");
+
+  // Write prompt file for the user to use
+  const promptPath = join(teamDir, `${role}-spawn-prompt.md`);
+  writeFileSync(promptPath, spawnPrompt);
+  const launchPromptPath = writeLaunchPromptFile(teamName, role, spawnPrompt) ?? promptPath;
+  const baseCommand = opts.cwd
+    ? buildCommandInDir(role, opts.cwd, { engine, fresh: true, model, systemPromptFile: launchPromptPath })
+    : buildCommand(role, { engine, fresh: true, model, systemPromptFile: launchPromptPath });
+  const claudeCmd = `${cwdPrefix}${prefixCommandWithSpawnSessionEnv(baseCommand, {
+    explicit: opts.parentSessionId,
+    sessionId: opts.sessionId,
+    cwd: opts.cwd,
+  })}`;
+
+  // Update manifest with new member
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+  if (!manifest.members.includes(role)) {
+    manifest.members.push(role);
+    // lgtm[js/file-system-race] — PRIVATE-PATH: manifest under ~/.maw/teams/<team>/, see docs/security/file-system-race-stance.md
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  }
+
+  // Bridge: sync member to tool store config (#393)
+  const toolConfigPath = join(TEAMS_DIR, teamName, "config.json");
+  if (existsSync(toolConfigPath)) {
+    try {
+      const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
+      const member: TeamMember = { name: role, ...(engine !== "claude" || opts.engine ? { engine } : {}), ...(model ? { model } : {}) };
+      if (!toolConfig.members.some((m: any) => m.name === role)) {
+        toolConfig.members.push(member);
+        // lgtm[js/file-system-race] — PRIVATE-PATH: tool config under ~/.maw/teams/<team>/ (#393), see docs/security/file-system-race-stance.md
+        writeFileSync(toolConfigPath, JSON.stringify(toolConfig, null, 2));
+      }
+    } catch { /* best effort */ }
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m spawn prompt written for '${role}'`);
+  console.log(`  \x1b[90mpast life: ${pastLife ? "yes" : "no"}\x1b[0m`);
+  console.log(`  \x1b[90mengine: ${engine}\x1b[0m`);
+  if (model) console.log(`  \x1b[90mmodel: ${model}\x1b[0m`);
+  console.log(`  \x1b[90mprompt: ${promptPath}\x1b[0m`);
+
+  // #393 Bug C — opt-in auto-spawn via splitWindowLocked. Default behavior
+  // (print-only) is unchanged. With --exec, we split the current pane and
+  // run the printed claude command inside it. Requires $TMUX (must be
+  // inside an active tmux session).
+  if (opts.exec) {
+    if (!process.env.TMUX) {
+      console.log();
+      console.log(`  \x1b[33m⚠\x1b[0m --exec requires an active tmux session ($TMUX not set).`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
+      return;
+    }
+    try {
+      const { hostExec } = await import("maw-js/sdk");
+      await hostExec(`tmux split-window -h -l 50% '${claudeCmd.replace(/'/g, "'\\''")}'`);
+      console.log();
+      console.log(`  \x1b[32m✓ --exec\x1b[0m spawned ${role} in a new tmux pane (right, 50%)`);
+    } catch (e: any) {
+      console.log();
+      console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
+    }
+    return;
+  }
+
+  console.log();
+  console.log(`  \x1b[36mRun:\x1b[0m ${claudeCmd}`);
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/workspace@v0.1.0-workspace",
+  "sha256": "a789ea64f9215a8db6b9daa499119bcedfda8e90b76a0825fd4e9338de188f2e",
+  "summary": "Multi-node workspace management.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:08Z",
+  "tier": "extra"
+}

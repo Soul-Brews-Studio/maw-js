@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/reunion@v0.1.0-reunion",
+  "sha256": "330518881cd30ca7f3467fbb1c8a1a03cc876144d677ff4f63a8f0a32d85aa49",
+  "summary": "Trigger a federation reunion sync.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:43Z",
+  "tier": "extra"
+}

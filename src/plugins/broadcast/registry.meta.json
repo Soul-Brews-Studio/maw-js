@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/broadcast@v0.1.0-broadcast",
+  "sha256": "4f3efb6a03d6828ee6b9126b2a9c974f7e68df271b8865482086f3e98483d778",
+  "summary": "Broadcast a message to all agents.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:12Z",
+  "tier": "extra"
+}

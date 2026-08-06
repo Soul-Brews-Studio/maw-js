@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/send@v0.1.0-send",
+  "sha256": "78aaf0f2acd056eca532b573a7f7471ee9e53e8e0c1b5ab4bd86bc73e0f72860",
+  "summary": "Type raw text into a tmux pane (no Enter, composable) \u2014 dual of send-enter (#757).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:09Z",
+  "tier": "extra"
+}

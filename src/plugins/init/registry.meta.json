@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/init@v0.1.0-init",
+  "sha256": "39fc62510425f3b83a76ebfdda983866c6449be9e4fd4b62abf7c8c01cae3a57",
+  "summary": "First-run wizard \u2014 configure ~/.config/maw/maw.config.json",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:18:08Z",
+  "tier": "extra"
+}

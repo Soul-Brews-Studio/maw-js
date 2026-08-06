@@ -1,0 +1,14 @@
+{
+  "name": "fleet",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Manage the persistent fleet registry; use maw ls for currently live sessions.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "fleet",
+    "help": "maw fleet <init|ls|rename|renumber|validate|health|doctor|config-doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot|codespace> [args] — manage registered fleet config; use maw fleet config-doctor for repo-local .claude/ drift; use maw fleet doctor --reboot for reboot auto-wake readiness; use maw fleet codespace <list|ssh|task> for GitHub Codespaces"
+  },
+  "weight": 10,
+  "tier": "standard"
+}

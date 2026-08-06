@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/about@v0.1.0-about",
+  "sha256": "e8f754f83d37574360356b0b4ec6b21a8a6f11a055b03d4534cebb11e5f2cd5a",
+  "summary": "Show information about an oracle (session, repo, windows).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:18:08Z",
+  "tier": "extra"
+}

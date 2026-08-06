@@ -1,0 +1,20 @@
+{
+  "name": "follow",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Follow live pane output through the PTY websocket bridge.",
+  "cli": {
+    "command": "follow",
+    "help": "maw follow <pane> [--since=<dur>] [--json] [--grep <pattern>] [--quit-on-idle=<dur>] - follow live pane output",
+    "flags": {
+      "--since": "string",
+      "--json": "boolean",
+      "--grep": "string",
+      "--quit-on-idle": "string"
+    }
+  },
+  "weight": 10,
+  "license": "MIT",
+  "schemaVersion": 1
+}

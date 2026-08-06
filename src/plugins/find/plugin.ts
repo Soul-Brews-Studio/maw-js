@@ -1,0 +1,21 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "find",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Search agents, sessions, and fleet metadata for matching Oracle context.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "find",
+    "aliases": [
+      "search"
+    ],
+    "help": "maw find <keyword> [--oracle <name>] — search across agents and fleet data"
+  },
+  "weight": 30,
+  "license": "MIT",
+  "schemaVersion": 1,
+  "tier": "standard"
+} as const);

@@ -1,0 +1,18 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  "name": "doctor",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Diagnostic checks — verifies maw install health and auto-heals when possible (#531).",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "doctor",
+    "help": "maw doctor [install|xdg|all] [--json] [--no-prompt] [--capture] [--forward <target>] — diagnose health, show fixes, persist before/after; use `maw doctor --fix-sessions --dry-run` for doubled github.com session repair planning; use `maw doctor xdg --migrate --dry-run` to preview XDG copy-forward"
+  },
+  "weight": 30,
+  "tier": "standard",
+  "license": "MIT",
+  "schemaVersion": 1
+} as const);

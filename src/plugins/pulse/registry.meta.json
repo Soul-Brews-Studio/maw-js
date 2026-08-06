@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/pulse@v0.1.0-pulse",
+  "sha256": "447a948d73de6b31b920ae7c8db049a2a4243c489f77ec642c918d07346e8b99",
+  "summary": "Task pulse \u2014 add, list, and clean up work items.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T02:49:08Z",
+  "tier": "extra"
+}

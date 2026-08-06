@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/stop@v0.1.0-stop",
+  "sha256": "30f27cabb72cc802e256e75b6c4b7c9c92cf90164e5f69a5f847be9eb0b367cd",
+  "summary": "Stop ALL fleet sessions (all oracles).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:08Z",
+  "tier": "extra"
+}

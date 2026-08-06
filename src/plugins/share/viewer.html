@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>maw share</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0d0d0d;
+        color: #d1d5db;
+        height: 100%;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #fallback {
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+
+      #toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 4px 8px;
+        background: #111827;
+        border-bottom: 1px solid #1f2937;
+        box-sizing: border-box;
+        overflow-x: auto;
+      }
+
+      #tabs {
+        display: flex;
+        gap: 4px;
+        flex: 1 1 auto;
+      }
+
+      .tab, #tile-toggle {
+        color: #d1d5db;
+        background: #1f2937;
+        border: 1px solid #374151;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        white-space: nowrap;
+      }
+
+      .tab.active, #tile-toggle.active {
+        background: #2563eb;
+        border-color: #60a5fa;
+        color: white;
+      }
+
+      #term {
+        width: 100%;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      #terms {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-auto-rows: minmax(0, 1fr);
+      }
+
+      #terms.tile {
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      }
+
+      .pane {
+        min-width: 0;
+        min-height: 0;
+        width: 100%;
+        height: 100%;
+        display: none;
+        overflow: auto;
+        border: 1px solid #111827;
+        box-sizing: border-box;
+      }
+
+      #terms.tile .pane,
+      .pane.active {
+        display: block;
+      }
+
+      .pane-host, .fallback-pane {
+        min-width: 100%;
+        min-height: 100%;
+      }
+
+      .pane-host.source-sized {
+        width: max-content;
+        height: max-content;
+      }
+
+      .fallback-pane {
+        display: none;
+        margin: 0;
+        overflow: auto;
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      }
+
+      .pane.with-controls {
+        display: none;
+        flex-direction: column;
+      }
+
+      #terms.tile .pane.with-controls,
+      .pane.with-controls.active {
+        display: flex;
+      }
+
+      .pane.with-controls .pane-host,
+      .pane.with-controls .fallback-pane {
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      .pane-controls {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex: 0 0 auto;
+        padding: 5px 6px;
+        border-top: 1px solid #1f2937;
+        background: rgba(17, 24, 39, 0.94);
+        box-sizing: border-box;
+      }
+
+      .pane-control-input {
+        flex: 1 1 auto;
+        min-width: 80px;
+        height: 24px;
+        resize: none;
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        border-radius: 6px;
+        outline: none;
+        background: rgba(3, 7, 18, 0.95);
+        color: #e5e7eb;
+        padding: 4px 7px;
+        font: 11px/15px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+
+      .pane-control-button {
+        flex: 0 0 auto;
+        min-width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        background: rgba(31, 41, 55, 0.86);
+        color: #e5e7eb;
+        font: 800 10px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        cursor: pointer;
+        padding: 0 6px;
+      }
+
+      .pane-control-button:hover:not(:disabled) {
+        border-color: rgba(96, 165, 250, 0.72);
+        color: #ffffff;
+      }
+
+      .pane-control-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
+      }
+
+      .pane-control-send {
+        border-color: rgba(52, 211, 153, 0.34);
+        background: rgba(52, 211, 153, 0.12);
+        color: #6ee7b7;
+      }
+
+      .pane-control-kill {
+        border-color: rgba(244, 63, 94, 0.42);
+        background: rgba(244, 63, 94, 0.12);
+        color: #fb7185;
+      }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm/css/xterm.css" />
+    <script src="https://unpkg.com/@xterm/xterm/lib/xterm.js"></script>
+  </head>
+  <body>
+    <div id="fallback" style="display:none;">xterm.js failed to load; falling back to static display.</div>
+    <div id="toolbar" style="display:none;">
+      <div id="tabs"></div>
+      <button id="tile-toggle" type="button">tile</button>
+    </div>
+    <div id="term"><div id="terms"></div></div>
+
+    <script>
+      void (async () => {
+        const match = location.pathname.match(/\/share\/([^/?#]+)/);
+        const slug = match?.[1] || "";
+        const params = new URLSearchParams(location.hash?.replace(/^#/, "") || "");
+        const token = params.get("t") || params.get("token") || "";
+        const e2eKey = params.get("k") || "";
+        const wsProto = location.protocol === "https:" ? "wss" : "ws";
+
+        const b64urlToBytes = (value) => {
+          const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
+          const binary = atob(base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+          return bytes;
+        };
+
+        const deriveE2EKey = async (secret) => {
+          if (!secret) return null;
+          const ikm = b64urlToBytes(secret);
+          const baseKey = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveKey"]);
+          return await crypto.subtle.deriveKey(
+            {
+              name: "HKDF",
+              hash: "SHA-256",
+              salt: new TextEncoder().encode("maw-share-e2e-hkdf-salt/v1"),
+              info: new TextEncoder().encode("maw-share-e2e/aes-256-gcm/v1"),
+            },
+            baseKey,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["decrypt"],
+          );
+        };
+
+        const sha256Hex = async (value) => {
+          const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+          return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        };
+
+        const wsProof = e2eKey ? await sha256Hex(e2eKey) : token;
+        const wsUrl = () => `${wsProto}://${location.host}/ws/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`;
+        let shareMetadata = { control: false, writeToken: "", panes: [], target: "" };
+        let controlWriteToken = params.get("c") || params.get("w") || params.get("writeToken") || "";
+
+        const metadataUrl = () => `/api/share/${encodeURIComponent(slug)}?${e2eKey ? "h" : "t"}=${encodeURIComponent(wsProof)}`;
+
+        const loadShareMetadata = async () => {
+          try {
+            const response = await fetch(metadataUrl(), { headers: { accept: "application/json" } });
+            if (!response.ok) throw new Error(`metadata ${response.status}`);
+            const metadata = await response.json();
+            shareMetadata = {
+              control: metadata?.control === true,
+              writeToken: typeof metadata?.writeToken === "string" ? metadata.writeToken : (typeof metadata?.controlToken === "string" ? metadata.controlToken : ""),
+              panes: Array.isArray(metadata?.panes) ? metadata.panes.filter((pane) => typeof pane === "string") : [],
+              target: typeof metadata?.target === "string" ? metadata.target : "",
+            };
+            if (shareMetadata.writeToken) controlWriteToken = shareMetadata.writeToken;
+          } catch {
+            shareMetadata = { control: false, writeToken: "", panes: [], target: "" };
+          }
+        };
+
+        const controlsEnabled = () => shareMetadata.control === true && Boolean(controlWriteToken);
+
+        const decryptFrame = async (key, data) => {
+          if (!key) return typeof data === "string" ? data : new TextDecoder().decode(data);
+          const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(await data.arrayBuffer());
+          if (bytes[0] !== 0x4d || bytes[1] !== 0x53 || bytes[2] !== 0x31) throw new Error("invalid encrypted frame");
+          const nonce = bytes.slice(3, 15);
+          const ciphertextAndTag = bytes.slice(15);
+          const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertextAndTag);
+          return new TextDecoder().decode(plain);
+        };
+
+        const parseDimensions = (value) => {
+          if (!value || typeof value !== "object") return null;
+          const cols = Number(value.cols);
+          const rows = Number(value.rows);
+          if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols <= 0 || rows <= 0) return null;
+          return { cols, rows };
+        };
+
+        const parseWireFrame = (plain) => {
+          try {
+            const parsed = JSON.parse(plain);
+            if (parsed && typeof parsed === "object" && parsed.type === "maw-share-frame" && typeof parsed.pane === "string") {
+              return {
+                pane: parsed.pane,
+                data: typeof parsed.data === "string" ? parsed.data : "",
+                dimensions: parseDimensions(parsed.dimensions),
+                snapshot: parsed.snapshot === true,
+                tagged: true,
+              };
+            }
+          } catch {
+            // legacy single-pane raw frame
+          }
+          return { pane: "main", data: plain, dimensions: null, snapshot: false, tagged: false };
+        };
+
+        let e2eKeyPromise = deriveE2EKey(e2eKey);
+
+        const RECONNECT_BASE_MS = 250;
+        const RECONNECT_MAX_MS = 5_000;
+        let socket = null;
+        let reconnectAttempt = 0;
+        let reconnectTimer = null;
+        let shouldReconnect = true;
+        let tileMode = false;
+        let activePane = "main";
+
+        const fallback = document.getElementById("fallback");
+        const toolbar = document.getElementById("toolbar");
+        const tabs = document.getElementById("tabs");
+        const tileToggle = document.getElementById("tile-toggle");
+        const terms = document.getElementById("terms");
+        const panes = new Map();
+
+        const terminalAvailable = () => Boolean(window.Terminal);
+
+        const syncPaneDimensions = (pane, dimensions) => {
+          if (!dimensions) return;
+          const same = pane.dimensions && pane.dimensions.cols === dimensions.cols && pane.dimensions.rows === dimensions.rows;
+          pane.dimensions = dimensions;
+          pane.root.dataset.cols = String(dimensions.cols);
+          pane.root.dataset.rows = String(dimensions.rows);
+          pane.host.classList.add("source-sized");
+          if (pane.term && !same) {
+            pane.term.resize(dimensions.cols, dimensions.rows);
+          }
+        };
+
+        const syncAllDimensions = () => {
+          for (const pane of panes.values()) {
+            if (pane.dimensions) syncPaneDimensions(pane, pane.dimensions);
+          }
+        };
+
+        const updateLayout = () => {
+          toolbar.style.display = panes.size > 1 ? "flex" : "none";
+          terms.classList.toggle("tile", tileMode && panes.size > 1);
+          tileToggle.classList.toggle("active", tileMode);
+          for (const [id, pane] of panes.entries()) {
+            pane.root.classList.toggle("active", id === activePane);
+            pane.tab.classList.toggle("active", id === activePane);
+          }
+          requestAnimationFrame(syncAllDimensions);
+          syncAllDimensions();
+        };
+
+        const selectPane = (id) => {
+          activePane = id;
+          updateLayout();
+        };
+
+        const controlTargetForPane = (id) => {
+          if (id && id !== "main") return id;
+          return shareMetadata.panes[0] || shareMetadata.target || id;
+        };
+
+        const hmacSha256Hex = async (secret, message) => {
+          const key = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(secret),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"],
+          );
+          const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+          return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        };
+
+        const controlHeaders = (signature) => ({
+          "content-type": "application/json",
+          "authorization": `Bearer ${controlWriteToken}`,
+          "x-maw-control-token": controlWriteToken,
+          "x-maw-control-signature": signature,
+          "x-maw-share-write-token": controlWriteToken,
+        });
+
+        const signControlRequest = async (method, path, rawBody) => {
+          const bodyHash = await sha256Hex(rawBody);
+          return hmacSha256Hex(controlWriteToken, `${method.toUpperCase()}\n${path}\n${bodyHash}`);
+        };
+
+        const postControl = async (target, action, body = {}) => {
+          if (!controlsEnabled()) throw new Error("share control is not enabled");
+          const path = `/api/control/${encodeURIComponent(target)}/${action}`;
+          const rawBody = JSON.stringify({ slug, ...body });
+          const signature = await signControlRequest("POST", path, rawBody);
+          const response = await fetch(path, {
+            method: "POST",
+            headers: controlHeaders(signature),
+            body: rawBody,
+          });
+          if (!response.ok) {
+            const detail = await response.text().catch(() => "");
+            throw new Error(detail || `control ${action} failed (${response.status})`);
+          }
+          return response;
+        };
+
+        const refocusControl = (pane) => requestAnimationFrame(() => pane.input?.focus());
+
+        const sendControlText = async (pane, enter) => {
+          const text = pane.input?.value.trimEnd() || "";
+          if (!text || pane.sending) return;
+          pane.sending = true;
+          pane.sendButton.disabled = true;
+          pane.sendNoEnterButton.disabled = true;
+          try {
+            await postControl(controlTargetForPane(pane.id), "send", { text, enter });
+            pane.input.value = "";
+            refocusControl(pane);
+          } catch (error) {
+            window.alert(`Send failed: ${String(error?.message || error)}`);
+          } finally {
+            pane.sending = false;
+            pane.sendButton.disabled = !pane.input.value.trim();
+            pane.sendNoEnterButton.disabled = !pane.input.value.trim();
+          }
+        };
+
+        const sendControlKey = async (pane, key) => {
+          try {
+            await postControl(controlTargetForPane(pane.id), "key", { key });
+            refocusControl(pane);
+          } catch (error) {
+            window.alert(`Key failed: ${String(error?.message || error)}`);
+          }
+        };
+
+        const killControlPane = async (pane) => {
+          const target = controlTargetForPane(pane.id);
+          if (!window.confirm(`Kill tmux pane ${target}?`)) return;
+          try {
+            await postControl(target, "kill");
+          } catch (error) {
+            window.alert(`Kill failed: ${String(error?.message || error)}`);
+          }
+        };
+
+        const createPaneControls = (pane) => {
+          const form = document.createElement("form");
+          form.className = "pane-controls";
+          form.dataset.controlTarget = controlTargetForPane(pane.id);
+
+          const input = document.createElement("textarea");
+          input.className = "pane-control-input";
+          input.rows = 1;
+          input.placeholder = `send to ${controlTargetForPane(pane.id)}`;
+
+          const keyUp = document.createElement("button");
+          keyUp.className = "pane-control-button";
+          keyUp.type = "button";
+          keyUp.title = "Up";
+          keyUp.textContent = "↑";
+
+          const keyDown = document.createElement("button");
+          keyDown.className = "pane-control-button";
+          keyDown.type = "button";
+          keyDown.title = "Down";
+          keyDown.textContent = "↓";
+
+          const keyEsc = document.createElement("button");
+          keyEsc.className = "pane-control-button";
+          keyEsc.type = "button";
+          keyEsc.title = "Esc";
+          keyEsc.textContent = "esc";
+
+          const sendNoEnter = document.createElement("button");
+          sendNoEnter.className = "pane-control-button pane-control-send";
+          sendNoEnter.type = "button";
+          sendNoEnter.title = "Send without Enter (Ctrl/Cmd+Enter)";
+          sendNoEnter.textContent = "send";
+          sendNoEnter.disabled = true;
+
+          const sendEnter = document.createElement("button");
+          sendEnter.className = "pane-control-button pane-control-send";
+          sendEnter.type = "submit";
+          sendEnter.title = "Send + Enter";
+          sendEnter.textContent = "↵";
+          sendEnter.disabled = true;
+
+          const kill = document.createElement("button");
+          kill.className = "pane-control-button pane-control-kill";
+          kill.type = "button";
+          kill.title = "Kill pane";
+          kill.textContent = "×";
+
+          input.addEventListener("input", () => {
+            const hasDraft = Boolean(input.value.trim());
+            sendEnter.disabled = !hasDraft || pane.sending;
+            sendNoEnter.disabled = !hasDraft || pane.sending;
+          });
+          input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && !event.shiftKey && !(event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              void sendControlText(pane, true);
+            }
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              void sendControlText(pane, false);
+            }
+          });
+          form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            void sendControlText(pane, true);
+          });
+          sendNoEnter.addEventListener("click", () => void sendControlText(pane, false));
+          keyUp.addEventListener("click", () => void sendControlKey(pane, "Up"));
+          keyDown.addEventListener("click", () => void sendControlKey(pane, "Down"));
+          keyEsc.addEventListener("click", () => void sendControlKey(pane, "Escape"));
+          kill.addEventListener("click", () => void killControlPane(pane));
+
+          form.append(input, keyUp, keyDown, keyEsc, sendNoEnter, sendEnter, kill);
+          pane.input = input;
+          pane.sendButton = sendEnter;
+          pane.sendNoEnterButton = sendNoEnter;
+          pane.controls = form;
+          return form;
+        };
+
+        const createPane = (id) => {
+          const existing = panes.get(id);
+          if (existing) return existing;
+
+          const root = document.createElement("section");
+          root.className = "pane";
+          root.dataset.pane = id;
+          const host = document.createElement("div");
+          host.className = "pane-host";
+          const pre = document.createElement("pre");
+          pre.className = "fallback-pane";
+          root.appendChild(host);
+          root.appendChild(pre);
+          terms.appendChild(root);
+
+          const tab = document.createElement("button");
+          tab.className = "tab";
+          tab.type = "button";
+          tab.textContent = id;
+          tab.addEventListener("click", () => selectPane(id));
+          tabs.appendChild(tab);
+
+          let term = null;
+          if (terminalAvailable()) {
+            term = new window.Terminal({
+              theme: { background: "#0d0d0d", foreground: "#d1d5db" },
+              convertEol: true,
+              disableStdin: true,
+              cursorBlink: false,
+            });
+            term.open(host);
+          } else {
+            fallback.textContent = "xterm.js unavailable; using fallback terminal.";
+            fallback.style.display = "block";
+            host.style.display = "none";
+            pre.style.display = "block";
+          }
+
+          const pane = { id, root, host, pre, tab, term, dimensions: null, controls: null, input: null, sendButton: null, sendNoEnterButton: null, sending: false };
+          if (controlsEnabled()) {
+            root.classList.add("with-controls");
+            root.appendChild(createPaneControls(pane));
+          }
+          panes.set(id, pane);
+          if (panes.size === 1) activePane = id;
+          updateLayout();
+          return pane;
+        };
+
+        const resetPane = (pane) => {
+          if (pane.term) {
+            pane.term.reset();
+            return;
+          }
+          pane.pre.textContent = "";
+        };
+
+        const writePane = (pane, chunk) => {
+          if (pane.term) {
+            pane.term.write(chunk);
+            return;
+          }
+          pane.pre.textContent += chunk;
+          pane.pre.style.display = "block";
+        };
+
+        const resetForFreshSnapshot = () => {
+          for (const pane of panes.values()) resetPane(pane);
+        };
+
+        const handleFrame = (event) => {
+          void (async () => {
+            try {
+              const plain = await decryptFrame(await e2eKeyPromise, event.data);
+              const frame = parseWireFrame(plain);
+              const pane = createPane(frame.pane);
+              if (frame.dimensions) syncPaneDimensions(pane, frame.dimensions);
+              if (frame.snapshot) resetPane(pane);
+              if (frame.data) writePane(pane, frame.data);
+            } catch {
+              fallback.textContent = "Unable to decrypt or route share frame.";
+              fallback.style.display = "block";
+            }
+          })();
+        };
+
+        const resizeObserver = window.ResizeObserver ? new ResizeObserver(syncAllDimensions) : null;
+        resizeObserver?.observe(terms);
+        window.addEventListener("resize", syncAllDimensions);
+        window.visualViewport?.addEventListener("resize", syncAllDimensions);
+        tileToggle.addEventListener("click", () => {
+          tileMode = !tileMode;
+          updateLayout();
+        });
+
+        const connect = () => {
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
+
+          const current = new WebSocket(wsUrl());
+          socket = current;
+          current.binaryType = "arraybuffer";
+
+          current.addEventListener("open", () => {
+            if (socket !== current) return;
+            reconnectAttempt = 0;
+            fallback.style.display = "none";
+            resetForFreshSnapshot();
+            syncAllDimensions();
+            try {
+              current.send("ping");
+            } catch {
+              // ignore
+            }
+          });
+
+          current.addEventListener("message", handleFrame);
+
+          current.addEventListener("close", (event) => {
+            if (socket !== current || !shouldReconnect) return;
+            if (event.code === 1008) {
+              shouldReconnect = false;
+              fallback.textContent = event.reason || "Share expired or token rejected.";
+              fallback.style.display = "block";
+              return;
+            }
+            const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * (2 ** reconnectAttempt));
+            reconnectAttempt += 1;
+            reconnectTimer = setTimeout(connect, delay);
+          });
+
+          current.addEventListener("error", () => {
+            if (fallback.style.display === "none") {
+              fallback.textContent = "Connection lost; reconnecting…";
+              fallback.style.display = "block";
+            }
+          });
+        };
+
+        window.addEventListener("beforeunload", () => {
+          shouldReconnect = false;
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          resizeObserver?.disconnect();
+          socket?.close();
+        });
+
+        await loadShareMetadata();
+        connect();
+      })();
+    </script>
+  </body>
+</html>

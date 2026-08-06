@@ -1,0 +1,29 @@
+{
+  "name": "artifact-manager",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Task artifact lifecycle — ls, get, write, attach, init. Pure TypeScript, no WASM.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "art",
+    "aliases": [
+      "artifact-manager"
+    ],
+    "help": "maw art [ls|get|write|attach|init] [--json] [--team <team>]\n       maw art ls [team]                              — list artifacts (table or --json)\n       maw art get <team> <task-id>                   — show full artifact (spec + result + attachments)\n       maw art write <team> <task-id> <message...>    — write result.md\n       maw art attach <team> <task-id> <file-path>    — attach a file\n       maw art init <team> <task-id> <subject> [...]  — create artifact manually",
+    "flags": {
+      "--json": "boolean",
+      "--team": "string"
+    }
+  },
+  "api": {
+    "path": "/api/plugins/artifact-manager",
+    "methods": [
+      "GET",
+      "POST"
+    ]
+  },
+  "weight": 50,
+  "license": "MIT",
+  "schemaVersion": 1
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/peers@v0.1.0-peers",
+  "sha256": "9828063b55cd8c841f78da78f8ba5eff654cb628da2ff40d1470717933c9d87a",
+  "summary": "Manage federation peer aliases (#568).",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:40:04Z",
+  "tier": "extra"
+}

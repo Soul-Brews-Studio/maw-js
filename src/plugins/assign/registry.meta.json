@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "source": "soul-brews-studio/maw-plugin-registry/assign@v0.1.0-assign",
+  "sha256": "4d63cf3319fe10db820664b6de9134c888754196999c8c50bdcae30ac6e2554a",
+  "summary": "Assign a GitHub issue to an oracle.",
+  "author": "Soul-Brews-Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",
+  "addedAt": "2026-04-29T01:39:10Z",
+  "tier": "extra"
+}
