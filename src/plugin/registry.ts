@@ -24,6 +24,10 @@ import { join, resolve, sep } from "path";
 import { pathToFileURL } from "url";
 import { loadManifestFromDir } from "./manifest";
 import { loadConfig } from "../config";
+
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
 import { verbose, info, warn } from "../cli/verbosity";
 import type { MawConfig } from "../config/types";
 import type { LoadedPlugin } from "./types";
@@ -148,7 +152,7 @@ export interface DiscoverPackagesDeps {
 export function discoverPackages(deps: DiscoverPackagesDeps = {}): LoadedPlugin[] {
   const useCache = deps.useCache ?? (!deps.loadConfig && !deps.resolveActiveProfileFilter && !deps.scanDirs);
   if (useCache && _discoverCache !== null) return _discoverCache;
-  const pluginDirs = (deps.scanDirs ?? scanDirs)();
+  const pluginDirs = (deps.scanDirs ?? scanDirs)().map(toPosixPath);
   const plugins: LoadedPlugin[] = [];
   const disabled = (deps.loadConfig ?? loadConfig)().disabledPlugins ?? [];
   const runtimeVer = runtimeSdkVersion();
@@ -172,7 +176,7 @@ export function discoverPackages(deps: DiscoverPackagesDeps = {}): LoadedPlugin[
       continue;
     }
     for (const entry of entries) {
-      const pkgDir = join(baseDir, entry);
+      const pkgDir = toPosixPath(join(baseDir, entry));
       let loaded: LoadedPlugin | null;
       try {
         loaded = loadManifestFromDir(pkgDir);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 
 const tempDirs: string[] = [];
 const originalProjectsDir = process.env.MAW_CLAUDE_PROJECTS_DIR;
@@ -17,7 +17,10 @@ function tempDir(): string {
 }
 
 function encodeProjectPath(path: string): string {
-  return path.replace(/^\//, "-").replace(/[/.]/g, "-");
+  const absolute = resolve(path);
+  const normalized = absolute.replace(/\\/g, "/");
+  const withDriveMarker = normalized.replace(/^([A-Za-z]):\//, "/$1--");
+  return withDriveMarker.replace(/^\//, "-").replace(/\//g, "-");
 }
 
 async function freshModule(): Promise<typeof import("../src/core/fleet/claude-sessions")> {
@@ -45,12 +48,15 @@ describe("Claude Code session discovery", () => {
     const projectsRoot = join(home, ".claude", "projects");
     process.env.MAW_CLAUDE_PROJECTS_DIR = projectsRoot;
     process.env.MAW_CLAUDE_SKIP_PID_SCAN = "1";
-    const projectPath = join(home, "projects", "mawrepo");
-    mkdirSync(projectPath, { recursive: true });
+    const rawProjectPath = join(home, "projects", "mawrepo");
+    mkdirSync(rawProjectPath, { recursive: true });
 
-    const encoded = encodeProjectPath(projectPath);
+    const encoded = encodeProjectPath(rawProjectPath);
     const claudeProjectDir = join(projectsRoot, encoded);
     mkdirSync(claudeProjectDir, { recursive: true });
+
+    const { decodeProjectDir } = await freshModule();
+    const projectPath = decodeProjectDir(encoded);
 
     const freshSession = join(claudeProjectDir, "session-1.jsonl");
     writeFileSync(freshSession, [
@@ -103,11 +109,14 @@ describe("Claude Code session discovery", () => {
     process.env.MAW_CLAUDE_PROJECTS_DIR = projectsRoot;
     process.env.MAW_CLAUDE_SKIP_PID_SCAN = "0";
 
-    const projectPath = join(home, "projects", "activerepo");
-    mkdirSync(projectPath, { recursive: true });
-    const encoded = encodeProjectPath(projectPath);
+    const rawProjectPath = join(home, "projects", "activerepo");
+    mkdirSync(rawProjectPath, { recursive: true });
+    const encoded = encodeProjectPath(rawProjectPath);
     const claudeProjectDir = join(projectsRoot, encoded);
     mkdirSync(claudeProjectDir, { recursive: true });
+
+    const { decodeProjectDir } = await freshModule();
+    const projectPath = decodeProjectDir(encoded);
 
     const sessionFile = join(claudeProjectDir, "active.jsonl");
     writeFileSync(sessionFile, [

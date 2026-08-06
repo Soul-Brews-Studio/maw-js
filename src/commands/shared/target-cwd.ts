@@ -2,6 +2,10 @@ import { join } from "path";
 import { loadFleet } from "./fleet-load";
 import { getGhqRoot } from "../../config/ghq-root";
 
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 /**
  * Extract oracle name from a tmux target.
  *
@@ -65,7 +69,7 @@ export function resolveTargetCwd(target: string): string | null {
       : fleet.windows.find(w => w.name === winRef);
   if (!win?.repo) return null;
 
-  return join(getGhqRoot(), win.repo);
+  return toPosixPath(join(getGhqRoot(), win.repo));
 }
 
 /**

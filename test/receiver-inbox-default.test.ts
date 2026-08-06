@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join } from "path/posix";
 import {
   defaultReceiverInboxWriter,
   persistReceiverInbox,
   receiverInboxAutoWriteEnabled,
   resolveReceiverOracle,
 } from "../src/commands/shared/receiver-inbox";
+
+function toPosix(p: string): string {
+  return p.replace(/\\/g, "/");
+}
 
 describe("receiver inbox auto-write helpers", () => {
   test("defaults on in production and off in test mode unless explicitly enabled", () => {
@@ -88,7 +92,7 @@ describe("receiver inbox auto-write helpers", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.reason);
-    expect(result.inboxDir).toBe(join(repo, "ψ", "inbox"));
+    expect(result.inboxDir).toBe(join(toPosix(repo), "ψ", "inbox"));
     expect(readFileSync(result.path, "utf-8")).toContain("queued via locate path");
   });
 
@@ -110,7 +114,7 @@ describe("receiver inbox auto-write helpers", () => {
     });
 
     expect(ok.ok).toBe(true);
-    if (ok.ok) expect(ok.inboxDir).toBe(join(repo, "ψ", "inbox"));
+    if (ok.ok) expect(ok.inboxDir).toBe(join(toPosix(repo), "ψ", "inbox"));
 
     const miss = persistReceiverInbox({
       query: "ghost",
@@ -142,7 +146,7 @@ describe("receiver inbox auto-write helpers", () => {
       now: () => new Date("2026-05-17T08:02:00.000Z"),
     });
     expect(psi.ok).toBe(true);
-    if (psi.ok) expect(psi.inboxDir).toBe(join(repo, "ψ", "inbox"));
+    if (psi.ok) expect(psi.inboxDir).toBe(join(toPosix(repo), "ψ", "inbox"));
 
     const noRepo = persistReceiverInbox({
       query: "current",

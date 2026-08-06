@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, lstatSync, symlinkSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, lstatSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
@@ -8,6 +8,7 @@ import {
   isPluginSourceDir,
   linkBundledPluginRoots,
 } from "../src/cli/cmd-update";
+import { symlinkDirSync } from "../src/core/util/symlink-dir";
 
 const roots: string[] = [];
 
@@ -120,7 +121,7 @@ describe("cmd-update helper coverage", () => {
     mkdirp(pluginDir);
     mkdirp(join(bundled, "alpha"));
     writeFileSync(join(bundled, "alpha", "plugin.json"), "{}");
-    symlinkSync(join(root, "gone", "alpha"), join(pluginDir, "alpha"));
+    symlinkDirSync(join(root, "gone", "alpha"), join(pluginDir, "alpha"));
 
     expect(existsSync(join(pluginDir, "alpha"))).toBe(false);
     expect(linkBundledPluginRoots(pluginDir, [bundled])).toBe(1);
@@ -136,9 +137,9 @@ describe("cmd-update helper coverage", () => {
     mkdirp(join(bundled, "live"));
     writeFileSync(join(bundled, "recover", "plugin.json"), "{}");
     writeFileSync(join(bundled, "live", "plugin.json"), "{}");
-    symlinkSync(join(root, "gone", "recover"), join(pluginDir, "recover"));
-    symlinkSync(join(root, "gone", "prune"), join(pluginDir, "prune"));
-    symlinkSync(join(bundled, "live"), join(pluginDir, "live"));
+    symlinkDirSync(join(root, "gone", "recover"), join(pluginDir, "recover"));
+    symlinkDirSync(join(root, "gone", "prune"), join(pluginDir, "prune"));
+    symlinkDirSync(join(bundled, "live"), join(pluginDir, "live"));
 
     const result = healBrokenPluginSymlinks(pluginDir, [bundled]);
 

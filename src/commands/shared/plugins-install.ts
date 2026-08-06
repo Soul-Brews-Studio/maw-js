@@ -3,12 +3,13 @@
  */
 
 import type { LoadedPlugin } from "../../plugin/types";
-import { existsSync, mkdirSync, cpSync, readFileSync, symlinkSync } from "fs";
+import { existsSync, mkdirSync, cpSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 import { parseManifest } from "../../plugin/manifest";
 import { archiveToTmp } from "./plugins-ui";
 import { mawDataPath } from "../../core/xdg";
 import { UserError } from "../../core/util/user-error";
+import { symlinkDirSync } from "../../core/util/symlink-dir";
 
 /** Allowlist: only http/https URLs permitted as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
@@ -104,7 +105,7 @@ export async function doInstall(
 
   mkdirSync(pluginHome, { recursive: true });
   if (options.symlink) {
-    symlinkSync(resolve(src), dest, "dir");
+    symlinkDirSync(resolve(src), dest);
   } else {
     cpSync(src, dest, { recursive: true });
   }

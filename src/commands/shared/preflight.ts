@@ -33,11 +33,12 @@ export function preflightDeps(overrides: Partial<PreflightDeps> = {}): Preflight
     packageVersion: () => require("../../../package.json").version,
     pluginDir: () => {
       const { mawDataPath } = require("../../core/xdg") as typeof import("../../core/xdg");
-      return process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
+      const dir = process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
+      return dir.replace(/\\/g, "/");
     },
     fs: async () => await import("fs"),
     join: (...parts: string[]) => {
-      const { join } = require("path") as typeof import("path");
+      const { join } = require("path/posix") as typeof import("path/posix");
       return join(...parts);
     },
     listSessions,

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { tmpdir } from "os";
 import {
@@ -9,6 +9,7 @@ import {
   resetDiscoverCache,
   type DiscoverPackagesDeps,
 } from "../src/plugin/registry.ts?plugin-registry-default";
+import { symlinkDirSync } from "../src/core/util/symlink-dir";
 import type { PluginNameAndTier } from "../src/lib/profile-loader";
 
 let testRoot = "";
@@ -244,7 +245,7 @@ describe("discoverPackages default-suite coverage", () => {
     const devSourceRoot = join(testRoot, "dev-source");
     mkdirSync(devSourceRoot, { recursive: true });
     writeArtifactPlugin(devSourceRoot, "registry-dev-artifact", "export default 'dev';\n", null, { weight: 60 });
-    symlinkSync(join(devSourceRoot, "registry-dev-artifact"), join(pluginsDir, "registry-dev-artifact"));
+    symlinkDirSync(join(devSourceRoot, "registry-dev-artifact"), join(pluginsDir, "registry-dev-artifact"));
 
     writeFileSync(join(pluginsDir, ".overrides.json"), JSON.stringify({
       "registry-artifact-ok": 5,
@@ -265,7 +266,8 @@ describe("discoverPackages default-suite coverage", () => {
     expect(discovered.find((p) => p.manifest.name === "registry-disabled-ok")?.disabled).toBe(true);
     expect(discovered.find((p) => p.manifest.name === "registry-artifact-ok")?.manifest.weight).toBe(5);
     expect(discovered.find((p) => p.manifest.name === "registry-disabled-ok")?.manifest.weight).toBe(1);
-    expect(discovered.find((p) => p.manifest.name === "registry-dev-artifact")?.entryPath).toContain("dist/index.js");
+    const devEntryPath = discovered.find((p) => p.manifest.name === "registry-dev-artifact")?.entryPath ?? "";
+    expect(devEntryPath.replace(/\\/g, "/")).toContain("dist/index.js");
     expect(hashFile(artifactOk.artifactPath)).toBe(sha256(artifactText));
     expect(hashFile(disabledOk.artifactPath)).toBe(sha256(disabledText));
 

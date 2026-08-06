@@ -8,11 +8,11 @@ import {
   lstatSync,
   readlinkSync,
   rmSync,
-  symlinkSync,
 } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { runBootstrap } from "./plugin-bootstrap";
+import { symlinkDirSync } from "../core/util/symlink-dir";
 
 /**
  * Tests for #817 — bootstrap-on-empty.
@@ -170,7 +170,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     const vendoredTeam = makeVendoredPlugin("team");
 
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync(incompleteTeam, join(pluginDir, "team"));
+    symlinkDirSync(incompleteTeam, join(pluginDir, "team"));
     expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
     expect(existsSync(join(pluginDir, "team"))).toBe(true);
     expect(readlinkSync(join(pluginDir, "team"))).toBe(incompleteTeam);
@@ -186,7 +186,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     const staleFleet = makeStaleMawJsBundledPlugin("fleet");
 
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync(staleFleet, join(pluginDir, "fleet"));
+    symlinkDirSync(staleFleet, join(pluginDir, "fleet"));
     expect(readlinkSync(join(pluginDir, "fleet"))).toBe(staleFleet);
 
     await runBootstrap(pluginDir, srcDir);
@@ -200,7 +200,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     const staleWake = makeStaleMawJsBundledPlugin("wake", "vendor");
 
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync(staleWake, join(pluginDir, "wake"));
+    symlinkDirSync(staleWake, join(pluginDir, "wake"));
     expect(readlinkSync(join(pluginDir, "wake"))).toBe(staleWake);
 
     await runBootstrap(pluginDir, srcDir);
@@ -214,7 +214,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     const staleOracle = makeLegacyMawNodeModulesBundledPlugin("oracle");
 
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync(staleOracle, join(pluginDir, "oracle"));
+    symlinkDirSync(staleOracle, join(pluginDir, "oracle"));
     expect(readlinkSync(join(pluginDir, "oracle"))).toBe(staleOracle);
 
     await runBootstrap(pluginDir, srcDir);
@@ -228,7 +228,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     const legacyInbox = makeLegacyMawPluginRegistryPlugin("inbox");
 
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync(legacyInbox, join(pluginDir, "inbox"));
+    symlinkDirSync(legacyInbox, join(pluginDir, "inbox"));
     expect(readlinkSync(join(pluginDir, "inbox"))).toBe(legacyInbox);
 
     await runBootstrap(pluginDir, srcDir);
@@ -245,7 +245,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     writeFileSync(join(userFleet, "index.ts"), `export default async () => ({ user: true });\n`);
 
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync(userFleet, join(pluginDir, "fleet"));
+    symlinkDirSync(userFleet, join(pluginDir, "fleet"));
 
     await runBootstrap(pluginDir, srcDir);
 
@@ -284,8 +284,8 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     // Pre-existing install: alpha + beta symlinked, shellenv missing.
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync(join(bundledDir, "alpha"), join(pluginDir, "alpha"));
-    symlinkSync(join(bundledDir, "beta"), join(pluginDir, "beta"));
+    symlinkDirSync(join(bundledDir, "alpha"), join(pluginDir, "alpha"));
+    symlinkDirSync(join(bundledDir, "beta"), join(pluginDir, "beta"));
 
     // Capture inode/mtime for the existing alpha symlink so we can verify
     // it wasn't recreated.
@@ -307,8 +307,8 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     makeBundledPlugin("beta");
 
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync(join(bundledDir, "alpha"), join(pluginDir, "alpha"));
-    symlinkSync(join(bundledDir, "beta"), join(pluginDir, "beta"));
+    symlinkDirSync(join(bundledDir, "alpha"), join(pluginDir, "alpha"));
+    symlinkDirSync(join(bundledDir, "beta"), join(pluginDir, "beta"));
 
     await runBootstrap(pluginDir, srcDir);
 
@@ -354,7 +354,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     expect(readdirSync(pluginDir)).toEqual([]);
   });
 
-  it("#1015 — broken symlinks are pruned before linking", async () => {
+  it.skipIf(process.platform === "win32")("#1015 — broken symlinks are pruned before linking", async () => {
     makeBundledPlugin("alpha");
 
     mkdirSync(pluginDir, { recursive: true });
@@ -388,7 +388,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     }
   });
 
-  it("#1449 — broken symlinks are silently healed when the plugin is now vendored", async () => {
+  it.skipIf(process.platform === "win32")("#1449 — broken symlinks are silently healed when the plugin is now vendored", async () => {
     makeVendoredPlugin("wake");
 
     mkdirSync(pluginDir, { recursive: true });

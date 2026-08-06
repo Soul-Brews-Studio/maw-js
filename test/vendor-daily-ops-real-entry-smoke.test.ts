@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+
+const isWindows = process.platform === "win32";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,7 +91,7 @@ function cli(repo: string, env: Record<string, string | undefined>, args: string
   return run(["bun", "src/cli.ts", ...args], { cwd: repo, env, timeout }).stdout.toString();
 }
 
-describe("daily ops real-entry contract smokes", () => {
+describe.skipIf(isWindows)("daily ops real-entry contract smokes", () => {
   test("maw send, send-enter, and run cross the real CLI/Tmux boundary", async () => {
     if (!commandAvailable(["tmux", "-V"])) {
       console.warn("SKIP daily ops real-entry smoke: tmux binary is unavailable");

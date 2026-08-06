@@ -17,8 +17,12 @@ function tempRoot(): string {
   return root;
 }
 
+import { resolve } from "path";
+
 function encodeProjectPath(path: string): string {
-  return path.replace(/^\//, "-").replace(/\//g, "-");
+  const absolute = resolve(path).replace(/\\/g, "/");
+  const withDriveMarker = absolute.replace(/^([A-Za-z]):\//, "/$1--");
+  return withDriveMarker.replace(/^\//, "-").replace(/\//g, "-");
 }
 
 afterEach(() => {

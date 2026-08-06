@@ -4,6 +4,7 @@ import { execSync } from "child_process";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { normalizeWorktreeLayout, worktreePathForLayout, type WorktreeLayout } from "../../core/fleet/worktree-layout";
+import { symlinkDirSync } from "../../core/util/symlink-dir";
 
 type WakeTmuxDeps = Pick<typeof tmux, "switchClient" | "listWindows" | "getPaneCommands" | "sendText">;
 
@@ -181,17 +182,23 @@ export async function waitForEngine(
 export async function reconcileParentClaudeDir(repoPath: string, wtPath: string, log: WakeSessionDeps["log"]): Promise<void> {
   const { existsSync, lstatSync, mkdirSync, readdirSync, rmSync } = await import("fs");
   const { symlink } = await import("fs/promises");
-  const { join, relative } = await import("path");
+  const { join, relative, resolve } = await import("path");
   const parentClaudeDir = join(repoPath, ".claude");
   const parentSkillsDir = join(parentClaudeDir, "skills");
   const wtClaudeLink = join(wtPath, ".claude");
   if (!existsSync(parentClaudeDir)) return;
 
   if (!existsSync(wtClaudeLink)) {
-    const target = relative(wtPath, parentClaudeDir) || parentClaudeDir;
+    const relTarget = relative(wtPath, parentClaudeDir) || parentClaudeDir;
     try {
-      await symlink(target, wtClaudeLink, "dir");
-      log(`\x1b[32m+\x1b[0m .claude: ${wtClaudeLink} → ${target}`);
+      if (process.platform === "win32") {
+        // Directory junctions require an absolute target and do not need
+        // Developer Mode / admin rights on Windows.
+        symlinkDirSync(resolve(wtPath, relTarget), wtClaudeLink);
+      } else {
+        await symlink(relTarget, wtClaudeLink, "dir");
+      }
+      log(`\x1b[32m+\x1b[0m .claude: ${wtClaudeLink} → ${relTarget}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(`\x1b[33m⚠\x1b[0m .claude share skipped: ${message}`);
@@ -230,10 +237,14 @@ export async function reconcileParentClaudeDir(repoPath: string, wtPath: string,
     mkdirSync(wtClaudeLink, { recursive: true });
   }
 
-  const target = relative(wtClaudeLink, parentSkillsDir) || parentSkillsDir;
+  const relTarget = relative(wtClaudeLink, parentSkillsDir) || parentSkillsDir;
   try {
-    await symlink(target, wtSkillsLink, "dir");
-    log(`\x1b[32m+\x1b[0m .claude/skills: ${wtSkillsLink} → ${target}`);
+    if (process.platform === "win32") {
+      symlinkDirSync(resolve(wtClaudeLink, relTarget), wtSkillsLink);
+    } else {
+      await symlink(relTarget, wtSkillsLink, "dir");
+    }
+    log(`\x1b[32m+\x1b[0m .claude/skills: ${wtSkillsLink} → ${relTarget}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log(`\x1b[33m⚠\x1b[0m .claude/skills share skipped: ${message}`);

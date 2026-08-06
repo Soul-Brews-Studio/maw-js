@@ -3,11 +3,12 @@
  */
 
 import type { LoadedPlugin } from "../../plugin/types";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { renameSync } from "fs";
+import { join } from "path";
 
 export function archiveToTmp(name: string, dir: string): void {
-  const dest = `/tmp/maw-plugin-${name}-${Date.now()}`;
+  const dest = join(tmpdir(), `maw-plugin-${name}-${Date.now()}`);
   renameSync(dir, dest);
 }
 

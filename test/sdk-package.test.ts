@@ -56,7 +56,7 @@ describe("@maw-js/sdk workspace package", () => {
     expect(pluginDts).toMatch(/export interface InvokeResult/);
   });
 
-  test(
+  test.skipIf(process.platform === "win32")(
     "file: install from an outside project exposes maw runtime",
     () => {
       const dir = mkdtempSync(join(tmpdir(), "maw-sdk-install-"));

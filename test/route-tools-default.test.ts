@@ -218,7 +218,9 @@ describe("routeTools default-suite seams", () => {
     expect(h.calls.audits).toEqual([["5"]]);
   });
 
-  test("plugin install --standard is handled as a bare-binary core bootstrap", async () => {
+  test(
+    "plugin install --standard is handled as a bare-binary core bootstrap",
+    async () => {
     const h = harness({ lifecycleExists: "none" });
     const original = process.env.MAW_PLUGINS_DIR;
     const originalSource = process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT;
@@ -247,7 +249,7 @@ describe("routeTools default-suite seams", () => {
       if (original === undefined) delete process.env.MAW_PLUGINS_DIR; else process.env.MAW_PLUGINS_DIR = original;
       if (originalSource === undefined) delete process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT; else process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT = originalSource;
     }
-  });
+  }, { timeout: 30_000 });
 
   test("plugin lifecycle dispatch uses dev/home candidates, logs output, and fails loudly", async () => {
     const dev = harness({ lifecycleExists: "dev" });

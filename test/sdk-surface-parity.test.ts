@@ -11,13 +11,17 @@ function use(symbol: string): SymbolUse {
 }
 
 describe("SDK surface parity gate (#2750)", () => {
-  test("current packages/sdk/index.d.ts covers vendor maw-js/sdk imports", () => {
-    const result = analyzeSdkSurfaceParity();
-    expect(result.ok).toBe(true);
-    expect(result.missingDeclarations).toEqual([]);
-    expect(result.unreviewedPublicExports).toEqual([]);
-    expect(result.vendorImports.length).toBeGreaterThan(0);
-  });
+  test(
+    "current packages/sdk/index.d.ts covers vendor maw-js/sdk imports",
+    () => {
+      const result = analyzeSdkSurfaceParity();
+      expect(result.ok).toBe(true);
+      expect(result.missingDeclarations).toEqual([]);
+      expect(result.unreviewedPublicExports).toEqual([]);
+      expect(result.vendorImports.length).toBeGreaterThan(0);
+    },
+    { timeout: 30_000 },
+  );
 
   test("injected vendor import drift fails when declaration is missing", () => {
     const result = compareSdkSurface(new Set(["definePlugin"]), [use("definePlugin"), use("__InjectedSdkDrift")]);

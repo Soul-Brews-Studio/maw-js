@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+
+const isWindows = process.platform === "win32";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -151,7 +153,7 @@ async function waitForClose(url: string): Promise<CloseEvent> {
   });
 }
 
-describe("share-presence real-entry smoke", () => {
+describe.skipIf(isWindows)("share-presence real-entry smoke", () => {
   test("maw share --presence broadcasts web viewer join and leave through real serve websocket", async () => {
     if (!commandAvailable(["tmux", "-V"])) {
       console.warn("SKIP share-presence real-entry smoke: tmux binary is unavailable");

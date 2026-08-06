@@ -10,13 +10,23 @@ let tempRoot: string | null = null;
 const oldGhq = process.env.GHQ_ROOT;
 const oldCwd = process.cwd();
 
-afterEach(() => {
-  if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
+afterEach(async () => {
+  process.chdir(oldCwd);
+  if (tempRoot) {
+    for (let i = 0; i < 10; i++) {
+      try {
+        rmSync(tempRoot, { recursive: true, force: true });
+        break;
+      } catch (e: any) {
+        if (e?.code !== "EBUSY" || i === 9) throw e;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+  }
   tempRoot = null;
   if (oldGhq === undefined) delete process.env.GHQ_ROOT;
   else process.env.GHQ_ROOT = oldGhq;
   resetGhqRootCache();
-  process.chdir(oldCwd);
 });
 
 describe("cleanup --worktrees handler", () => {

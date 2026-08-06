@@ -1,9 +1,13 @@
 import { existsSync } from "fs";
-import { join, resolve } from "path";
+import { join, resolve } from "path/posix";
 import { homedir } from "os";
 import { UserError } from "../core/util/user-error";
 import { normalizeGateway, type GatewayKind } from "../core/gateway";
 import { mawDataPath } from "../core/xdg";
+
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
 
 // #388.1 — core-route usage strings for --help intercept. These routes don't
 // pass through invokePlugin, so they need their own --help guard to prevent
@@ -151,7 +155,13 @@ export function createDefaultRouteToolsDeps(loadCoreServer?: CoreServerLoader): 
     error: (...a: unknown[]) => console.error(...a),
     stdoutWrite: (chunk: string) => { process.stdout.write(chunk); },
     exit: (code?: number) => process.exit(code),
-    paths: { resolve, join, existsSync, homedir, sourceDir: import.meta.dir },
+    paths: {
+      resolve: (...parts: string[]) => resolve(...parts.map(toPosixPath)),
+      join: (...parts: string[]) => join(...parts.map(toPosixPath)),
+      existsSync,
+      homedir,
+      sourceDir: toPosixPath(import.meta.dir),
+    },
     loadPluginLegacyTools: async () => {
       const [{ cmdPlugins }, { parseFlags }] = await Promise.all([
         import("../commands/shared/plugins"),
@@ -280,7 +290,7 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
       // runBootstrap on every CLI start).
       const candidates = [
         resolve(sourceDir, "..", "commands", "plugins", "plugin"),
-        mawDataPath("plugins", "plugin"),
+        toPosixPath(mawDataPath("plugins", "plugin")),
       ];
       const pluginDir = candidates.find(p => existsSync(join(p, "plugin.json")));
       if (pluginDir) {

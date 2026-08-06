@@ -1,4 +1,4 @@
-import { dirname, join } from "path";
+import { dirname, join } from "path/posix";
 import { existsSync, renameSync, unlinkSync, readdirSync } from "fs";
 import { tmux } from "../../sdk";
 import { countDisabledFleetFiles, fleetDirForWrite, loadFleetEntries, getSessionNames, type FleetEntry } from "./fleet-load";

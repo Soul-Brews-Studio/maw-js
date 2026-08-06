@@ -1,9 +1,17 @@
 import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync, writeFileSync as fsWriteFileSync } from "fs";
-import { basename, isAbsolute, join } from "path";
+import { basename, join } from "path/posix";
 import { getGhqRoot as defaultGetGhqRoot } from "../../config/ghq-root";
 import { ghqFindSync as defaultGhqFindSync } from "../../core/ghq";
 import { loadManifestCached, type OracleManifestEntry } from "../../lib/oracle-manifest";
 import { resolveTargetCwd as defaultResolveTargetCwd } from "./target-cwd";
+
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+function isAbsolutePath(p: string): boolean {
+  return /^[A-Za-z]:\//.test(p) || p.startsWith("/");
+}
 
 export interface ReceiverInboxConfig {
   node?: string;
@@ -106,15 +114,20 @@ function repoPathCandidates(
   const candidates: string[] = [];
 
   if (input.config?.psiPath && input.config.oracle && normalizeOracleName(input.config.oracle) === oracle) {
-    candidates.push(input.config.psiPath.replace(/\/+$/, "").replace(/\/ψ$/, "").replace(/\/psi$/, ""));
+    candidates.push(
+      toPosixPath(input.config.psiPath)
+        .replace(/\/+$/, "")
+        .replace(/\/ψ$/, "")
+        .replace(/\/psi$/, ""),
+    );
   }
 
   if (input.target) {
     try {
-      const strippedTarget = stripPaneSuffix(input.target);
-      if (isAbsolute(strippedTarget)) candidates.push(strippedTarget);
+      const strippedTarget = toPosixPath(stripPaneSuffix(input.target));
+      if (isAbsolutePath(strippedTarget)) candidates.push(strippedTarget);
       const cwd = deps.resolveTargetCwd(strippedTarget);
-      if (cwd) candidates.push(cwd);
+      if (cwd) candidates.push(toPosixPath(cwd));
     } catch {
       // Best effort: inbox persistence must never break message delivery.
     }
@@ -127,16 +140,17 @@ function repoPathCandidates(
     manifest = [];
   }
   const entry = manifest.find((e) => normalizeOracleName(e.name) === oracle || normalizeOracleName(e.window) === oracle);
-  if (entry?.localPath) candidates.push(entry.localPath);
+  if (entry?.localPath) candidates.push(toPosixPath(entry.localPath));
   if (entry?.repo) {
-    candidates.push(join(deps.getGhqRoot(), "github.com", entry.repo));
+    const ghqRoot = toPosixPath(deps.getGhqRoot());
+    candidates.push(join(ghqRoot, "github.com", entry.repo));
     // Legacy callers/tests sometimes configure ghqRoot as github.com-rooted.
-    candidates.push(join(deps.getGhqRoot(), entry.repo));
+    candidates.push(join(ghqRoot, entry.repo));
   }
 
   try {
     const ghqPath = deps.ghqFindSync(`/${oracle}-oracle$`);
-    if (ghqPath) candidates.push(ghqPath);
+    if (ghqPath) candidates.push(toPosixPath(ghqPath));
   } catch {
     // Best effort.
   }

@@ -30,9 +30,13 @@ import { homedir } from "os";
 let _cached: string | null = null;
 let _warnedLegacy = false;
 
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 /** Normalize a raw ghqRoot value to the BARE shape (strip trailing /github.com). */
 function normalizeBare(raw: string): string {
-  const trimmed = raw.trim().replace(/\/+$/, "");
+  const trimmed = toPosixPath(raw.trim()).replace(/\/+$/, "");
   return trimmed.replace(/\/github\.com$/, "");
 }
 

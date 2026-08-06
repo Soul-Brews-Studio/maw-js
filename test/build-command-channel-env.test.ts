@@ -84,7 +84,7 @@ describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
       channels: ["plugin:discord@claude-plugins-official"],
     });
     const home = homedir();
-    expect(out).toContain(`DISCORD_STATE_DIR='${home}/.claude/channels/mybot'`);
+    expect(out).toContain(`DISCORD_STATE_DIR='${join(home, ".claude", "channels", "mybot")}'`);
     expect(out).not.toContain("'~/.claude/channels/mybot'");
   });
 
@@ -101,10 +101,10 @@ describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
     fakeConfig.commands = { default: "claude" };
     const home = homedir();
     const out = buildCommand("bot", {
-      channelEnv: { DISCORD_STATE_DIR: `${home}/.claude/channels/mybot` },
+      channelEnv: { DISCORD_STATE_DIR: join(home, ".claude", "channels", "mybot") },
       channels: ["plugin:discord@claude-plugins-official"],
     });
-    expect(out).toContain(`DISCORD_STATE_DIR='${home}/.claude/channels/mybot'`);
+    expect(out).toContain(`DISCORD_STATE_DIR='${join(home, ".claude", "channels", "mybot")}'`);
   });
 
   test("single quotes inside env value are still escaped after tilde expansion", () => {
@@ -114,7 +114,8 @@ describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
       channels: ["plugin:discord@claude-plugins-official"],
     });
     const home = homedir();
-    expect(out).toContain(`TRICKY='${home}/path with '\\''quotes'\\'''`);
+    const expectedValue = join(home, "path with 'quotes'").replace(/'/g, "'\\''");
+    expect(out).toContain(`TRICKY='${expectedValue}'`);
   });
 
   test("bare tilde (~ alone, no slash) also expands", () => {
@@ -196,7 +197,7 @@ describe("buildCommandInDir — repo channel config auto-injection (#1877)", () 
 
       expect(out).toContain("--channels plugin:discord@claude-plugins-official");
       expect(out).toContain("--dangerously-skip-permissions");
-      expect(out).toContain(`DISCORD_STATE_DIR='${homedir()}/.claude/channels/bot'`);
+      expect(out).toContain(`DISCORD_STATE_DIR='${join(homedir(), ".claude", "channels", "bot")}'`);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

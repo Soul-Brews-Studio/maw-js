@@ -1,8 +1,9 @@
 /** Runtime helpers: SDK version resolution, hash verification, dev-mode detection. */
 
 import { createHash } from "crypto";
-import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync, realpathSync } from "fs";
 import { dirname, join, resolve } from "path";
+import { homedir } from "os";
 import { warn } from "../cli/verbosity";
 import { mawDataPath, mawStatePath } from "../core/xdg";
 
@@ -16,12 +17,28 @@ import sdkPkg from "../../packages/sdk/package.json" with { type: "json" };
 // Scan the global plugin dir plus any repo-local `.maw/plugins` dirs found by
 // walking up from cwd. Resolved at call time so tests and per-command cwd
 // routing can override roots.
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+function sameRealPath(a: string, b: string): boolean {
+  try {
+    const canonical = (realpathSync as any).native || realpathSync;
+    return toPosixPath(canonical(a)) === toPosixPath(canonical(b));
+  } catch {
+    return toPosixPath(a) === toPosixPath(b);
+  }
+}
+
 export function discoverLocalPluginDirs(cwd = process.cwd()): string[] {
   const dirs: string[] = [];
   let dir = resolve(cwd);
+  const globalPlugins = join(homedir(), ".maw", "plugins");
   for (let i = 0; i < 32; i += 1) {
     const pluginsDir = join(dir, ".maw", "plugins");
-    if (existsSync(pluginsDir)) dirs.push(pluginsDir);
+    if (existsSync(pluginsDir) && !sameRealPath(pluginsDir, globalPlugins)) {
+      dirs.push(pluginsDir);
+    }
     if (existsSync(join(dir, ".maw-root"))) break;
     const parent = dirname(dir);
     if (parent === dir) break;

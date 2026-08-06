@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, writeFileSync, lstatSync, existsSync } from "fs";
+import { mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync, lstatSync, existsSync } from "fs";
 import { execFileSync, spawnSync } from "child_process";
 import { join } from "path";
 import { tmpdir } from "os";
 import { collectStandardPlugins, inspectStandardPluginHealth, installStandardPlugins, STANDARD_PLUGIN_MIN_COUNT } from "../src/commands/shared/standard-plugins";
+import { symlinkDirSync } from "../src/core/util/symlink-dir";
 
 let root = "";
 let srcRoot = "";
@@ -55,9 +56,12 @@ describe("standard plugin bootstrap", () => {
 
   test("replaces dangling symlinks and keeps valid plugins by default", async () => {
     mkdirSync(pluginDir, { recursive: true });
-    symlinkSync("/foreign/m5/path/standard-00", join(pluginDir, "standard-00"), "dir");
+    const staleTarget = join(root, "stale", "standard-00");
+    mkdirSync(staleTarget, { recursive: true });
+    symlinkDirSync(staleTarget, join(pluginDir, "standard-00"));
+    rmSync(staleTarget, { recursive: true, force: true });
     const valid = join(srcRoot, "src", "commands", "plugins", "standard-03");
-    symlinkSync(valid, join(pluginDir, "standard-03"), "dir");
+    symlinkDirSync(valid, join(pluginDir, "standard-03"));
 
     const result = await installStandardPlugins({ sourceRoot: srcRoot, pluginDir, fetch: false, log: () => {} });
 
@@ -68,7 +72,7 @@ describe("standard plugin bootstrap", () => {
   });
 
 
-  test("fetches standard plugin source with git clone plus install so plugin verbs load", async () => {
+  test.skipIf(process.platform === "win32")("fetches standard plugin source with git clone plus install so plugin verbs load", async () => {
     const originalUrl = process.env.MAW_STANDARD_PLUGIN_GIT_URL;
     const originalCache = process.env.MAW_STANDARD_PLUGIN_CACHE_DIR;
     const originalSource = process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT;
@@ -128,7 +132,7 @@ describe("standard plugin bootstrap", () => {
       expect(existsSync(join(fetchedPluginDir, "attach", "plugin.json"))).toBe(true);
       const bareMaw = join(root, "bare-maw");
       execFileSync("bun", ["build", "src/cli.ts", "--outfile", bareMaw, "--target=bun", "--external", "@eclipse-zenoh/zenoh-ts"], { cwd: process.cwd(), stdio: "pipe" });
-      const load = spawnSync(bareMaw, ["attach"], {
+      const load = spawnSync("bun", [bareMaw, "attach"], {
         cwd: root,
         env: { ...process.env, MAW_PLUGINS_DIR: fetchedPluginDir, MAW_QUIET: "1" },
         encoding: "utf8",
@@ -145,7 +149,7 @@ describe("standard plugin bootstrap", () => {
       if (originalSource === undefined) delete process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT; else process.env.MAW_STANDARD_PLUGIN_SOURCE_ROOT = originalSource;
       if (originalPath === undefined) delete process.env.MAW_JS_PATH; else process.env.MAW_JS_PATH = originalPath;
     }
-  });
+  }, { timeout: 30_000 });
 
   test("health flags missing and low plugin directories", () => {
     expect(inspectStandardPluginHealth(join(root, "missing")).status).toBe("missing");

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+
+const isWindows = process.platform === "win32";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,7 +124,7 @@ async function expectJsonStatus(response: Response, expected: number, context: s
   return parsed;
 }
 
-describe("serve-control real-entry smoke", () => {
+describe.skipIf(isWindows)("serve-control real-entry smoke", () => {
   test("maw share --control gates real pane writes with scoped write token", async () => {
     if (!commandAvailable(["tmux", "-V"])) {
       console.warn("SKIP serve-control real-entry smoke: tmux binary is unavailable");

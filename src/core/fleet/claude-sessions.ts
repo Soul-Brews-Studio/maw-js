@@ -48,7 +48,9 @@ const defaultExecSync = execSync as ExecSyncString;
 /** Decode Claude Code project dir name → absolute path. */
 export function decodeProjectDir(encoded: string): string {
   if (!encoded.startsWith("-")) return encoded;
-  return encoded.replace(/^-/, "/").replace(/-/g, "/");
+  let inferred = encoded.replace(/^-/, "/");
+  inferred = inferred.replace(/^\/([A-Za-z])--/, "$1:/");
+  return inferred.replace(/-/g, "/");
 }
 
 // ── PID discovery (cached 5s) ────────────────────────────────────

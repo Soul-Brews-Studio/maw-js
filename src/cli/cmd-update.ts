@@ -1,7 +1,7 @@
 import { execSync } from "child_process";
 import {
   existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync,
-  lstatSync, unlinkSync, symlinkSync, openSync, readSync, closeSync, realpathSync,
+  lstatSync, unlinkSync, openSync, readSync, closeSync, realpathSync,
   renameSync, rmSync,
 } from "fs";
 import { join, dirname } from "path";
@@ -10,6 +10,7 @@ import { getVersionString } from "./cmd-version";
 import { ghqFindSync } from "../core/ghq";
 import { withUpdateLock } from "./update-lock";
 import { mawDataPath } from "../core/xdg";
+import { symlinkDirSync } from "../core/util/symlink-dir";
 
 /** @internal exported for default-run coverage tests. */
 export function clearBunGlobalResolverState(home = homedir()): () => void {
@@ -71,7 +72,7 @@ export function linkBundledPluginRoots(pluginDir: string, roots: string[]): numb
       try {
         if (lstatSync(dest).isSymbolicLink() && !existsSync(dest)) unlinkSync(dest);
       } catch {}
-      if (!existsSync(dest)) { symlinkSync(src, dest); refreshed++; }
+      if (!existsSync(dest)) { symlinkDirSync(src, dest); refreshed++; }
     }
   }
   return refreshed;
@@ -90,7 +91,7 @@ export function healBrokenPluginSymlinks(pluginDir: string, roots: string[]): { 
         .find((candidate) => existsSync(candidate) && isPluginSourceDir(candidate));
       unlinkSync(p);
       if (replacement) {
-        symlinkSync(replacement, p);
+        symlinkDirSync(replacement, p);
         healed++;
       } else {
         pruned++;

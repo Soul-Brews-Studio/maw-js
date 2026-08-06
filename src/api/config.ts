@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from "fs";
-import { join, basename } from "path";
+import { join, basename } from "path/posix";
 import { loadConfig, saveConfig, configForDisplay } from "../config";
 import { CONFIG_FILE } from "../core/paths";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
@@ -55,6 +55,8 @@ export interface ConfigApiDeps {
   createToken?: () => string | Promise<string>;
 }
 
+const toPosixPath = (p: string) => p.replace(/\\/g, "/");
+
 export function createConfigApi(deps: ConfigApiDeps = {}) {
   const readDir = deps.readdirSync ?? readdirSync;
   const readFile = deps.readFileSync ?? readFileSync;
@@ -67,7 +69,7 @@ export function createConfigApi(deps: ConfigApiDeps = {}) {
   const load = deps.loadConfig ?? loadConfig;
   const save = deps.saveConfig ?? saveConfig;
   const displayConfig = deps.configForDisplay ?? configForDisplay;
-  const rootDir = deps.rootDir ?? pathJoin(import.meta.dir, "../..");
+  const rootDir = deps.rootDir ?? pathJoin(toPosixPath(import.meta.dir), "../..");
   const configFile = deps.configFile ?? (deps.rootDir ? pathJoin(rootDir, "maw.config.json") : CONFIG_FILE);
   const fleetRoot = deps.fleetDir ?? (deps.rootDir ? pathJoin(rootDir, "fleet") : fleetDirForWrite());
   const fleetReadRoots = uniqueDirs(deps.fleetDirs ?? (deps.fleetDir || deps.rootDir ? [fleetRoot] : fleetDirsForRead()));

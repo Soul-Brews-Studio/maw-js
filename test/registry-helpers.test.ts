@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
@@ -12,6 +12,7 @@ import {
   scanDirs,
   warnLegacyOnce,
 } from "../src/plugin/registry-helpers";
+import { symlinkDirSync } from "../src/core/util/symlink-dir";
 
 const tempDirs: string[] = [];
 const oldEnv: Record<string, string | undefined> = {};
@@ -106,8 +107,9 @@ describe("plugin registry runtime helpers", () => {
     const dir = tempDir("maw-dev-mode-");
     const real = join(dir, "real-plugin");
     const link = join(dir, "linked-plugin");
-    writeFileSync(real, "not a directory but still a real path");
-    symlinkSync(real, link);
+    mkdirSync(real, { recursive: true });
+    writeFileSync(join(real, "plugin.json"), "{}");
+    symlinkDirSync(real, link);
 
     expect(isDevModeInstall(link)).toBe(true);
     expect(isDevModeInstall(real)).toBe(false);

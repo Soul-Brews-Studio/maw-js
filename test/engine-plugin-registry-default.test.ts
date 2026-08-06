@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+
+const isWindows = process.platform === "win32";
 import {
   clearEnginePluginRegistrations,
   dispatchEnginePluginEvent,
@@ -78,7 +80,7 @@ describe("engine plugin registry (#1566)", () => {
     expect(() => registerEnginePlugin({ plugin: "bad", prefix: "/api/bad", upstream: "unix://localhost/tmp/maw.sock" }))
       .toThrow(/unix upstream/);
     expect(() => registerEnginePlugin({ plugin: "bad", prefix: "/api/bad", upstream: "unix:///var/run/docker.sock" }))
-      .toThrow(/tmpdir|MAW_HOME/);
+      .toThrow(/tmpdir|MAW_HOME|traversal/);
     expect(() => registerEnginePlugin({ plugin: "bad", prefix: "/api/bad", upstream: "unix:///tmp/%2e%2e/var/run/maw.sock" }))
       .toThrow(/traversal/);
     expect(() => registerEnginePlugin({ plugin: "bad", prefix: "/api/bad", upstream: "unix:///tmp/maw-engine" }))
@@ -260,7 +262,7 @@ describe("engine plugin registry (#1566)", () => {
     expect(findEnginePluginRegistration("/api/health-ledger/messages")).toBeUndefined();
   });
 
-  test("proxies requests to unix upstreams preserving suffix, query, body, and headers", async () => {
+  test.skipIf(isWindows)("proxies requests to unix upstreams preserving suffix, query, body, and headers", async () => {
     const { dir, socket } = unixSocketPath();
     const upstream = Bun.serve({
       unix: socket,
@@ -309,7 +311,7 @@ describe("engine plugin registry (#1566)", () => {
     }
   });
 
-  test("health polling works for unix upstreams", async () => {
+  test.skipIf(isWindows)("health polling works for unix upstreams", async () => {
     const { dir, socket } = unixSocketPath();
     const upstream = Bun.serve({
       unix: socket,
@@ -333,7 +335,7 @@ describe("engine plugin registry (#1566)", () => {
     }
   });
 
-  test("event delivery works for unix upstreams", async () => {
+  test.skipIf(isWindows)("event delivery works for unix upstreams", async () => {
     const { dir, socket } = unixSocketPath();
     const seen: Array<Record<string, unknown>> = [];
     const upstream = Bun.serve({
@@ -384,7 +386,7 @@ describe("engine plugin registry (#1566)", () => {
     }
   });
 
-  test("unix upstream crashes unbind and return 503", async () => {
+  test.skipIf(isWindows)("unix upstream crashes unbind and return 503", async () => {
     const { dir, socket } = unixSocketPath();
     const upstream = Bun.serve({ unix: socket, fetch: () => Response.json({ ok: true }) });
     const registration = registerEnginePlugin({

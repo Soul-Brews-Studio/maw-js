@@ -12,7 +12,7 @@ import {
   writeFileSync,
   mkdirSync,
 } from "fs";
-import { join } from "path";
+import { join, relative } from "path";
 import { tmpdir } from "os";
 import { cmdPluginInit } from "../src/commands/plugins/plugin/init-impl";
 import {
@@ -123,7 +123,7 @@ describe("maw plugin init --ts", () => {
     await initIn(cwd, ["hello", "--ts"]);
     const pkg = JSON.parse(readFileSync(join(cwd, "hello", "package.json"), "utf8"));
     expect(pkg.type).toBe("module");
-    expect(pkg.devDependencies["@maw-js/sdk"]).toMatch(/^file:\/.+packages\/sdk$/);
+    expect(pkg.devDependencies["@maw-js/sdk"].replace(/\\/g, "/")).toMatch(/^file:.*packages\/sdk$/);
     expect(pkg.devDependencies.typescript).toBeDefined();
   });
 
@@ -361,9 +361,10 @@ describe("maw plugin build", () => {
     // Inspect tarball contents by extracting into a staging dir.
     const staging = join(dir, "staging");
     mkdirSync(staging);
-    const extract = Bun.spawnSync(["tar", "-xzf", join(dir, "fixture-0.1.0.tgz"), "-C", staging], {
+    const extract = Bun.spawnSync(["tar", "-xzf", relative(staging, join(dir, "fixture-0.1.0.tgz"))], {
       stdout: "pipe",
       stderr: "pipe",
+      cwd: staging,
     });
     expect(extract.exitCode).toBe(0);
     expect(existsSync(join(staging, "plugin.json"))).toBe(true);

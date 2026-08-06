@@ -1,4 +1,4 @@
-import { join } from "path";
+import { join } from "path/posix";
 import { hostExec as ssh, tmux } from "../../sdk";
 import { buildCommand } from "../../config";
 import { getGhqRoot } from "../../config/ghq-root";

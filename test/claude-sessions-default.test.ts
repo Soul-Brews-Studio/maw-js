@@ -9,7 +9,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "fs";
-import { join } from "path";
+import { join } from "path/posix";
 import { execFileSync } from "child_process";
 import {
   type ClaudeSessionDeps,
@@ -17,6 +17,7 @@ import {
   decodeProjectDir,
   listClaudeSessions,
 } from "../src/core/fleet/claude-sessions";
+import { symlinkDirSync } from "../src/core/util/symlink-dir";
 
 const originalProjectsDir = process.env.MAW_CLAUDE_PROJECTS_DIR;
 const originalSkipPidScan = process.env.MAW_CLAUDE_SKIP_PID_SCAN;
@@ -30,12 +31,16 @@ function restoreEnv() {
   else process.env.MAW_CLAUDE_SKIP_PID_SCAN = originalSkipPidScan;
 }
 
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 function tempPath(name: string): string {
   const path = join(
     // Claude's project directory encoding is lossy for "." and "-" path
     // segments; keep these fixtures under a stable dot-free temp root so
     // coverage runs with TMPDIR=tmp.XXXX do not alter decoded paths.
-    realpathSync("/tmp"),
+    toPosixPath(realpathSync("/tmp")),
     `mawcs${process.pid}${Date.now()}${Math.random().toString(36).slice(2)}${name}`,
   );
   created.push(path);
@@ -43,7 +48,9 @@ function tempPath(name: string): string {
 }
 
 function encodeProjectPath(path: string): string {
-  return path.replace(/^\//, "-").replace(/[/.]/g, "-");
+  const absolute = toPosixPath(path);
+  const withDriveMarker = absolute.replace(/^([A-Za-z]):\//, "/$1--");
+  return withDriveMarker.replace(/^\//, "-").replace(/\//g, "-");
 }
 
 function writeSession(
@@ -157,7 +164,10 @@ describe("Claude session discovery default-suite coverage", () => {
     writeFileSync(stale, "too old");
     const old = new Date(Date.now() - 2 * 86_400_000);
     utimesSync(stale, old, old);
-    symlinkSync("/definitely/missing", join(noisyDir, "missing-stat.jsonl"));
+    const missingTarget = join(root, "missing-stat-target");
+    mkdirSync(missingTarget, { recursive: true });
+    symlinkDirSync(missingTarget, join(noisyDir, "missing-stat.jsonl"));
+    rmSync(missingTarget, { recursive: true, force: true });
     writeFileSync(join(projectsRoot, "-not-a-directory"), "forces readdir failure");
     writeFileSync(join(projectsRoot, "plain-name"), "filtered before readdir");
 

@@ -10,7 +10,7 @@ import {
 import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { isInfrastructureChannelSessionName } from "../../core/matcher/channel-session";
 import { readdirSync, existsSync, statSync } from "fs";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { worktreeNameFromPath } from "../../core/fleet/worktree-layout";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
 import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
@@ -94,7 +94,7 @@ export async function resolveFromWorktrees(
   const worktrees = await scanFn();
   // Match by main repo name: "github.com/Org/wireboy-oracle" → last segment is "wireboy-oracle"
   const match = worktrees.find(wt => {
-    const mainName = wt.mainRepo.split("/").pop() ?? "";
+    const mainName = basename(wt.mainRepo);
     return mainName === `${oracle}-oracle`;
   });
   if (!match) return null;
@@ -112,8 +112,8 @@ export async function resolveFromWorktrees(
 
   return {
     repoPath: mainRepoPath,
-    repoName: mainRepoPath.split("/").pop()!,
-    parentDir: mainRepoPath.replace(/\/[^/]+$/, ""),
+    repoName: basename(mainRepoPath),
+    parentDir: dirname(mainRepoPath),
   };
 }
 
@@ -128,7 +128,7 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 function repoNameFromPath(path: string): string {
-  return path.split("/").pop() ?? "";
+  return basename(path);
 }
 
 function isLikelyHostName(segment: string): boolean {
@@ -260,7 +260,7 @@ function oracleSlug(ref: OracleRef): string {
 
 function repoInfoFromOracleRef(ref: OracleRef): { repoPath: string; repoName: string; parentDir: string } | null {
   if (!ref.path) return null;
-  return { repoPath: ref.path, repoName: ref.repo, parentDir: ref.path.replace(/\/[^/]+$/, "") };
+  return { repoPath: ref.path, repoName: ref.repo, parentDir: dirname(ref.path) };
 }
 
 function normalizeCandidatePath(path: string): string {
@@ -405,7 +405,7 @@ export async function resolveOracle(
         const fullPath = await ghqFind(`/${sanitizedFleetPin.replace(/^[^/]+\//, "")}`);
         if (fullPath) {
           const repoPath = fullPath;
-          return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
+          return { repoPath, repoName: basename(repoPath), parentDir: dirname(repoPath) };
         }
         // Fleet knows the slug but it's not cloned yet — remember for step 3
         fleetRepo = sanitizedFleetPin;
@@ -445,8 +445,8 @@ export async function resolveOracle(
     if (existing) {
       return {
         repoPath: existing,
-        repoName: existing.split("/").pop()!,
-        parentDir: existing.replace(/\/[^/]+$/, ""),
+        repoName: basename(existing),
+        parentDir: dirname(existing),
       };
     }
     const timeoutMs = wakeFleetGhqGetTimeoutMs();
@@ -463,7 +463,7 @@ export async function resolveOracle(
     const cloned = await ghqFind(`/${fleetRepoStem}`);
     if (cloned) {
       console.log(`\x1b[32m✓\x1b[0m found at ${cloned}`);
-      return { repoPath: cloned, repoName: cloned.split("/").pop()!, parentDir: cloned.replace(/\/[^/]+$/, "") };
+      return { repoPath: cloned, repoName: basename(cloned), parentDir: dirname(cloned) };
     }
     console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} is not cloned locally`);
     console.error(`\x1b[90m  run manually: ${hint}\x1b[0m`);
@@ -489,7 +489,7 @@ export async function resolveOracle(
       if (cloned) {
         const repoPath = cloned;
         console.log(`\x1b[32m✓\x1b[0m cloned to ${repoPath}`);
-        return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
+        return { repoPath, repoName: basename(repoPath), parentDir: dirname(repoPath) };
       }
     }
   } catch { /* probe/clone best-effort — fall through to federation */ }
@@ -568,7 +568,7 @@ export async function findWorktrees(
       seen.add(path);
       return true;
     })
-    .map(path => ({ path, name: worktreeNameFromPath(path) ?? path.split("/").pop()! }));
+    .map(path => ({ path, name: worktreeNameFromPath(path) ?? basename(path) }));
 }
 
 export function findReusableWorktreeBySlug(

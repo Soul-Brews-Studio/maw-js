@@ -3,7 +3,7 @@
  * installFromDir / installFromTarball / installFromUrl
  */
 
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { basename, join, resolve } from "path";
@@ -13,6 +13,7 @@ import { extractTarball, downloadTarball, verifyArtifactHash, verifyArtifactHash
 import { findPluginRoot, findMonorepoPluginRoot, readManifest, printInstallSuccess } from "./install-manifest-helpers";
 import { readLock, recordInstall } from "./lock";
 import { createHash } from "crypto";
+import { symlinkDirSync } from "../../../core/util/symlink-dir";
 
 /**
  * #404 — preserve category across replace. Category is derived from `weight`
@@ -99,7 +100,7 @@ export function ensurePluginMawJsLink(srcDir: string): void {
   }
 
   mkdirSync(nodeModulesDir, { recursive: true });
-  symlinkSync(mawJsRoot, target, "dir");
+  symlinkDirSync(mawJsRoot, target);
 }
 
 export async function installFromDir(
@@ -135,7 +136,7 @@ export async function installFromDir(
   }
 
   removeExisting(dest);
-  symlinkSync(srcDir, dest, "dir");
+  symlinkDirSync(srcDir, dest);
 
   // #641 — arrange `maw-js/sdk` resolution from the plugin's perspective so
   // the author never has to run a per-repo setup.sh.

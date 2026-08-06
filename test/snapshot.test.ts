@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
-import { join } from "path";
+import { basename, join } from "path";
 import { tmpdir } from "os";
 import type { Snapshot, SnapshotSession, SnapshotWindow } from "../src/core/fleet/snapshot";
 
@@ -94,7 +94,7 @@ describe("snapshot", () => {
 
   test("takeSnapshot filename is YYYYMMDD-HHMMSS", async () => {
     const path = await takeSnapshot("wake");
-    const filename = path.split("/").pop()!;
+    const filename = basename(path);
     expect(filename).toMatch(/^\d{8}-\d{6}\.json$/);
   });
 

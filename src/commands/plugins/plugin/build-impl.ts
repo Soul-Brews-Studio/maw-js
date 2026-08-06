@@ -21,7 +21,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, watch } from "fs";
-import { join, resolve, basename } from "path";
+import { join, relative, resolve, basename } from "path";
 import { spawnSync } from "child_process";
 import { parseFlags } from "../../../cli/parse-args";
 import { inferCapabilitiesAst } from "../../../plugin/cap-infer-ast";
@@ -247,10 +247,12 @@ async function runBuild(dir: string, emitTypes = false): Promise<BuildSummary> {
   // --- Pack tarball (flat: plugin.json + index.js at root) ---
   const tgzName = `${name}-${version}.tgz`;
   const tgzPath = join(dir, tgzName);
+  // Use cwd + a relative archive path so the command works on Windows where GNU
+  // tar treats ':' in an absolute Windows path as a remote-host specifier.
   const tar = spawnSync(
     "tar",
-    ["-czf", tgzPath, "-C", distDir, "plugin.json", "index.js"],
-    { encoding: "utf8" },
+    ["-czf", relative(distDir, tgzPath), "plugin.json", "index.js"],
+    { encoding: "utf8", cwd: distDir },
   );
   if (tar.status !== 0) {
     throw new Error(`tarball packing failed: ${tar.stderr || tar.stdout}`);

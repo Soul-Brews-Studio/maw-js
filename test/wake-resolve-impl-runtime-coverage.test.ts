@@ -15,7 +15,7 @@ import {
 } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import type { WorktreeInfo } from "../src/core/fleet/worktrees-scan";
 
 const fleetRoot = mkdtempSync(join(tmpdir(), "maw-wake-resolve-fleet-"));
@@ -300,7 +300,7 @@ describe("resolveOracle runtime paths", () => {
     await expect(resolveOracle("mawjs")).resolves.toEqual({
       repoPath: mainRepo,
       repoName: "mawjs-oracle",
-      parentDir: mainRepo.replace(/\/[^/]+$/, ""),
+      parentDir: dirname(mainRepo),
     });
   });
 

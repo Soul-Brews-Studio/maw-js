@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { runBunChild } from "./isolated/helpers/run-bun-child";
 
 function run(script: string, cwd: string, env: Record<string, string>) {
@@ -11,6 +11,8 @@ function run(script: string, cwd: string, env: Record<string, string>) {
     env: { ...process.env, MAW_TEST_MODE: "1", MAW_QUIET: "1", ...env },
   });
 }
+
+const srcDir = resolve(import.meta.dir, "../src");
 
 function resultJson(stdout: string) {
   const line = stdout.split("\n").find((entry) => entry.startsWith("RESULT:"));
@@ -34,7 +36,7 @@ describe("command null tombstones (#2674)", () => {
       }));
 
       const result = run(`
-        const { loadConfigWithProvenance } = await import(${JSON.stringify(`${process.cwd()}/src/config.ts`)});
+        const { loadConfigWithProvenance } = await import(${JSON.stringify(`${srcDir}/config.ts`)});
         const loaded = loadConfigWithProvenance({ cwd: ${JSON.stringify(repo)} });
         console.log("RESULT:" + JSON.stringify({
           commands: loaded.config.commands,
@@ -67,7 +69,7 @@ describe("command null tombstones (#2674)", () => {
       }));
 
       const result = run(`
-        const { loadConfig } = await import(${JSON.stringify(`${process.cwd()}/src/config.ts`)});
+        const { loadConfig } = await import(${JSON.stringify(`${srcDir}/config.ts`)});
         loadConfig({ cwd: ${JSON.stringify(repo)} });
         console.log("RESULT:" + JSON.stringify({ ok: true }));
       `, repo, { MAW_HOME: mawHome });
@@ -84,7 +86,7 @@ describe("command null tombstones (#2674)", () => {
     const mawHome = mkdtempSync(join(tmpdir(), "maw-command-invalid-"));
     try {
       const result = run(`
-        const { validateConfig } = await import(${JSON.stringify(`${process.cwd()}/src/config/validate-ext.ts`)});
+        const { validateConfig } = await import(${JSON.stringify(`${srcDir}/config/validate-ext.ts`)});
         const validated = validateConfig({
           commands: { default: "run", num: 1, obj: {}, arr: [] },
         });

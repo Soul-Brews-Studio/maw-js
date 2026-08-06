@@ -18,10 +18,19 @@ function cleanSessionId(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+function encodeClaudeProjectPath(path: string): string {
+  const absolute = toPosixPath(resolve(path));
+  const withDriveMarker = absolute.replace(/^([A-Za-z]):\//, "/$1--");
+  return withDriveMarker.replace(/^\//, "-").replace(/\//g, "-");
+}
+
 function claudeProjectDirForCwd(cwd: string, env: NodeJS.ProcessEnv): string {
   const projectsRoot = env.MAW_CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects");
-  const encoded = resolve(cwd).replace(/^\//, "-").replace(/\//g, "-");
-  return join(projectsRoot, encoded);
+  return join(projectsRoot, encodeClaudeProjectPath(cwd));
 }
 
 function newestClaudeJsonlSessionId(cwd: string, env: NodeJS.ProcessEnv): string | undefined {

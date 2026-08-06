@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, mkdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative } from "path";
 import {
@@ -10,6 +10,7 @@ import {
   isPaneIdle,
   reconcileParentClaudeDir,
 } from "../src/commands/shared/wake-session";
+import { symlinkDirSync } from "../src/core/util/symlink-dir";
 
 const originalTmux = process.env.TMUX;
 
@@ -387,8 +388,14 @@ describe("createWorktree", () => {
         log: (...args: unknown[]) => logs.push(args.map(String).join(" ")),
       });
 
-      expect(result.wtPath).toBe(wtPath);
-      expect(readlinkSync(join(wtPath, ".claude"))).toBe("../../.claude");
+      expect(result.wtPath.replace(/\\/g, "/")).toBe(wtPath.replace(/\\/g, "/"));
+      const claudeLink = join(wtPath, ".claude");
+      if (process.platform === "win32") {
+        expect(lstatSync(claudeLink).isSymbolicLink()).toBe(true);
+        expect(existsSync(join(claudeLink, "skills"))).toBe(true);
+      } else {
+        expect(readlinkSync(claudeLink)).toBe("../../.claude");
+      }
       expect(logs.join("\n")).toContain(".claude:");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -408,9 +415,15 @@ describe("createWorktree", () => {
 
       await reconcileParentClaudeDir(repoPath, wtPath, (...args: unknown[]) => logs.push(args.map(String).join(" ")));
 
-      expect(readlinkSync(join(wtPath, ".claude", "skills"))).toBe(
-        relative(join(wtPath, ".claude"), join(repoPath, ".claude", "skills")),
-      );
+      const skillsLink = join(wtPath, ".claude", "skills");
+      if (process.platform === "win32") {
+        expect(lstatSync(skillsLink).isSymbolicLink()).toBe(true);
+        expect(existsSync(join(skillsLink, "dig"))).toBe(true);
+      } else {
+        expect(readlinkSync(skillsLink)).toBe(
+          relative(join(wtPath, ".claude"), join(repoPath, ".claude", "skills")),
+        );
+      }
       expect(logs.join("\n")).toContain(".claude/skills:");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -459,7 +472,7 @@ describe("createWorktree", () => {
     }
   });
 
-  test("reports unreadable and pre-existing broken skills links without aborting wake", async () => {
+  test.skipIf(process.platform === "win32")("reports unreadable and pre-existing broken skills links without aborting wake", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-wt-skills-errors-"));
     const repoPath = join(root, "repo");
     const wtPath = join(root, "repo.wt-1-white");

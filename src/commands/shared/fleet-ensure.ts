@@ -1,10 +1,14 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join, relative, resolve, sep } from "path";
+import { join, relative, resolve, sep } from "path/posix";
 import { getGhqRoot } from "../../config/ghq-root";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
 import { loadFleetEntries, type FleetEntry, type FleetWindow } from "./fleet-load";
 
 export type FleetSessionCreatedBy = "maw wake" | "maw new" | string;
+
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
 
 export interface EnsureFleetSessionEntryInput {
   session: string;
@@ -49,10 +53,11 @@ function isArchivedSegment(segment: string): boolean {
 
 function repoFromCwdResult(cwd: string | undefined, ghqRoot: string): RepoFromCwdResult {
   if (!cwd) return { repo: null, reason: "missing cwd" };
-  const resolvedCwd = resolve(cwd);
+  const resolvedCwd = resolve(toPosixPath(cwd));
+  const posixGhq = toPosixPath(ghqRoot);
   const candidates: Array<{ root: string; segments: number }> = [
-    { root: resolve(ghqRoot), segments: 3 },
-    { root: resolve(ghqRoot, "github.com"), segments: 2 },
+    { root: resolve(posixGhq), segments: 3 },
+    { root: resolve(posixGhq, "github.com"), segments: 2 },
   ];
   for (const { root, segments } of candidates) {
     if (!isInside(root, resolvedCwd)) continue;
@@ -114,10 +119,10 @@ export function ensureFleetSessionEntry(
   if (!isSafeFleetSessionName(session)) return { status: "skipped", reason: `unsafe session name: ${input.session}` };
   if (!window) return { status: "skipped", reason: "missing initial window" };
 
-  const readDirs = uniqueDirs((deps.fleetDirsForRead ?? fleetDirsForRead)());
+  const readDirs = uniqueDirs((deps.fleetDirsForRead ?? fleetDirsForRead)().map(toPosixPath));
   const entries = (deps.loadFleetEntries ?? loadFleetEntries)(readDirs);
   const existing = entries.find(e => e.session?.name === session || e.file === fleetFileNameForSession(session));
-  const ghqRoot = (deps.getGhqRoot ?? getGhqRoot)();
+  const ghqRoot = toPosixPath((deps.getGhqRoot ?? getGhqRoot)());
   const repoResult = repoFromCwdResult(input.cwd, ghqRoot);
   const repo = repoResult.repo;
   if (!repo) {
@@ -139,7 +144,7 @@ export function ensureFleetSessionEntry(
     return { status: "updated", file: existing.path, entry: nextEntry };
   }
 
-  const writeDir = (deps.fleetDirForWrite ?? fleetDirForWrite)();
+  const writeDir = toPosixPath((deps.fleetDirForWrite ?? fleetDirForWrite)());
   (deps.mkdirSync ?? mkdirSync)(writeDir, { recursive: true });
   const file = fleetFileNameForSession(session);
   const path = join(writeDir, file);

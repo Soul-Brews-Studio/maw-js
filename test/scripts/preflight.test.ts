@@ -153,11 +153,14 @@ describe("scripts/preflight.sh — file presence", () => {
     expect(existsSync(SCRIPT)).toBe(true);
   });
 
-  test("script is executable (chmod +x)", () => {
-    const mode = statSync(SCRIPT).mode;
-    // Owner-execute bit must be set.
-    expect(mode & 0o100).toBe(0o100);
-  });
+  test.skipIf(process.platform === "win32")(
+    "script is executable (chmod +x)",
+    () => {
+      const mode = statSync(SCRIPT).mode;
+      // Owner-execute bit must be set.
+      expect(mode & 0o100).toBe(0o100);
+    },
+  );
 
   test("npm script `preflight` is wired in package.json", () => {
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf-8"));

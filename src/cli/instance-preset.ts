@@ -15,6 +15,7 @@
 import { join } from "path";
 import { mkdirSync } from "fs";
 import { mawDataPath } from "../core/xdg";
+import { symlinkDirSync } from "../core/util/symlink-dir";
 
 /** Same shape as node/oracle names — lowercase, digits, dashes, underscores. */
 export const INSTANCE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -61,7 +62,6 @@ export function applyInstancePreset(argv: string[] = process.argv.slice(2)): voi
   // Atomic: symlinkSync throws EEXIST if the link is already there — we just
   // swallow it. No TOCTOU gap. Other errors are also non-fatal (best-effort).
   try {
-    const { symlinkSync } = require("fs");
-    symlinkSync(sharedPluginDir, join(home, "plugins"), "dir");
+    symlinkDirSync(sharedPluginDir, join(home, "plugins"));
   } catch { /* already linked, target missing, or permissions — best-effort */ }
 }

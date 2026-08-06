@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+
+const isWindows = process.platform === "win32";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -159,7 +161,7 @@ async function firstEncryptedShareFrame(wsUrl: string, secret: string): Promise<
   });
 }
 
-describe("share real-entry smoke", () => {
+describe.skipIf(isWindows)("share real-entry smoke", () => {
   test("encrypted maw share streams a real tmux snapshot over the real serve websocket", async () => {
     if (!commandAvailable(["tmux", "-V"])) {
       console.warn("SKIP share real-entry smoke: tmux binary is unavailable");

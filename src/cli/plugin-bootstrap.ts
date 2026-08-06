@@ -1,6 +1,7 @@
-import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync, realpathSync } from "fs";
+import { mkdirSync, existsSync, readdirSync, cpSync, readFileSync, lstatSync, unlinkSync, realpathSync } from "fs";
 import { join } from "path";
 import { info, warn } from "./verbosity";
+import { symlinkDirSync } from "../core/util/symlink-dir";
 
 /** Allowlist: only http/https URLs may be used as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
@@ -17,7 +18,7 @@ function linkBundledPlugins(pluginDir: string, bundled: string): number {
     const dest = join(pluginDir, d);
     if (!isPluginDir(src)) continue;
     if (existsSync(dest)) continue; // already linked / user dir / valid symlink
-    symlinkSync(src, dest);
+    symlinkDirSync(src, dest);
     linked++;
   }
   return linked;
@@ -141,7 +142,7 @@ function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): {
       if (targetIsValidPlugin && !shouldHealValidTarget) continue;
       unlinkSync(p);
       if (replacement) {
-        symlinkSync(replacement, p);
+        symlinkDirSync(replacement, p);
         healed++;
       } else {
         pruned++;

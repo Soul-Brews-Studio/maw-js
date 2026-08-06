@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
+import { fileURLToPath } from "node:url";
 import { sign, verify, isLoopback, signHeaders, hashBody } from "../src/lib/federation-auth";
 
 // --- isLoopback ---
@@ -232,7 +233,7 @@ describe("XFF bypass regression guard (#191)", () => {
     // why they're banned). That's fine — comments don't execute. The test
     // checks that no CODE reads them via c.req.header().
     const source = readFileSync(
-      new URL("../src/lib/federation-auth.ts", import.meta.url).pathname,
+      fileURLToPath(new URL("../src/lib/federation-auth.ts", import.meta.url)),
       "utf-8",
     );
 
@@ -250,7 +251,7 @@ describe("XFF bypass regression guard (#191)", () => {
     // Verify the source contains the correct pattern: requestIP?.()?.address
     // and does NOT have a fallback chain that includes headers.
     const source = readFileSync(
-      new URL("../src/lib/federation-auth.ts", import.meta.url).pathname,
+      fileURLToPath(new URL("../src/lib/federation-auth.ts", import.meta.url)),
       "utf-8",
     );
 

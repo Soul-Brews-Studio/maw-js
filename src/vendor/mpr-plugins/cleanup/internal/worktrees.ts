@@ -1,5 +1,5 @@
 import { statSync } from "fs";
-import { isAbsolute, join, relative } from "path";
+import { isAbsolute, join, relative } from "path/posix";
 import { getGhqRoot } from "maw-js/config/ghq-root";
 import { hostExec, tmux, type TmuxPane } from "maw-js/sdk";
 import { parseWorktreePath } from "../../../../core/fleet/worktree-layout";

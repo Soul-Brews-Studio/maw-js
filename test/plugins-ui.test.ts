@@ -70,7 +70,7 @@ describe("plugins UI helpers", () => {
   test("archiveToTmp renames plugin directories to a timestamped /tmp path", () => {
     const source = mkdtempSync(join(tmpdir(), "maw-plugin-source-"));
     const name = `ui-${process.pid}`;
-    const dest = `/tmp/maw-plugin-${name}-1700000000000`;
+    const dest = join(tmpdir(), `maw-plugin-${name}-1700000000000`);
     rmSync(dest, { recursive: true, force: true });
     cleanupPaths.push(dest);
 

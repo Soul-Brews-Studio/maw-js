@@ -1,7 +1,8 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, symlinkSync, unlinkSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, unlinkSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
 import pkg from "../../../package.json" with { type: "json" };
 import { mawDataPath } from "../../core/xdg";
+import { symlinkDirSync } from "../../core/util/symlink-dir";
 
 export const STANDARD_PLUGIN_MIN_COUNT = 50;
 export const STANDARD_PLUGIN_CRITICAL_COUNT = 10;
@@ -275,7 +276,7 @@ export async function installStandardPlugins(options: StandardPluginInstallOptio
     } else {
       installed++;
     }
-    symlinkSync(relativeSymlinkTarget(dest, plugin.dir), dest, "dir");
+    symlinkDirSync(relativeSymlinkTarget(dest, plugin.dir), dest);
   }
 
   log(`${options.dryRun ? "would install" : "installed"} standard plugins: ${installed} new, ${replaced} replaced, ${skipped} kept → ${pluginDir}`);
