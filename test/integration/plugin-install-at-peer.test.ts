@@ -34,6 +34,8 @@ import { tmpdir } from "os";
 import { createHash } from "crypto";
 import { join } from "path";
 
+const toMsysPath = (p: string) => p.replace(/\\/g, "/").replace(/^([A-Za-z]):\//, "/$1/");
+
 import { resolvePeerInstall } from "../../src/commands/plugins/plugin/install-peer-resolver";
 import { installFromUrl } from "../../src/commands/plugins/plugin/install-handlers";
 import { runtimeSdkVersion } from "../../src/plugin/registry";
@@ -82,7 +84,7 @@ function buildFakePlugin(root: string, name: string, version: string): { sha256:
   writeFileSync(join(root, "plugin.json"), JSON.stringify(manifest, null, 2) + "\n");
   const tarRoot = mkdtempSync(join(tmpdir(), "maw-peer-fixture-"));
   const tarPath = join(tarRoot, `${name}-${version}.tgz`);
-  const tar = spawnSync("tar", ["-czf", tarPath, "-C", root, "."], { encoding: "utf8" });
+  const tar = spawnSync("tar", ["-czf", toMsysPath(tarPath), "."], { cwd: root, encoding: "utf8" });
   if (tar.status !== 0) {
     rmSync(tarRoot, { recursive: true, force: true });
     throw new Error(`tar failed: ${tar.stderr || tar.stdout || tar.error?.message || tar.status || "unknown error"}`);

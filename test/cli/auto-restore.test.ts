@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { resolve } from "path";
 
 describe("maybeAutoRestore (hint mode)", () => {
   let logged: string[];
@@ -49,7 +50,7 @@ describe("maybeAutoRestore (hint mode)", () => {
   });
 
   it("never opens /dev/tty (no blocking read)", async () => {
-    const src = await Bun.file("src/cli/auto-restore.ts").text();
+    const src = await Bun.file(resolve(import.meta.dir, "../../src/cli/auto-restore.ts")).text();
     const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*/g, "");
     expect(code).not.toContain("openSync");
     expect(code).not.toContain("readSync");
@@ -57,13 +58,13 @@ describe("maybeAutoRestore (hint mode)", () => {
   });
 
   it("does not contain Restore all? prompt", async () => {
-    const src = await Bun.file("src/cli/auto-restore.ts").text();
+    const src = await Bun.file(resolve(import.meta.dir, "../../src/cli/auto-restore.ts")).text();
     expect(src).not.toContain("Restore all?");
     expect(src).not.toContain("[y/N]");
   });
 
   it("contains hint text for maw wake", async () => {
-    const src = await Bun.file("src/cli/auto-restore.ts").text();
+    const src = await Bun.file(resolve(import.meta.dir, "../../src/cli/auto-restore.ts")).text();
     expect(src).toContain("maw wake");
   });
 });

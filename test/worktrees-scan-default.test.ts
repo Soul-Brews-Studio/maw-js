@@ -6,7 +6,7 @@
  * core fleet scanner contributes to LCOV without polluting the shared suite.
  */
 import { describe, expect, test } from "bun:test";
-import { basename, join } from "path";
+import { basename, join } from "path/posix";
 import { scanWorktrees, type ScanWorktreesDeps } from "../src/core/fleet/worktrees-scan";
 import type { Session, Window } from "../src/core/runtime/find-window";
 

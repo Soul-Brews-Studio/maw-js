@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { basename, dirname, join } from "path";
+import { basename, dirname } from "path/posix";
 import {
   autoSave,
   cmdDone,
@@ -14,8 +14,11 @@ import {
 type WindowInfo = { index: number; name: string; active: boolean };
 type SessionInfo = { name: string; windows: WindowInfo[] };
 
+const norm = (p: string) => p.replace(/\\/g, "/");
+
 function createMemoryFs(initial: Record<string, string> = {}, options: { failReaddir?: boolean; failAppend?: boolean } = {}) {
-  const files = new Map(Object.entries(initial));
+  const files = new Map<string, string>();
+  for (const [k, v] of Object.entries(initial)) files.set(norm(k), v);
   const dirs: string[] = [];
 
   return {
@@ -23,26 +26,29 @@ function createMemoryFs(initial: Record<string, string> = {}, options: { failRea
     dirs,
     fs: {
       mkdirSync(path: string) {
-        dirs.push(path);
+        dirs.push(norm(path));
       },
       appendFileSync(path: string, data: string) {
         if (options.failAppend) throw new Error("append failed");
-        files.set(path, (files.get(path) ?? "") + data);
+        const p = norm(path);
+        files.set(p, (files.get(p) ?? "") + data);
       },
       readdirSync(path: string) {
         if (options.failReaddir) throw new Error("readdir failed");
+        const dir = norm(path);
         const entries = [...files.keys()]
-          .filter((file) => dirname(file) === path)
+          .filter((file) => dirname(file) === dir)
           .map((file) => basename(file));
         return [...new Set(entries)];
       },
       readFileSync(path: string) {
-        const data = files.get(path);
-        if (data === undefined) throw new Error(`missing ${path}`);
+        const p = norm(path);
+        const data = files.get(p);
+        if (data === undefined) throw new Error(`missing ${p}`);
         return data;
       },
       writeFileSync(path: string, data: string) {
-        files.set(path, data);
+        files.set(norm(path), data);
       },
     } satisfies NonNullable<DoneDeps["fs"]>,
   };

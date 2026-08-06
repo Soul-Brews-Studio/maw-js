@@ -11,6 +11,8 @@ import { hashFile } from "../../../plugin/registry";
 
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
 
+const toMsysPath = (p: string) => p.replace(/\\/g, "/").replace(/^([A-Za-z]):\//, "/$1/");
+
 /**
  * Run `tar -xzf <tarball> -C <destDir>` synchronously. Returns true on success.
  * We shell out to GNU tar rather than adding a `tar` npm dep — Bun ships without
@@ -19,7 +21,7 @@ const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
 export function extractTarball(tarballPath: string, destDir: string): { ok: true } | { ok: false; error: string } {
   // Path-traversal guard: list entries first, reject any that escape the staging dir.
   // GNU tar does not strip "../" by default; -C alone does not prevent traversal.
-  const list = spawnSync("tar", ["-tzf", tarballPath], { encoding: "utf8" });
+  const list = spawnSync("tar", ["-tzf", toMsysPath(tarballPath)], { encoding: "utf8" });
   if (list.status !== 0) {
     return { ok: false, error: `tar list failed: ${list.stderr || list.stdout || `exit ${list.status}`}` };
   }
@@ -29,7 +31,7 @@ export function extractTarball(tarballPath: string, destDir: string): { ok: true
     }
   }
 
-  const r = spawnSync("tar", ["-xzf", tarballPath, "-C", destDir], {
+  const r = spawnSync("tar", ["-xzf", toMsysPath(tarballPath), "-C", toMsysPath(destDir)], {
     encoding: "utf8",
   });
   if (r.status !== 0) {

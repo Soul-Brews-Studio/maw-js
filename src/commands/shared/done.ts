@@ -1,4 +1,4 @@
-import { basename, join } from "path";
+import { basename, join } from "path/posix";
 import { parseWorktreePath } from "../../core/fleet/worktree-layout";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";

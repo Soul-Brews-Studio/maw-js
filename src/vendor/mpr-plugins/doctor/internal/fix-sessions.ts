@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, statSync } from "fs";
 import { cp } from "fs/promises";
 import { tmpdir } from "os";
-import { basename, dirname, join } from "path";
+import { basename, dirname, join } from "path/posix";
 import { execFile, execSync } from "child_process";
 import { promisify } from "util";
 import type { DoctorCheck } from "../impl";
@@ -94,7 +94,8 @@ export async function fixDoubledGithubSessions(opts: { dryRun: boolean }, deps: 
   return { ok: errored.length === 0, dryRun: opts.dryRun, quarantineRoot, pairs, checks };
 }
 
-export function discoverDoubledGithubSessionPairs(deps: Required<FixSessionsDeps>, quarantineRoot: string): FixSessionsPair[] {
+export function discoverDoubledGithubSessionPairs(rawDeps: Required<FixSessionsDeps>, quarantineRoot: string): FixSessionsPair[] {
+  const deps = normalizeDeps(rawDeps);
   const ghqRoot = deps.ghqRoot();
   const doubledRoot = join(ghqRoot, "github.com", "github.com");
   const doubledDirs = findRepoDirs(doubledRoot, deps).filter(p => DOUBLED_SEGMENT_RE.test(p));
@@ -129,7 +130,9 @@ export function discoverDoubledGithubSessionPairs(deps: Required<FixSessionsDeps
 }
 
 export function encodeClaudeProjectPath(path: string): string {
-  return path.replace(/[/.]/g, "-");
+  const normalized = path.replace(/\\/g, "/");
+  const withDriveMarker = normalized.replace(/^([A-Za-z]):\//, "/$1--");
+  return withDriveMarker.replace(/^\//, "-").replace(/\//g, "-");
 }
 
 async function remapPairViaStagedClaudeHome(pair: FixSessionsPair, deps: Required<FixSessionsDeps>): Promise<void> {
@@ -156,15 +159,21 @@ function resolveGhqRoot(): string {
   return join(process.env.HOME || "", "Code");
 }
 
+const toPosixPath = (p: string): string => p.replace(/\\/g, "/");
+
 function normalizeBareGhqRoot(raw: string): string {
-  return raw.trim().replace(/\/+$/, "").replace(/\/github\.com$/i, "");
+  return toPosixPath(raw).trim().replace(/\/+$/, "").replace(/\/github\.com$/i, "");
+}
+
+function posixFn(fn: () => string): () => string {
+  return () => toPosixPath(fn());
 }
 
 function normalizeDeps(deps: FixSessionsDeps): Required<FixSessionsDeps> {
   return {
-    ghqRoot: deps.ghqRoot ?? resolveGhqRoot,
-    claudeHome: deps.claudeHome ?? (() => process.env.CLAUDE_HOME || join(process.env.HOME || "", ".claude")),
-    quarantineRoot: deps.quarantineRoot ?? (() => join(tmpdir(), `maw-doubled-github-${new Date().toISOString().replace(/[:.]/g, "-")}`)),
+    ghqRoot: deps.ghqRoot ? posixFn(deps.ghqRoot) : resolveGhqRoot,
+    claudeHome: deps.claudeHome ? posixFn(deps.claudeHome) : (() => toPosixPath(process.env.CLAUDE_HOME || join(process.env.HOME || "", ".claude"))),
+    quarantineRoot: deps.quarantineRoot ? posixFn(deps.quarantineRoot) : (() => toPosixPath(join(tmpdir(), `maw-doubled-github-${new Date().toISOString().replace(/[:.]/g, "-")}`))),
     exists: deps.exists ?? existsSync,
     readdir: deps.readdir ?? readdirSync,
     stat: deps.stat ?? statSync,

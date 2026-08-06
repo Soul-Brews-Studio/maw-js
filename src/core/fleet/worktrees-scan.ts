@@ -1,7 +1,7 @@
 import { hostExec, listSessions } from "../transport/ssh";
 import { getGhqRoot } from "../../config/ghq-root";
 import { readdirSync, readFileSync } from "fs";
-import { join } from "path";
+import { join } from "path/posix";
 import { parseWorktreePath } from "./worktree-layout";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "./paths";
 import { resolveWorktreeWindow } from "./worktree-window-match";

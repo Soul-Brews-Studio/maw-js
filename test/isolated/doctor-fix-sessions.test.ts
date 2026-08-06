@@ -1,7 +1,7 @@
 /** @maw-test-isolate */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join } from "path/posix";
 import { tmpdir } from "os";
 import { resetGhqRootCache } from "../../src/config/ghq-root";
 import { cmdDoctor } from "../../src/vendor/mpr-plugins/doctor/impl";
@@ -17,10 +17,12 @@ const originalGhqRoot = process.env.GHQ_ROOT;
 const originalClaudeHome = process.env.CLAUDE_HOME;
 const originalHome = process.env.HOME;
 
+const toPosix = (p: string) => p.replace(/\\/g, "/");
+
 function tempRoot(label: string): string {
   const dir = mkdtempSync(join(tmpdir(), `maw-${label}-`));
   created.push(dir);
-  return dir;
+  return toPosix(dir);
 }
 
 function restoreEnv() {

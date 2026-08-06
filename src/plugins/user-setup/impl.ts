@@ -129,7 +129,10 @@ function isoFromMs(ms: number | null): string | null {
 }
 
 function encodeClaudeProjectPath(path: string): string {
-  return resolve(path).replace(/^\//, "-").replace(/\//g, "-");
+  const absolute = resolve(path);
+  const normalized = absolute.replace(/\\/g, "/");
+  const withDriveMarker = normalized.replace(/^([A-Za-z]):\//, "/$1--");
+  return withDriveMarker.replace(/^\//, "-").replace(/\//g, "-");
 }
 
 /** Claude's project-dir encoding is lossy for hyphenated path segments; never treat this reversal as exact by itself. */
@@ -140,7 +143,9 @@ export function inferPathFromEncoded(encoded: string, deps: UserSetupAuditDeps =
     return { encoded, confidence: "unknown", evidence: ["encoded-name-does-not-look-like-absolute-claude-project-dir"] };
   }
 
-  const inferred = encoded.replace(/^-/, "/").replace(/-/g, "/");
+  let inferred = encoded.replace(/^-/, "/");
+  inferred = inferred.replace(/^\/([A-Za-z])--/, "$1:/");
+  inferred = inferred.replace(/-/g, "/");
   evidence.push("dash-decoded-from-claude-project-dir");
 
   let exists = false;

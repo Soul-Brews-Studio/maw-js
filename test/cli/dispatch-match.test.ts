@@ -10,6 +10,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
+import { resolve } from "path";
 import { resolvePluginMatch, validatePluginCliFlags } from "../../src/cli/dispatch-match";
 import { ALIAS_DESCRIPTIONS, parseBringArgs, parseLsAliasOpts, resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
@@ -285,10 +286,10 @@ describe("validatePluginCliFlags — manifest-declared flags", () => {
   });
 
   test("tmux manifest allows kill alias subcommand flags (#1954)", () => {
-    const manifest = JSON.parse(readFileSync("src/commands/plugins/tmux/plugin.json", "utf8"));
+    const manifest = JSON.parse(readFileSync(resolve(import.meta.dir, "../../src/commands/plugins/tmux/plugin.json"), "utf8"));
     const tmux: LoadedPlugin = {
       manifest,
-      dir: "src/commands/plugins/tmux",
+      dir: resolve(import.meta.dir, "../../src/commands/plugins/tmux"),
       wasmPath: "",
       kind: "ts",
     };

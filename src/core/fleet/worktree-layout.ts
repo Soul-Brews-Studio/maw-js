@@ -1,4 +1,4 @@
-import { basename, dirname, join, relative } from "path";
+import { basename, dirname, join, relative } from "path/posix";
 
 export type WorktreeLayout = "nested" | "legacy";
 
