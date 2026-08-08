@@ -153,9 +153,9 @@ describe("tmux-class isolated coverage", () => {
       "exitModeIfNeeded:sess:oracle.0",
       "sendKeysLiteral:deploy now",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 
@@ -171,7 +171,7 @@ describe("tmux-class isolated coverage", () => {
       `loadBuffer:${longText.length}`,
       "pasteBuffer",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 
@@ -388,10 +388,17 @@ describe("tmux-class isolated coverage", () => {
       console.warn = realWarn;
     }
 
-    expect(t.calls.filter(call => call === "sendKeys:Enter")).toHaveLength(4);
-    expect(warn).toHaveBeenCalledTimes(1);
+    // Final attempt escalates the named Enter to a literal C-m (Enter-eaten
+    // last-ditch): 3 Enter + 1 C-m. Two warns now — the C-m escalation and the
+    // exhausted-retries warning.
+    expect(t.calls.filter(call => call === "sendKeys:Enter")).toHaveLength(3);
+    expect(t.calls.filter(call => call === "sendKeys:C-m")).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(2);
     expect(warn).toHaveBeenCalledWith(
-      "[tmux] sendText: sess:oracle.0 still shows pending input after 4 Enter attempts — command may not have submitted",
+      "[tmux] submitWithConfirm: sess:oracle.0 escalating to literal C-m on final attempt 4/4",
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[tmux] sendText: sess:oracle.0 still shows pending input after 4 submit attempts — command may not have submitted",
     );
   });
 });

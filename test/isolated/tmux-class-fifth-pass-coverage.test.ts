@@ -157,7 +157,7 @@ describe("tmux-class fifth-pass isolated coverage", () => {
       "exitModeIfNeeded:alpha:0.0",
       "sendKeysLiteral:hello",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 });

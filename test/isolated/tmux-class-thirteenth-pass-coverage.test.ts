@@ -168,15 +168,16 @@ describe("tmux-class thirteenth-pass isolated coverage", () => {
       "loadBuffer:501",
       "pasteBuffer",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
       "sendKeys:Enter",
-      "capture:5",
-      "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
+      "sendKeys:C-m", // final attempt escalates to a literal C-m (Enter-eaten last-ditch)
+      "capture:8",
     ]);
-    expect(console.warn).toHaveBeenCalledTimes(1);
+    // two warns now: the C-m escalation + the exhausted-retries warning.
+    expect(console.warn).toHaveBeenCalledTimes(2);
 
     const captureFails = new SubmitProbeTmux();
     captureFails.captureScript = [new Error("capture unavailable")];
@@ -187,7 +188,7 @@ describe("tmux-class thirteenth-pass isolated coverage", () => {
       "exitModeIfNeeded:alpha:0.0",
       "sendKeysLiteral:13:short comman",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 });

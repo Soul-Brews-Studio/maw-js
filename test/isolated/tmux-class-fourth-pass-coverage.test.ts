@@ -248,7 +248,7 @@ describe("tmux-class fourth-pass isolated coverage", () => {
       "exitModeIfNeeded:alpha:0.0",
       "sendKeysLiteral:500",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 
@@ -262,9 +262,9 @@ describe("tmux-class fourth-pass isolated coverage", () => {
       "exitModeIfNeeded:alpha:0.0",
       "sendKeysLiteral:10",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 });
