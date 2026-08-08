@@ -213,7 +213,7 @@ describe("tmux-class tenth-pass isolated coverage", () => {
       "exitModeIfNeeded:alpha:0.0",
       "sendKeysLiteral:already submitted",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 });

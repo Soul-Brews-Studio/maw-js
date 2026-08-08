@@ -185,9 +185,9 @@ describe("tmux-class fourteenth-pass isolated coverage", () => {
       "exitModeIfNeeded:alpha:0.0",
       "sendKeysLiteral:still-pending",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 });

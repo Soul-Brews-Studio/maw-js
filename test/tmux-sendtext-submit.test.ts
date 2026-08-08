@@ -53,6 +53,36 @@ class FakeTmux extends Tmux {
 const PROMPT_IDLE = "agent@host:~$ "; // prompt marker + trailing space → submitted
 const PROMPT_PENDING = "agent@host:~$ unsent command text"; // input still on the line
 const enterCount = (calls: string[]) => calls.filter(c => c === "sendKeys:Enter").length;
+const cmCount = (calls: string[]) => calls.filter(c => c === "sendKeys:C-m").length;
+
+// Full-screen TUI captures: the input line sits ABOVE a footer/status line, so
+// lines.at(-1) is the footer, never the input. Mirrors real captures in the
+// stall-fix evidence (T1-root-cause-at-object / T5-real-codex-pane-probe).
+const CC_PENDING = [
+  "✻ Churned for 20s",
+  "────────────────────────────────────",
+  "❯ commit the ψ brain writes", // real un-submitted input, marker at line-start
+  "────────────────────────────────────",
+  "   🐾 Opus 4.8  █░░░░░░░░░ 6% ctx 57k/1000k  ~/ghq/github.com/sutthikit/akita-oracle",
+  "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent", // footer = bottom line
+].join("\n");
+const CC_SUBMITTED_ECHO = [
+  "> commit the ψ brain writes", // submitted turn echoed into the conversation area
+  "✻ Churned for 2s",
+  "❯ ", // input line now empty — must read as submitted despite the echo above
+  "   🐾 Opus 4.8  █░░░░░░░░░ 6% ctx 57k/1000k  ~/ghq/github.com/sutthikit/akita-oracle",
+  "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent",
+].join("\n");
+const CODEX_PLACEHOLDER = [
+  "─ Worked for 4m 03s ──────────────────────",
+  "› Use /skills to list available skills", // empty-state ghost, NOT real input
+  "  gpt-5.6-sol xhigh · pharaoh-oracle-horo · Context 47% left · 26.3M in · 317K out",
+].join("\n");
+const MENU_DIALOG = [
+  "Do you want to proceed?",
+  "❯ 1. Yes", // selection cursor + option — must NOT loop Enter into an auto-approve
+  "  2. No",
+].join("\n");
 
 describe("Tmux.sendText — confirmed submit (#6)", () => {
   test(
@@ -125,11 +155,81 @@ describe("Tmux.sendText — confirmed submit (#6)", () => {
         console.warn = origWarn;
       }
 
-      // capped — not an unbounded spin
-      expect(enterCount(t.calls)).toBe(4);
+      // capped — not an unbounded spin. Final attempt escalates the named
+      // `Enter` to a literal `C-m` (Enter-eaten last-ditch): 3 Enter + 1 C-m.
+      expect(enterCount(t.calls)).toBe(3);
+      expect(cmCount(t.calls)).toBe(1);
+      // condition #3: every C-m escalation is logged (append-only audit).
+      expect(warnings.some(w => w.includes("escalating to literal C-m") && w.includes("sess:win"))).toBe(true);
       expect(warnings.some(w => w.includes("pending input") && w.includes("sess:win"))).toBe(true);
     },
     15_000,
+  );
+
+  test(
+    "TUI (Claude Code): reads the ❯ input line ABOVE the footer, not lines.at(-1) — retries the eaten Enter",
+    async () => {
+      const t = new FakeTmux();
+      // pending (footer is the bottom line, input is above it) then cleared
+      t.captureScript = [CC_PENDING, PROMPT_IDLE];
+      await t.sendText("sess:cc", "commit the ψ brain writes");
+
+      // The old lines.at(-1)-only probe read the '⏵⏵ …' footer → saw no pending
+      // input → stopped at 1 Enter (the silent stall). The scan retries.
+      expect(enterCount(t.calls)).toBe(2);
+    },
+    15_000,
+  );
+
+  test(
+    "TUI (Claude Code): a submitted turn echoed into the conversation area is NOT read as pending",
+    async () => {
+      const t = new FakeTmux();
+      // input line is empty ('❯ ') but the sent text still shows in scrollback
+      // above. Scoping the sent-text check to the input line prevents an endless
+      // retry / duplicate submit on that echo.
+      t.captureScript = [CC_SUBMITTED_ECHO];
+      await t.sendText("sess:cc", "commit the ψ brain writes");
+
+      expect(enterCount(t.calls)).toBe(1); // submitted on first check, no spin
+      expect(cmCount(t.calls)).toBe(0);
+    },
+    10_000,
+  );
+
+  test(
+    "TUI (Codex): empty-state placeholder '› Use /skills…' is NOT pending — no false retry (condition #2)",
+    async () => {
+      const t = new FakeTmux();
+      t.captureScript = [CODEX_PLACEHOLDER]; // repeats → a misread would spin to the cap
+      await t.sendText("sess:codex", "x");
+
+      expect(enterCount(t.calls)).toBe(1);
+      expect(cmCount(t.calls)).toBe(0);
+    },
+    10_000,
+  );
+
+  test(
+    "menu/dialog cursor '❯ 1. Yes' is NOT read as pending — never loops Enter into an auto-approve (Collie CRIT-1)",
+    async () => {
+      const t = new FakeTmux();
+      t.captureScript = [MENU_DIALOG]; // if the option were read as pending, Enter would auto-select
+
+      const warnings: string[] = [];
+      const origWarn = console.warn;
+      console.warn = (...args: unknown[]) => { warnings.push(args.join(" ")); };
+      try {
+        await t.sendText("sess:menu", "some dispatch");
+      } finally {
+        console.warn = origWarn;
+      }
+
+      expect(enterCount(t.calls)).toBe(1); // treated as submitted → stops, no C-m
+      expect(cmCount(t.calls)).toBe(0);
+      expect(warnings.length).toBe(0);
+    },
+    10_000,
   );
 
   test(

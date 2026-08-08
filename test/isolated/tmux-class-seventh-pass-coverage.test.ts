@@ -188,11 +188,11 @@ describe("tmux-class seventh-pass isolated coverage", () => {
       "loadBuffer:run\\nfollowup",
       "pasteBuffer",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 });

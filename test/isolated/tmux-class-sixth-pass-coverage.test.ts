@@ -220,9 +220,9 @@ describe("tmux-class sixth-pass isolated coverage", () => {
       "exitModeIfNeeded:alpha:0.0",
       "sendKeysLiteral:make test",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
 
     const noWhitespace = new SubmitProbeTmux();
@@ -234,7 +234,7 @@ describe("tmux-class sixth-pass isolated coverage", () => {
       "exitModeIfNeeded:alpha:0.0",
       "sendKeysLiteral:make test",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 
