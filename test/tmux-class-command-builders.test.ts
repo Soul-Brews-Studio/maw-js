@@ -265,9 +265,9 @@ describe("Tmux command wrapper coverage", () => {
       "exitModeIfNeeded:s:main.0",
       "sendKeysLiteral:pending",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8", // 8 lines: a TUI footer sits below the input and pushes it up
       "sendKeys:Enter",
-      "capture:5",
+      "capture:8",
     ]);
   });
 

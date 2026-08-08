@@ -523,15 +523,28 @@ export class Tmux {
    */
   private async submitWithConfirm(target: string, sentText: string): Promise<void> {
     for (let attempt = 1; attempt <= MAX_SUBMIT_ATTEMPTS; attempt++) {
-      await this.sendKeys(target, "Enter");
+      if (attempt === MAX_SUBMIT_ATTEMPTS) {
+        // Last-ditch escalation: the named `Enter` key can be swallowed by a
+        // TUI that rebinds Return (the Enter-eaten silent stall). `C-m` is the
+        // raw carriage return and lands even then. Log every escalation — an
+        // eaten Enter is exactly the failure this path guards against, so the
+        // audit trail (stderr, append-only in the pane log) must record it.
+        console.warn(
+          `[tmux] submitWithConfirm: ${target} escalating to literal C-m on final attempt ${attempt}/${MAX_SUBMIT_ATTEMPTS}`,
+        );
+        await this.sendKeys(target, "C-m");
+      } else {
+        await this.sendKeys(target, "Enter");
+      }
       await new Promise(r => setTimeout(r, SUBMIT_CONFIRM_MS));
       if (!(await this.paneInputPending(target, sentText))) return; // submitted — done
     }
-    // Exhausted every retry and the input line still looks non-empty. The
-    // caller has no visibility into tmux pane state, so warn loudly — a
-    // silently-dropped dispatch is the exact failure mode #6 is about.
+    // Exhausted every retry (including the C-m escalation) and the input line
+    // still looks non-empty. The caller has no visibility into tmux pane state,
+    // so warn loudly — a silently-dropped dispatch is the exact failure mode
+    // #6 is about.
     console.warn(
-      `[tmux] sendText: ${target} still shows pending input after ${MAX_SUBMIT_ATTEMPTS} Enter attempts — command may not have submitted`,
+      `[tmux] sendText: ${target} still shows pending input after ${MAX_SUBMIT_ATTEMPTS} submit attempts — command may not have submitted`,
     );
   }
 
@@ -545,16 +558,56 @@ export class Tmux {
    */
   private async paneInputPending(target: string, sentText: string): Promise<boolean> {
     try {
-      const content = await this.capture(target, 5);
-      const lines = content.split("\n").filter(l => l.trim());
-      const last = (lines.at(-1) ?? "").replace(ANSI_RE, "").replace(/\r/g, "");
-      const sentNeedles = pendingInputNeedles(sentText);
-      if (sentNeedles.some(needle => last.includes(needle))) return true;
+      // 8 lines (was 5): in a full-screen TUI (Claude Code / Codex) the input
+      // line is NOT the bottom captured line — a status/footer line ("⏵⏵ …",
+      // "🐾 … ctx", "Context N% left") sits BELOW it and pushes the real input
+      // up. Reading only lines.at(-1) then reads the footer, never the input:
+      // pending input is never seen, submit is green-lit after one Enter, and an
+      // eaten Enter is never retried (the Enter-eaten silent stall Husky hit).
+      const content = await this.capture(target, 8);
+      const lines = content
+        .split("\n")
+        .map(l => l.replace(ANSI_RE, "").replace(/\r/g, ""))
+        .filter(l => l.trim());
+      if (lines.length === 0) return false;
 
-      // Fallback: prompt marker followed by non-whitespace → user/command text
-      // still sitting on the input line. Includes Codex `›` for immediate #2380
-      // relief while sent-text detection handles unknown future engines.
-      return /[#$%>❯»›]\s+\S/.test(last);
+      // Locate the live input line. A TUI carries a prompt marker (❯ Claude
+      // Code / › Codex) at line-start and sits above the footer, so scan for the
+      // LAST marker line. Plain shells keep the prompt on the bottom line with
+      // the marker mid-line ("user@host:~$ cmd"), so fall back to lines.at(-1).
+      let markerIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (/^\s*[❯›]\s/.test(lines[i])) markerIdx = i;
+      }
+      const inputLine = markerIdx >= 0 ? lines[markerIdx] : (lines.at(-1) ?? "");
+
+      // `❯`/`›` is ALSO a menu selection cursor (permission dialog, /model,
+      // ExitPlanMode, codex confirm). "❯ 1. Yes" must NOT read as pending input:
+      // retrying Enter into it would auto-select the option (auto-approve,
+      // potentially destructive). A numbered/lettered option under the cursor →
+      // NOT pending, so the retry loop stops. Biasing to a missed (loudly
+      // warned) resend is far safer than auto-confirming a dialog. (Collie T4
+      // CRITICAL-1.)
+      const tuiMatch = inputLine.match(/^\s*[❯›]\s+(\S.*)$/);
+      if (tuiMatch) {
+        const rest = tuiMatch[1].trim();
+        if (/^[0-9A-Za-z][.)]\s/.test(rest)) return false;
+        // Empty-state placeholders (codex "Use /skills…", CC hints) are ghost
+        // text, not real input. CC-centric maintained surface — on CC an empty
+        // submit is a harmless no-op, so an unknown placeholder erring to
+        // "pending" costs only a stray Enter, never a wrong action.
+        if (/^(Use \/skills|Try "|Ask |Type |Send a message)/.test(rest)) return false;
+      }
+
+      // Sent text still visible ON THE INPUT LINE → not yet submitted. Scoped to
+      // the input line (not every captured line) so a submitted message echoed
+      // into the conversation area above can't false-trigger an endless retry.
+      const sentNeedles = pendingInputNeedles(sentText);
+      if (sentNeedles.some(needle => inputLine.includes(needle))) return true;
+
+      // Fallback: prompt marker + non-whitespace still on the input line.
+      // Includes Codex `›` for #2380 while sent-text handles unknown engines.
+      return /[#$%>❯»›]\s+\S/.test(inputLine);
     } catch {
       return false;
     }
