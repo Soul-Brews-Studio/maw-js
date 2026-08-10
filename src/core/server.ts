@@ -23,6 +23,7 @@ import { getRuntimeVersionLabel } from "./runtime/build-info";
 import { ServeRouteRegistry } from "./serve-route-registry";
 import { ServeWsRegistry } from "./serve-ws-registry";
 import { addCorsHeaders, handleCorsOptions } from "./serve-cors";
+import { installProcessGuards } from "./process-guards";
 import { createViews } from "../vendor/mpr-plugins/serve-views/index.ts";
 import { serve as registerServeWs } from "../vendor/mpr-plugins/serve-ws/index.ts";
 export { createViews };
@@ -520,6 +521,10 @@ export async function startBunGatewayServer(
     info: (message) => log.info(message),
     warn: (message) => log.warn(message),
   });
+
+  // Installed before the socket opens, so the first frame a client can possibly
+  // send is already covered.
+  installProcessGuards({ error: (message) => log.error(message) });
 
   let server: ReturnType<typeof Bun.serve>;
   try {
