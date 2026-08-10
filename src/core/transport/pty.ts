@@ -67,6 +67,44 @@ function replayLinesFromControl(value: unknown): number {
   return Math.max(0, Math.min(10_000, Math.floor(n)));
 }
 
+/** A control message's `target`, or null when the client sent something unusable.
+ *
+ * Split out of attach() rather than checked inside it, because attach() is
+ * `async`: anything it throws becomes a *rejected promise*, and the try/catch
+ * around the dispatch in handlePtyMessage only ever sees synchronous throws. On
+ * 2026-08-10 one `{"type":"attach","target":null}` frame reached `target.replace`
+ * and the resulting unhandled rejection took the whole `maw serve` process down,
+ * blinding Colony for the entire fleet while every oracle kept running. So the
+ * check has to happen on this side of the call, before the promise exists.
+ */
+export function controlTarget(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Tell the client its frame was rejected, and why.
+ *
+ * Refusing in silence is what made the original bug expensive to diagnose: a
+ * client sending a malformed target got the same nothing back as a client whose
+ * pane was simply quiet. Sending never throws upward — the socket may already be
+ * gone, and a failure to explain a refusal must not itself become a refusal.
+ */
+function sendControlError(ws: MawWS, message: string): void {
+  try {
+    // `message`, not `detail`, to match the error frame this module already
+    // sends ("Failed to create PTY session" below). The web client ships as a
+    // separate dist and is not in this repo, so a new field name here would very
+    // likely be read by nobody — a refusal the client cannot see is the silence
+    // this change exists to remove.
+    ws.send(JSON.stringify({ type: "error", message }));
+  } catch { /* expected: viewer may have disconnected mid-refusal */ }
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function replayCapture(ws: MawWS, target: string, lines: number, io: PtyDeps) {
   if (lines <= 0) return;
   try {
@@ -162,7 +200,20 @@ function handlePtyMessage(ws: MawWS, msg: string | Buffer) {
   // JSON control message
   try {
     const data = JSON.parse(msg);
-    if (data.type === "attach") attach(ws, data.target, data.cols || 120, data.rows || 40, replayLinesFromControl(data.replayLines));
+    if (data.type === "attach") {
+      const target = controlTarget(data.target);
+      if (!target) {
+        sendControlError(ws, `attach: "target" must be a non-empty string, got ${JSON.stringify(data.target) ?? "undefined"}`);
+        return;
+      }
+      // attach() is async, so this call cannot be left bare: a rejection would
+      // escape the try/catch below, become an unhandled rejection, and take the
+      // process with it. Awaiting is not an option either — handlePtyMessage is
+      // the ws `message` callback and must stay synchronous — so the rejection
+      // is claimed here instead, and reported to the client that caused it.
+      void attach(ws, target, data.cols || 120, data.rows || 40, replayLinesFromControl(data.replayLines))
+        .catch((err) => sendControlError(ws, `attach failed: ${errText(err)}`));
+    }
     else if (data.type === "resize") resize(ws, data.cols, data.rows);
     else if (data.type === "detach") detach(ws);
   } catch { /* expected: malformed WS message */ }
@@ -175,7 +226,14 @@ function handlePtyClose(ws: MawWS) {
 async function attach(ws: MawWS, target: string, cols: number, rows: number, replayLines: number) {
   // Sanitize target: only allow safe characters
   const safe = target.replace(/[^a-zA-Z0-9\-_:.]/g, "");
-  if (!safe) return;
+  // Was a bare `return` — indistinguishable, from the client's side, from an
+  // attach that worked and then had nothing to show. Callers reach this only
+  // with a non-empty string (controlTarget), so an empty result here means every
+  // character was stripped, which is worth saying out loud.
+  if (!safe) {
+    sendControlError(ws, `attach: "target" has no usable characters after sanitizing: ${JSON.stringify(target)}`);
+    return;
+  }
 
   // Detach from any existing session
   detach(ws);

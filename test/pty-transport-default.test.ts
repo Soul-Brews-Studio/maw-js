@@ -3,7 +3,7 @@
  * process/tmux/config seams instead of global Bun/tmux mocks.
  */
 import { describe, expect, test } from "bun:test";
-import { createPtyHandlers, ptyDeps, type PtyDeps } from "../src/core/transport/pty";
+import { controlTarget, createPtyHandlers, ptyDeps, type PtyDeps } from "../src/core/transport/pty";
 
 const encode = (text: string) => new TextEncoder().encode(text);
 const decode = (data: unknown) => data instanceof Uint8Array ? new TextDecoder().decode(data) : String(data);
@@ -192,7 +192,7 @@ describe("ptyDeps", () => {
 });
 
 describe("createPtyHandlers", () => {
-  test("ignores malformed controls, empty sanitized targets, resize/detach, and binary before attach", () => {
+  test("ignores malformed controls, resize/detach, and binary before attach — but says so when a target sanitizes away", () => {
     const h = makeHarness();
     const ws = makeWs();
 
@@ -200,9 +200,18 @@ describe("createPtyHandlers", () => {
     h.handlePtyMessage(ws as any, "not json");
     h.handlePtyMessage(ws as any, JSON.stringify({ type: "resize", cols: 10, rows: 5 }));
     h.handlePtyMessage(ws as any, JSON.stringify({ type: "detach" }));
-    h.handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target: "!!!" }));
 
+    // Everything above is genuinely nothing to report: a keystroke before any
+    // attach, a frame that is not JSON, and two controls that did their job.
     expect(ws.sent).toEqual([]);
+
+    // "!!!" is different — the client asked for something and got refused. It
+    // used to be refused in silence, which reads identically to a pane that has
+    // nothing to show, so the refusal now goes back down the socket.
+    h.handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target: "!!!" }));
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0] as string).type).toBe("error");
+
     expect(h.spawnCalls).toEqual([]);
     expect(h.groupedCalls).toEqual([]);
   });
@@ -422,5 +431,114 @@ describe("createPtyHandlers", () => {
     await eventually(() => h.killSessionCalls.includes("maw-pty-stale"), "P3 stale-orphan kill");
     expect(h.killSessionCalls).not.toContain("maw-pty-other");
     await h.finishReaders();
+  });
+});
+
+/**
+ * Regression: on 2026-08-10 a single ws frame carrying `"target": null` reached
+ * `target.replace` inside the *async* attach(), and the resulting unhandled
+ * rejection killed the whole `maw serve` process — Colony went blind for the
+ * entire fleet while every oracle underneath it kept running normally.
+ *
+ * The try/catch that already wrapped the dispatch could not help: attach() is
+ * async, so it rejects rather than throws, and a rejection does not travel up
+ * into a synchronous catch. These tests therefore assert two separate things —
+ * that the frame is refused *and explained*, and that nothing about handling it
+ * produces an unhandled rejection.
+ */
+describe("createPtyHandlers — a malformed attach must not kill the process", () => {
+  const badTargets: Array<[string, unknown]> = [
+    ["null", null],
+    ["a number", 42],
+    ["an object", { name: "01-labubu" }],
+    ["an array", ["01-labubu"]],
+    ["a boolean", true],
+    ["the empty string", ""],
+    ["whitespace only", "   "],
+    ["missing entirely", undefined],
+  ];
+
+  for (const [label, target] of badTargets) {
+    test(`refuses target = ${label} with an error the client can read, and keeps serving`, async () => {
+      const h = makeHarness();
+      const ws = makeWs();
+      const rejections: unknown[] = [];
+      const onRejection = (reason: unknown) => rejections.push(reason);
+      process.on("unhandledRejection", onRejection);
+
+      try {
+        h.handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target }));
+        await flush();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // Refused...
+        expect(h.spawnCalls).toEqual([]);
+        expect(h.groupedCalls).toEqual([]);
+        // ...out loud, so the client learns what it did wrong.
+        expect(ws.sent).toHaveLength(1);
+        const reply = JSON.parse(ws.sent[0] as string);
+        expect(reply.type).toBe("error");
+        expect(reply.message).toContain("target");
+        // ...and without the rejection that took the process down.
+        expect(rejections).toEqual([]);
+
+        // Still serving: a good frame right after a bad one still attaches.
+        h.handlePtyMessage(ws as any, JSON.stringify({ type: "attach", target: "01-labubu:0" }));
+        await eventually(() => h.spawnCalls.length === 1, "attach after a malformed frame");
+        await h.finishReaders();
+      } finally {
+        process.off("unhandledRejection", onRejection);
+      }
+    });
+  }
+
+  test("a rejection raised past attach()'s own try/catch never reaches the process", async () => {
+    // Session creation already had an internal try/catch, so that path was never
+    // the one that killed serve. The unguarded surface is everything *outside*
+    // it — here, the bare `ws.send({type:"attached"})` on the cached-session
+    // branch. A viewer that goes away between JOIN and that send makes send()
+    // throw, and before the .catch() this rejected into the process exactly the
+    // way `target.replace` on null did.
+    const h = makeHarness({ spawnPlans: [{ autoEnd: false }] });
+    const first = makeWs();
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+
+    try {
+      h.handlePtyMessage(first as any, JSON.stringify({ type: "attach", target: "01-labubu:0" }));
+      await eventually(() => h.spawnCalls.length === 1, "first attach creates the session");
+
+      // Second viewer joins the cached session, then dies mid-send.
+      const dying = {
+        sent: [] as unknown[],
+        send() { throw new Error("WebSocket is already closed"); },
+      };
+      h.handlePtyMessage(dying as any, JSON.stringify({ type: "attach", target: "01-labubu:0" }));
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(rejections).toEqual([]);
+
+      // And the server is still serving the viewer that is still there.
+      h.handlePtyMessage(first as any, JSON.stringify({ type: "detach" }));
+      await flush();
+      expect(rejections).toEqual([]);
+      await h.finishReaders();
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
+
+  test("controlTarget accepts what a real client sends and nothing else", () => {
+    expect(controlTarget("01-labubu:0")).toBe("01-labubu:0");
+    expect(controlTarget("  01-labubu:0  ")).toBe("01-labubu:0");
+    expect(controlTarget(null)).toBeNull();
+    expect(controlTarget(undefined)).toBeNull();
+    expect(controlTarget("")).toBeNull();
+    expect(controlTarget("   ")).toBeNull();
+    expect(controlTarget(42)).toBeNull();
+    expect(controlTarget({})).toBeNull();
+    expect(controlTarget([])).toBeNull();
   });
 });
