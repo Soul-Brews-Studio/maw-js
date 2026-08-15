@@ -1,20 +1,27 @@
 {
-  "name": "costs",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Show token usage and estimated cost breakdown per agent.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:d6fecca891f8cbb4208dcc2469be763e41013957044041adfc15423f753f553f"
+  },
   "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "fs:read:claude-projects"
+  ],
   "cli": {
     "command": "costs",
-    "help": "maw costs [--daily] [--days N] [--json] — show token usage and cost breakdown per agent",
-    "flags": {
-      "--daily": "boolean",
-      "--days": "number",
-      "--json": "boolean"
-    }
+    "help": "maw costs [--daily [N]|--days N] [--json]"
   },
-  "weight": 50,
-  "license": "MIT",
-  "schemaVersion": 1
+  "description": "Show token usage and estimated cost breakdown per agent.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
+  },
+  "name": "costs",
+  "schemaVersion": 1,
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "./plugin.wasm",
+  "weight": 20
 }

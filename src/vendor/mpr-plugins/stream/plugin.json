@@ -1,19 +1,32 @@
 {
-  "name": "stream",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Mirror a tmux window into another session with link-window.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:e323e52db8fa0445120973d24d0e88346cc5c2d80f38d507b5f502632cece7a4"
+  },
+  "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "tmux:read",
+    "tmux:raw:new-session",
+    "tmux:raw:link-window",
+    "tmux:raw:rename-window",
+    "tmux:raw:set-window-option",
+    "tmux:raw:kill-window",
+    "tmux:raw:unlink-window"
+  ],
   "cli": {
     "command": "stream",
-    "help": "maw stream <session>:<win> [--into <session>] [--name <alias>] | maw stream --unlink <session>:<alias> - mirror a tmux window with link-window",
-    "flags": {
-      "--into": "string",
-      "--name": "string",
-      "--unlink": "boolean"
-    }
+    "help": "maw stream <session>:<win> [--into <session>] [--name <alias>] [--dry-run|--plan-json] | maw stream --unlink <session>:<alias> [--dry-run|--plan-json]"
   },
-  "weight": 10,
-  "license": "MIT",
-  "schemaVersion": 1
+  "description": "Link and unlink shared tmux windows across sessions.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
+  },
+  "name": "stream",
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "plugin.wasm",
+  "weight": 20
 }

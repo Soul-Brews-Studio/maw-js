@@ -1,15 +1,30 @@
 {
-  "name": "demo",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Simulated multi-agent session — the gateway drug. No API key required.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:e119c93feaa997c6b09c0f0efda023321694ce0da7747ebbe027991ed9cff86f"
+  },
   "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "tmux:read",
+    "tmux:raw:kill-pane",
+    "tmux:raw:split-window"
+  ],
   "cli": {
     "command": "demo",
-    "help": "maw demo — run a 90-second simulated multi-agent session (no API key required)\n\nSpawns two mock agents in tmux panes, streams scripted output with realistic\npauses, then shows $0.00 cost. Requires an active tmux session.\n\nFlags:\n  --fast   Skip sleep delays (CI / screenshot mode)\n  --help   Show this message"
+    "help": "maw demo [--fast]"
   },
-  "weight": 55,
+  "description": "Run a simulated multi-agent session in tmux.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
+  },
   "license": "MIT",
-  "schemaVersion": 1
+  "name": "demo",
+  "schemaVersion": 1,
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "plugin.wasm",
+  "weight": 20
 }

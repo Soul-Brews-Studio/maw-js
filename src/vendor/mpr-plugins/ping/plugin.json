@@ -1,21 +1,23 @@
 {
-  "name": "ping",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Ping peer nodes to check connectivity and auth status.",
+  "api": {
+    "methods": [
+      "GET"
+    ],
+    "path": "/api/ping"
+  },
+  "artifact": {
+    "path": "./index.js",
+    "sha256": "sha256:d5acce9a9cf8a362f59f9ba6fba948b939998511c58c4964f5c673853bf1296b"
+  },
   "author": "Soul-Brews-Studio",
+  "capabilities": [],
   "cli": {
     "command": "ping",
     "help": "maw ping [node] — ping all peers or a specific node"
   },
-  "api": {
-    "path": "/api/ping",
-    "methods": [
-      "GET"
-    ]
-  },
-  "weight": 0,
-  "license": "MIT",
-  "schemaVersion": 1
+  "description": "Ping peer nodes to check connectivity and auth status.",
+  "entry": "./index.js",
+  "name": "ping",
+  "sdk": "^1.0.0",
+  "version": "1.0.0"
 }

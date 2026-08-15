@@ -1,0 +1,11 @@
+{
+  "name": "@maw-plugins/contacts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Manage oracle contacts — add, remove, list",
+  "type": "module",
+  "main": "./index.ts",
+  "peerDependencies": {
+    "maw-js": "*"
+  }
+}

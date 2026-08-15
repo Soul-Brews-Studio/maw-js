@@ -1,15 +1,31 @@
 {
-  "name": "mega",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Manage MegaAgent multi-agent teams.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:31d4cda0d09d8dfae0ae08849a56f549f82bce4d5227a39e4a7886005ec78cb0"
+  },
   "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "fs:read:fleet-config",
+    "fs:read:fleet-legacy",
+    "fs:read:fleet-state",
+    "tmux:raw:kill-session",
+    "tmux:read"
+  ],
   "cli": {
     "command": "mega",
-    "help": "maw mega [status|stop] — manage MegaAgent multi-agent teams"
+    "help": "maw mega <ls|status|stop|kill|tree> [--team-lead] [--yes] [target...]"
   },
-  "weight": 10,
-  "license": "MIT",
-  "schemaVersion": 1
+  "description": "Inspect and control configured fleet tmux sessions.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
+  },
+  "name": "mega",
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "plugin.wasm",
+  "schemaVersion": 1,
+  "weight": 20
 }

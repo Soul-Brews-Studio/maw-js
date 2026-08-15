@@ -1,12 +1,34 @@
 {
-  "name": "tile",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Arrange the current window into a grid or spawn tile panes; use panes to inspect and pane swap to move panes.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:c9246ee8867bc73b3e75f2e153eed5e0944218dd62a28c9483b7c933d86b685a"
+  },
+  "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "tmux:read",
+    "tmux:raw:list-panes",
+    "tmux:raw:split-window",
+    "tmux:raw:select-pane",
+    "tmux:raw:set-option",
+    "tmux:raw:send-keys",
+    "tmux:raw:select-layout",
+    "tmux:raw:swap-pane",
+    "tmux:raw:kill-pane"
+  ],
   "cli": {
     "command": "tile",
-    "help": "maw tile [N] [--wt <name>] [--path <dir>] [--cmd <cmd>] — arrange current window or spawn N panes; see maw panes to inspect and maw pane swap to move"
+    "help": "maw tile [N] [--border] [--path <dir>] [--cmd <cmd>] [--engine <name>] | clean | swap <a> <b>"
   },
-  "weight": 5
+  "description": "Create, arrange, swap, and clean managed tmux tile panes.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
+  },
+  "name": "tile",
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "plugin.wasm",
+  "weight": 20
 }
