@@ -1,29 +1,35 @@
 {
-  "name": "artifact-manager",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Task artifact lifecycle — ls, get, write, attach, init. Pure TypeScript, no WASM.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:c8207773d4064cc8409df3aed26551802dd86d47a4a1c851261f1e161c76f11d"
+  },
   "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "fs:read:maw-cache",
+    "fs:write:maw-cache",
+    "fs:read:maw-legacy",
+    "fs:write:maw-legacy",
+    "proc:exec:base64",
+    "proc:exec:date"
+  ],
   "cli": {
-    "command": "art",
     "aliases": [
-      "artifact-manager"
+      "art"
     ],
-    "help": "maw art [ls|get|write|attach|init] [--json] [--team <team>]\n       maw art ls [team]                              — list artifacts (table or --json)\n       maw art get <team> <task-id>                   — show full artifact (spec + result + attachments)\n       maw art write <team> <task-id> <message...>    — write result.md\n       maw art attach <team> <task-id> <file-path>    — attach a file\n       maw art init <team> <task-id> <subject> [...]  — create artifact manually",
-    "flags": {
-      "--json": "boolean",
-      "--team": "string"
-    }
+    "command": "artifact-manager",
+    "help": "maw art [ls|get|write|attach|init] [--json] [--team <team>]"
   },
-  "api": {
-    "path": "/api/plugins/artifact-manager",
-    "methods": [
-      "GET",
-      "POST"
-    ]
+  "description": "Task artifact lifecycle: list, inspect, create, write results, and attach files.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
   },
-  "weight": 50,
-  "license": "MIT",
-  "schemaVersion": 1
+  "name": "artifact-manager",
+  "schemaVersion": 1,
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "plugin.wasm",
+  "weight": 50
 }

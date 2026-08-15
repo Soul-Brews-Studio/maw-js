@@ -1,3 +1,6 @@
-oracle: mawui-oracle
-path: /home/neo/Code/github.com/Soul-Brews-Studio/mawui-oracle
-incubated: 2026-04-11
+oracle: crew-master-oracle
+oracle-repo: ssh://git@github.com/soul-brews-studio/crew-master-oracle.git
+date: 2026-07-30
+mode: read-only-investigation
+source: https://github.com/Soul-Brews-Studio/maw-js
+note: 78 uncommitted files pre-existed on branch feat/location-lifecycle-events — NOT touched, NOT stashed, NOT pulled.

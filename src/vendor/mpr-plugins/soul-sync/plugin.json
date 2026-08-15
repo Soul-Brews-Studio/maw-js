@@ -1,19 +1,37 @@
 {
-  "name": "soul-sync",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Synchronize oracle soul across nodes.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:48ac5fdb5fe448369873fa8ff68bcfd2cdacc29f151617b3ebe16b0a7cedc92a"
+  },
   "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "fs:read:fleet-config",
+    "fs:read:fleet-legacy",
+    "fs:read:fleet-state",
+    "fs:read:repos",
+    "fs:write:repos",
+    "proc:exec:date",
+    "proc:exec:git"
+  ],
   "cli": {
-    "command": "soul-sync",
     "aliases": [
       "soulsync",
       "ss"
     ],
-    "help": "maw soul-sync [target] [--from <source>] [--project]"
+    "command": "soul-sync",
+    "help": "maw soul-sync [peer] [--from <peer>] [--project]"
   },
-  "weight": 10,
-  "license": "MIT",
-  "schemaVersion": 1
+  "description": "Synchronize PSI memory between oracle and project repositories.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
+  },
+  "name": "soul-sync",
+  "schemaVersion": 1,
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "plugin.wasm",
+  "weight": 20
 }

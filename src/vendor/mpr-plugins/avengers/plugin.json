@@ -1,18 +1,42 @@
 {
-  "name": "avengers",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Manage the Avengers multi-agent team.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:87769fdfdc90a0e674024f69198e10ebd57470323ad9ca0ba25729256f0472d5"
+  },
   "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "sdk:config:read",
+    "net:fetch:avengers"
+  ],
   "cli": {
     "command": "avengers",
-    "aliases": [
-      "avg"
-    ],
-    "help": "maw avengers [status|assemble|disband] — Manage the Avengers multi-agent team"
+    "help": "maw avengers [status|best|traffic|health]"
   },
-  "weight": 50,
+  "description": "Monitor ARRA-01 Avengers accounts and rate limits.",
+  "endpoints": {
+    "avengers": {
+      "baseUrlRef": "avengers",
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/all",
+        "/best",
+        "/traffic-stats"
+      ]
+    }
+  },
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
+  },
   "license": "MIT",
-  "schemaVersion": 1
+  "name": "avengers",
+  "schemaVersion": 1,
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "./plugin.wasm",
+  "weight": 20
 }

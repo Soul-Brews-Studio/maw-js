@@ -1,18 +1,33 @@
 {
-  "name": "broadcast",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Broadcast a message to all agents.",
   "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "tmux:read",
+    "tmux:send",
+    "fs:read:teams",
+    "fs:read:cwd",
+    "fs:read:fleet-config",
+    "fs:read:fleet-legacy",
+    "fs:read:fleet-state"
+  ],
   "cli": {
     "command": "broadcast",
-    "aliases": [
-      "shout"
-    ],
-    "help": "maw broadcast <message> — broadcast a message to all agents"
+    "help": "maw broadcast [--dry-run] [--session <name>] [--team <name>] [--fleet <name>] [--] <message>"
   },
-  "weight": 50,
-  "license": "MIT",
-  "schemaVersion": 1
+  "description": "Broadcast a message to scoped agent panes.",
+  "entry": {
+    "kind": "wasm",
+    "path": "plugin.wasm",
+    "export": "handle"
+  },
+  "name": "broadcast",
+  "schemaVersion": 1,
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "./plugin.wasm",
+  "weight": 20,
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:0d92c80ea45e4c97321388f021ae95c81940f85ba9f9a55089a84477024eaf4e"
+  }
 }

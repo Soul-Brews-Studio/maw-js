@@ -1,24 +1,30 @@
 {
-  "name": "contacts",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Manage oracle contacts — add, remove, list",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:2d1ffdf7c7fa053cb4e51d1c3d7db3b9b01f4339c9eab76f167d60414fa7cb11"
+  },
+  "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "fs:read:psi",
+    "fs:write:psi"
+  ],
   "cli": {
-    "command": "contacts",
     "aliases": [
       "contact"
     ],
-    "help": "maw contacts [ls|add|rm] [name] [transport]"
+    "command": "contacts",
+    "help": "maw contacts [ls|add|rm] [name] [--maw V] [--thread V] [--inbox V] [--repo V] [--notes V]"
   },
-  "api": {
-    "path": "/api/contacts",
-    "methods": [
-      "GET",
-      "POST"
-    ]
+  "description": "Manage oracle contacts — add, remove, list.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
   },
-  "weight": 0,
-  "license": "MIT",
-  "schemaVersion": 1
+  "name": "contacts",
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "plugin.wasm",
+  "weight": 20
 }

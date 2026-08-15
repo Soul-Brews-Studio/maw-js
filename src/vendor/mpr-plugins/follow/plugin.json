@@ -1,20 +1,27 @@
 {
-  "name": "follow",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Follow live pane output through the PTY websocket bridge.",
+  "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "tmux:read"
+  ],
   "cli": {
     "command": "follow",
-    "help": "maw follow <pane> [--since=<dur>] [--json] [--grep <pattern>] [--quit-on-idle=<dur>] - follow live pane output",
-    "flags": {
-      "--since": "string",
-      "--json": "boolean",
-      "--grep": "string",
-      "--quit-on-idle": "string"
-    }
+    "help": "maw follow <pane> [--since=<dur>] [--json] [--grep <pattern>] [--quit-on-idle=<dur>]"
   },
-  "weight": 10,
-  "license": "MIT",
-  "schemaVersion": 1
+  "description": "Capture and filter recent output from a tmux pane.",
+  "entry": {
+    "kind": "wasm",
+    "path": "plugin.wasm",
+    "export": "handle"
+  },
+  "name": "follow",
+  "schemaVersion": 1,
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "./plugin.wasm",
+  "weight": 20,
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:e4185f6f2ff565754e4491f3d4fc01a03c3279522b96ac0dc60b643c7c2da704"
+  }
 }

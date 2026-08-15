@@ -25,6 +25,10 @@ export type FeedEventType =
   // Wormhole lifecycle (peer-exec)
   | "WormholeRequest"
   | "WormholeFail"
+  // Location lifecycle (timekeeper-owned event stream)
+  | "LocationEnter"
+  | "LocationExit"
+  | "LocationStillHere"
   // Plugin lifecycle
   | "PluginHook"
   | "PluginFilter"

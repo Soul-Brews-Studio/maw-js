@@ -1,8 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
-import { loadConfig } from "maw-js/config";
-import { parseFlags } from "maw-js/cli/parse-args";
+import { loadConfig, parseFlags } from "maw-js/sdk";
 
 interface Contact {
   maw?: string;

@@ -1,15 +1,33 @@
 {
-  "name": "pulse",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "sdk": "^1.0.0",
-  "description": "Task pulse — add, list, and clean up work items.",
+  "artifact": {
+    "path": "./plugin.wasm",
+    "sha256": "sha256:1f20c2247b8a802c85460fae3ddc6a0bec2fdcdda51c9171f6f7aa7219698bcf"
+  },
   "author": "Soul-Brews-Studio",
+  "capabilities": [
+    "exec:home",
+    "fs:read:repos",
+    "proc:exec:date",
+    "proc:exec:gh",
+    "proc:exec:git",
+    "proc:exec:maw",
+    "tmux:read"
+  ],
   "cli": {
     "command": "pulse",
-    "help": "maw pulse <add|ls|cleanup> [opts]"
+    "help": "maw pulse <add|ls|cleanup|active|stale|orphan> [opts]"
   },
-  "weight": 10,
-  "license": "MIT",
-  "schemaVersion": 1
+  "description": "Manage the Pulse issue board and stale agent worktrees.",
+  "entry": {
+    "export": "handle",
+    "kind": "wasm",
+    "path": "plugin.wasm"
+  },
+  "name": "pulse",
+  "schemaVersion": 1,
+  "sdk": "^1.0.0",
+  "target": "wasm",
+  "version": "1.0.0",
+  "wasm": "plugin.wasm",
+  "weight": 20
 }
