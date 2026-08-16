@@ -554,7 +554,10 @@ export class Tmux {
       // Fallback: prompt marker followed by non-whitespace → user/command text
       // still sitting on the input line. Includes Codex `›` for immediate #2380
       // relief while sent-text detection handles unknown future engines.
-      return /[#$%>❯»›]\s+\S/.test(last);
+      // The marker must not follow a word character: engine status bars like
+      // "Context 62% left" carry `% l` mid-line and are not pending input,
+      // while real prompts ("agent@host:~$ cmd", "❯ cmd") keep matching.
+      return /(?<!\w)[#$%>❯»›]\s+\S/.test(last);
     } catch {
       return false;
     }
