@@ -219,9 +219,9 @@ describe("cmdPreflight", () => {
     expect(text).toContain("1 fixed");
   });
 
-  test("dead agents are listed and non-fix mode prints revive hint", async () => {
+  test("non-agent panes are informational and do not suggest revival", async () => {
     const h = makeHarness({
-      entries: [],
+      entries: ["one"],
       sessions: [session("54-mawjs", [
         { index: 0, name: "mawjs-oracle" },
         { index: 1, name: "helper" },
@@ -237,22 +237,26 @@ describe("cmdPreflight", () => {
 
     const text = out(h.logs);
     expect(text).toContain("sessions: 1 (1 agents alive)");
-    expect(text).toContain("dead agents: 1 pane with no agent");
+    expect(text).toContain("unclassified panes: 1 pane with no detected agent");
     expect(text).toContain("54-mawjs:helper");
-    expect(text).toContain("maw preflight --fix");
+    expect(text).toContain("manual inspection required");
+    expect(text).not.toContain("maw preflight --fix");
+    expect(text).toContain("4 pass, 0 fail");
     expect(h.sendTextCalls).toEqual([]);
   });
 
-  test("--fix revives dead agents with built commands and counts fixed panes", async () => {
+  test("--fix never writes to unclassified panes", async () => {
     const h = makeHarness({
-      entries: [],
+      entries: ["one"],
       sessions: [session("54-mawjs", [
-        { index: 0, name: "dead-a" },
-        { index: 1, name: "dead-b" },
+        { index: 0, name: "alive" },
+        { index: 1, name: "worker" },
+        { index: 2, name: "dev-shell" },
       ])],
       paneInfos: {
-        "54-mawjs:0": { command: "zsh", cwd: "/repo/a" },
-        "54-mawjs:1": { command: "bash" },
+        "54-mawjs:0": { command: "claude", cwd: "/repo" },
+        "54-mawjs:1": { command: "bash", cwd: "/repo/worker" },
+        "54-mawjs:2": { command: "zsh", cwd: "/repo/dev" },
       },
       config: {},
       agentCommands: new Set(["claude"]),
@@ -260,15 +264,12 @@ describe("cmdPreflight", () => {
 
     await h.run(true);
 
-    expect(h.buildCalls).toEqual([
-      { name: "dead-a", cwd: "/repo/a" },
-      { name: "dead-b", cwd: "" },
-    ]);
-    expect(h.sendTextCalls).toEqual([
-      { target: "54-mawjs:0", text: "wake dead-a in /repo/a" },
-      { target: "54-mawjs:1", text: "wake dead-b in <none>" },
-    ]);
-    expect(out(h.logs)).toContain("2 fixed");
+    expect(h.buildCalls).toEqual([]);
+    expect(h.sendTextCalls).toEqual([]);
+    const text = out(h.logs);
+    expect(text).toContain("sessions: 1 (1 agents alive)");
+    expect(text).toContain("unclassified panes: 2 panes with no detected agent");
+    expect(text).toContain("4 pass, 0 fail");
   });
 
   test("session listing errors are treated as no running sessions", async () => {

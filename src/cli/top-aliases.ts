@@ -58,7 +58,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
   work: "Alias for `wake --work .` from cwd (derive oracle)",
   new: "Create a plain tmux workspace session",
-  preflight: "Pre-flight check — version, plugins, dead agents, config",
+  preflight: "Pre-flight check — version, plugins, agent visibility, config",
   snapshots: "List and inspect fleet recovery snapshots",
   wtf: "Read-only team drift doctor for the current tmux team",
 };

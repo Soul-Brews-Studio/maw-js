@@ -125,7 +125,7 @@ SendMessage × N      → L2    (deliver missions)
 | `maw kill <target>` | — | Immediate kill |
 | `maw restart <target>` | — | Restart a session |
 | `maw cleanup` | — | Clean zombie agent panes and prune stale registry |
-| `maw preflight` | — | Pre-flight: version, plugins, dead agents, config |
+| `maw preflight` | — | Pre-flight: version, plugins, agent visibility, config. Non-agent panes are informational and require manual inspection; `--fix` never writes to them. |
 
 ### Messaging & communication (L1)
 
