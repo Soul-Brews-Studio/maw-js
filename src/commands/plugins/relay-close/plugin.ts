@@ -1,0 +1,16 @@
+import { definePlugin } from "maw-js/sdk";
+
+export default definePlugin({
+  name: "relay-close",
+  version: "1.0.0",
+  entry: "./index.ts",
+  sdk: "^1.0.0",
+  description: "Fast MAW close transaction from a verified retrospective + handoff; no helper agent or worktree.",
+  cli: {
+    command: "relay-close",
+    help: "maw relay-close [exact-pane] --retrospective <path> --handoff <path> [--timeout <seconds>] [--foreground|--dry-run] — defaults to the current tmux pane",
+  },
+  weight: 10,
+  license: "MIT",
+  schemaVersion: 1,
+} as const);
