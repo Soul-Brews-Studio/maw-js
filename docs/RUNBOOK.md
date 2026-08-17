@@ -29,11 +29,17 @@ bash); preflight lists such panes as unclassified and `--fix` never writes to th
 ## 3. Restart
 
 ```sh
-maw serve stop && maw serve   # daemon only — picks up current source bytes
+maw serve stop
+nohup maw serve --quiet >/dev/null 2>&1 &
+sleep 3 && maw serve status      # expect: running (PID …)
 ```
-**NEVER use `maw restart` for the daemon** — it restarts the entire fleet
-(sleep + wake all). Full fleet recovery after a machine reboot:
-`orchestrator-vnext/fleet-restore.sh`.
+`maw serve` runs in the foreground (it IS the live Bun server), so the daemon
+must be started detached; the `nohup … &` form above is the one fleet-restore
+used in the 2026-08-16 recovery, and the live daemon currently runs as
+`maw serve --quiet`. **NEVER use `maw restart` for the daemon** — it restarts
+the entire fleet (sleep + wake all). Full fleet recovery after a machine
+reboot: `bash ~/tt3p/agent-hub/orchestrator-vnext/tools/fleet-restore.sh`
+(owner: orchestrator-vnext — see section 7 for its policy boundary).
 
 ## 4. Data operations
 
@@ -47,24 +53,44 @@ maw serve stop && maw serve   # daemon only — picks up current source bytes
 
 - The tool itself is stateless code: git is the backup (push `alpha` to the fork).
 - Runtime state worth preserving: `~/.maw/` (fleet registry, message ledger,
-  serve logs). Copy it wholesale; there is no bespoke restore step — restore
-  the directory and start `maw serve`.
+  serve logs). Backup (verified 2026-08-17 by checksum round-trip on
+  `maw-log.jsonl`):
+  ```sh
+  tar -czf ~/maw-state-backup.tar.gz -C "$HOME" .maw
+  tar -tzf ~/maw-state-backup.tar.gz | head   # expect .maw/… entries
+  ```
+- Restore: stop the daemon, extract, start detached:
+  ```sh
+  maw serve stop
+  tar -xzf ~/maw-state-backup.tar.gz -C "$HOME"
+  nohup maw serve --quiet >/dev/null 2>&1 &
+  sleep 3 && maw serve status   # expect: running (PID …)
+  ```
 
 ## 6. Fresh install
 
 ```sh
 git clone git@github.com:TTT3P/maw-js.git ~/tt3p/reference-repos/Soul-Brews-Studio/maw-js
 cd ~/tt3p/reference-repos/Soul-Brews-Studio/maw-js && git checkout alpha && bun install
-# recreate the live symlink install:
+# recreate BOTH live symlinks (package + CLI — verified against the live install):
 ln -s ~/tt3p/reference-repos/Soul-Brews-Studio/maw-js \
       ~/.bun/install/global/node_modules/maw-js
-maw serve && maw health
+ln -s ../install/global/node_modules/maw-js/src/cli.ts ~/.bun/bin/maw
+command -v maw                    # expect: ~/.bun/bin/maw
+nohup maw serve --quiet >/dev/null 2>&1 &
+sleep 3 && maw serve status && maw health   # expect: running / server online
 ```
 
 ## 7. Policies & holds
 
 - MAW is the ONLY transport/lifecycle surface for agents — no raw
   `tmux send-keys`, custom inboxes, or substitute dispatchers (global contract).
+- **Known boundary case:** `orchestrator-vnext/tools/fleet-restore.sh` (reboot
+  bootstrap, owner orchestrator-vnext) drives raw tmux input to answer Claude
+  trust/resume prompts during machine-reboot recovery, which predates and sits
+  in tension with the rule above. Ratification of this exception is pending
+  with TINE; until then treat fleet-restore as reboot-bootstrap only, never as
+  an agent-messaging path.
 - Heuristic writes are fail-safe by policy: preflight `--fix` never writes to
   unclassified panes (commit c515c49b); sendText prompt-marker fallback must not
   match mid-line status text (commit 3707438a).
