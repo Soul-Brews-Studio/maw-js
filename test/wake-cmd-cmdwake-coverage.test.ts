@@ -41,6 +41,7 @@ const realSdk = {
   tmux: {
     hasSession: _rSdk.tmux.hasSession.bind(_rSdk.tmux),
     listSessions: _rSdk.tmux.listSessions.bind(_rSdk.tmux),
+    listPanes: _rSdk.tmux.listPanes.bind(_rSdk.tmux),
     listWindows: _rSdk.tmux.listWindows.bind(_rSdk.tmux),
     newSession: _rSdk.tmux.newSession.bind(_rSdk.tmux),
     newWindow: _rSdk.tmux.newWindow.bind(_rSdk.tmux),
@@ -149,6 +150,7 @@ let newSessionVisibleToHasSession: boolean;
 let windowsBySession: Record<string, TmuxWindow[]>;
 let paneCommandDefault: string;
 let paneCommands: Record<string, string>;
+let livePanes: Array<{ target: string; command?: string; cwd?: string }>;
 let liveTileRoles: string[];
 let branchName: string;
 let ensureSessionRunningReturn: number;
@@ -291,6 +293,8 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
       mockActive ? hasSessions.has(name) : realSdk.tmux.hasSession(name),
     listSessions: async () =>
       mockActive ? sessions : realSdk.tmux.listSessions(),
+    listPanes: async () =>
+      mockActive ? (livePanes as any) : realSdk.tmux.listPanes(),
     listWindows: async (session: string) =>
       mockActive
         ? (() => {
@@ -656,6 +660,7 @@ beforeEach(() => {
   };
   paneCommandDefault = "codex";
   paneCommands = {};
+  livePanes = [];
   liveTileRoles = [];
   branchName = "main";
   ensureSessionRunningReturn = 0;
@@ -2072,5 +2077,100 @@ describe("cmdWake main-suite coverage", () => {
     expect(lineage).toContain('budded_from: "mawjs"');
     expect(lineage).toContain('task: "fix-a"');
     expect(lineage).toContain('branch: "feature/fix-a"');
+  });
+});
+
+describe("wake --work owner fork guard", () => {
+  // Riddler MAW backlog 2026-08-17: work-mode wake into a repo whose owner
+  // agent is live must not launch the engine's --continue form — that resumes
+  // the newest conversation for the cwd, forking the live owner's session.
+  const CONTINUE_CMD = "claude --dangerously-skip-permissions --continue";
+
+  function freshWorkSetup(): void {
+    useRealBuildCommandInDir = true;
+    config = { node: "m5", agents: {}, commands: { default: CONTINUE_CMD } };
+    repoName = "maw-js";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+  }
+
+  test("fresh work session + live same-cwd agent pane launches WITHOUT --continue and names the owner", async () => {
+    freshWorkSetup();
+    livePanes = [{ target: "04-croo:croo-oracle.1", command: "claude", cwd: repoPath }];
+
+    const { logs } = await captureLogs(() =>
+      cmdWake("maw-js", { repoPath, sessionMode: "work", noRehydrate: true }),
+    );
+
+    expect(sendTextCalls).toHaveLength(1);
+    expect(sendTextCalls[0]!.text).toContain("claude");
+    expect(sendTextCalls[0]!.text).not.toContain("--continue");
+    const joined = logs.join("\n");
+    expect(joined).toContain("launching FRESH");
+    expect(joined).toContain("04-croo:croo-oracle.1");
+  });
+
+  test("existing work session + net-new window into a live reused worktree launches WITHOUT --continue", async () => {
+    useRealBuildCommandInDir = true;
+    config = { node: "m5", agents: {}, commands: { default: CONTINUE_CMD } };
+    repoName = "homelab";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    sessions = [{ name: "01-homelab" }];
+    hasSessions = new Set(["01-homelab"]);
+    detectSessionReturn = "01-homelab";
+    windowsBySession = {
+      "01-homelab": [{ index: 0, name: "homelab", active: true, cwd: repoPath }],
+    };
+    const wtPath = join(parentDir, "homelab.wt-2-white");
+    mkdirSync(wtPath, { recursive: true });
+    worktrees = [{ name: "2-white", path: wtPath }];
+    livePanes = [{ target: "09-worker:homelab-white.1", command: "claude", cwd: wtPath }];
+
+    const { logs } = await captureLogs(() =>
+      cmdWake("homelab", { repoPath, sessionMode: "work", wt: "white" }),
+    );
+
+    const launch = sendTextCalls[sendTextCalls.length - 1];
+    expect(launch).toBeDefined();
+    expect(launch!.text).toContain("claude");
+    expect(launch!.text).not.toContain("--continue");
+    expect(logs.join("\n")).toContain("launching FRESH");
+  });
+
+  test("fresh work session with NO live owner keeps --continue", async () => {
+    freshWorkSetup();
+    livePanes = [
+      { target: "05-x:shell.1", command: "zsh", cwd: repoPath },
+      { target: "06-y:agent.1", command: "claude", cwd: join(parentDir, "other-repo") },
+    ];
+
+    await captureLogs(() =>
+      cmdWake("maw-js", { repoPath, sessionMode: "work", noRehydrate: true }),
+    );
+
+    expect(sendTextCalls).toHaveLength(1);
+    expect(sendTextCalls[0]!.text).toContain("--continue");
+  });
+
+  test("oracle mode preserves current behavior even with a live same-cwd agent", async () => {
+    useRealBuildCommandInDir = true;
+    config = { node: "m5", agents: {}, commands: { default: CONTINUE_CMD } };
+    sessions = [];
+    hasSessions = new Set();
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+    livePanes = [{ target: "04-croo:croo-oracle.1", command: "claude", cwd: repoPath }];
+
+    await captureLogs(() => cmdWake("mawjs", { noRehydrate: true, noFleet: true }));
+
+    expect(sendTextCalls).toHaveLength(1);
+    expect(sendTextCalls[0]!.text).toContain("--continue");
   });
 });

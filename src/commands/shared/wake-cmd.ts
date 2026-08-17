@@ -1,6 +1,6 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { resolve } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync as fsRealpathSync } from "fs";
 import { join } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
@@ -488,6 +488,38 @@ function buildWakeCommand(windowName: string, cwd: string, opts: WakeCommandOpti
     buildCommandInDir(windowName, cwd, commandOpts),
     { explicit: opts.parentSessionId, sessionId: opts.sessionId, cwd },
   );
+}
+
+/** Work-mode wake must not resume a live owner's conversation. Engine
+ * defaults include `--continue`, which resumes the newest conversation for
+ * the launch cwd — when a live agent pane already runs in that directory (the
+ * repo's owner session), a work window launched with `--continue` forks that
+ * owner's conversation. Pure classifier; caller supplies live panes. */
+export function ownerAgentPaneInCwd(
+  cwd: string,
+  panes: Array<{ target: string; command?: string; cwd?: string }>,
+  realpath: (p: string) => string = (p) => { try { return fsRealpathSync(p); } catch { return p; } },
+): string | null {
+  const wanted = realpath(cwd);
+  const owner = panes.find((pane) =>
+    pane.cwd && realpath(pane.cwd) === wanted && isAgentCommand(pane.command));
+  return owner?.target ?? null;
+}
+
+async function forceFreshIfOwnerLiveInCwd(
+  opts: WakeCommandOptions,
+  cwd: string,
+  mode: WakeSessionMode,
+): Promise<WakeCommandOptions> {
+  if (mode !== "work" || opts.freshLaunch) return opts;
+  try {
+    const ownerTarget = ownerAgentPaneInCwd(cwd, await tmux.listPanes());
+    if (!ownerTarget) return opts;
+    console.log(`\x1b[33m⚠\x1b[0m live agent already runs in ${cwd} (${ownerTarget}) — launching FRESH (no --continue) so its conversation is not forked; to talk to the owner use: maw hey ${ownerTarget}`);
+    return { ...opts, freshLaunch: true };
+  } catch {
+    return opts;
+  }
 }
 
 async function buildWakeCommandForPane(windowName: string, cwd: string, opts: WakeCommandOptions, target: string): Promise<string> {
@@ -1351,12 +1383,17 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
     session = foreignSession || await chooseWakeSessionName(oracle, opts.urlRepoName);
+    // Guard BEFORE our own session exists so the only agent panes visible in
+    // this cwd are the live owner's — a fresh work session in an owner's repo
+    // must not launch the --continue form (it would fork the owner's
+    // conversation). Computed once; the retry step must stay deterministic.
+    const mainLaunchOpts = await forceFreshIfOwnerLiveInCwd(opts, repoPath, sessionContext.mode);
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
     await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session), {
       hasSession: tmux.hasSession,
     });
     await retryFreshSessionTmuxStep(session, "launch main window", () => {
-      const command = buildWakeCommand(mainWindowName, repoPath, opts);
+      const command = buildWakeCommand(mainWindowName, repoPath, mainLaunchOpts);
       return sendWakeCommandAndPrompt(`${session}:${mainWindowName}`, opts.prompt, command, opts.engine);
     }, {
       hasSession: tmux.hasSession,
@@ -1699,7 +1736,12 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   registerWorktreeWindow();
-  const cmd = buildWakeCommand(windowName, targetPath, opts);
+  // targetPath-based on purpose: this also covers a second work window opened
+  // into the SAME worktree while its first agent is still live — that
+  // duplicate would fork the worktree conversation exactly like the main-repo
+  // case, so it gets the same fresh-launch downgrade.
+  const cmd = buildWakeCommand(windowName, targetPath,
+    await forceFreshIfOwnerLiveInCwd(opts, targetPath, sessionContext.mode));
   if (opts.prompt) {
     await sendWakeCommandAndPrompt(`${session}:${windowName}`, opts.prompt, cmd, opts.engine);
   } else {
