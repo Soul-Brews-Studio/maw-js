@@ -120,7 +120,13 @@ let worktrees: Array<{ name: string; path: string }>;
 let sessions: Array<{ name: string }>;
 let sessionMap: Record<string, string>;
 let fleetSession: string | null;
-let fleetSessions: Array<{ name: string; windows: Array<{ name: string; repo?: string }> }>;
+type MockFleetRuntimeIdentity = {
+  engine: string;
+  cwd: string;
+  nativeSessionId: string;
+  capturedAt: string;
+};
+let fleetSessions: Array<{ name: string; windows: Array<{ name: string; repo?: string; runtime?: MockFleetRuntimeIdentity }> }>;
 let detectSessionReturn: string | null;
 let detectSessionByOracle: Record<string, string | null>;
 let shouldWakeDecision: { wake: boolean; reason: string };
@@ -1812,6 +1818,106 @@ describe("cmdWake main-suite coverage", () => {
     expect(rendered).toContain("snapshot restore: 2 windows");
     expect(rendered).toContain("2 window(s) retried");
     expect(rendered).toContain("agent dead, re-launching");
+  });
+
+  test("recovers a missing fleet child window from its native Codex session", async () => {
+    const childCwd = join(tempRoot, "nntn-child");
+    mkdirSync(childCwd, { recursive: true });
+    fleetSessions = [{
+      name: "05-nntn",
+      windows: [
+        { name: "nntn-oracle", repo: "TTT3P/nntn" },
+        {
+          name: "nntn-codex",
+          repo: "",
+          runtime: {
+            engine: "codex",
+            cwd: childCwd,
+            nativeSessionId: "019fcafc-37c8-70c2-b5aa-0bcdb974f344",
+            capturedAt: "2026-08-17T11:09:23.240Z",
+          },
+        },
+      ],
+    }];
+    sessions = [{ name: "05-nntn" }];
+    hasSessions = new Set(["05-nntn"]);
+    windowsBySession = {
+      "05-nntn": [{ index: 0, name: "nntn-oracle", active: true, cwd: repoPath }],
+    };
+
+    const { result } = await captureLogs(() => cmdWake("nntn-codex", {}));
+
+    expect(result).toBe("05-nntn:nntn-codex");
+    expect(newWindowCalls).toEqual([{ session: "05-nntn", name: "nntn-codex", opts: { cwd: childCwd } }]);
+    expect(sendTextCalls).toEqual([{
+      target: "05-nntn:nntn-codex",
+      text: `cd '${childCwd}' && codex resume '019fcafc-37c8-70c2-b5aa-0bcdb974f344'`,
+    }]);
+  });
+
+  test("fails closed when a fleet child window has no recoverable runtime identity", async () => {
+    fleetSessions = [{
+      name: "05-nntn",
+      windows: [
+        { name: "nntn-oracle", repo: "TTT3P/nntn" },
+        { name: "cookbook", repo: "" },
+      ],
+    }];
+
+    await expect(cmdWake("cookbook", {})).rejects.toThrow("missing recoverable runtime identity");
+    expect(newWindowCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([]);
+  });
+
+  test("does not inject recovery into an existing fleet child pane", async () => {
+    const childCwd = join(tempRoot, "cookbook-child");
+    fleetSessions = [{
+      name: "05-nntn",
+      windows: [{
+        name: "cookbook",
+        repo: "",
+        runtime: {
+          engine: "codex",
+          cwd: childCwd,
+          nativeSessionId: "019ffc81-36e9-7863-a3d3-1eee6326f336",
+          capturedAt: "2026-08-17T11:09:23.240Z",
+        },
+      }],
+    }];
+    sessions = [{ name: "05-nntn" }];
+    hasSessions = new Set(["05-nntn"]);
+    windowsBySession = {
+      "05-nntn": [{ index: 3, name: "cookbook", active: true, cwd: childCwd }],
+    };
+
+    const { result } = await captureLogs(() => cmdWake("cookbook", {}));
+
+    expect(result).toBe("05-nntn:cookbook");
+    expect(newWindowCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([]);
+  });
+
+  test("fails closed when fleet child liveness cannot be read", async () => {
+    fleetSessions = [{
+      name: "05-nntn",
+      windows: [{
+        name: "cookbook",
+        repo: "",
+        runtime: {
+          engine: "codex",
+          cwd: "/repo/cookbook",
+          nativeSessionId: "019ffc81-36e9-7863-a3d3-1eee6326f336",
+          capturedAt: "2026-08-17T11:09:23.240Z",
+        },
+      }],
+    }];
+    sessions = [{ name: "05-nntn" }];
+    hasSessions = new Set(["05-nntn"]);
+    listWindowsThrowOnCall = 1;
+
+    await expect(cmdWake("cookbook", {})).rejects.toThrow("tmux busy");
+    expect(newWindowCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([]);
   });
 
   test("reuses the first window listing so a later tmux list failure cannot create a duplicate", async () => {

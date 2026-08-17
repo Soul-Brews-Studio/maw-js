@@ -148,7 +148,7 @@ export { cmdWake, fetchIssuePrompt, findWorktrees, detectSession } from "../comm
 export { parseWakeTarget, ensureCloned } from "../commands/shared/wake-target";
 export { shouldAutoWake } from "../commands/shared/should-auto-wake";
 export type {
-  FleetWindow, FleetSession, FleetEntry, DisabledFleetEntry,
+  FleetWindow, FleetRuntimeIdentity, FleetSession, FleetEntry, DisabledFleetEntry,
 } from "../core/fleet/fleet-load-core";
 export { loadOracleRegistry, getOracleMembers, filterMembers } from "../lib/oracle-members";
 export type { OracleMember, OracleTeamRegistry } from "../lib/oracle-members";

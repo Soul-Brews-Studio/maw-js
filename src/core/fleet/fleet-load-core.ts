@@ -5,9 +5,18 @@ import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleet
 export interface FleetWindow {
   name: string;
   repo: string;
+  runtime?: FleetRuntimeIdentity;
+}
+
+export interface FleetRuntimeIdentity {
+  engine: string;
+  cwd: string;
+  nativeSessionId: string;
+  capturedAt: string;
 }
 
 export interface FleetSession {
+  schemaVersion?: number;
   name: string;
   windows: FleetWindow[];
   skip_command?: boolean;

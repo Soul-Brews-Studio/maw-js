@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, relative, resolve, sep } from "path";
 import { getGhqRoot } from "../../config/ghq-root";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
+import { FLEET_STATE_SCHEMA_VERSION } from "../../core/fleet/runtime-state";
 import { loadFleetEntries, type FleetEntry, type FleetWindow } from "./fleet-load";
 
 export type FleetSessionCreatedBy = "maw wake" | "maw new" | string;
@@ -132,6 +133,7 @@ export function ensureFleetSessionEntry(
     if (windowExists(windows, window)) return { status: "exists", file: existing.path, entry: existing };
     const nextSession = {
       ...existing.session,
+      schemaVersion: FLEET_STATE_SCHEMA_VERSION,
       windows: [...windows, { name: window, repo }],
     };
     const nextEntry = { ...existing, session: nextSession };
@@ -151,6 +153,7 @@ export function ensureFleetSessionEntry(
 
   const createdAt = (deps.now ?? (() => new Date()))().toISOString();
   const fleetSession = {
+    schemaVersion: FLEET_STATE_SCHEMA_VERSION,
     name: session,
     created_at: createdAt,
     created_by: input.createdBy,

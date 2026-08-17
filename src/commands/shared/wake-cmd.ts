@@ -30,6 +30,7 @@ import {
   type SnapshotSession,
 } from "../../core/fleet/snapshot";
 import type { FleetSession } from "./fleet-load";
+import { buildFleetWindowResumeCommand, isFleetRuntimeIdentity } from "../../core/fleet/runtime-state";
 import { listClaudeSessions, type ClaudeSession } from "../../core/fleet/claude-sessions";
 import { UserError } from "../../core/util/user-error";
 import {
@@ -927,6 +928,67 @@ async function loadWakeFleetSessions(): Promise<FleetSession[]> {
   }
 }
 
+async function recoverExactFleetChildWindow(
+  requestedTarget: string,
+  opts: WakeOptions,
+): Promise<string | null> {
+  const matches = (await loadWakeFleetSessions()).flatMap((session) =>
+    session.windows
+      .filter((window) => window.name === requestedTarget)
+      .map((window) => ({ session, window })));
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    throw new Error(`fleet child target is ambiguous: ${requestedTarget}`);
+  }
+  const match = matches[0]!;
+  if (match.window.repo?.trim() && !match.window.runtime) return null;
+  if (!isFleetRuntimeIdentity(match.window.runtime)) {
+    throw new Error(`fleet child ${match.session.name}:${match.window.name} is missing recoverable runtime identity; refusing fresh launch`);
+  }
+  if (opts.fresh || opts.task || opts.wt || opts.incubate || opts.repoPath || opts.urlRepoName) {
+    throw new Error(`fleet child recovery does not accept fresh/worktree overrides for ${match.session.name}:${match.window.name}`);
+  }
+  if (opts.engine && opts.engine !== match.window.runtime.engine) {
+    throw new Error(`fleet child recovery engine mismatch: state=${match.window.runtime.engine}, requested=${opts.engine}`);
+  }
+
+  const target = `${match.session.name}:${match.window.name}`;
+  const sessionExists = await tmux.hasSession(match.session.name);
+  const windows = sessionExists
+    ? await tmux.listWindows(match.session.name)
+    : [];
+  const windowExists = windows.some((window) => window.name === match.window.name);
+
+  if (opts.dryRun) {
+    console.log(`\x1b[90mdry-run — would recover ${target} with ${match.window.runtime.engine} session ${match.window.runtime.nativeSessionId}\x1b[0m`);
+    return target;
+  }
+
+  if (windowExists) {
+    console.log(`\x1b[36m→\x1b[0m fleet child window already exists: ${target}; recovery not injected into an existing pane`);
+    if (opts.attach) {
+      await tmux.selectWindow(target);
+      await wakeSession.attachToSession(match.session.name);
+    }
+    return target;
+  }
+
+  if (sessionExists) {
+    await tmux.newWindow(match.session.name, match.window.name, { cwd: match.window.runtime.cwd });
+  } else {
+    await tmux.newSession(match.session.name, { window: match.window.name, cwd: match.window.runtime.cwd });
+  }
+  const command = buildFleetWindowResumeCommand(match.window.runtime, opts.prompt);
+  await tmux.sendText(target, command);
+  if (opts.wait) await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
+  console.log(`\x1b[32m↻\x1b[0m recovered ${target} from ${match.window.runtime.engine} session ${match.window.runtime.nativeSessionId}`);
+  if (opts.attach) {
+    await tmux.selectWindow(target);
+    await wakeSession.attachToSession(match.session.name);
+  }
+  return target;
+}
+
 const DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS = 10_000;
 
 function wakeFleetGhqGetTimeoutMs(): number {
@@ -1052,6 +1114,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
+
+  const recoveredFleetChild = await recoverExactFleetChildWindow(oracle, opts);
+  if (recoveredFleetChild) return recoveredFleetChild;
 
   // #2569 — zero-arg wake: `maw wake` (or `maw wake .`) inside an oracle repo
   // derives the oracle from the current directory, then runs the normal flow.
