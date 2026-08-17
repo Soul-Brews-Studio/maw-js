@@ -7,7 +7,7 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "tmux",
-    "help": "maw tmux <peek|ls|attach|kill|open|close|zoom|pipe|sync> [...] — tmux pane/session tools; ls supports --json and --recent",
+    "help": "maw tmux <peek|ls|attach|kill|open|close|zoom|pipe|sync> [...] — tmux pane/session tools; ls supports --json and --recent\n  open            join panes from other one-pane windows in this session; not a last-close undo\n  open <target>   split/show a target session; does not pair with the previous close\n  close [pane]    break panes into detached one-pane windows; processes keep running",
     "flags": {
       "--json": "boolean",
       "--all": "boolean",

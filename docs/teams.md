@@ -105,9 +105,9 @@ SendMessage × N      → L2    (deliver missions)
 | `maw bring <oracle>` | `b` | Bring oracle into current view (thin alias for `wake --split`) |
 | `maw take <src:win> <dst>` | — | Move tmux window between oracle sessions |
 | `maw promote <session:window>` | — | Eject window to its own standalone session |
-| `maw open` | — | Bring back hidden panes (join-pane) |
-| `maw close` | — | Hide panes without killing |
-| `maw zoom <pane>` | — | Toggle zoom |
+| `maw open [target]` | — | Without a target, join panes from other one-pane windows in this session; with a target, split/show that session. This is not a paired undo of the last `close` |
+| `maw close [pane]` | — | Break panes into detached one-pane windows; their processes keep running |
+| `maw zoom <target> [--pane N]` | — | Toggle zoom on the resolved target pane |
 | `maw pane swap <a> <b>` | — | Reorder panes in current window |
 | `maw panes` | — | List pane metadata across fleet |
 | `maw view <agent>` | — | Read-only tmux view of an agent's pane |
