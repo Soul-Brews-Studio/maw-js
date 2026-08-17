@@ -1,5 +1,9 @@
 # MAW JS — operations runbook
 
+**Canonical current-operations entrypoint** for the TTT3P live install (fork
+checkout + symlinked global install). Any other MAW operations document is
+specialized, generic/upstream, or historical and defers to this file.
+
 Format: `rules/oracle-runbook-standard.md` (claude-config-repo). Commands below
 were executed and verified during the 2026-08-16/17 recovery arc.
 
@@ -43,11 +47,10 @@ reboot: `bash ~/tt3p/agent-hub/orchestrator-vnext/tools/fleet-restore.sh`
 
 ## 4. Data operations
 
-- Transport: `maw hey <target> "…"` (delivered/queued = transport only; only a
-  reply proves understanding). Inspect with `maw peek` / `maw capture` /
-  `maw messages` — see `rules/maw-communication.md` for the usage contract.
-- Lifecycle mutations (`wake`, `sleep`, `kill`, `done`, `cleanup`): resolve the
-  exact target first; use documented dry-run when available.
+- Transport commands: `maw hey <target> "…"`, inspect with `maw peek` /
+  `maw capture` / `maw messages`; lifecycle: `wake`, `sleep`, `kill`, `done`,
+  `cleanup`. Their behavioral contract (what delivery proves, targeting,
+  dry-run discipline) is owned by `rules/maw-communication.md`.
 
 ## 5. Backup & restore
 
@@ -83,14 +86,15 @@ sleep 3 && maw serve status && maw health   # expect: running / server online
 
 ## 7. Policies & holds
 
-- MAW is the ONLY transport/lifecycle surface for agents — no raw
-  `tmux send-keys`, custom inboxes, or substitute dispatchers (global contract).
-- **Known boundary case:** `orchestrator-vnext/tools/fleet-restore.sh` (reboot
-  bootstrap, owner orchestrator-vnext) drives raw tmux input to answer Claude
-  trust/resume prompts during machine-reboot recovery, which predates and sits
-  in tension with the rule above. Ratification of this exception is pending
-  with TINE; until then treat fleet-restore as reboot-bootstrap only, never as
-  an agent-messaging path.
+- Normative MAW communication/transport policy is owned by
+  `~/.claude-config-repo/rules/maw-communication.md` (global contract); this
+  runbook does not restate it.
+- **System-specific exception (TINE-ratified 2026-08-17):**
+  `orchestrator-vnext/tools/fleet-restore.sh` (reboot bootstrap, owner
+  orchestrator-vnext) may drive raw tmux input to answer Claude trust/resume
+  prompts during machine-reboot recovery, because the MAW daemon is not yet
+  alive at that point. Outside this bootstrap window the no-raw-tmux rule
+  stands; fleet-restore is never an agent-messaging path.
 - Heuristic writes are fail-safe by policy: preflight `--fix` never writes to
   unclassified panes (commit c515c49b); sendText prompt-marker fallback must not
   match mid-line status text (commit 3707438a).

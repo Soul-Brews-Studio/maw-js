@@ -5,14 +5,14 @@ export default definePlugin({
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "Restart the maw server with optional update.",
+  "description": "Restart the WHOLE maw fleet (stop + wake all) with optional update.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "restart",
     "aliases": [
       "reboot"
     ],
-    "help": "maw restart [--no-update] [--ref <branch>] — restart the maw server"
+    "help": "maw restart [--no-update] [--ref <branch>] — restart the WHOLE maw fleet (stop + wake all); for the daemon alone use maw serve"
   },
   "weight": 10,
   "license": "MIT",
