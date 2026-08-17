@@ -41,9 +41,15 @@ export interface CrossSourceGap {
     | "agent-without-fleet"
     | "session-without-fleet"
     | "fleet-without-oracles-json"
-    | "oracles-json-without-runtime"
     | "agent-mismatch-fleet-local";
   /** Human-readable hint (one sentence). */
+  detail: string;
+}
+
+/** Filesystem inventory that is not expected to have a runtime route. */
+export interface CheckoutOnlyEntry {
+  oracle: string;
+  kind: "oracles-json-checkout-only";
   detail: string;
 }
 
@@ -70,13 +76,7 @@ export interface CrossSourceGap {
  *      `localPath`. Indicates the registry cache (`oracles.json`) is
  *      stale relative to fleet; `maw oracle scan` will reconcile.
  *
- *   4. oracles-json-without-runtime
- *      Only `oracles-json` source. Filesystem-discovered oracle that
- *      no fleet/session/agent registry references. Either an orphan
- *      checkout (clone exists, never wired up) or a stale cache entry
- *      pointing at a deleted directory.
- *
- *   5. agent-mismatch-fleet-local
+ *   4. agent-mismatch-fleet-local
  *      `fleet` AND `agent` both present, but `agent` says a remote
  *      node while fleet implies "local". Federation routing will
  *      prefer the agent value (#736 precedence), so a `maw hey` will
@@ -135,19 +135,7 @@ export function findGaps(manifest: OracleManifestEntry[]): CrossSourceGap[] {
       });
     }
 
-    // 4. oracles-json-without-runtime — filesystem-only oracle, no
-    //    fleet/session/agent. Orphan checkout or stale cache.
-    if (hasOraclesJson && !hasFleet && !hasSession && !hasAgent) {
-      gaps.push({
-        oracle: e.name,
-        kind: "oracles-json-without-runtime",
-        detail:
-          `oracles.json lists '${e.name}' but no fleet window, session, or agent route — ` +
-          `orphan checkout or stale cache. Run 'maw cleanup --prune-stale' to triage in bulk.`,
-      });
-    }
-
-    // 5. agent-mismatch-fleet-local — both fleet and agent contributed,
+    // 4. agent-mismatch-fleet-local — both fleet and agent contributed,
     //    but the resolved node is NOT "local". Federation will route
     //    away from the local fleet window. We detect this by looking
     //    for entries that have fleet AND a non-local node — fleet's
@@ -171,11 +159,41 @@ export function findGaps(manifest: OracleManifestEntry[]): CrossSourceGap[] {
 }
 
 /**
+ * Return filesystem-discovered entries that have no runtime registry source.
+ * This is inventory, not drift: oracles.json is a checkout cache and does not
+ * imply that every discovered repository needs a fleet/session/agent route.
+ */
+export function findCheckoutOnlyEntries(manifest: OracleManifestEntry[]): CheckoutOnlyEntry[] {
+  return manifest
+    .filter((entry) =>
+      entry.sources.includes("oracles-json")
+      && !entry.sources.includes("fleet")
+      && !entry.sources.includes("session")
+      && !entry.sources.includes("agent"))
+    .map((entry) => ({
+      oracle: entry.name,
+      kind: "oracles-json-checkout-only" as const,
+      detail:
+        `oracles.json lists '${entry.name}' as filesystem checkout inventory; ` +
+        `cache presence alone does not require runtime registration.`,
+    }))
+    .sort((a, b) => a.oracle.localeCompare(b.oracle));
+}
+
+/**
  * Format one gap as a single-line warning suitable for `maw doctor` output.
  * Caller wraps with color codes per its own log surface.
  */
 export function formatGap(g: CrossSourceGap): string {
   return `[${g.kind}] ${g.detail}`;
+}
+
+export function formatCheckoutOnlyEntry(entry: CheckoutOnlyEntry): string {
+  return `[${entry.kind}] ${entry.detail}`;
+}
+
+export function summarizeCheckoutOnlyEntries(entries: CheckoutOnlyEntry[]): string {
+  return `${entries.length} checkout-only filesystem ${entries.length === 1 ? "entry" : "entries"} (informational)`;
 }
 
 /**
