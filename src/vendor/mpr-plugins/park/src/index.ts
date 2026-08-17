@@ -22,9 +22,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
+    const first = args[0];
 
-    if (args[0] === "ls" || args[0] === "list") {
+    if (first === "ls" || first === "list" || first === "--list" || first === "-l") {
       await cmdParkLs();
+    } else if (first?.startsWith("-")) {
+      throw new Error(`maw park: unknown flag ${first}`);
     } else {
       await cmdPark(...args);
     }
