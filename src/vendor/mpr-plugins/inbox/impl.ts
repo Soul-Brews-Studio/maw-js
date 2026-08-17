@@ -644,10 +644,10 @@ async function clearCurrentInboxStatusBadge(): Promise<void> {
 }
 export async function cmdInboxLs(opts: { unread?: boolean; from?: string; last?: number } = {}) {
   const inboxDir = resolveInboxDir();
-  let msgs = loadInboxMessages(inboxDir);
+  let msgs = loadInboxMessages(inboxDir).map((msg, index) => ({ msg, position: index + 1 }));
   await clearCurrentInboxStatusBadge();
-  if (opts.unread) msgs = msgs.filter(m => !m.frontmatter.read);
-  if (opts.from) msgs = msgs.filter(m => m.frontmatter.from === opts.from);
+  if (opts.unread) msgs = msgs.filter(({ msg }) => !msg.frontmatter.read);
+  if (opts.from) msgs = msgs.filter(({ msg }) => msg.frontmatter.from === opts.from);
   if (!msgs.length) { console.log("\x1b[90mno inbox messages\x1b[0m"); return; }
   const shown = msgs.slice(0, opts.last ?? 20);
 
@@ -656,12 +656,12 @@ export async function cmdInboxLs(opts: { unread?: boolean; from?: string; last?:
   console.log(`\n\x1b[36mINBOX\x1b[0m (${msgs.length} total)\n`);
   console.log(`  ${"#".padStart(2)} ${"R"} ${"FROM".padEnd(FROM_W)} ${"WHEN".padEnd(WHEN_W)} SUBJECT`);
   console.log(`  ${"--"} ${"-"} ${"-".repeat(FROM_W)} ${"-".repeat(WHEN_W)} ${"-".repeat(44)}`);
-  for (const [index, msg] of shown.entries()) {
+  for (const { msg, position } of shown) {
     const dot = msg.frontmatter.read ? "\x1b[90m○\x1b[0m" : "\x1b[32m●\x1b[0m";
     const from = msg.frontmatter.from.slice(0, FROM_W).padEnd(FROM_W);
     const when = relativeTime(msg.timestamp).padEnd(WHEN_W);
     const subject = msg.body.replace(/\n/g, " ").slice(0, 50);
-    console.log(`  ${String(index + 1).padStart(2)} ${dot} ${from} ${when} ${subject}`);
+    console.log(`  ${String(position).padStart(2)} ${dot} ${from} ${when} ${subject}`);
   }
   console.log();
 }

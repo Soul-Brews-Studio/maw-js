@@ -267,6 +267,35 @@ describe("inbox plugin standalone boundary (#2329)", () => {
     expect(readFileSync(message, "utf8")).toContain("read: true");
   });
 
+  test("unread listing keeps absolute positions so deep reads mark the displayed message", async () => {
+    const inbox = join(psiPath, "inbox");
+    let unreadPath = "";
+    for (let position = 45; position >= 1; position -= 1) {
+      const minute = String(46 - position).padStart(2, "0");
+      const path = join(inbox, `2026-06-09_00-${minute}_sender_message-${position}.md`);
+      const unread = position === 45;
+      if (unread) unreadPath = path;
+      writeFileSync(path, [
+        "---",
+        "from: sender",
+        `timestamp: 2026-06-09T00:${minute}:00.000Z`,
+        `read: ${unread ? "false" : "true"}`,
+        "---",
+        "",
+        `message ${position}`,
+      ].join("\n"));
+    }
+
+    const listed = await handler({ source: "cli", args: ["--unread", "--last", "5"] } as any);
+    const displayedPosition = Number(listed.output?.match(/\n\s+(\d+)\s+/)?.[1]);
+    expect(displayedPosition).toBe(45);
+
+    const read = await handler({ source: "cli", args: ["read", String(displayedPosition)] } as any);
+    expect(read.ok).toBe(true);
+    expect(read.output).toContain("message 45");
+    expect(readFileSync(unreadPath, "utf8")).toContain("read: true");
+  });
+
   test("local inbox write and relative time are non-destructive and deterministic", async () => {
     await cmdInboxWrite("standalone note");
     const files = readdirSync(join(psiPath, "inbox")).filter((name) => name.endsWith(".md"));
