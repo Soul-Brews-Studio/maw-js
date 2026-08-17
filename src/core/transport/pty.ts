@@ -2,6 +2,12 @@ import { tmux, tmuxCmd } from "./tmux";
 import { loadConfig, cfgTimeout, cfgLimit } from "../../config";
 import type { MawWS } from "../types";
 
+// Keep width aligned with pinSessionWide(). Web viewers may temporarily drive
+// rows so the prompt remains visible, but narrow widths would permanently bake
+// wrapped text into tmux history.
+const PINNED_COLS = 200;
+const PINNED_ROWS = 50;
+
 type PtyProc = ReturnType<typeof Bun.spawn>;
 type PtySpawn = typeof Bun.spawn;
 type PtySpawnSync = typeof Bun.spawnSync;
@@ -10,7 +16,7 @@ type PtySpawnSync = typeof Bun.spawnSync;
 // the orphan sweep (#P2) and attach-time grouped-orphan kill (#P3) no-op
 // rather than throw.
 type PtyTmux = Pick<typeof tmux, "newGroupedSession" | "setOption" | "killSession">
-  & Partial<Pick<typeof tmux, "listSessionGroups">>;
+  & Partial<Pick<typeof tmux, "listSessionGroups" | "resizeWindow">>;
 
 export interface PtyDeps {
   tmux: PtyTmux;
@@ -99,6 +105,20 @@ function findSession(ws: MawWS): PtySession | undefined {
   for (const s of sessions.values()) {
     if (s.viewers.has(ws)) return s;
   }
+}
+
+async function fitWindowRows(target: string, rows: number): Promise<void> {
+  if (!io.tmux.resizeWindow || !Number.isFinite(rows)) return;
+  const boundedRows = Math.max(1, Math.min(io.cfgLimit("ptyRows"), Math.floor(rows)));
+  await io.tmux.resizeWindow(target, PINNED_COLS, boundedRows).catch(() => {
+    /* expected: the target may disappear during attach/resize */
+  });
+}
+
+function restorePinnedWindow(target: string): void {
+  void io.tmux.resizeWindow?.(target, PINNED_COLS, PINNED_ROWS).catch(() => {
+    /* expected: the parent window may already be gone */
+  });
 }
 
 // True when a maw-pty-* tmux session is one we own — either committed to
@@ -224,6 +244,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
     });
     // Hide status bar in PTY sessions so it doesn't appear in terminal output
     await io.tmux.setOption(ptySessionName, "status", "off").catch(() => { /* expected: option may not apply */ });
+    await fitWindowRows(safe, r);
   } catch {
     creatingPtyNames.delete(ptySessionName);
     attaching.delete(safe);
@@ -306,16 +327,17 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
     // PTY process ended — clean up grouped session
     sessions.delete(safe);
     io.tmux.killSession(s.ptySessionName);
+    restorePinnedWindow(safe);
     for (const v of s.viewers) {
       try { v.send(JSON.stringify({ type: "detached", target: safe })); } catch { /* expected: viewer may have disconnected */ }
     }
   })();
 }
 
-function resize(_ws: MawWS, _cols: number, _rows: number) {
-  // No-op: with grouped sessions, resize-pane would affect the shared pane
-  // (shrinking the real terminal). The web terminal works at its initial size.
-  // TODO: proper PTY resize via node-pty or ioctl
+function resize(ws: MawWS, _cols: number, rows: number) {
+  const session = findSession(ws);
+  if (!session) return;
+  void fitWindowRows(session.target, rows);
 }
 
 function detach(ws: MawWS) {
@@ -327,6 +349,7 @@ function detach(ws: MawWS) {
       session.cleanupTimer = io.setTimeout(() => {
         try { session.proc.kill(); } catch { /* expected: process may already be dead */ }
         io.tmux.killSession(session.ptySessionName);
+        restorePinnedWindow(target);
         sessions.delete(target);
       }, io.cfgTimeout("pty"));
     }

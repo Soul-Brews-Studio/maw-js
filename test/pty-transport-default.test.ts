@@ -55,6 +55,7 @@ function makeHarness(options: {
   spawnSync?: (args: string[]) => { stdout?: Uint8Array };
   groupedImpl?: (sessionName: string, ptySessionName: string, opts: unknown) => Promise<void>;
   setOptionImpl?: (session: string, option: string, value: string) => Promise<void>;
+  resizeWindowImpl?: (target: string, cols: number, rows: number) => Promise<void>;
   listSessionGroupsImpl?: () => Promise<Array<{ name: string; group: string }>>;
 } = {}) {
   const spawnPlans = [...(options.spawnPlans ?? [])];
@@ -65,6 +66,7 @@ function makeHarness(options: {
   const groupedCalls: Array<{ sessionName: string; ptySessionName: string; opts: any }> = [];
   const setOptionCalls: Array<{ session: string; option: string; value: string }> = [];
   const killSessionCalls: string[] = [];
+  const resizeWindowCalls: Array<{ target: string; cols: number; rows: number }> = [];
   const timerCallbacks: Array<{ active: boolean; fn: () => void }> = [];
   const clearedTimers: unknown[] = [];
   let procKills = 0;
@@ -108,6 +110,10 @@ function makeHarness(options: {
         await options.setOptionImpl?.(session, option, value);
       },
       killSession: async (session: string) => { killSessionCalls.push(session); },
+      resizeWindow: async (target: string, cols: number, rows: number) => {
+        resizeWindowCalls.push({ target, cols, rows });
+        await options.resizeWindowImpl?.(target, cols, rows);
+      },
       // Only present when the test opts in — mirrors production where the real
       // tmux always has it but injected mocks may omit it (sweep/#P3 no-op).
       ...(options.listSessionGroupsImpl ? { listSessionGroups: options.listSessionGroupsImpl } : {}),
@@ -147,6 +153,7 @@ function makeHarness(options: {
     groupedCalls,
     setOptionCalls,
     killSessionCalls,
+    resizeWindowCalls,
     timerCallbacks,
     clearedTimers,
     get procKills() { return procKills; },
@@ -320,6 +327,60 @@ describe("createPtyHandlers", () => {
     expect(failed.sent.map(decode)).toEqual([
       JSON.stringify({ type: "error", message: "Failed to create PTY session" }),
     ]);
+  });
+
+  test("reflows only the attached window rows, keeps width pinned, and restores it after the last viewer detaches", async () => {
+    const h = makeHarness({ spawnPlans: [{ chunks: ["live"], autoEnd: false }] });
+    const viewer = makeWs();
+
+    h.handlePtyMessage(viewer as any, JSON.stringify({
+      type: "attach", target: "demo:oracle", cols: 70, rows: 30,
+    }));
+    await eventually(() => viewer.sent.map(decode).includes("live"), "initial PTY output");
+
+    expect(h.resizeWindowCalls).toContainEqual({ target: "demo:oracle", cols: 200, rows: 30 });
+
+    h.handlePtyMessage(viewer as any, JSON.stringify({ type: "resize", cols: 45, rows: 26 }));
+    await eventually(
+      () => h.resizeWindowCalls.some((call) => call.target === "demo:oracle" && call.rows === 26),
+      "row resize",
+    );
+    expect(h.resizeWindowCalls).toContainEqual({ target: "demo:oracle", cols: 200, rows: 26 });
+    expect(h.resizeWindowCalls.every(({ cols }) => cols === 200)).toBe(true);
+
+    h.handlePtyClose(viewer as any);
+    expect(h.resizeWindowCalls).not.toContainEqual({ target: "demo:oracle", cols: 200, rows: 50 });
+    await h.runTimers();
+    expect(h.resizeWindowCalls).toContainEqual({ target: "demo:oracle", cols: 200, rows: 50 });
+    await h.finishReaders();
+  });
+
+  test("keeps row changes scoped to the viewer's exact target and restores after PTY EOF", async () => {
+    const h = makeHarness({
+      spawnPlans: [
+        { chunks: ["alpha"], autoEnd: false },
+        { chunks: ["beta"], autoEnd: false },
+      ],
+    });
+    const alpha = makeWs();
+    const beta = makeWs();
+
+    h.handlePtyMessage(alpha as any, JSON.stringify({ type: "attach", target: "fleet:alpha", rows: 24 }));
+    h.handlePtyMessage(beta as any, JSON.stringify({ type: "attach", target: "fleet:beta", rows: 32 }));
+    await eventually(() => alpha.sent.map(decode).includes("alpha") && beta.sent.map(decode).includes("beta"), "two PTYs");
+    const before = h.resizeWindowCalls.length;
+
+    h.handlePtyMessage(alpha as any, JSON.stringify({ type: "resize", cols: 12, rows: 18 }));
+    await eventually(() => h.resizeWindowCalls.length > before, "alpha row resize");
+    expect(h.resizeWindowCalls.slice(before)).toEqual([{ target: "fleet:alpha", cols: 200, rows: 18 }]);
+
+    h.readers[0]!.finish();
+    await eventually(
+      () => h.resizeWindowCalls.some((call) => call.target === "fleet:alpha" && call.rows === 50),
+      "EOF restore",
+    );
+    expect(h.resizeWindowCalls).not.toContainEqual({ target: "fleet:beta", cols: 200, rows: 50 });
+    await h.finishReaders();
   });
 
   test("fresh and cached capture failures do not abort attach", async () => {
