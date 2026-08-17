@@ -282,6 +282,26 @@ describe("share plugin standalone boundary (#2685/#2703)", () => {
     }
   });
 
+  test("share status is rejected before resolving a target or minting a link", async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return Response.json({ slug: "unexpected", token: "unexpected" });
+    }) as typeof fetch;
+
+    try {
+      await expect(shareHandler({ source: "cli", args: ["status"] } as any)).resolves.toEqual({
+        ok: false,
+        error: "maw share: unsupported subcommand 'status'; pass a tmux target instead",
+      });
+      expect(resolvedTargets).toEqual([]);
+      expect(fetchCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
 
   test("share --presence posts daemon flag and exposes read-only metadata", async () => {
     const { httpRoutes } = await makeServeHarness();

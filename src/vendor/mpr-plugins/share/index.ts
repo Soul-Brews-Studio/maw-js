@@ -440,6 +440,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (!target || target === "--help" || target === "-h") {
       return { ok: false, error: `${SHARE_USAGE}` };
     }
+    if (target === "status") {
+      return { ok: false, error: "maw share: unsupported subcommand 'status'; pass a tmux target instead" };
+    }
     if (targets.some((candidate) => candidate.startsWith("-"))) {
       return { ok: false, error: `${SHARE_USAGE}\n  target looks like a flag` };
     }
