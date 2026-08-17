@@ -199,6 +199,25 @@ describe("inbox plugin standalone boundary (#2329)", () => {
     ]);
   });
 
+  test("mark-read upgrades a legacy message without frontmatter", async () => {
+    const inbox = join(psiPath, "inbox");
+    const legacy = join(inbox, "2026-06-09_00-03_legacy.md");
+    const body = "# Legacy review request\n\nKeep this body byte-for-byte.\n";
+    writeFileSync(legacy, body);
+
+    await cmdInboxMarkRead("legacy");
+
+    const updated = readFileSync(legacy, "utf8");
+    expect(updated).toStartWith("---\n");
+    expect(updated).toContain("read: true");
+    expect(updated).toContain("readAt:");
+    expect(updated.endsWith(body)).toBe(true);
+
+    const listed = await handler({ source: "cli", args: ["--unread", "--last", "5"] } as any);
+    expect(listed.ok).toBe(true);
+    expect(listed.output).not.toContain("Legacy review request");
+  });
+
   test("checking the inbox clears the arrival badge without rewriting unread history", async () => {
     const inbox = join(psiPath, "inbox");
     const message = join(inbox, "2026-06-09_00-03_sender_unread.md");

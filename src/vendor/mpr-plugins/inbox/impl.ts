@@ -667,7 +667,19 @@ export async function cmdInboxLs(opts: { unread?: boolean; from?: string; last?:
 }
 
 function markInboxFrontmatterRead(content: string, timestamp = new Date().toISOString()): string {
-  if (!content.startsWith("---\n")) return content;
+  if (!content.startsWith("---\n")) {
+    return [
+      "---",
+      "from: unknown",
+      "to: unknown",
+      "timestamp:",
+      "read: true",
+      `readAt: ${timestamp}`,
+      "---",
+      "",
+      content,
+    ].join("\n");
+  }
   const end = content.indexOf("\n---", 4);
   if (end < 0) return content;
   let frontmatter = content.slice(0, end + "\n---".length);

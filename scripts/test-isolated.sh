@@ -118,7 +118,7 @@ failures=0
 for file in "${FILES[@]}"; do
   echo "--- $file ---"
   set +e
-  timeout "$PER_FILE_TIMEOUT" bun test "$file" \
+  bun scripts/run-with-timeout.ts "$PER_FILE_TIMEOUT" bun test "$file" \
     --path-ignore-patterns '**/agents/**' \
     "${BUN_EXTRA_ARGS[@]}"
   status=$?
