@@ -39,6 +39,7 @@ process.env.MAW_TEST_MODE = "1";
 // Import after env is set so module-load-time path capture lands on the tmp dir.
 const manifest = await import("../../src/lib/oracle-manifest");
 const config = await import("../../src/config");
+const { findGaps } = await import("../../src/vendor/mpr-plugins/doctor/cross-source-detect");
 const {
   loadManifest,
   findOracle,
@@ -155,6 +156,24 @@ describe("loadManifest — aggregates from all sources", () => {
     expect(e.sources).toContain("fleet");
     // fleet pre-populates config.agents at loadConfig time → also "agent".
     expect(e.sources).toContain("agent");
+  });
+
+  test("helper fleet windows do not become local agents or doctor gaps", () => {
+    writeFleetWindow("140-wallent.json", "wallent", [
+      { name: "finance-oracle" },
+      { name: "MARA" },
+      { name: "Ohmycodex" },
+    ]);
+    writeConfig({ agents: { stale: "local" } });
+    writeOraclesJson([makeOraclesEntry({ name: "finance", has_fleet_config: true })]);
+
+    const entries = loadManifest();
+    const gaps = findGaps(entries);
+
+    expect(entries.map((entry) => entry.name)).toEqual(["finance", "stale"]);
+    expect(gaps.map((gap) => [gap.oracle, gap.kind])).toEqual([
+      ["stale", "agent-without-fleet"],
+    ]);
   });
 
   test("config.sessions-only: surfaces oracle with sessionId, no session/window", () => {
