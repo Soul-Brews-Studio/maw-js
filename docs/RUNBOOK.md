@@ -89,12 +89,12 @@ sleep 3 && maw serve status && maw health   # expect: running / server online
 - Normative MAW communication/transport policy is owned by
   `~/.claude-config-repo/rules/maw-communication.md` (global contract); this
   runbook does not restate it.
-- **System-specific exception (TINE-ratified 2026-08-17):**
-  `orchestrator-vnext/tools/fleet-restore.sh` (reboot bootstrap, owner
-  orchestrator-vnext) may drive raw tmux input to answer Claude trust/resume
-  prompts during machine-reboot recovery, because the MAW daemon is not yet
-  alive at that point. Outside this bootstrap window the no-raw-tmux rule
-  stands; fleet-restore is never an agent-messaging path.
+- **No raw-tmux exception (TINE decision 2026-08-17):** the proposed
+  fleet-restore.sh bootstrap exception was NOT ratified. Sessions opened
+  correctly resume on their own (Claude holds seat 1; CROO opens leads, leads
+  open their own workers), so `orchestrator-vnext/tools/fleet-restore.sh` only
+  starts the daemon and runs `maw wake` — it never sends raw tmux input.
+  Startup prompts are answered by the human in the pane.
 - Heuristic writes are fail-safe by policy: preflight `--fix` never writes to
   unclassified panes (commit c515c49b); sendText prompt-marker fallback must not
   match mid-line status text (commit 3707438a).
