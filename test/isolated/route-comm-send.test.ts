@@ -157,3 +157,69 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
     expect(calls).toEqual([]);
   });
 });
+
+/**
+ * ด่าน fail-closed สำหรับ flag ที่ไม่รู้จัก
+ *
+ * ก่อนแพตช์: token ใด ๆ ที่ไม่ตรง flag ที่รู้จัก ตกลงไปเป็น "เนื้อข้อความ" แล้วคืน rc=0
+ * ⇒ `maw hey morse --file /path/msg.md` ส่งบรรทัดเดียวว่า `--file /path/msg.md` ให้ผู้รับ
+ *   โดยพิมพ์ `delivered` และไม่มีอะไรเตือน (volt พลาดข้อนี้ 3 ครั้งใน 4 วัน)
+ * 📎 morse: นี่คือ fail-open ⇒ วินัยคนพิมพ์กันไม่ได้ ต้องให้เครื่องปฏิเสธ
+ */
+describe("routeComm — flag ที่ไม่รู้จักต้องถูกปฏิเสธ ไม่ใช่กลายเป็นข้อความ", () => {
+  test("flag แปลกหลัง target = พิมพ์ผิด ⇒ throw และไม่ส่งอะไรเลย", async () => {
+    await expect(routeComm("hey", ["hey", "local:mawjs", "--file", "/tmp/msg.md"]))
+      .rejects.toThrow("unknown flag: --file");
+    expect(calls).toEqual([]);
+    expect(errors.join("\n")).toContain("unknown flag: --file");
+  });
+
+  test("flag แปลกก่อน target ก็ถูกปฏิเสธเหมือนกัน", async () => {
+    await expect(routeComm("send", ["send", "--file", "local:mawjs", "hello"]))
+      .rejects.toThrow("unknown flag: --file");
+    expect(calls).toEqual([]);
+  });
+
+  test("`--` คั่นแล้ว ข้อความที่ขึ้นต้นด้วย -- ส่งได้ปกติ", async () => {
+    const handled = await routeComm("hey", ["hey", "local:mawjs", "--", "--file", "/tmp/msg.md"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", "--file /tmp/msg.md", false, { approve: false, trust: false, inboxOnly: false }],
+    ]);
+  });
+
+  // 🔴 near-miss จาก traffic จริง (📎 แม่ Labubu 18.08 · กวาด inbox ทุกบ้าน 3,913 บรรทัด)
+  //    `---` = บรรทัดแรกของ YAML frontmatter · มีเอกสารเต็มใบ **4 ใบที่เคยส่งสำเร็จ** ขึ้นต้นแบบนี้
+  //    ด่านฉบับแรก (`startsWith("--")`) จะปฏิเสธทั้ง 4 ใบ ทั้งที่ไม่ใช่การพิมพ์ผิดเลย
+  //    เคสนี้คือสิ่งเดียวที่กันไม่ให้ใครแก้ด่านกลับไปกว้างเหมือนเดิม — ห้ามลบ
+  test("เอกสารที่ขึ้นต้นด้วย --- (frontmatter) ต้องส่งได้ ไม่ใช่ถูกปฏิเสธ", async () => {
+    const doc = "---\nfrom: volt\nto: morse\n---\n\nเนื้อความ";
+    const handled = await routeComm("hey", ["hey", "local:mawjs", doc]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", doc, false, { approve: false, trust: false, inboxOnly: false }],
+    ]);
+  });
+
+  test("`--` เปล่า ๆ ที่ไม่มีตัวอักษรตาม ไม่ถูกอ่านเป็น flag แปลก", async () => {
+    const handled = await routeComm("hey", ["hey", "local:mawjs", "--", "-- ขีดสองอันเฉย ๆ"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", "-- ขีดสองอันเฉย ๆ", false, { approve: false, trust: false, inboxOnly: false }],
+    ]);
+  });
+
+  // negative control — ด่านต้องไม่กว้างเกินไป: `--` ที่โผล่ "หลังเนื้อข้อความเริ่มแล้ว"
+  // เป็นส่วนหนึ่งของประโยค ไม่ใช่ flag ⇒ พฤติกรรมเดิมต้องไม่เปลี่ยน
+  test("ข้อความที่มี --word อยู่กลางประโยค ยังส่งได้เหมือนเดิม", async () => {
+    const handled = await routeComm("hey", ["hey", "local:mawjs", "hello", "--world"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", "hello --world", false, { approve: false, trust: false, inboxOnly: false }],
+    ]);
+  });
+});
