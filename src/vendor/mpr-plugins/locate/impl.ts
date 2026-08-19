@@ -38,6 +38,9 @@ interface LocateResult {
   hasPsi: boolean;
   sessionName: string | null;
   windowCount: number;
+  /** Exact live tmux target (`session:window`) for a registered window
+   *  seat whose name matches a WINDOW, not a session. Null otherwise. */
+  windowTarget: string | null;
   fleetConfigPath: string | null;
   federationNode: string | null;
   inAgentsConfig: boolean;
@@ -136,16 +139,40 @@ async function gatherInfo(oracle: string, opts: { scanFederation?: boolean } = {
   // ψ/ presence
   const hasPsi = repoPath ? existsSync(join(repoPath, "ψ")) : false;
 
+  // Federation — config.agents map + node (loaded early: window-seat
+  // resolution below is gated on explicit config.agents registration).
+  const config = loadConfig();
+  const agents = config.agents ?? {};
+  const inAgentsConfig = oracle in agents;
+
   // tmux session — use the alpha.77 suffix-preferred resolver so bare
   // name resolves to the `NN-name` canonical session, not a `name-view`.
   let sessionName: string | null = null;
   let windowCount = 0;
+  let windowTarget: string | null = null;
   try {
     const sessions = await listSessions();
     const r = resolveSessionTarget(oracle, sessions);
     if (r.kind === "exact" || r.kind === "fuzzy") {
       sessionName = r.match.name;
       windowCount = r.match.windows?.length ?? 0;
+    }
+    // Window-seat resolution (#dept-roster): a department seat lives in a
+    // parent session's WINDOW (e.g. 05-nntn:cookbook) and never matches a
+    // session name. Only an EXPLICITLY REGISTERED identity (config.agents)
+    // resolves this way — unregistered utility panes stay non-authoritative
+    // and must not be elevated by discovery. Exact window-name match only;
+    // never fuzzy — a fuzzy hit here is how wrong-parent misroutes happen.
+    if (!sessionName && inAgentsConfig) {
+      for (const sess of sessions) {
+        const w = (sess.windows ?? []).find((win) => win.name === oracle);
+        if (w) {
+          sessionName = sess.name;
+          windowCount = sess.windows?.length ?? 0;
+          windowTarget = `${sess.name}:${w.name}`;
+          break;
+        }
+      }
     }
   } catch {
     /* tmux not running — leave session null */
@@ -160,10 +187,7 @@ async function gatherInfo(oracle: string, opts: { scanFederation?: boolean } = {
   // aligned with `maw oracle list` for registry-only oracles.
   const manifestEntry = lookupManifestEntry(oracle);
 
-  // Federation — config.agents map + node
-  const config = loadConfig();
-  const agents = config.agents ?? {};
-  const inAgentsConfig = oracle in agents;
+  // Federation node (config/agents already loaded above)
   const federationNode = inAgentsConfig
     ? agents[oracle]!
     : sessionName
@@ -178,6 +202,7 @@ async function gatherInfo(oracle: string, opts: { scanFederation?: boolean } = {
     hasPsi: repoPath ? hasPsi : (manifestEntry?.hasPsi ?? false),
     sessionName,
     windowCount,
+    windowTarget,
     fleetConfigPath,
     federationNode,
     inAgentsConfig,
@@ -225,6 +250,9 @@ export async function cmdLocate(oracle: string | undefined, opts: LocateOpts = {
   }
   if (info.sessionName) {
     console.log(`   session:  ${info.sessionName} (${info.windowCount} window${info.windowCount === 1 ? "" : "s"})`);
+  }
+  if (info.windowTarget) {
+    console.log(`   target:   ${info.windowTarget} (registered window seat)`);
   }
   if (info.fleetConfigPath) {
     console.log(`   fleet:    ${info.fleetConfigPath}`);
