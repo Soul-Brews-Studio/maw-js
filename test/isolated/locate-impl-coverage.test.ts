@@ -296,4 +296,57 @@ describe("locate command implementation coverage", () => {
     expect(text).toContain("node:     m5 (this node)");
     expect(text).not.toContain("stale-remote");
   });
+
+  test("registered window seat resolves to its exact live window target", async () => {
+    // #dept-roster: a department seat (05-nntn:cookbook) is a WINDOW inside
+    // a parent session; registration in config.agents makes it first-class.
+    ghqResults = [null, null];
+    sessions = [
+      { name: "05-nntn", windows: [{ name: "nntn" }, { name: "cookbook" }, { name: "cookbook-dev" }] },
+    ];
+    resolved = { kind: "none" };
+    config = { node: "local", agents: { cookbook: "local" } };
+
+    const output = await capture(() => cmdLocate("cookbook", {}));
+    const text = output.logs.join("\n");
+
+    expect(text).toContain("session:  05-nntn (3 windows)");
+    expect(text).toContain("target:   05-nntn:cookbook (registered window seat)");
+    expect(text).toContain("node:     local (from config.agents)");
+  });
+
+  test("unregistered utility-pane window stays non-authoritative (not-found)", async () => {
+    // #dept-roster: a live window alone is NOT an identity — without
+    // config.agents registration, locate must not elevate it.
+    ghqResults = [null, null];
+    sessions = [
+      { name: "05-nntn", windows: [{ name: "cookbook" }, { name: "cookbook-dev" }] },
+    ];
+    resolved = { kind: "none" };
+    config = { node: "local", agents: { cookbook: "local" } };
+
+    await expect(cmdLocate("cookbook-dev", {})).rejects.toThrow("no oracle named 'cookbook-dev'");
+  });
+
+  test("window-seat resolution is exact-match only — no wrong-parent fuzzy hit", async () => {
+    // #dept-roster misroute regression: 'cookbook' must never resolve via a
+    // partial window match in an unrelated session, and a registered name
+    // with no exact window anywhere resolves to nothing (not a parent).
+    ghqResults = [null, null];
+    sessions = [
+      { name: "05-nntn", windows: [{ name: "cookbook-view" }, { name: "nntn" }] },
+    ];
+    resolved = { kind: "none" };
+    config = { node: "local", agents: { cookbook: "local" } };
+    // config.agents feeds the manifest in the real loader — mirror that here
+    // so resolvability comes from registration, not from a window guess.
+    manifestEntries = [{ name: "cookbook", sources: ["agent"], node: "local", isLive: false }];
+
+    const output = await capture(() => cmdLocate("cookbook", {}));
+    const text = output.logs.join("\n");
+
+    // Registered (agent source keeps it resolvable) but NO live target claimed.
+    expect(text).not.toContain("target:");
+    expect(text).not.toContain("session:  05-nntn");
+  });
 });
