@@ -18,6 +18,25 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function isValidLaunchBinding(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const launch = value as Record<string, unknown>;
+  if (launch.cwd !== undefined
+    && (typeof launch.cwd !== "string" || !launch.cwd.startsWith("/"))) return false;
+  if (launch.env !== undefined) {
+    if (!launch.env || typeof launch.env !== "object" || Array.isArray(launch.env)) return false;
+    for (const [key, val] of Object.entries(launch.env)) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || typeof val !== "string") return false;
+    }
+  }
+  if (launch.argv !== undefined
+    && (!Array.isArray(launch.argv)
+      || launch.argv.length === 0
+      || launch.argv.some((word) => typeof word !== "string" || word.length === 0))) return false;
+  return true;
+}
+
 export function isFleetRuntimeIdentity(value: unknown): value is FleetRuntimeIdentity {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const runtime = value as Partial<FleetRuntimeIdentity>;
@@ -28,7 +47,8 @@ export function isFleetRuntimeIdentity(value: unknown): value is FleetRuntimeIde
     && typeof runtime.nativeSessionId === "string"
     && runtime.nativeSessionId.trim().length > 0
     && typeof runtime.capturedAt === "string"
-    && Number.isFinite(Date.parse(runtime.capturedAt));
+    && Number.isFinite(Date.parse(runtime.capturedAt))
+    && isValidLaunchBinding(runtime.launch);
 }
 
 export function buildFleetWindowResumeCommand(
@@ -44,7 +64,17 @@ export function buildFleetWindowResumeCommand(
       : null;
   if (!resume) throw new Error(`unsupported recoverable engine '${runtime.engine}'`);
   const withPrompt = prompt?.trim() ? `${resume} ${shellQuote(prompt.trim())}` : resume;
-  return `cd ${shellQuote(runtime.cwd)} && ${withPrompt}`;
+  // Persistent launch binding (#dept-roster D-5): recovery must restore the
+  // seat's dedicated home/env and ratified workRoot, not just the captured
+  // cwd — otherwise a reboot silently drops CODEX_HOME/OMX/Oracle binding.
+  const launch = runtime.launch;
+  const cwd = launch?.cwd ?? runtime.cwd;
+  const envPrefix = launch?.env && Object.keys(launch.env).length > 0
+    ? Object.entries(launch.env)
+      .map(([key, val]) => `${key}=${shellQuote(val)}`)
+      .join(" ") + " "
+    : "";
+  return `cd ${shellQuote(cwd)} && ${envPrefix}${withPrompt}`;
 }
 
 export function writeFleetWindowRuntime(

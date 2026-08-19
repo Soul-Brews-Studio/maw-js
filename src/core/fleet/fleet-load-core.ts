@@ -13,6 +13,21 @@ export interface FleetRuntimeIdentity {
   cwd: string;
   nativeSessionId: string;
   capturedAt: string;
+  /** Canonical persistent launch binding (#dept-roster D-5): what fleet
+   *  recovery must restore beyond bare `cd <cwd> && <engine> resume` —
+   *  a dedicated home/env (e.g. CODEX_HOME) and the ratified workRoot.
+   *  Absent on legacy windows; recovery then behaves exactly as before. */
+  launch?: FleetRuntimeLaunchBinding;
+}
+
+export interface FleetRuntimeLaunchBinding {
+  /** Ratified workRoot to recover into; overrides the captured cwd. */
+  cwd?: string;
+  /** Env exported ahead of the resume command (e.g. CODEX_HOME). */
+  env?: Record<string, string>;
+  /** Canonical fresh-launch argv (launcher + args) for wake paths that
+   *  start a new process instead of resuming; stored for those consumers. */
+  argv?: string[];
 }
 
 export interface FleetSession {
