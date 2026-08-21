@@ -5,6 +5,33 @@ import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleet
 export interface FleetWindow {
   name: string;
   repo: string;
+  /** Recoverable runtime identity captured for this window (#dept-roster D-5).
+   *  Present only for windows whose session was captured for resume; absent
+   *  windows fall through to a normal fresh wake. */
+  runtime?: FleetRuntimeIdentity;
+}
+
+/** A window's captured engine session, enough to resume it after a reboot. */
+export interface FleetRuntimeIdentity {
+  engine: string;
+  cwd: string;
+  nativeSessionId: string;
+  capturedAt: string;
+  /** Optional persistent launch binding: what recovery must restore beyond a
+   *  bare `cd <cwd> && <engine> resume` — a ratified workRoot and a dedicated
+   *  env (e.g. CODEX_HOME). Absent on legacy captures; recovery then behaves
+   *  exactly as before. */
+  launch?: FleetRuntimeLaunchBinding;
+}
+
+export interface FleetRuntimeLaunchBinding {
+  /** Ratified workRoot to recover into; overrides the captured cwd. */
+  cwd?: string;
+  /** Env exported ahead of the resume command (e.g. CODEX_HOME). */
+  env?: Record<string, string>;
+  /** Canonical fresh-launch argv for wake paths that start a new process
+   *  instead of resuming; stored for those consumers. */
+  argv?: string[];
 }
 
 export interface FleetSession {
