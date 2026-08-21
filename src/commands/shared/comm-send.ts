@@ -641,7 +641,10 @@ export async function cmdSend(
     const isExplicitRemoteSession = parts.length === 2 && /-oracle$/i.test(bareAgent);
     const isCanonical = parts.length >= 3 || (parts.length === 2 && (isTmuxSessionIdTarget(bareAgent) || isExplicitRemoteSession));
     const isLocalScope = !targetNode || targetNode === config.node || targetNode === "local";
-    if (isLocalScope && bareAgent && !isCanonical) {
+    // #dept-roster: --inbox is a persist-only contract — it must never wake,
+    // create, or inject a session (a sandboxed sender cannot even touch the
+    // tmux socket; auto-wake here turned inbox-only into a hard failure).
+    if (isLocalScope && bareAgent && !isCanonical && !opts.inboxOnly) {
       const hasLocalSession = sessions.some(s =>
         s.name === bareAgent ||
         s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
@@ -696,7 +699,7 @@ export async function cmdSend(
       // fall through. If the target is genuinely unreachable, the send attempt
       // surfaces its own clear "Remote fetch failed" error (#411 contract).
       const peer = (config.namedPeers || []).find(p => p.name === targetNode);
-      if (peer) {
+      if (peer && !opts.inboxOnly) {
         const { shouldAutoWake } = await import("./should-auto-wake");
         const decision = shouldAutoWake(bareAgent, {
           site: "hey",
