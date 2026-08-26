@@ -21,6 +21,10 @@ const SEND_SETTLE_MS = 1500;
 const SUBMIT_CONFIRM_MS = 700;
 /** Max Enter attempts before giving up and warning (was 3 blind, unconditional sends). */
 const MAX_SUBMIT_ATTEMPTS = 4;
+/** Per-pane send lock (concurrent `maw hey` merge race, 2026-08-26). */
+const PANE_SEND_LOCK_STALE_S = 30;
+const PANE_SEND_LOCK_RETRY_MS = 200;
+const PANE_SEND_LOCK_MAX_TRIES = 100;
 /** ANSI escape stripper — matches checkPaneIdle in comm-send.ts (#405). */
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
 
@@ -503,17 +507,58 @@ export class Tmux {
    * was silently left unexecuted.
    */
   async sendText(target: string, text: string): Promise<void> {
-    await this.exitModeIfNeeded(target);
-    if (text.includes("\n") || text.length > 500) {
-      // Buffer method — reliable for multiline/long content
-      await this.loadBuffer(text);
-      await this.pasteBuffer(target);
-    } else {
-      // Literal send — -l prevents tmux from interpreting special chars like |
-      await this.sendKeysLiteral(target, text);
+    // Cross-process per-pane send lock — two concurrent `maw hey` processes
+    // interleave their paste and Enter keys, merging both messages into one
+    // input line (observed on mac-tor, 2026-08-26: an Artisan and a bolt
+    // message concatenated in a single chatbox). submitWithConfirm can't
+    // help there; the placement itself must be serialized per pane.
+    const lock = await this.acquirePaneSendLock(target);
+    try {
+      await this.exitModeIfNeeded(target);
+      if (text.includes("\n") || text.length > 500) {
+        // Buffer method — reliable for multiline/long content
+        await this.loadBuffer(text);
+        await this.pasteBuffer(target);
+      } else {
+        // Literal send — -l prevents tmux from interpreting special chars like |
+        await this.sendKeysLiteral(target, text);
+      }
+      await new Promise(r => setTimeout(r, SEND_SETTLE_MS));
+      await this.submitWithConfirm(target, text);
+    } finally {
+      await this.releasePaneSendLock(lock);
     }
-    await new Promise(r => setTimeout(r, SEND_SETTLE_MS));
-    await this.submitWithConfirm(target, text);
+  }
+
+  /**
+   * Acquire a cross-process send lock for a pane via mkdir-spinlock on the
+   * tmux host (mkdir is atomic on POSIX). A send holds the lock ~2-6s; a lock
+   * older than PANE_SEND_LOCK_STALE_S is stolen (holder died mid-send). On
+   * timeout the send proceeds unlocked — degrading to the old racy behavior
+   * beats dropping the message entirely.
+   * @internal overridable for tests.
+   */
+  protected async acquirePaneSendLock(target: string): Promise<string> {
+    const safe = target.replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const lockDir = `/tmp/maw-send-lock-${safe}`;
+    const attempt =
+      `now=$(date +%s); if mkdir '${lockDir}' 2>/dev/null; then echo acquired; ` +
+      `else age=$((now - $(stat -f %m '${lockDir}' 2>/dev/null || stat -c %Y '${lockDir}' 2>/dev/null || echo "$now"))); ` +
+      `if [ "$age" -gt ${PANE_SEND_LOCK_STALE_S} ]; then rmdir '${lockDir}' 2>/dev/null; mkdir '${lockDir}' 2>/dev/null && echo stolen || echo busy; ` +
+      `else echo busy; fi; fi`;
+    for (let i = 0; i < PANE_SEND_LOCK_MAX_TRIES; i++) {
+      const res = await hostExec(attempt, this.host).catch(() => "busy");
+      if (res.includes("acquired") || res.includes("stolen")) return lockDir;
+      await new Promise(r => setTimeout(r, PANE_SEND_LOCK_RETRY_MS));
+    }
+    console.warn(`[tmux] sendText: could not acquire send lock for ${target} — sending unlocked`);
+    return "";
+  }
+
+  /** @internal overridable for tests. */
+  protected async releasePaneSendLock(lockDir: string): Promise<void> {
+    if (!lockDir) return;
+    await hostExec(`rmdir '${lockDir}' 2>/dev/null || true`, this.host).catch(() => {});
   }
 
   /**
