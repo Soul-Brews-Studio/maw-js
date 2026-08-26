@@ -52,6 +52,34 @@ reboot: `bash ~/tt3p/agent-hub/orchestrator-vnext/tools/fleet-restore.sh`
   `cleanup`. Their behavioral contract (what delivery proves, targeting,
   dry-run discipline) is owned by `rules/maw-communication.md`.
 
+### Fleet-record lifecycle & drift (validated 2026-08-22)
+
+- Records live at `~/.maw/fleet/<num>-<group>.json`. The **write dir** is the runtime
+  home `~/.maw/fleet` (`fleetDirForWrite`); **reads** merge that with `~/.config/maw/fleet`
+  **first-writer-wins by filename**, excluding `*.disabled` (`fleet-load-core.ts`).
+- A record is a **launch snapshot, not live truth**: `windows[]` is written once at
+  registration (`maw new` / `auto_registered`) and is reconciled by **no** ordinary
+  lifecycle op. Consequences:
+  - `maw sleep <oracle> [window]` stops only the **recorded** window(s); un-recorded
+    live windows keep running.
+  - `maw wake <oracle>` rebuilds windows from the recovery snapshot **only when the
+    session is fully gone**; with a surviving pane it reconciles nothing. (`wake` has
+    no window positional — a 2nd arg becomes a task.)
+  - a runtime-capture/backfill path rewrites a record's `runtime` block and may prune
+    *some* windows without fully reconciling — a third drift source.
+- **Detect drift (read-only, no repair)** — record vs live windows:
+  ```sh
+  maw locate <oracle>                                   # session + fleet path (no side effects)
+  tmux list-windows -t <session> -F '#{window_name}'    # live windows
+  cat ~/.maw/fleet/<session>.json                       # recorded windows[]
+  ```
+  Classifier + regression tests: `src/core/fleet/fleet-drift.ts` and
+  `test/fleet-record-hygiene.test.ts`. The three drift classes currently on this machine
+  (no-record / record<live / record>live) are recorded in the MAW-HYG measured evidence
+  and receipt `MAW-HYG-20260822-01` — not restated here.
+- **Repairing** a real seat's record (re-register / prune) is **gated work** (TINE
+  deploy word), never done in-band from a diagnostic.
+
 ## 5. Backup & restore
 
 - The tool itself is stateless code: git is the backup (push `alpha` to the fork).
