@@ -23,7 +23,7 @@ let snapshots: string[] = [];
 let currentSession = "work";
 let tmuxRunFails = false;
 let killWindowFails = false;
-let signalErrorFor: string | null = null;
+let autoSaveErrorFor: string | null = null;
 let tmuxCurrentWindowIndex = 0;
 let teamCharterPath: string | null = null;
 let teamRepoRoot = "/tmp/mawjs-team-root";
@@ -43,6 +43,11 @@ let resolveOracleResult: { repoPath: string; repoName: string; parentDir: string
 
 mock.module("maw-js/sdk", () => ({
   listSessions: async () => sessions,
+  // done-deps.ts (loaded via impl.ts) resolves these from the sdk; the
+  // single-window helpers that would use them are mocked out below, so no-ops
+  // are enough to satisfy the imports for the done --all lifecycle tests.
+  hostExec: async () => "",
+  loadFleetEntries: () => [],
   get FLEET_DIR() { return "/tmp/maw-test-fleet"; },
   takeSnapshot: async (trigger: string) => { snapshots.push(trigger); return "/tmp/snapshot.json"; },
   tmux: {
@@ -80,12 +85,15 @@ mock.module("maw-js/core/matcher/normalize-target", () => ({
 }));
 
 mock.module(join(import.meta.dir, "../../src/vendor/mpr-plugins/done/done-autosave"), () => ({
-  signalParentInbox: async (windowName: string, sessionName: string) => {
+  // signalParentInbox is sync and self-swallowing in production (a signal error
+  // is logged, never thrown), so the mock mirrors that: it records the signal
+  // and never throws.
+  signalParentInbox: (windowName: string, sessionName: string) => {
     inboxSignals.push({ windowName, sessionName });
-    if (signalErrorFor === windowName) throw new Error("inbox failed");
   },
   autoSave: async (windowName: string, sessionName: string, opts: { dryRun?: boolean }) => {
     autoSaveCalls.push({ windowName, sessionName, dryRun: opts.dryRun });
+    if (autoSaveErrorFor === windowName) throw new Error("autosave failed");
   },
 }));
 
@@ -155,7 +163,7 @@ beforeEach(() => {
   snapshots = [];
   tmuxRunFails = false;
   killWindowFails = false;
-  signalErrorFor = null;
+  autoSaveErrorFor = null;
   tmuxCurrentWindowIndex = 0;
   teamCharterPath = null;
   teamCharter = {
@@ -222,7 +230,7 @@ describe("cmdDoneAll", () => {
     expect(tmuxCommands).toContain("run display-message -p #{session_name}\t#{window_index}");
   });
 
-  test("allows done lead window when current tmux identity is unavailable (subshell case)", async () => {
+  test("refuses done lead window when current tmux identity is unavailable (fail-closed)", async () => {
     sessions = [{
       name: "139-mawjs",
       windows: [
@@ -232,7 +240,7 @@ describe("cmdDoneAll", () => {
     }];
     currentSession = "139-mawjs";
     tmuxCurrentWindowIndex = 2;
-    tmuxRunFails = true;
+    tmuxRunFails = true; // subshell / no tmux → identity cannot be confirmed
     teamCharterPath = "/tmp/mawjs-team.yaml";
     teamCharter = {
       name: "mawjs-m5",
@@ -244,8 +252,16 @@ describe("cmdDoneAll", () => {
 
     const { cmdDone } = await import("../../src/vendor/mpr-plugins/done/impl");
 
-    await expect(cmdDone("mawjs-oracle", { force: true })).resolves.toBeUndefined();
-    expect(tmuxCommands).toContain("kill 139-mawjs:mawjs-oracle");
+    // Fail-closed: when tmux identity is unavailable we cannot prove the caller
+    // is in the lead window, so refuse — and make ZERO changes (the guard runs
+    // before any signal / kill / worktree / fleet mutation).
+    await expect(cmdDone("mawjs-oracle", { force: true })).rejects.toThrow("refusing to done lead window");
+    expect(inboxSignals).toEqual([]);
+    expect(tmuxCommands).not.toContain("kill 139-mawjs:mawjs-oracle");
+    expect(worktreeLookups).toEqual([]);
+    expect(removedFleetEntries).toEqual([]);
+    expect(snapshots).toEqual([]);
+    // the guard still performs the identity read that let it decide to refuse
     expect(tmuxCommands).toContain("run display-message -p #{session_name}\t#{window_index}");
   });
 
@@ -347,7 +363,7 @@ describe("cmdDoneAll", () => {
   });
 
   test("cmdDoneAll records skipped windows when the single-window lifecycle throws", async () => {
-    signalErrorFor = "alpha";
+    autoSaveErrorFor = "alpha";
 
     const summary = await cmdDoneAll({});
 

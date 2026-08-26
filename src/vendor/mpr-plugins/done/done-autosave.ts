@@ -116,7 +116,12 @@ export async function autoSave(
     }
   }
 
-  // Reunion + soul-sync
-  await d.reunion(windowName);
+  // Reunion + soul-sync are auxiliary post-save steps: best-effort, never allowed
+  // to abort teardown. cmdDone signals the parent "completed" before autoSave, so
+  // a reunion/soul-sync throw here would otherwise strand a half-torn-down
+  // worktree after a completion signal was already sent.
+  try { await d.reunion(windowName); } catch (e: any) {
+    d.logger.log(`  \x1b[33m⚠\x1b[0m reunion skipped: ${e?.message || e}`);
+  }
   try { await d.soulSync(undefined, { cwd: paneCwd }); } catch { /* no peers configured */ }
 }

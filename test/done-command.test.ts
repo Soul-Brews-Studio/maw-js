@@ -234,6 +234,19 @@ describe("cmdDone", () => {
     expect(h.logs.join("\n")).toContain("killed window work:tile-1");
   });
 
+  test("a reunion failure is best-effort and never aborts teardown", async () => {
+    const h = createHarness();
+    // Not --force, so autoSave runs; reunion (an auxiliary post-save step) throws.
+    const deps: DoneDeps = { ...h.deps, reunion: async () => { throw new Error("reunion offline"); } };
+
+    await cmdDone("tile-1", {}, deps);
+
+    // Teardown still completed: the reunion error was swallowed and logged.
+    expect(h.logs.join("\n")).toContain("reunion skipped");
+    expect(h.killed).toEqual(["work:tile-1"]);
+    expect(h.snapshots).toEqual(["done"]);
+  });
+
   test("dry-run for a missing window reports lookup paths without mutating cleanup state", async () => {
     const fleetFile = "/fleet/team.json";
     const h = createHarness({
