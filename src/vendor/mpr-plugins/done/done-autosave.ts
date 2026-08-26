@@ -1,6 +1,8 @@
 import { hostExec } from "maw-js/sdk";
 import { tmux } from "maw-js/sdk";
 import { loadFleetEntries } from "maw-js/sdk";
+import { loadConfig } from "maw-js/config";
+import type { MawConfig } from "maw-js/config/types";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { cmdReunion } from "./internal/reunion-impl";
@@ -55,7 +57,11 @@ export async function autoSave(
     fleetEntries: loadFleetEntries(),
     readWorktreeEngineFile,
   });
-  const retrospectiveCommand = retrospectiveCommandForEngine(engine);
+  // Pass the live config so a custom engine key (e.g. a commands-map wrapper that
+  // execs codex) is classified by its declared process family, not its name.
+  let config: Partial<MawConfig> = {};
+  try { config = loadConfig(); } catch { /* fall back to built-in classification */ }
+  const retrospectiveCommand = retrospectiveCommandForEngine(engine, config);
 
   if (opts.dryRun) {
     if (retrospectiveCommand) {

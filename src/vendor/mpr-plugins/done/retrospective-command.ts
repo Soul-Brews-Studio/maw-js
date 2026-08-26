@@ -1,5 +1,6 @@
 import type { FleetEntry } from "../../../core/fleet/fleet-load-core";
 import { isClaudeLikeEngine } from "../../../core/engine/is-claude-like";
+import { resolveEngine, ENGINE_SEED } from "../../../config/engine-registry";
 import type { MawConfig } from "../../../config/types";
 
 export type RetrospectiveCommand = "/rrr" | "$rrr";
@@ -44,12 +45,42 @@ export function retrospectiveCommandForEngine(
   engine: string | undefined,
   config: Partial<MawConfig> = {},
 ): RetrospectiveCommand | null {
-  const name = engine?.trim().toLowerCase();
-  if (!name) return null;
+  const raw = engine?.trim();
+  const name = raw?.toLowerCase();
+  if (!name || !raw) return null;
   if (DOLLAR_RRR_ENGINES.has(name)) return "$rrr";
   if (NO_RETRO_ENGINES.has(name)) return null;
   if (isClaudeLikeEngine(engine, config)) return "/rrr";
+  // Custom engine key whose NAME is not a built-in (e.g. a commands-map wrapper
+  // like `codex-pl-worker` whose cmd execs codex): classify by the engine's
+  // declared PROCESS family (registry processNames), not its name. A config
+  // entry that declares `processNames: ["codex"]` (or a codex/omx binary) is
+  // then treated as codex → `$rrr`.
+  const family = engineProcessFamily(raw, config);
+  if (family && DOLLAR_RRR_ENGINES.has(family)) return "$rrr";
+  if (family && NO_RETRO_ENGINES.has(family)) return null;
   return "/rrr";
+}
+
+/**
+ * The engine's underlying process family, drawn from its registry definition's
+ * `processNames` (config.engines / legacy config.commands). Returns the first
+ * processName that is a known retro family ($rrr or no-retro); undefined when
+ * none is declared. This is what lets a custom wrapper key be classified by the
+ * process it actually execs rather than by its opaque config-key name.
+ */
+function engineProcessFamily(engine: string, config: Partial<MawConfig>): string | undefined {
+  let def;
+  try {
+    def = resolveEngine(engine, config);
+  } catch {
+    def = ENGINE_SEED[engine.toLowerCase() as keyof typeof ENGINE_SEED];
+  }
+  for (const proc of def?.processNames ?? []) {
+    const p = proc.trim().toLowerCase();
+    if (DOLLAR_RRR_ENGINES.has(p) || NO_RETRO_ENGINES.has(p)) return p;
+  }
+  return undefined;
 }
 
 export interface ResolveWindowEngineDeps {
