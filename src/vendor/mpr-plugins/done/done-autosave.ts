@@ -1,61 +1,62 @@
-import { hostExec } from "maw-js/sdk";
-import { tmux } from "maw-js/sdk";
-import { loadFleetEntries } from "maw-js/sdk";
-import { loadConfig } from "maw-js/config";
 import type { MawConfig } from "maw-js/config/types";
-import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import { cmdReunion } from "./internal/reunion-impl";
-import { cmdSoulSync } from "./internal/soul-sync-impl";
+import { pruneJsonlFile } from "../messages/retention";
+import { doneDeps, type DoneDeps, type SessionInfo } from "./done-deps";
 import type { DoneOpts } from "./impl";
-import { mawDataPath } from "../../../core/xdg";
-import { readWorktreeEngineFile } from "../../../commands/shared/wake-session";
 import { resolveWindowEngine, retrospectiveCommandForEngine } from "./retrospective-command";
 
-type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
-
 /** Signal parent oracle inbox that a worktree window is done (#81). */
-export async function signalParentInbox(
+export function signalParentInbox(
   windowName: string,
   sessionName: string,
   sessions: SessionInfo[],
-): Promise<void> {
+  deps: DoneDeps = {},
+): void {
+  const d = doneDeps(deps);
   const from = process.env.CLAUDE_AGENT_NAME || windowName;
   const parentWindow = sessions.find(s => s.name === sessionName)?.windows[0]?.name;
   if (!parentWindow) return;
   const parentTarget = parentWindow.replace(/[^a-zA-Z0-9_-]/g, "");
-  const inboxDir = mawDataPath("inbox");
+  const inboxDir = d.inboxDir;
   const signal =
-    JSON.stringify({ ts: new Date().toISOString(), from, type: "done", msg: `worktree ${windowName} completed`, thread: null }) + "\n";
+    JSON.stringify({ ts: d.now().toISOString(), from, type: "done", msg: `worktree ${windowName} completed`, thread: null }) + "\n";
   try {
-    mkdirSync(inboxDir, { recursive: true });
-    appendFileSync(join(inboxDir, `${parentTarget}.jsonl`), signal);
+    d.fs.mkdirSync(inboxDir, { recursive: true });
+    const signalPath = join(inboxDir, `${parentTarget}.jsonl`);
+    d.fs.appendFileSync(signalPath, signal);
+    pruneJsonlFile(signalPath);
   } catch (e) {
-    console.error(`  \x1b[33m⚠\x1b[0m inbox signal failed: ${e}`);
+    d.logger.error(`  \x1b[33m⚠\x1b[0m inbox signal failed: ${e}`);
   }
 }
 
-/** Auto-save: send engine-appropriate retrospective command, git commit+push, reunion + soul-sync (unless --force or dry-run). */
+/**
+ * Auto-save: send engine-appropriate retrospective command, git commit+push,
+ * reunion + soul-sync (unless --force or dry-run).
+ *
+ * The retro form comes from the window's AUTHORITATIVE engine (fleet
+ * runtime.engine → worktree .maw-engine), never pane_current_command (D3): a
+ * codex worker's pane reports its bash/node wrapper, so pane-command inference
+ * mis-sent /rrr to codex. Unresolved engine → skip rather than guess.
+ */
 export async function autoSave(
   windowName: string,
   sessionName: string,
   opts: DoneOpts,
+  deps: DoneDeps = {},
 ): Promise<void> {
+  const d = doneDeps(deps);
   const target = `${sessionName}:${windowName}`;
 
   let paneCwd = "";
   try {
-    const paneInfo = await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`);
+    const paneInfo = await d.hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`);
     paneCwd = (paneInfo ?? "").trim();
   } catch { /* expected: pane may not exist */ }
 
-  // Pick the retro form from the window's AUTHORITATIVE engine (fleet
-  // runtime.engine → worktree .maw-engine), never pane_current_command: a codex
-  // worker's pane reports its bash/node wrapper, so the old pane-command inference
-  // mis-sent /rrr to codex (D3). Unresolved engine → skip rather than guess.
   const engine = resolveWindowEngine(sessionName, windowName, paneCwd, {
-    fleetEntries: loadFleetEntries(),
-    readWorktreeEngineFile,
+    fleetEntries: d.loadFleetEntries(),
+    readWorktreeEngineFile: d.readWorktreeEngineFile,
   });
   // Pass the live config so a custom engine key (e.g. a commands-map wrapper that
   // execs codex) is classified by its declared process family, not its name.
@@ -65,57 +66,57 @@ export async function autoSave(
 
   if (opts.dryRun) {
     if (retrospectiveCommand) {
-      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send ${retrospectiveCommand} to ${target} and wait 10s`);
+      d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would send ${retrospectiveCommand} to ${target} and wait 10s`);
     } else {
-      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would skip retro (no retrospective command for this engine)`);
+      d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would skip retro (no retrospective command for this engine)`);
     }
     if (paneCwd) {
-      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would git add + commit + push in ${paneCwd}`);
+      d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would git add + commit + push in ${paneCwd}`);
     }
     // NOTE: kill-window and worktree/fleet-config removal are cmdDone's concern and
     // are previewed accurately there (against the real resolution), not claimed here.
-    console.log();
+    d.logger.log();
     return;
   }
 
-  // Send a retrospective command aligned with the panel's engine; skip when the
-  // engine has no retrospective command (codex/aider/opencode).
+  // Send a retrospective command aligned with the window's engine; skip when the
+  // engine has no retrospective command or could not be resolved from MAW state.
   if (retrospectiveCommand) {
-    console.log(`  \x1b[36m⏳\x1b[0m sending ${retrospectiveCommand} to ${target}...`);
+    d.logger.log(`  \x1b[36m⏳\x1b[0m sending ${retrospectiveCommand} to ${target}...`);
     try {
-      await tmux.sendText(target, retrospectiveCommand);
-      await new Promise(r => setTimeout(r, 10_000));
-      console.log(`  \x1b[32m✓\x1b[0m ${retrospectiveCommand} sent (waited 10s)`);
+      await d.tmux.sendText(target, retrospectiveCommand);
+      await d.sleep(10_000);
+      d.logger.log(`  \x1b[32m✓\x1b[0m ${retrospectiveCommand} sent (waited 10s)`);
     } catch {
-      console.log(`  \x1b[33m⚠\x1b[0m could not send ${retrospectiveCommand} (agent may not be running)`);
+      d.logger.log(`  \x1b[33m⚠\x1b[0m could not send ${retrospectiveCommand} (agent may not be running)`);
     }
   } else {
-    console.log(`  \x1b[90m○\x1b[0m no retrospective command for this engine — skipping retro`);
+    d.logger.log(`  \x1b[90m○\x1b[0m no retrospective command for this engine — skipping retro`);
   }
 
   // Git auto-save in pane's cwd
   if (paneCwd) {
-    console.log(`  \x1b[36m⏳\x1b[0m git auto-save in ${paneCwd}...`);
+    d.logger.log(`  \x1b[36m⏳\x1b[0m git auto-save in ${paneCwd}...`);
     try {
-      await hostExec(`git -C '${paneCwd}' add -A`);
+      await d.hostExec(`git -C '${paneCwd}' add -A`);
       try {
-        await hostExec(`git -C '${paneCwd}' commit -m 'chore: auto-save before done'`);
-        console.log(`  \x1b[32m✓\x1b[0m committed changes`);
+        await d.hostExec(`git -C '${paneCwd}' commit -m 'chore: auto-save before done'`);
+        d.logger.log(`  \x1b[32m✓\x1b[0m committed changes`);
       } catch {
-        console.log(`  \x1b[90m○\x1b[0m nothing to commit`);
+        d.logger.log(`  \x1b[90m○\x1b[0m nothing to commit`);
       }
       try {
-        await hostExec(`git -C '${paneCwd}' push`);
-        console.log(`  \x1b[32m✓\x1b[0m pushed to remote`);
+        await d.hostExec(`git -C '${paneCwd}' push`);
+        d.logger.log(`  \x1b[32m✓\x1b[0m pushed to remote`);
       } catch {
-        console.log(`  \x1b[33m⚠\x1b[0m push failed (no remote or auth issue)`);
+        d.logger.log(`  \x1b[33m⚠\x1b[0m push failed (no remote or auth issue)`);
       }
     } catch (e: any) {
-      console.log(`  \x1b[33m⚠\x1b[0m git auto-save failed: ${e.message || e}`);
+      d.logger.log(`  \x1b[33m⚠\x1b[0m git auto-save failed: ${e.message || e}`);
     }
   }
 
   // Reunion + soul-sync
-  await cmdReunion(windowName);
-  try { await cmdSoulSync(undefined, { cwd: paneCwd }); } catch { /* no peers configured */ }
+  await d.reunion(windowName);
+  try { await d.soulSync(undefined, { cwd: paneCwd }); } catch { /* no peers configured */ }
 }
