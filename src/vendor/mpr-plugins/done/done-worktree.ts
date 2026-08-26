@@ -72,15 +72,27 @@ async function movePrunedWorktreeDir(wtPath: string, mainPath: string): Promise<
   }
 }
 
+export function windowMatchesWorktreeSuffix(windowName: string, wtName: string): boolean {
+  const win = windowName.toLowerCase();
+  // strip a leading numbered slot ("1-wt-foo" -> "wt-foo") so the worktree's own
+  // slug is compared, not its slot index.
+  const wtSuffix = wtName.replace(/^\d+-/, "").toLowerCase();
+  if (!wtSuffix) return false;
+  // A window is named "<oracle-or-session>-<wtName>". The oracle name may itself
+  // contain hyphens (e.g. "pilot-hello-disposable"), so the old first-hyphen strip
+  // broke the match. Match the worktree slug as the window's tail, bounded by a
+  // hyphen so a suffix cannot substring-match a longer one ("wt-repro1" vs
+  // "wt-repro11"). Genuine multi-matches are disambiguated by the caller.
+  return win === wtSuffix || win.endsWith(`-${wtSuffix}`);
+}
+
 async function findMatchingWorktreePaths(windowName: string, reposRoot: string): Promise<string[]> {
-  const suffix = windowName.replace(/^[^-]+-/, "");
   const ghqOut = await hostExec(`find ${shellArg(reposRoot)} -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`);
   const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
   return allWtPaths.filter(p => {
     const parsed = parseWorktreePath(p, reposRoot);
     if (!parsed) return false;
-    const wtSuffix = parsed.wtName.replace(/^\d+-/, "");
-    return wtSuffix.toLowerCase() === suffix.toLowerCase();
+    return windowMatchesWorktreeSuffix(windowName, parsed.wtName);
   });
 }
 

@@ -59,8 +59,8 @@ export async function autoSave(
     if (paneCwd) {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would git add + commit + push in ${paneCwd}`);
     }
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would kill window ${target}`);
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree + fleet config`);
+    // NOTE: kill-window and worktree/fleet-config removal are cmdDone's concern and
+    // are previewed accurately there (against the real resolution), not claimed here.
     console.log();
     return;
   }

@@ -252,20 +252,25 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
 
   // 0.5. Auto-save: send /rrr + git commit + push (unless --force)
   if (sessionName !== null && windowIndex !== null && !opts.force) {
-    const exited = await autoSave(windowName, sessionName, opts);
-    // autoSave returns void; dryRun path returns early inside
-    if (opts.dryRun) return;
+    await autoSave(windowName, sessionName, opts);
+    // NOTE: no early return on dry-run — continue through the (dry-run-guarded)
+    // kill-window + worktree-resolution steps so the preview reflects what would
+    // actually happen (worktree resolvable or not), instead of an optimistic claim.
   } else if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
   }
 
   // 1. Kill tmux window
   if (sessionName !== null && windowIndex !== null) {
-    try {
-      await tmux.killWindow(`${sessionName}:${windowName}`);
-      console.log(`  \x1b[32m✓\x1b[0m killed window ${sessionName}:${windowName}`);
-    } catch {
-      console.log(`  \x1b[33m⚠\x1b[0m could not kill window (may already be closed)`);
+    if (opts.dryRun) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would kill window ${sessionName}:${windowName}`);
+    } else {
+      try {
+        await tmux.killWindow(`${sessionName}:${windowName}`);
+        console.log(`  \x1b[32m✓\x1b[0m killed window ${sessionName}:${windowName}`);
+      } catch {
+        console.log(`  \x1b[33m⚠\x1b[0m could not kill window (may already be closed)`);
+      }
     }
   } else {
     console.log(`  \x1b[90m○\x1b[0m window '${windowName}' not running`);
