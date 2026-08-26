@@ -1,8 +1,30 @@
 import { hostExec } from "maw-js/sdk";
-import { readdirSync, readFileSync, writeFileSync } from "fs";
-import { basename, dirname, join } from "path";
+import { readdirSync, readFileSync, writeFileSync, realpathSync } from "fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
 import { fleetDirsForRead } from "maw-js/commands/shared/fleet-load";
 import { parseWorktreePath } from "maw-js/core/fleet/worktree-layout";
+
+/** Resolve a path to its real, symlink-followed, normalized form. Falls back to
+ *  a lexical resolve() when the path does not exist yet (still collapses `..`). */
+function resolvedReal(p: string): string {
+  try { return realpathSync(resolve(p)); } catch { return resolve(p); }
+}
+
+/**
+ * True only when `target` resolves to a path STRICTLY inside `root` (a proper
+ * descendant, not root itself). Uses realpath (defeats symlink escape) and a
+ * path-segment boundary via relative() — never a bare string prefix, so a
+ * sibling like `<root>-evil` cannot pass. Guards `git worktree remove` against a
+ * hostile/malformed fleet `win.worktree` that joins outside reposRoot yet still
+ * parses as a legacy worktree. (Same containment class as orchestrator 13d8cd2.)
+ */
+export function isStrictlyInside(root: string, target: string): boolean {
+  const r = resolvedReal(root);
+  const t = resolvedReal(target);
+  if (t === r) return false;
+  const rel = relative(r, t);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
 
 export interface DoneBranchCleanupOpts {
   cleanBranch?: boolean;
@@ -202,9 +224,22 @@ export async function removeWorktreeViaConfig(
       // Legacy records without win.worktree fall through to the ghq scan below.
       const target: string = win.worktree ?? win.repo;
       const fullPath = join(reposRoot, target);
+      // Containment gate: `win.worktree`/`win.repo` come from the fleet JSON and
+      // are attacker-controllable. A value like `../../tmp/evil.wt-x` joins to a
+      // path OUTSIDE reposRoot that parseWorktreePath's legacy branch still
+      // accepts — never hand such a path to `git worktree remove`. Reject unless
+      // both the resolved path and its parsed mainPath are strictly under root.
+      if (!isStrictlyInside(reposRoot, fullPath)) {
+        console.error(`  \x1b[31m✗\x1b[0m refusing worktree outside repos root: ${target}`);
+        break;
+      }
       const parsed = parseWorktreePath(fullPath, reposRoot);
       if (!parsed) break;
       const mainPath = parsed.mainPath;
+      if (!isStrictlyInside(reposRoot, mainPath)) {
+        console.error(`  \x1b[31m✗\x1b[0m refusing worktree whose main repo is outside repos root: ${target}`);
+        break;
+      }
 
       try {
         if (opts.dryRun) {

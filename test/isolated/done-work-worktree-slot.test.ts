@@ -16,10 +16,11 @@
  * transport + fleet config dir + auto-save/charter side effects.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as realSdk from "../../src/sdk";  // pre-captured so the mock preserves every real export
+import { isStrictlyInside } from "../../src/vendor/mpr-plugins/done/done-worktree";
 
 const GHQ = "/repos";                       // ghqRoot
 const REPOS_ROOT = `${GHQ}/github.com`;     // where org/repo lives
@@ -145,5 +146,60 @@ describe("maw done removes the --work worker's own worktree slot", () => {
 
     // hyphenated repo-stem prefix stripped by windowMatchesWorktreeSuffix → slot removed
     expect(removedSlot()).toBe(`${REPOS_ROOT}/org/pilot-pl-disposable/agents/1-wt-legacy`);
+  });
+
+  test("SECURITY: a traversal win.worktree never reaches git worktree remove", async () => {
+    sessions = [{ name: "04-croo", windows: [
+      { index: 0, name: "croo", active: true },
+      { index: 1, name: "evil", active: false },
+    ] }];
+    writeFleet("04-croo.json", { name: "04-croo", windows: [
+      { name: "croo", repo: "TTT3P/croo-oracle" },
+      // hostile fleet JSON: escapes reposRoot but parses as a legacy worktree
+      { name: "evil", repo: "org/pilot-pl-disposable", worktree: "../../../../../../tmp/evil.wt-x" },
+    ] });
+
+    await cmdDone("evil", { force: true, cwd: `${REPOS_ROOT}/org/pilot-pl-disposable` });
+
+    expect(removedSlot()).toBeUndefined();                                // nothing removed
+    expect(execCommands.some(c => c.includes("worktree remove") && c.includes("evil"))).toBe(false);
+    expect(execCommands.some(c => c.includes("/tmp/evil"))).toBe(false); // never touched the escaped path
+  });
+});
+
+describe("isStrictlyInside — path containment guard (hostile fixtures)", () => {
+  test("a proper descendant is inside", () => {
+    expect(isStrictlyInside("/repos/github.com", "/repos/github.com/org/repo/agents/1-x")).toBe(true);
+  });
+
+  test("../ traversal escaping the root is rejected", () => {
+    expect(isStrictlyInside("/repos/github.com", "/repos/github.com/../../tmp/evil.wt-x")).toBe(false);
+  });
+
+  test("an absolute path outside the root is rejected", () => {
+    expect(isStrictlyInside("/repos/github.com", "/tmp/evil.wt-x")).toBe(false);
+    expect(isStrictlyInside("/repos/github.com", "/etc")).toBe(false);
+  });
+
+  test("a sibling sharing a string prefix is rejected (boundary, not startsWith)", () => {
+    expect(isStrictlyInside("/repos/github.com", "/repos/github.com-evil/x")).toBe(false);
+  });
+
+  test("the root itself is not strictly inside", () => {
+    expect(isStrictlyInside("/repos/github.com", "/repos/github.com")).toBe(false);
+  });
+
+  test("a symlink escaping the root is rejected (realpath, not lexical)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "contain-"));
+    try {
+      const root = join(tmp, "root"); mkdirSync(root, { recursive: true });
+      const outside = join(tmp, "outside"); mkdirSync(outside, { recursive: true });
+      const escaped = join(root, "escape"); symlinkSync(outside, escaped);
+      expect(isStrictlyInside(root, escaped)).toBe(false);               // realpath → outside
+      const inner = join(root, "inner"); mkdirSync(inner);
+      expect(isStrictlyInside(root, inner)).toBe(true);                  // genuine descendant
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
