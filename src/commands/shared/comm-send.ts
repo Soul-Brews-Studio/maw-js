@@ -81,13 +81,22 @@ export async function resolveOraclePane(
 /** @internal */
 export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
   if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
-  // Only trust tmux when this process is actually running inside a tmux pane.
-  // Outside tmux, `tmux display-message` can still succeed by reporting the
-  // server's current/last-active session, which misattributes sender envelopes.
-  if (process.env.TMUX) {
+  // Only trust tmux when this process is actually running inside a tmux pane,
+  // and pin the query to that pane. An unpinned `display-message` resolves
+  // against the most recently active *client*, so under a multi-client server
+  // a call still misattributed to whatever session the user last touched
+  // (mac-tor 2026-08: zyn signing as underdog for ~30 days). $TMUX alone is
+  // not enough — the env survives into detached/hook subprocesses.
+  const pane = process.env.TMUX_PANE;
+  if (process.env.TMUX && pane) {
     try {
-      const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
-      if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
+      const tmuxSession = require("child_process").execSync(
+        `tmux display-message -p -t '${pane.replace(/'/g, "")}' '#{session_name}'`,
+        { encoding: "utf-8" },
+      ).trim();
+      // "08-mawjs" → "mawjs"; "underdog-oracle" → "underdog" (sign as the
+      // oracle short name, matching the `agents` registry keys).
+      if (tmuxSession) return tmuxSession.replace(/^\d+-/, "").replace(/-oracle$/, "");
     } catch {}
   }
   return config.node || "cli";
