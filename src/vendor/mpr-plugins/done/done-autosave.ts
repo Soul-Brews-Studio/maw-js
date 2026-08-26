@@ -1,12 +1,14 @@
 import { hostExec } from "maw-js/sdk";
 import { tmux } from "maw-js/sdk";
+import { loadFleetEntries } from "maw-js/sdk";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { cmdReunion } from "./internal/reunion-impl";
 import { cmdSoulSync } from "./internal/soul-sync-impl";
 import type { DoneOpts } from "./impl";
 import { mawDataPath } from "../../../core/xdg";
-import { inferRetrospectiveCommand } from "./retrospective-command";
+import { readWorktreeEngineFile } from "../../../commands/shared/wake-session";
+import { resolveWindowEngine, retrospectiveCommandForEngine } from "./retrospective-command";
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
@@ -40,15 +42,20 @@ export async function autoSave(
   const target = `${sessionName}:${windowName}`;
 
   let paneCwd = "";
-  let paneCurrentCommand = "";
   try {
-    const paneInfo = await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_command}\t#{pane_current_path}'`);
-    const [rawPaneCommand, rawPanePath] = paneInfo.split("\t");
-    paneCurrentCommand = (rawPaneCommand ?? "").trim();
-    paneCwd = (rawPanePath ?? "").trim();
+    const paneInfo = await hostExec(`tmux display-message -t '${target}' -p '#{pane_current_path}'`);
+    paneCwd = (paneInfo ?? "").trim();
   } catch { /* expected: pane may not exist */ }
 
-  const retrospectiveCommand = inferRetrospectiveCommand(paneCurrentCommand);
+  // Pick the retro form from the window's AUTHORITATIVE engine (fleet
+  // runtime.engine → worktree .maw-engine), never pane_current_command: a codex
+  // worker's pane reports its bash/node wrapper, so the old pane-command inference
+  // mis-sent /rrr to codex (D3). Unresolved engine → skip rather than guess.
+  const engine = resolveWindowEngine(sessionName, windowName, paneCwd, {
+    fleetEntries: loadFleetEntries(),
+    readWorktreeEngineFile,
+  });
+  const retrospectiveCommand = retrospectiveCommandForEngine(engine);
 
   if (opts.dryRun) {
     if (retrospectiveCommand) {
