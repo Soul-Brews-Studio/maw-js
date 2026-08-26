@@ -5,6 +5,13 @@ import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleet
 export interface FleetWindow {
   name: string;
   repo: string;
+  /** Worktree slot path rel reposRoot (e.g. "org/repo/agents/1-slug") for a
+   *  --work worker window. `repo` keeps the base repo (org/repo) for its
+   *  existing consumers; this additive field lets `maw done` remove the exact
+   *  slot when several work windows share one base repo. Absent on main/oracle
+   *  windows and on legacy records (they fall back to the ghq worktree scan).
+   *  Optional + backward-compatible — no schema-version bump required. */
+  worktree?: string;
   runtime?: FleetRuntimeIdentity;
 }
 

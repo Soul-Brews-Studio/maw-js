@@ -89,8 +89,32 @@ describe("ensureFleetSessionEntry", () => {
     expect(h.writes.map(([path]) => path)).toEqual(["/legacy/fleet/77-mawjs.json"]);
     expect(JSON.parse(h.files.get("/legacy/fleet/77-mawjs.json")!).windows).toEqual([
       { name: "lead", repo: "github.com/Soul-Brews-Studio/maw-js" },
-      { name: "worker", repo: "github.com/Soul-Brews-Studio/maw-js" },
+      // --work worker: repo stays the base repo; worktree records the slot so
+      // `maw done` can remove exactly this slot (rel reposRoot = ghqRoot/github.com).
+      { name: "worker", repo: "github.com/Soul-Brews-Studio/maw-js", worktree: "Soul-Brews-Studio/maw-js/agents/1-worker" },
     ]);
+  });
+
+  test("records win.worktree for a --work worktree cwd; omits it for a main repo cwd", () => {
+    // worktree cwd → worktree slot recorded, base repo untouched
+    const wt = deps();
+    ensureFleetSessionEntry({
+      session: "88-acme", window: "acme-oracle-wt-x",
+      cwd: "/ghq/github.com/acme/widget/agents/2-wt-x", createdBy: "maw wake",
+    }, wt.deps);
+    const wtWin = JSON.parse(wt.files.get("/state/fleet/88-acme.json")!).windows[0];
+    expect(wtWin.repo).toBe("github.com/acme/widget");
+    expect(wtWin.worktree).toBe("acme/widget/agents/2-wt-x");
+
+    // main-repo cwd → no worktree field
+    const main = deps();
+    ensureFleetSessionEntry({
+      session: "88-acme", window: "acme-oracle",
+      cwd: "/ghq/github.com/acme/widget", createdBy: "maw wake",
+    }, main.deps);
+    const mainWin = JSON.parse(main.files.get("/state/fleet/88-acme.json")!).windows[0];
+    expect(mainWin.repo).toBe("github.com/acme/widget");
+    expect("worktree" in mainWin).toBe(false);
   });
 
   test("skips unsafe names and cwd outside ghq instead of writing empty windows", () => {

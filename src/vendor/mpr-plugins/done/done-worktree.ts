@@ -194,16 +194,21 @@ export async function removeWorktreeViaConfig(
         config = JSON.parse(readFileSync(path, "utf-8"));
       } catch { continue; }
       const win = (config.windows || []).find((w: any) => w.name.toLowerCase() === windowNameLower);
-      if (!win?.repo) continue;
+      if (!win?.repo && !win?.worktree) continue;
 
-      const fullPath = join(reposRoot, win.repo);
+      // Prefer the recorded worktree slot (org/repo/agents/N-slug). win.repo holds
+      // only the BASE repo for a --work worker, so resolving win.repo would target
+      // the main repo (parseWorktreePath → null → break) and leave the slot behind.
+      // Legacy records without win.worktree fall through to the ghq scan below.
+      const target: string = win.worktree ?? win.repo;
+      const fullPath = join(reposRoot, target);
       const parsed = parseWorktreePath(fullPath, reposRoot);
       if (!parsed) break;
       const mainPath = parsed.mainPath;
 
       try {
         if (opts.dryRun) {
-          console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree ${win.repo}`);
+          console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree ${target}`);
           return true;
         }
         let branch = "";
@@ -224,7 +229,7 @@ export async function removeWorktreeViaConfig(
           }
         }
         await hostExec(`git -C ${shellArg(mainPath)} worktree prune`);
-        console.log(`  \x1b[32m✓\x1b[0m removed worktree ${win.repo}`);
+        console.log(`  \x1b[32m✓\x1b[0m removed worktree ${target}`);
         await cleanupDoneBranch(mainPath, branch, opts);
         return true;
       } catch (e: any) {
