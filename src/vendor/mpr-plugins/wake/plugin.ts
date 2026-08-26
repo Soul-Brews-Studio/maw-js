@@ -21,6 +21,8 @@ export default definePlugin({
       "--repo": "string",
       "--task": "string",
       "--fresh": "boolean",
+      "--fresh-session": "boolean",
+      "--no-continue": "boolean",
       "--no-attach": "boolean",
       "--list": "boolean",
       "--peer": "string"
