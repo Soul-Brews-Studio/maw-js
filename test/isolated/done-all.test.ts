@@ -369,7 +369,10 @@ describe("cmdDoneAll", () => {
 
     expect(summary.processed).toEqual(["duplicate"]);
     expect(summary.skipped).toEqual(["alpha"]);
-    expect(inboxSignals).toContainEqual({ windowName: "alpha", sessionName: "work" });
+    // The completion signal is bound to successful preservation: alpha's autoSave
+    // threw, so alpha is NOT signaled (no false completion); only the window that
+    // preserved cleanly (duplicate) is signaled.
+    expect(inboxSignals).toEqual([{ windowName: "duplicate", sessionName: "work" }]);
   });
 
   test("plugin CLI parses --all without a positional window name", async () => {

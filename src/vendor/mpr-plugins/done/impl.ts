@@ -248,12 +248,10 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
     await assertDoneMayTargetWindow(matchedSession, windowIndex, windowName, d);
   }
 
-  // 0. Signal parent inbox (#81) — write before kill so parent knows
-  if (sessionName && !opts.dryRun) {
-    signalParentInbox(windowName, sessionName, sessions, deps);
-  }
-
-  // 0.5. Auto-save: send retro + git commit + push (unless --force)
+  // 0. Auto-save FIRST — retro + git commit + push (unless --force). This is the
+  // pre-kill preservation step; if it throws (e.g. fleet/config read failure) we
+  // exit here, before signaling the parent or tearing anything down, so a
+  // "completed" signal is never emitted for work that was not preserved.
   if (sessionName !== null && windowIndex !== null && !opts.force) {
     await autoSave(windowName, sessionName, opts, deps);
     // NOTE: no early return on dry-run — continue through the (dry-run-guarded)
@@ -261,6 +259,14 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: Do
     // actually happen (worktree resolvable or not), instead of an optimistic claim.
   } else if (opts.dryRun) {
     d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
+  }
+
+  // 0.5. Signal parent inbox (#81) only after preservation has succeeded (or was
+  // skipped with --force), and only for a real done (dry-run returned above).
+  // The completion signal is thus causally bound to successful preservation and
+  // still lands before the destructive kill.
+  if (sessionName && !opts.dryRun) {
+    signalParentInbox(windowName, sessionName, sessions, deps);
   }
 
   // 1. Kill tmux window

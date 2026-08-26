@@ -247,6 +247,33 @@ describe("cmdDone", () => {
     expect(h.snapshots).toEqual(["done"]);
   });
 
+  test("a preservation (fleet-load) failure aborts before the completion signal or any teardown", async () => {
+    const h = createHarness();
+    // autoSave resolves the retro engine via loadFleetEntries — make it throw to
+    // model a fleet/config read failure during the pre-kill preservation step.
+    const deps: DoneDeps = { ...h.deps, loadFleetEntries: () => { throw new Error("fleet unreadable"); } };
+
+    await expect(cmdDone("tile-1", {}, deps)).rejects.toThrow("fleet unreadable");
+
+    // No "completed" signal was emitted, and nothing was torn down (fail-closed):
+    // the signal is bound to successful preservation, which threw.
+    expect([...h.files.keys()].some((k) => k.includes("/inbox/"))).toBe(false);
+    expect(h.killed).toEqual([]);
+    expect(h.snapshots).toEqual([]);
+  });
+
+  test("the successful path signals the parent exactly once, then tears down", async () => {
+    const h = createHarness();
+
+    await cmdDone("tile-1", {}, h.deps);
+
+    const inboxFiles = [...h.files.entries()].filter(([k]) => k.includes("/inbox/"));
+    expect(inboxFiles).toHaveLength(1);
+    expect(inboxFiles[0]![1].trim().split("\n")).toHaveLength(1); // exactly one signal line
+    expect(h.killed).toEqual(["work:tile-1"]);
+    expect(h.snapshots).toEqual(["done"]);
+  });
+
   test("dry-run for a missing window reports lookup paths without mutating cleanup state", async () => {
     const fleetFile = "/fleet/team.json";
     const h = createHarness({
