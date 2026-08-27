@@ -2,7 +2,7 @@ import { hostExec } from "maw-js/sdk";
 import { readdirSync, readFileSync, writeFileSync, realpathSync } from "fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
 import { fleetDirsForRead } from "maw-js/commands/shared/fleet-load";
-import { parseWorktreePath } from "maw-js/core/fleet/worktree-layout";
+import { parseWorktreePath, type ParsedWorktreePath } from "maw-js/core/fleet/worktree-layout";
 
 /** Resolve a path to its real, symlink-followed, normalized form. Falls back to
  *  a lexical resolve() when the path does not exist yet (still collapses `..`). */
@@ -24,6 +24,69 @@ export function isStrictlyInside(root: string, target: string): boolean {
   if (t === r) return false;
   const rel = relative(r, t);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+export interface ContainedSlot {
+  /** The joined path handed to `git worktree remove`. */
+  fullPath: string;
+  parsed: ParsedWorktreePath;
+}
+
+/**
+ * Contain an attacker-controllable fleet `win.worktree`/`win.repo` value before
+ * it reaches `git worktree remove`. Returns the resolved slot on success, or
+ * `null` when the value must be refused.
+ *
+ * The tt3p layout symlinks each ghq repo dir (`<reposRoot>/<org>/<repo>`) to
+ * `~/tt3p/product-hub/<repo>`, so a nested slot `<org>/<repo>/agents/<slot>`
+ * realpath-resolves OUT of `<reposRoot>`. The old `isStrictlyInside(reposRoot,
+ * fullPath)` gate then false-refused a LEGITIMATE slot (pilot #7). The fleet
+ * JSON — not the ghq filesystem — is the attacker surface, so contain the slot
+ * against its OWN repo anchor instead of the ghq root:
+ *
+ *   (a) lexical gate on the raw string: relative, no absolute, no `..` segment;
+ *   (b) anchor = `join(reposRoot, org, repo)` from the target's first two
+ *       segments; the parse must agree (`parsed.mainPath === anchor`), which
+ *       bounds a nested slot to exactly `org/repo/agents/<slot>` — no injected
+ *       depth can move the anchor;
+ *   (c) re-root the slot suffix onto the repo's REAL path and require it to stay
+ *       strictly inside — so the repo dir being a symlink (tt3p → product-hub)
+ *       is accepted, but a symlink INSIDE the slot escaping the repo is rejected.
+ *
+ * Legacy `.wt-` worktrees are siblings of the (real) repo dir under the real org
+ * dir — the ghq→product-hub symlink is at the repo level, so realpath stays
+ * under reposRoot; keep the original ghq-root containment for them.
+ */
+export function worktreeContainment(reposRoot: string, target: string): ContainedSlot | null {
+  // (a) Lexical gate on the raw fleet string (the attacker surface).
+  if (!target || isAbsolute(target)) return null;
+  const segs = target.split(/[\\/]/).filter(Boolean);
+  if (segs.length === 0 || segs.some(s => s === "..")) return null;
+
+  const fullPath = join(reposRoot, target);
+  const parsed = parseWorktreePath(fullPath, reposRoot);
+  if (!parsed) return null;
+
+  if (parsed.layout === "nested") {
+    if (segs.length < 2) return null;
+    // (b) Anchor from the first two segments; the parse must agree.
+    const anchor = join(reposRoot, segs[0], segs[1]);
+    if (parsed.mainPath !== anchor) return null;
+    // (c) Re-root the slot onto the repo's REAL path before containing, so a
+    // repo-level symlink (tt3p layout) is followed once and consistently while a
+    // symlink inside the slot still shows up as an escape.
+    const realAnchor = resolvedReal(anchor);
+    const suffix = relative(anchor, fullPath);
+    if (!suffix || suffix.startsWith("..") || isAbsolute(suffix)) return null;
+    if (!isStrictlyInside(realAnchor, join(realAnchor, suffix))) return null;
+    return { fullPath, parsed };
+  }
+
+  // Legacy `.wt-` sibling worktree: the repo-level symlink keeps realpath under
+  // the ghq root, so the original containment still holds.
+  if (!isStrictlyInside(reposRoot, fullPath)) return null;
+  if (!isStrictlyInside(reposRoot, parsed.mainPath)) return null;
+  return { fullPath, parsed };
 }
 
 export interface DoneBranchCleanupOpts {
@@ -223,23 +286,20 @@ export async function removeWorktreeViaConfig(
       // the main repo (parseWorktreePath → null → break) and leave the slot behind.
       // Legacy records without win.worktree fall through to the ghq scan below.
       const target: string = win.worktree ?? win.repo;
-      const fullPath = join(reposRoot, target);
       // Containment gate: `win.worktree`/`win.repo` come from the fleet JSON and
       // are attacker-controllable. A value like `../../tmp/evil.wt-x` joins to a
       // path OUTSIDE reposRoot that parseWorktreePath's legacy branch still
-      // accepts — never hand such a path to `git worktree remove`. Reject unless
-      // both the resolved path and its parsed mainPath are strictly under root.
-      if (!isStrictlyInside(reposRoot, fullPath)) {
+      // accepts — never hand such a path to `git worktree remove`. A nested slot
+      // is contained against its OWN repo anchor (the repo dir is legitimately a
+      // ghq→product-hub symlink in the tt3p layout), so a real slot is accepted
+      // while a symlink escaping the slot is still rejected. See worktreeContainment.
+      const contained = worktreeContainment(reposRoot, target);
+      if (!contained) {
         console.error(`  \x1b[31m✗\x1b[0m refusing worktree outside repos root: ${target}`);
         break;
       }
-      const parsed = parseWorktreePath(fullPath, reposRoot);
-      if (!parsed) break;
+      const { fullPath, parsed } = contained;
       const mainPath = parsed.mainPath;
-      if (!isStrictlyInside(reposRoot, mainPath)) {
-        console.error(`  \x1b[31m✗\x1b[0m refusing worktree whose main repo is outside repos root: ${target}`);
-        break;
-      }
 
       try {
         if (opts.dryRun) {
