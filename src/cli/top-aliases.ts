@@ -431,6 +431,11 @@ export async function invokeDirectHandler(
       "--prompt": String, "-p": "--prompt",
       "--incubate": String,
       "--fresh": Boolean, "--new": "--fresh",
+      // #wake-fresh-session — launch a FRESH conversation (strip the engine's
+      // `--continue`). Declared on the plugin manifest but previously ABSENT
+      // here, so this direct fast path dropped it into flags._ and the main
+      // window still launched with `--continue`. Keep parity with the plugin.
+      "--fresh-session": Boolean, "--no-continue": "--fresh-session",
       "--pick": Boolean,
       "--name": String,
       "--bud": Boolean,
@@ -470,6 +475,7 @@ export async function invokeDirectHandler(
       prompt?: string;
       incubate?: string;
       fresh?: boolean;
+      freshSession?: boolean;
       pick?: boolean;
       name?: string;
       attach?: boolean;
@@ -506,6 +512,7 @@ export async function invokeDirectHandler(
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];
     if (flags["--fresh"]) opts.fresh = true;
+    if (flags["--fresh-session"]) opts.freshSession = true;
     if (flags["--pick"]) opts.pick = true;
     if (flags["--name"]) opts.name = flags["--name"];
     if (flags["--bud"]) opts.bud = true;
