@@ -62,6 +62,40 @@ describe("retrospectiveCommandForEngine (engine → retro form)", () => {
   });
 });
 
+describe("retrospectiveCommandForEngine — custom engine key → process family (pilot #5)", () => {
+  // A commands-map wrapper key ('codex-pl-worker') whose cmd execs codex. Its
+  // NAME is not a built-in, so it must be classified by its declared process
+  // family, not fall back to the claude /rrr default.
+  const codexFamilyConfig = {
+    engines: { "codex-pl-worker": { name: "codex-pl-worker", cmd: "/path/pl-codex-worker.sh", processNames: ["codex"] } },
+  };
+
+  test("custom key declaring processNames:['codex'] → $rrr (the pilot bug)", () => {
+    expect(retrospectiveCommandForEngine("codex-pl-worker", codexFamilyConfig)).toBe("$rrr");
+  });
+
+  test("legacy command whose cmd execs codex → $rrr", () => {
+    expect(retrospectiveCommandForEngine("cx", { commands: { cx: "codex resume" } })).toBe("$rrr");
+  });
+
+  test("custom key declaring an aider family → skip", () => {
+    const cfg = { engines: { "my-aider": { name: "my-aider", cmd: "wrap.sh", processNames: ["aider"] } } };
+    expect(retrospectiveCommandForEngine("my-aider", cfg)).toBeNull();
+  });
+
+  test("custom key with NO declared family (bare wrapper-script cmd) → /rrr default", () => {
+    // documents why CROO's config must declare processNames:['codex'] — a bare
+    // script path yields processNames:['pl-codex-worker.sh'], no known family.
+    expect(retrospectiveCommandForEngine("codex-pl-worker", { commands: { "codex-pl-worker": "/path/pl-codex-worker.sh" } })).toBe("/rrr");
+  });
+
+  test("built-in names still classify directly (no regression)", () => {
+    expect(retrospectiveCommandForEngine("codex", codexFamilyConfig)).toBe("$rrr");
+    expect(retrospectiveCommandForEngine("claude", codexFamilyConfig)).toBe("/rrr");
+    expect(retrospectiveCommandForEngine(undefined, codexFamilyConfig)).toBeNull();
+  });
+});
+
 describe("resolveWindowEngine (authoritative MAW state, never pane command)", () => {
   test("fleet runtime.engine resolves a codex window", () => {
     const engine = resolveWindowEngine("26-team", "team-1-worker", "/tmp/wt", {
