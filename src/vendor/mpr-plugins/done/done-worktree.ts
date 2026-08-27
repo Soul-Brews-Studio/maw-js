@@ -53,9 +53,11 @@ export interface ContainedSlot {
  *       strictly inside — so the repo dir being a symlink (tt3p → product-hub)
  *       is accepted, but a symlink INSIDE the slot escaping the repo is rejected.
  *
- * Legacy `.wt-` worktrees are siblings of the (real) repo dir under the real org
- * dir — the ghq→product-hub symlink is at the repo level, so realpath stays
- * under reposRoot; keep the original ghq-root containment for them.
+ * Legacy `.wt-` worktrees are siblings of the repo dir under the real org dir.
+ * The destructive target is the `.wt-` SLOT, so realpath-contain THAT under
+ * reposRoot; the main repo dir may itself be a ghq→product-hub symlink, so
+ * anchor it LEXICALLY (like the nested branch) rather than realpath-containing
+ * it — otherwise a legit legacy sibling of a symlinked repo is false-refused.
  */
 export function worktreeContainment(reposRoot: string, target: string): ContainedSlot | null {
   // (a) Lexical gate on the raw fleet string (the attacker surface).
@@ -82,10 +84,17 @@ export function worktreeContainment(reposRoot: string, target: string): Containe
     return { fullPath, parsed };
   }
 
-  // Legacy `.wt-` sibling worktree: the repo-level symlink keeps realpath under
-  // the ghq root, so the original containment still holds.
+  // Legacy `.wt-` sibling worktree. The destructive target is the `.wt-` SLOT
+  // (fullPath) — a sibling of the repo dir under the real org dir — so contain
+  // THAT under reposRoot by realpath (a slot that is itself a symlink escaping
+  // the root is still rejected). The main repo dir (parsed.mainPath) may itself
+  // be a ghq→product-hub symlink in the tt3p layout, so anchor it LEXICALLY —
+  // exactly like the nested branch — instead of realpath-containing it and
+  // false-refusing a legit sibling of a symlinked repo (Riddler, pilot #7).
+  const org = segs.slice(0, -1).join("/");
+  const anchor = join(reposRoot, org, parsed.mainRepoName);
+  if (parsed.mainPath !== anchor) return null;
   if (!isStrictlyInside(reposRoot, fullPath)) return null;
-  if (!isStrictlyInside(reposRoot, parsed.mainPath)) return null;
   return { fullPath, parsed };
 }
 

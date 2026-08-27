@@ -15,8 +15,10 @@ import { isStrictlyInside, worktreeContainment } from "../src/vendor/mpr-plugins
  *
  * Filesystem fixture (real dirs + real symlinks):
  *   reposRoot/TTT3P/realrepo/agents/1-wt-good      (all real)
- *   reposRoot/TTT3P/realrepo.wt-legacy             (legacy sibling, real)
+ *   reposRoot/TTT3P/realrepo.wt-legacy             (legacy sibling, physical main)
  *   reposRoot/TTT3P/symrepo  ->  productHub/symrepo (ghq→product-hub symlink)
+ *   reposRoot/TTT3P/symrepo.wt-feature             (legacy sibling of a SYMLINKED main)
+ *   reposRoot/TTT3P/escape.wt-x -> outside/         (legacy slot that is itself a symlink)
  *   productHub/symrepo/agents/1-wt-sym             (real slot inside the symlinked repo)
  *   productHub/symrepo/agents/escape -> outside/    (symlink escaping the repo)
  */
@@ -31,13 +33,16 @@ beforeAll(() => {
 
   mkdirSync(join(reposRoot, "TTT3P", "realrepo", "agents", "1-wt-good"), { recursive: true });
   mkdirSync(join(reposRoot, "TTT3P", "realrepo.wt-legacy"), { recursive: true });
+  mkdirSync(join(reposRoot, "TTT3P", "symrepo.wt-feature"), { recursive: true });
   mkdirSync(join(productHub, "symrepo", "agents", "1-wt-sym"), { recursive: true });
   mkdirSync(outside, { recursive: true });
 
   // The tt3p repo-dir symlink: ghq repo dir → product-hub repo.
   symlinkSync(join(productHub, "symrepo"), join(reposRoot, "TTT3P", "symrepo"));
-  // A hostile symlink INSIDE the slot that escapes the repo.
+  // A hostile symlink INSIDE a nested slot that escapes the repo.
   symlinkSync(outside, join(productHub, "symrepo", "agents", "escape"));
+  // A hostile LEGACY `.wt-` slot that is itself a symlink escaping the root.
+  symlinkSync(outside, join(reposRoot, "TTT3P", "escape.wt-x"));
 });
 
 afterAll(() => {
@@ -57,10 +62,20 @@ describe("worktreeContainment — accepts legitimate slots", () => {
     expect(r!.fullPath).toBe(join(reposRoot, "TTT3P", "symrepo", "agents", "1-wt-sym"));
   });
 
-  test("legacy `.wt-` sibling worktree is still accepted (no regression)", () => {
+  test("legacy `.wt-` sibling of a PHYSICAL main repo is accepted (no regression)", () => {
     const r = worktreeContainment(reposRoot, "TTT3P/realrepo.wt-legacy");
     expect(r).not.toBeNull();
     expect(r!.parsed.layout).toBe("legacy");
+  });
+
+  test("legacy `.wt-` sibling of a ghq→product-hub SYMLINKED main is accepted (Riddler)", () => {
+    // The main repo dir is a symlink out of reposRoot; the destructive .wt- slot
+    // itself is a real sibling under the real org dir. Anchor the main lexically,
+    // contain the slot by realpath → accepted.
+    const r = worktreeContainment(reposRoot, "TTT3P/symrepo.wt-feature");
+    expect(r).not.toBeNull();
+    expect(r!.parsed.layout).toBe("legacy");
+    expect(r!.parsed.mainPath).toBe(join(reposRoot, "TTT3P", "symrepo"));
   });
 });
 
@@ -74,8 +89,12 @@ describe("worktreeContainment — rejects hostile / malformed values", () => {
     expect(worktreeContainment(reposRoot, join(tmpRoot, "outside") + ".wt-x")).toBeNull();
   });
 
-  test("a symlink INSIDE the slot escaping the repo is rejected", () => {
+  test("a symlink INSIDE a nested slot escaping the repo is rejected", () => {
     expect(worktreeContainment(reposRoot, "TTT3P/symrepo/agents/escape")).toBeNull();
+  });
+
+  test("a LEGACY `.wt-` slot that is itself a symlink escaping the root is rejected", () => {
+    expect(worktreeContainment(reposRoot, "TTT3P/escape.wt-x")).toBeNull();
   });
 
   test("depth injection (anchor ≠ parsed.mainPath) is rejected", () => {
@@ -89,11 +108,19 @@ describe("worktreeContainment — rejects hostile / malformed values", () => {
 });
 
 describe("regression proof: the OLD ghq-root gate false-refused the symlinked slot", () => {
-  test("isStrictlyInside(reposRoot, symlinked-slot) is false, worktreeContainment accepts it", () => {
+  test("nested: isStrictlyInside(reposRoot, symlinked-slot) is false, worktreeContainment accepts it", () => {
     const slot = join(reposRoot, "TTT3P", "symrepo", "agents", "1-wt-sym");
     // Old gate: realpath(slot) is under product-hub, not reposRoot → false.
     expect(isStrictlyInside(reposRoot, slot)).toBe(false);
     // New gate: contained against its own repo anchor → accepted.
     expect(worktreeContainment(reposRoot, "TTT3P/symrepo/agents/1-wt-sym")).not.toBeNull();
+  });
+
+  test("legacy: isStrictlyInside(reposRoot, symlinked-main) is false, worktreeContainment accepts the sibling", () => {
+    const mainPath = join(reposRoot, "TTT3P", "symrepo");
+    // Old legacy gate realpath-contained the MAIN repo → false (symlink escapes root).
+    expect(isStrictlyInside(reposRoot, mainPath)).toBe(false);
+    // New gate anchors the main lexically and contains only the .wt- slot → accepted.
+    expect(worktreeContainment(reposRoot, "TTT3P/symrepo.wt-feature")).not.toBeNull();
   });
 });
