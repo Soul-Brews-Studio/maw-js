@@ -3,7 +3,25 @@ import { join, relative, resolve, sep } from "path";
 import { getGhqRoot } from "../../config/ghq-root";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
 import { FLEET_STATE_SCHEMA_VERSION } from "../../core/fleet/runtime-state";
+import { parseWorktreePath } from "../../core/fleet/worktree-layout";
 import { loadFleetEntries, type FleetEntry, type FleetWindow } from "./fleet-load";
+
+/**
+ * Build a fleet window entry, recording the worktree slot when `cwd` is a
+ * worktree (a --work worker). `repo` stays the base repo (org/repo) for all its
+ * existing consumers; `worktree` is the additive slot path (org/repo/agents/N-…)
+ * that lets `maw done` remove the exact slot for this window even though several
+ * work windows can share one base repo. Absent on main/oracle windows.
+ */
+function fleetWindowEntry(name: string, repo: string, worktree: string | undefined): FleetWindow {
+  return worktree ? { name, repo, worktree } : { name, repo };
+}
+
+/** The worktree slot (path rel reposRoot) if `cwd` is a worktree, else undefined. */
+function worktreeSlotFromCwd(cwd: string | undefined, ghqRoot: string): string | undefined {
+  if (!cwd) return undefined;
+  return parseWorktreePath(resolve(cwd), join(ghqRoot, "github.com"))?.repo;
+}
 
 export type FleetSessionCreatedBy = "maw wake" | "maw new" | string;
 
@@ -128,13 +146,15 @@ export function ensureFleetSessionEntry(
     return { status: "skipped", reason: repoResult.reason };
   }
 
+  const worktree = worktreeSlotFromCwd(input.cwd, ghqRoot);
+
   if (existing?.path) {
     const windows = existing.session.windows || [];
     if (windowExists(windows, window)) return { status: "exists", file: existing.path, entry: existing };
     const nextSession = {
       ...existing.session,
       schemaVersion: FLEET_STATE_SCHEMA_VERSION,
-      windows: [...windows, { name: window, repo }],
+      windows: [...windows, fleetWindowEntry(window, repo, worktree)],
     };
     const nextEntry = { ...existing, session: nextSession };
     (deps.writeFileSync ?? writeFileSync)(existing.path, JSON.stringify(nextSession, null, 2) + "\n", "utf-8");
@@ -158,7 +178,7 @@ export function ensureFleetSessionEntry(
     created_at: createdAt,
     created_by: input.createdBy,
     auto_registered: true,
-    windows: [{ name: window, repo }],
+    windows: [fleetWindowEntry(window, repo, worktree)],
   };
   (deps.writeFileSync ?? writeFileSync)(path, JSON.stringify(fleetSession, null, 2) + "\n", "utf-8");
   return { status: "created", file: path, entry: buildEntry(file, path, fleetSession) };
