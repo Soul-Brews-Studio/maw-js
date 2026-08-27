@@ -475,17 +475,29 @@ export async function invokeDirectHandler(
     // #peer-wake — forward to a federation peer's /api/wake instead of spawning
     // locally. The wake PLUGIN owns forwardToPeer, but `wake`/`awake` dispatch
     // through THIS direct handler, which exits the pipeline before the plugin
-    // runs — so a `--peer` invocation would otherwise fall through to a LOCAL
-    // wake (cloning/spawning on the wrong node). Same shadow seam as
-    // #wake-fresh-session. `flags._` still carries the oracle at [0]; strip it so
-    // the plugin's positional[0]=task convention holds on the remote.
-    if (flags["--peer"]) {
+    // runs — so a peer invocation would otherwise fall through to a LOCAL wake
+    // (cloning/spawning on the wrong node). Same shadow seam as #wake-fresh-session.
+    // Two forms: explicit `--peer <alias>`, or the `<alias>:<repo>` prefix (only
+    // when <alias> resolves to a known peer — a URL like https://… never does).
+    let peerAlias: string | undefined = flags["--peer"] as string | undefined;
+    let peerOracle = oracle;
+    if (!peerAlias && typeof oracle === "string") {
+      const ci = oracle.indexOf(":");
+      if (ci > 0 && ci < oracle.length - 1) {
+        const prefix = oracle.slice(0, ci);
+        const { resolvePeer } = await import("../vendor/mpr-plugins/wake/internal/peer-resolve");
+        if (resolvePeer(prefix)) { peerAlias = prefix; peerOracle = oracle.slice(ci + 1); }
+      }
+    }
+    if (peerAlias) {
       const forward = deps.forwardToPeer
         ?? (await import("../vendor/mpr-plugins/wake/index")).forwardToPeer;
+      // `flags._` still carries the oracle at [0]; strip it so the receiver's
+      // positional[0]=task convention holds on the remote.
       const fwdFlags = { ...flags, _: (positional as string[]).slice(1) };
-      const res = await forward(flags["--peer"] as string, oracle, fwdFlags);
+      const res = await forward(peerAlias, peerOracle, fwdFlags);
       if (res.output) log(res.output);
-      if (!res.ok) throw new UserError(res.error ?? `peer wake failed: ${flags["--peer"]}`);
+      if (!res.ok) throw new UserError(res.error ?? `peer wake failed: ${peerAlias}`);
       return;
     }
 

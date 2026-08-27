@@ -68,10 +68,13 @@ beforeEach(() => {
 });
 
 describe("wake plugin peer and option branches", () => {
-  test("forwards CLI wake to a peer with translated options and remote output", async () => {
+  test("forwards CLI wake to a peer with ONLY the receiver-bound keys (extras dropped)", async () => {
     peer = { url: "http://white:3456", node: "white" };
     const result = await handler({
       source: "cli",
+      // #peer-wake: the receiver's WakeBody rejects unknown keys, so the sender
+      // forwards only work/wt/engine/wait/fresh (+ task); --issue/--pr/--repo/
+      // --pick/--name/--task-prompt are intentionally NOT forwarded.
       args: ["neo", "task-name", "--peer", "white", "--wt", "slot", "--task", "prompt", "--issue", "5", "--pr", "7", "--repo", "org/repo", "--fresh", "--pick", "--name", "named"],
     } as any);
 
@@ -84,13 +87,7 @@ describe("wake plugin peer and option branches", () => {
         oracle: "neo",
         task: "task-name",
         wt: "slot",
-        prompt: "prompt",
-        issue: 5,
-        pr: 7,
-        repo: "org/repo",
         fresh: true,
-        pick: true,
-        name: "named",
       },
     }]);
   });

@@ -226,18 +226,18 @@ export async function forwardToPeer(
   const peer = resolvePeer(alias);
   if (!peer) return { ok: false, error: `unknown peer alias: ${alias} (see: maw peers list)` };
 
+  // #peer-wake — send ONLY the keys the receiver's WakeBody binds (it rejects
+  // unknown keys). PL needs work/wt/engine/wait/fresh; task is the worktree slug.
+  // Fields the receiver never applied (layout/prompt/issue/pr/repo/pick/name) are
+  // intentionally not forwarded — they were dropped server-side anyway.
   const positionals: string[] = Array.isArray(flags._) ? flags._ : [];
   const body: Record<string, unknown> = { oracle };
   if (positionals.length > 0) body.task = positionals[0];
+  if (flags["--work"]) body.work = true;
   if (flags["--wt"]) body.wt = flags["--wt"];
-  if (flags["--layout"]) body.layout = flags["--layout"];
-  if (flags["--task"]) body.prompt = flags["--task"];
-  if (flags["--issue"]) body.issue = flags["--issue"];
-  if (flags["--pr"]) body.pr = flags["--pr"];
-  if (flags["--repo"]) body.repo = flags["--repo"];
+  if (flags["--engine"]) body.engine = flags["--engine"];
+  if (flags["--wait"]) body.wait = true;
   if (flags["--fresh"]) body.fresh = true;
-  if (flags["--pick"]) body.pick = true;
-  if (flags["--name"]) body.name = flags["--name"];
 
   const { callPeerWake } = await import("./internal/peer-call");
   let res: { ok: boolean; status?: number; data?: any };

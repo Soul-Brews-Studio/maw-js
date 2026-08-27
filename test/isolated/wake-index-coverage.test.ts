@@ -310,9 +310,11 @@ describe("wake plugin index", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("forwarded wake → gpu (http://gpu) — neo");
     expect(result.output).toContain("remote output");
+    // #peer-wake: only receiver-bound keys forward; layout/prompt/issue/repo/
+    // pick/name are dropped (WakeBody rejects unknown keys).
     expect(peerCalls).toEqual([{
       url: "http://gpu",
-      body: { oracle: "neo", task: "remote-task", wt: "slot", layout: "legacy", prompt: "prompt", issue: 5, repo: "o/r", fresh: true, pick: true, name: "named" },
+      body: { oracle: "neo", task: "remote-task", wt: "slot", fresh: true },
     }]);
     expect(wakeCalls).toEqual([]);
 
