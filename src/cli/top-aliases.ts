@@ -317,6 +317,8 @@ export interface TopAliasHandlerDeps {
   lsFederated?: (opts: Parameters<typeof lsFederated>[0]) => MaybePromise<{ ok: boolean; output?: string; error?: string }>;
   cmdTmuxLayout?: (target: string, preset: string) => MaybePromise;
   cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
+  /** #peer-wake — cross-node forward; injected in tests. Defaults to the wake plugin's forwardToPeer. */
+  forwardToPeer?: (alias: string, oracle: string, flags: Record<string, any>) => MaybePromise<{ ok: boolean; output?: string; error?: string }>;
   cmdNew?: (argv: string[]) => MaybePromise;
   cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
   cmdPromote?: (argv: string[]) => MaybePromise;
@@ -459,6 +461,8 @@ export async function invokeDirectHandler(
       "--session-id": String,
       "--wait": Boolean,
       "--wait-engine": "--wait",
+      // #peer-wake — cross-node forward target (federation peer alias).
+      "--peer": String,
     }, 0);
 
     const positional = flags._;
@@ -466,6 +470,23 @@ export async function invokeDirectHandler(
     if (!oracle) {
       printWakeAliasUsage(verb, error);
       throw new UserError(`${verb}: missing oracle name`);
+    }
+
+    // #peer-wake — forward to a federation peer's /api/wake instead of spawning
+    // locally. The wake PLUGIN owns forwardToPeer, but `wake`/`awake` dispatch
+    // through THIS direct handler, which exits the pipeline before the plugin
+    // runs — so a `--peer` invocation would otherwise fall through to a LOCAL
+    // wake (cloning/spawning on the wrong node). Same shadow seam as
+    // #wake-fresh-session. `flags._` still carries the oracle at [0]; strip it so
+    // the plugin's positional[0]=task convention holds on the remote.
+    if (flags["--peer"]) {
+      const forward = deps.forwardToPeer
+        ?? (await import("../vendor/mpr-plugins/wake/index")).forwardToPeer;
+      const fwdFlags = { ...flags, _: (positional as string[]).slice(1) };
+      const res = await forward(flags["--peer"] as string, oracle, fwdFlags);
+      if (res.output) log(res.output);
+      if (!res.ok) throw new UserError(res.error ?? `peer wake failed: ${flags["--peer"]}`);
+      return;
     }
 
     const opts: {

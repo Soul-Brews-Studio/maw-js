@@ -217,7 +217,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
  * `prompt`, `issue`/`pr`/`repo`, `fresh`. Attach is intentionally not
  * forwarded — there is no local tmux to attach to on the remote node.
  */
-async function forwardToPeer(
+export async function forwardToPeer(
   alias: string,
   oracle: string,
   flags: Record<string, any>,
