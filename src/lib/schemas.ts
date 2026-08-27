@@ -165,12 +165,20 @@ export type TProfile = Static<typeof Profile>;
 // Request body schemas (POST endpoints)
 // ---------------------------------------------------------------------------
 
-/** POST /api/wake — accepts `target` (current) or `oracle` (legacy pre-rename) */
+/** POST /api/wake — accepts `target` (current) or `oracle` (legacy pre-rename).
+ *  #peer-wake: binds the MINIMAL cross-node worker fields a forwarded PL wake
+ *  needs (work/wt/engine/wait/fresh) and REJECTS unknown keys — an untrusted
+ *  peer body must not smuggle arbitrary cmdWake options. */
 export const WakeBody = Type.Object({
   target: Type.Optional(Type.String()),
   oracle: Type.Optional(Type.String()),
   task: Type.Optional(Type.String()),
-});
+  work: Type.Optional(Type.Boolean()),
+  wt: Type.Optional(Type.String()),
+  engine: Type.Optional(Type.String()),
+  wait: Type.Optional(Type.Boolean()),
+  fresh: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
 export type TWakeBody = Static<typeof WakeBody>;
 
 /** POST /api/sleep */

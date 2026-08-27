@@ -141,3 +141,45 @@ sleep 3 && maw serve status && maw health   # expect: running / server online
   (`bun test <target>` + `bun run build`) → independent review → commit.
 - Known open items: ghost-last pane classification (PARK, needs live evidence),
   FleetWindow intent/engine field for safe auto-revive (design debt).
+
+## 9. Federation peers (serve bind)
+
+To make a node reachable as a MAW peer, its `maw serve` must bind a routable
+address, not just loopback. The bind is chosen by `core/bind-host.ts`: it flips
+to `0.0.0.0` once peers exist (`peers.json` / `config.peers` / `config.namedPeers`)
+or `MAW_HOST=0.0.0.0`, else `127.0.0.1`.
+
+- **Do NOT rely on `MAW_HOST=0.0.0.0`** — on at least one proven node (win /
+  WSL2, MAW-PEER-WIN-01) maw serve hangs after `[scout] listening`, before the
+  HTTP bind, when the hostname is `0.0.0.0` (raw `Bun.serve` on `0.0.0.0` binds
+  fine there, so it is maw's `0.0.0.0` heuristic path, not Bun/OS).
+- **Instead set an explicit bind IP:** `maw config set bind <this-node-IP>`
+  (e.g. the Tailscale/WG address). Binds cleanly and is narrower than `0.0.0.0`.
+- **Consequence of adding a peer:** the heuristic would pick `0.0.0.0` on the
+  daemon's NEXT restart → the hang above. Set `config.bind` to an explicit IP on
+  BOTH ends BEFORE the next restart, or the daemon will not come up.
+- Peer add + probe: `maw peers add <alias> http://<ip>:3456 --ssh <ssh-alias>`
+  then `maw peers probe <alias>` (expect `✓ reached <alias>`). For `maw hey`
+  federation, also add `{ "name":"<alias>", "url":"http://<ip>:3456" }` to
+  `config.namedPeers`.
+- **Cross-node wake:** `maw wake <repo> --work --wt <slot> -e <engine> --peer
+  <alias>` — forwards to the peer's `/api/wake` (no local spawn). Use the
+  EXPLICIT `--peer <alias>` form; there is no `<node>:<repo>` shorthand (an
+  unresolved prefix must never fall through to a local wake). An unknown alias
+  errors and wakes nothing. Cross-node `/api/send` admission uses a shared
+  `federationToken` (set the same value on both ends: `maw config set
+  federationToken <token>` — read live, no restart). Per-node install details
+  live in the owning operator receipt (e.g. `maw-maint-oracle
+  ψ/maw-hygiene/peer-win-01/`, `…/peer-win-02/`).
+- **Cosmetic caveat (MAW-PEER-WIN-02):** while a node is bound to a non-localhost
+  IP, `maw health` shows `maw server offline` and some local CLI/SDK surfaces
+  that hardcode `http://localhost:3456` (health, `runtime/sdk.ts` baseUrl,
+  agent-status-guard, engine-plugin-registry) cannot reach the daemon — the
+  daemon IS up; verify with `curl http://<bind-ip>:3456/info`. Local **tmux**
+  transport (`maw hey/ls/whoami`) is unaffected. `MAW_ENGINE_URL=http://<bind-ip>:3456`
+  redirects the engine-plugin probe (`maw serve status`, `messages`, `follow`)
+  but not the hardcoded-localhost surfaces.
+- **Persistent peer serve without systemd/sudo (G4):** run maw serve inside a
+  DETACHED tmux session — survives ssh close (tmux keeps the WSL distro alive):
+  `ssh <node> "wsl bash -lc 'tmux new-session -d -s mawserve maw serve --quiet'"`.
+  Restart: `ssh <node> "wsl bash -lc 'tmux kill-session -t mawserve; tmux new-session -d -s mawserve maw serve --quiet'"`.

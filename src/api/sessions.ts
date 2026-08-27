@@ -50,7 +50,7 @@ export interface SessionsApiDeps {
   writeReceiverInbox?: ReceiverInboxWriter | null;
   sleep?: (ms: number) => Promise<unknown>;
   shouldAutoWake?: (target: string, opts: AutoWakeOpts) => AutoWakeDecision | Promise<AutoWakeDecision>;
-  cmdWake?: (target: string, opts: { noAttach: boolean; task?: string }) => Promise<unknown>;
+  cmdWake?: (target: string, opts: { noAttach: boolean; task?: string; sessionMode?: "work" | "oracle"; wt?: string; engine?: string; wait?: boolean; fresh?: boolean }) => Promise<unknown>;
   cmdSleepOne?: (target: string) => Promise<unknown>;
   countUnreadInbox?: LiveInboxNotifyDeps["countUnread"];
 }
@@ -803,7 +803,17 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
         // branch so future policy changes can't silently no-op the endpoint.
         set.status = 500; return { error: `wake denied: ${decision.reason}` };
       }
-      await d.cmdWake(target, { noAttach: true, task: body.task });
+      // #peer-wake — apply the minimal cross-node worker fields a forwarded PL
+      // wake carries. WakeBody already rejected any key outside this allow-list.
+      await d.cmdWake(target, {
+        noAttach: true,
+        task: body.task,
+        ...(body.work ? { sessionMode: "work" as const } : {}),
+        ...(body.wt ? { wt: body.wt } : {}),
+        ...(body.engine ? { engine: body.engine } : {}),
+        ...(body.wait ? { wait: true } : {}),
+        ...(body.fresh ? { fresh: true } : {}),
+      });
       return { ok: true, target };
     } catch (err) {
       set.status = 500; return { error: String(err) };
