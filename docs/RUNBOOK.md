@@ -161,5 +161,20 @@ or `MAW_HOST=0.0.0.0`, else `127.0.0.1`.
 - Peer add + probe: `maw peers add <alias> http://<ip>:3456 --ssh <ssh-alias>`
   then `maw peers probe <alias>` (expect `✓ reached <alias>`). For `maw hey`
   federation, also add `{ "name":"<alias>", "url":"http://<ip>:3456" }` to
-  `config.namedPeers`. Per-node install details live in the owning operator
-  receipt (e.g. `maw-maint-oracle ψ/maw-hygiene/peer-win-01/`).
+  `config.namedPeers`. Cross-node `/api/send` admission uses a shared
+  `federationToken` (set the same value on both ends: `maw config set
+  federationToken <token>` — read live, no restart). Per-node install details
+  live in the owning operator receipt (e.g. `maw-maint-oracle
+  ψ/maw-hygiene/peer-win-01/`, `…/peer-win-02/`).
+- **Cosmetic caveat (MAW-PEER-WIN-02):** while a node is bound to a non-localhost
+  IP, `maw health` shows `maw server offline` and some local CLI/SDK surfaces
+  that hardcode `http://localhost:3456` (health, `runtime/sdk.ts` baseUrl,
+  agent-status-guard, engine-plugin-registry) cannot reach the daemon — the
+  daemon IS up; verify with `curl http://<bind-ip>:3456/info`. Local **tmux**
+  transport (`maw hey/ls/whoami`) is unaffected. `MAW_ENGINE_URL=http://<bind-ip>:3456`
+  redirects the engine-plugin probe (`maw serve status`, `messages`, `follow`)
+  but not the hardcoded-localhost surfaces.
+- **Persistent peer serve without systemd/sudo (G4):** run maw serve inside a
+  DETACHED tmux session — survives ssh close (tmux keeps the WSL distro alive):
+  `ssh <node> "wsl bash -lc 'tmux new-session -d -s mawserve maw serve --quiet'"`.
+  Restart: `ssh <node> "wsl bash -lc 'tmux kill-session -t mawserve; tmux new-session -d -s mawserve maw serve --quiet'"`.
