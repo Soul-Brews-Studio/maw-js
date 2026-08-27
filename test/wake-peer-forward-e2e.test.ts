@@ -8,8 +8,8 @@ import { invokeDirectHandler } from "../src/cli/top-aliases";
 
 /**
  * E2E (Riddler gate b): the FULL cross-node PL wake chain carries the worker
- * fields. `maw wake win:<repo> --work --wt X -e codex-pl-worker --wait`
- *   → direct handler resolves the `win:` peer prefix
+ * fields. `maw wake <repo> --peer win --work --wt X -e codex-pl-worker --wait`
+ *   → direct handler routes on explicit `--peer`
  *   → real forwardToPeer builds the body + real HTTP POST /api/wake
  *   → the REAL /api/wake handler validates WakeBody + maps to cmdWake
  *   → captured cmdWake opts contain EXACTLY the PL fields.
@@ -48,10 +48,10 @@ afterAll(() => {
 });
 
 describe("PL wake fields survive the full cross-node chain", () => {
-  test("maw wake win:<repo> --work --wt X -e codex-pl-worker --wait → cmdWake gets exactly those", async () => {
+  test("maw wake <repo> --peer win --work --wt X -e codex-pl-worker --wait → cmdWake gets exactly those", async () => {
     await invokeDirectHandler(
       "../commands/shared/wake-cmd:cmdWake",
-      ["win:TTT3P/xnode-probe", "--work", "--wt", "X", "-e", "codex-pl-worker", "--wait"],
+      ["TTT3P/xnode-probe", "--peer", "win", "--work", "--wt", "X", "-e", "codex-pl-worker", "--wait"],
       { log: () => {}, error: () => {} },
     );
 

@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { invokeDirectHandler } from "../src/cli/top-aliases";
 
 /**
@@ -11,7 +14,7 @@ import { invokeDirectHandler } from "../src/cli/top-aliases";
  * lock the forward path and the oracle→task positional handoff.
  */
 
-type Captured = { alias?: string; oracle?: string; flags?: any; localWake?: boolean };
+type Captured = { alias?: string; oracle?: string; flags?: any; localWake?: boolean; localTarget?: string };
 
 async function run(argv: string[], forwardResult: { ok: boolean; output?: string; error?: string }): Promise<Captured> {
   const cap: Captured = { localWake: false };
@@ -20,7 +23,7 @@ async function run(argv: string[], forwardResult: { ok: boolean; output?: string
       cap.alias = alias; cap.oracle = oracle; cap.flags = flags;
       return forwardResult;
     },
-    cmdWake: () => { cap.localWake = true; },
+    cmdWake: (target: string) => { cap.localWake = true; cap.localTarget = target; },
     log: () => {},
     error: () => {},
   });
@@ -62,5 +65,44 @@ describe("wake --peer forwards cross-node instead of waking locally", () => {
     const cap = await run(["m5-oracle", "--work"], { ok: true });
     expect(cap.localWake).toBe(true);
     expect(cap.alias).toBeUndefined();
+  });
+});
+
+describe("no `<node>:<repo>` colon shorthand — peer wake is --peer only (Riddler r2)", () => {
+  test("a `<node>:<repo>` string is a plain LOCAL target, no peer semantics", async () => {
+    // The colon shorthand was removed: an unresolved prefix must not silently
+    // fall through to a wrong LOCAL wake. `no-trust:TTT3P/x` is just a local
+    // oracle string exactly as before this PR.
+    const cap = await run(["no-trust:TTT3P/x", "--work"], { ok: true });
+    expect(cap.alias).toBeUndefined();          // forwardToPeer never called
+    expect(cap.localWake).toBe(true);
+    expect(cap.localTarget).toBe("no-trust:TTT3P/x");
+  });
+});
+
+describe("--peer with an unknown alias errors with ZERO local cmdWake (real forwardToPeer)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "peerwake-unknown-"));
+  const peersFile = join(dir, "peers.json");
+  writeFileSync(peersFile, JSON.stringify({ peers: {} })); // no aliases
+  const prev = process.env.PEERS_FILE;
+  process.env.PEERS_FILE = peersFile;
+  afterAll(() => {
+    if (prev === undefined) delete process.env.PEERS_FILE; else process.env.PEERS_FILE = prev;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("`--peer unknown` → error, and cmdWake (local) is never called", async () => {
+    let localWake = false;
+    let threw = false;
+    try {
+      await invokeDirectHandler("../commands/shared/wake-cmd:cmdWake",
+        ["m5-oracle", "--peer", "unknown", "--work"],
+        { cmdWake: () => { localWake = true; }, log: () => {}, error: () => {} });
+    } catch (e: any) {
+      threw = true;
+      expect(String(e?.message ?? e)).toContain("unknown peer alias");
+    }
+    expect(threw).toBe(true);
+    expect(localWake).toBe(false);
   });
 });

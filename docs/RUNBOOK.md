@@ -161,7 +161,12 @@ or `MAW_HOST=0.0.0.0`, else `127.0.0.1`.
 - Peer add + probe: `maw peers add <alias> http://<ip>:3456 --ssh <ssh-alias>`
   then `maw peers probe <alias>` (expect `✓ reached <alias>`). For `maw hey`
   federation, also add `{ "name":"<alias>", "url":"http://<ip>:3456" }` to
-  `config.namedPeers`. Cross-node `/api/send` admission uses a shared
+  `config.namedPeers`.
+- **Cross-node wake:** `maw wake <repo> --work --wt <slot> -e <engine> --peer
+  <alias>` — forwards to the peer's `/api/wake` (no local spawn). Use the
+  EXPLICIT `--peer <alias>` form; there is no `<node>:<repo>` shorthand (an
+  unresolved prefix must never fall through to a local wake). An unknown alias
+  errors and wakes nothing. Cross-node `/api/send` admission uses a shared
   `federationToken` (set the same value on both ends: `maw config set
   federationToken <token>` — read live, no restart). Per-node install details
   live in the owning operator receipt (e.g. `maw-maint-oracle
