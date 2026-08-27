@@ -407,6 +407,11 @@ export interface WakeOptions {
   session?: string;
   incubate?: string;
   fresh?: boolean;
+  /** Launch the engine with a FRESH conversation — strip the resume/`--continue`
+   *  placeholder so the seat does not resume its latest conversation (#wake-fresh
+   *  -session). Distinct from `fresh` (a fresh worktree slot); this is the
+   *  user-facing form of the internal `freshLaunch`. */
+  freshSession?: boolean;
   pick?: boolean;
   /** Stable reusable worktree name used with --wt/--task (#1768). */
   name?: string;
@@ -474,15 +479,18 @@ function isAttachOnlyWake(opts: WakeOptions): boolean {
     && !opts.snapshotId;
 }
 
-type WakeCommandOptions = Pick<WakeOptions, "engine" | "parentSessionId" | "sessionId" | "channels"> & {
+export type WakeCommandOptions = Pick<WakeOptions, "engine" | "parentSessionId" | "sessionId" | "channels" | "freshSession"> & {
   /** Strip engine resume/continue placeholders for reboot-rehydrated dead panes (#2391). */
   freshLaunch?: boolean;
 };
 
-function buildWakeCommand(windowName: string, cwd: string, opts: WakeCommandOptions): string {
+export function buildWakeCommand(windowName: string, cwd: string, opts: WakeCommandOptions): string {
+  // `freshSession` is the user flag; `freshLaunch` the internal reboot-rehydrate
+  // marker — both strip the engine's resume/`--continue` placeholder.
+  const fresh = opts.freshLaunch || opts.freshSession;
   const commandOpts = opts.channels
-    ? { engine: opts.engine, channels: ["plugin:discord@claude-plugins-official"], fresh: opts.freshLaunch }
-    : opts.freshLaunch
+    ? { engine: opts.engine, channels: ["plugin:discord@claude-plugins-official"], fresh }
+    : fresh
       ? { engine: opts.engine, fresh: true }
       : opts.engine;
   return prefixCommandWithSpawnSessionEnv(

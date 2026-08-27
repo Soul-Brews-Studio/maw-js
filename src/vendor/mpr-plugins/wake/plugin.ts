@@ -8,7 +8,7 @@ export default definePlugin({
   "description": "Spawn or attach to an oracle session",
   "cli": {
     "command": "wake",
-    "help": "maw wake <oracle|org/repo|URL> [task] [--task '<prompt>'] [--wt <name>] [--layout nested|legacy] [--fresh|--new] [--pick] [--name <s>] [--no-attach] [--issue N] [--pr N] [--repo org/name] [--list] [--peer <alias>]  (default layout: nested repo/agents/N-X; --layout legacy uses .wt-N-X)",
+    "help": "maw wake <oracle|org/repo|URL> [task] [--task '<prompt>'] [--wt <name>] [--layout nested|legacy] [--fresh|--new] [--fresh-session|--no-continue] [--pick] [--name <s>] [--no-attach] [--issue N] [--pr N] [--repo org/name] [--list] [--peer <alias>]  (default layout: nested repo/agents/N-X; --layout legacy uses .wt-N-X)",
     "flags": {
       "--wt": "string",
       "--layout": "string",
@@ -21,6 +21,8 @@ export default definePlugin({
       "--repo": "string",
       "--task": "string",
       "--fresh": "boolean",
+      "--fresh-session": "boolean",
+      "--no-continue": "boolean",
       "--no-attach": "boolean",
       "--list": "boolean",
       "--peer": "string"

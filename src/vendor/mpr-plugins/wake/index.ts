@@ -45,7 +45,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--layout": String,
         "--incubate": String, "--issue": Number,
         "--pr": Number, "--repo": String, "--task": String,
-        "--fresh": Boolean, "--new": "--fresh", "--pick": Boolean, "--name": String, "--attach": Boolean, "-a": "--attach",
+        "--fresh": Boolean, "--new": "--fresh", "--fresh-session": Boolean, "--no-continue": "--fresh-session", "--pick": Boolean, "--name": String, "--attach": Boolean, "-a": "--attach",
         "--no-attach": Boolean, // #823 Bug B — register so it doesn't fall through to positional → wakeOpts.task
         "--list": Boolean, "--ls": "--list",
         "--dry-run": Boolean,
@@ -68,7 +68,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const wakeOpts: {
         task?: string; wt?: string; prompt?: string;
-        incubate?: string; fresh?: boolean; pick?: boolean; name?: string; attach?: boolean; listWt?: boolean;
+        incubate?: string; fresh?: boolean; freshSession?: boolean; pick?: boolean; name?: string; attach?: boolean; listWt?: boolean;
         dryRun?: boolean; noRehydrate?: boolean;
         split?: boolean; urlRepoName?: string; allLocal?: boolean;
         fromSnapshot?: boolean; snapshotId?: string;
@@ -99,6 +99,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       if (flags["--incubate"]) wakeOpts.incubate = flags["--incubate"];
       if (flags["--fresh"]) wakeOpts.fresh = true;
+      if (flags["--fresh-session"]) wakeOpts.freshSession = true;
       if (flags["--pick"]) wakeOpts.pick = true;
       if (flags["--name"]) wakeOpts.name = flags["--name"];
       if (flags["--attach"]) wakeOpts.attach = true;
