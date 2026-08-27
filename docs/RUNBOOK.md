@@ -17,6 +17,14 @@ were executed and verified during the 2026-08-16/17 recovery arc.
   `~/.bun/bin/maw` runs `src/cli.ts` as TypeScript source directly —
   **editing the working tree is live-effective on the next `maw` invocation**;
   "staging" a change here IS deploying it.
+  - **`src/cli.ts` is the ~64-line MODULAR ENTRY** (it `import`s `./cli/*` and
+    `./core/*`); the bin runs it, so core edits go live only because bun loads
+    the modular source. **Never commit a `bun build` bundle as `src/cli.ts`** —
+    a minified `// @bun` bundle inlines and FREEZES core code, so core changes
+    (fleet-ensure, wake-cmd, …) silently stop going live even though plugins
+    (symlinked under `~/.maw/plugins`) still do. `dist/maw` is the build output;
+    `src/cli.ts` is the source entry. A guard test
+    (`test/cli-entry-modular.test.ts`) fails if a bundle is committed here.
 - Daemon: `maw serve` on port **3456** (state under `~/.maw/`, fleet registry
   `~/.maw/fleet/*.json`, message ledger `~/.maw/maw-log.jsonl`).
 
