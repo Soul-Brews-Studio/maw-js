@@ -161,7 +161,13 @@ describe("cmdDone", () => {
 
     await cmdDone(" tile-1/ ", { dryRun: true }, h.deps);
 
-    expect(h.commands).toEqual(["tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'"]);
+    // Honest dry-run (alpha c4195acf): the preview continues through the READ-ONLY
+    // worktree resolution (fleet config + ghq scan) so it reflects what a real done
+    // would find, instead of returning early with an optimistic claim.
+    expect(h.commands).toEqual([
+      "tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'",
+      "find '/repos/github.com' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null",
+    ]);
     expect(h.killed).toEqual([]);
     expect(h.snapshots).toEqual([]);
     expect(h.logs.join("\n")).toContain("would send /rrr to work:tile-1");

@@ -118,6 +118,11 @@ class DirtyWorktreeRemovalError extends Error {
   }
 }
 
+function isDirtyRemoveMessage(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /modified or untracked|contains modified/i.test(message);
+}
+
 async function dirExists(path: string, d: ResolvedDoneDeps): Promise<boolean> {
   try {
     await d.hostExec(`test -d ${shellArg(path)}`);
@@ -371,6 +376,12 @@ export async function removeWorktreeViaConfig(
         await cleanupDoneBranch(mainPath, branch, opts, deps);
         return true;
       } catch (e: any) {
+        // git itself reported uncommitted changes: refuse without --force (belt
+        // and braces with the status check below; #2065/#2098). With --force we
+        // already passed --force to git, so this branch only fires without it.
+        if (isDirtyRemoveMessage(e) && !opts.force) {
+          throw new DirtyWorktreeRemovalError(`worktree remove failed and ${fullPath} has uncommitted changes; rerun maw done --force to delete it`);
+        }
         if (await removeFailedWorktreeDir(fullPath, mainPath, e, opts, d)) {
           return true;
         }
@@ -441,6 +452,9 @@ export async function removeWorktreeByGhqScan(
         removed = true;
         await cleanupDoneBranch(mainPath, branch, opts, deps);
       } catch (e) {
+        if (isDirtyRemoveMessage(e) && !opts.force) {
+          throw new DirtyWorktreeRemovalError(`worktree remove failed and ${wtPath} has uncommitted changes; rerun maw done --force to delete it`);
+        }
         if (await removeFailedWorktreeDir(wtPath, mainPath, e, opts, d)) {
           removed = true;
           continue;

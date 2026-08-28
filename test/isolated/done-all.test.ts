@@ -198,7 +198,9 @@ describe("cmdDoneAll", () => {
     expect(inboxSignals).toEqual([]);
     expect(tmuxCommands).not.toContain("kill work:lead");
     expect(tmuxCommands).not.toContain("kill other:duplicate");
-    expect(worktreeLookups).toEqual([]);
+    // Honest dry-run: read-only worktree lookups still run so the preview reflects
+    // the real resolution; nothing is removed.
+    expect(worktreeLookups).toEqual(["config:alpha", "ghq:alpha", "config:duplicate", "ghq:duplicate"]);
     expect(removedFleetEntries).toEqual([]);
   });
 
