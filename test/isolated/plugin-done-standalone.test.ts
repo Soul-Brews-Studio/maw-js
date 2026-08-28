@@ -93,7 +93,7 @@ describe("done command plugin standalone boundary", () => {
     expect(hostExecCalls.some(command => command.includes("worktree remove") && command.includes("--force"))).toBe(false);
 
     hostExecCalls = [];
-    await expect(removeWorktreeViaConfig("codex-1", reposRoot, { force: true })).resolves.toBe(true);
+    await expect(removeWorktreeViaConfig("codex-1", reposRoot, {}, { force: true })).resolves.toBe(true);
     expect(hostExecCalls.some(command => command.includes("worktree remove") && command.includes("--force"))).toBe(true);
   });
 });

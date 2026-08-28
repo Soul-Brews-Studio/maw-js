@@ -83,7 +83,7 @@ describe("vendor done worktree forced removal", () => {
     writeFileSync(join(worktreePath, "README.md"), "dirty local edit\n");
 
     await expect(silenceConsole(() =>
-      removeWorktreeViaConfig("codex", reposRoot, { branchBase: "alpha" }),
+      removeWorktreeViaConfig("codex", reposRoot, {}, { branchBase: "alpha" }),
     )).rejects.toThrow("has uncommitted changes; rerun maw done --force");
 
     expect(existsSync(worktreePath)).toBe(true);
@@ -101,7 +101,7 @@ describe("vendor done worktree forced removal", () => {
     fleetDirs = [fleetDir];
 
     const removed = await silenceConsole(() =>
-      removeWorktreeViaConfig("codex", reposRoot, { branchBase: "alpha", force: true }),
+      removeWorktreeViaConfig("codex", reposRoot, {}, { branchBase: "alpha", force: true }),
     );
 
     expect(removed).toBe(true);

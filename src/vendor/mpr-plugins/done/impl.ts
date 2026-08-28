@@ -1,20 +1,20 @@
 import { join } from "path";
 import { existsSync, readdirSync } from "fs";
-import { listSessions } from "maw-js/sdk";
 import { getGhqRoot } from "maw-js/config/ghq-root";
-import { takeSnapshot } from "maw-js/sdk";
-import { tmux } from "maw-js/sdk";
 import { normalizeTarget } from "maw-js/core/matcher/normalize-target";
 import { resolveOracle } from "maw-js/commands/shared/wake-resolve";
 import { readTeamCharter, type TeamCharter } from "maw-js/vendor/mpr-plugins/team/team-charter";
 import { findRepoRoot, resolveCharterPath } from "maw-js/vendor/mpr-plugins/team/team-liveness";
 import { signalParentInbox, autoSave } from "./done-autosave";
 import { removeWorktreeViaConfig, removeWorktreeByGhqScan, removeFromFleetConfig, warnRemainingWorktrees } from "./done-worktree";
+import { doneDeps, type DoneDeps, type ResolvedDoneDeps } from "./done-deps";
 
 export interface DoneOpts {
   force?: boolean;
   dryRun?: boolean;
   cleanBranch?: boolean;
+  /** Skip all branch cleanup — keep the branch even when merged (#2073 --keep-branch). */
+  keepBranch?: boolean;
   cwd?: string;
   /** Restrict window-name lookup to a specific tmux session. Used by done --all. */
   sessionName?: string;
@@ -103,7 +103,7 @@ function resolveTeamCharterPath(session: DoneSession): string | null {
   return null;
 }
 
-async function currentSessionName(sessions: DoneSession[], oracle?: string): Promise<string | null> {
+async function currentSessionName(sessions: DoneSession[], d: ResolvedDoneDeps, oracle?: string): Promise<string | null> {
   if (oracle) {
     const candidate = oracle.replace(/-oracle$/i, "").trim();
     if (candidate) {
@@ -124,7 +124,7 @@ async function currentSessionName(sessions: DoneSession[], oracle?: string): Pro
   }
 
   try {
-    const current = (await tmux.run("display-message", "-p", "#{session_name}")).trim();
+    const current = (await d.tmux.run("display-message", "-p", "#{session_name}")).trim();
     if (current && sessions.some(s => s.name === current)) return current;
   } catch { /* outside tmux or tmux unavailable */ }
 
@@ -149,9 +149,9 @@ function missingDoneTargetMessage(windowName: string): string {
   return `no done target matched '${windowName}'${hint}`;
 }
 
-function failMissingDoneTarget(windowName: string): never {
+function failMissingDoneTarget(windowName: string, d: ResolvedDoneDeps): never {
   const message = missingDoneTargetMessage(windowName);
-  console.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  d.logger.error(`  \x1b[31m✗\x1b[0m ${message}`);
   throw new Error(message);
 }
 
@@ -181,37 +181,39 @@ function leadWindow(session: DoneSession): DoneWindow | null {
   return session.windows.find(w => w.index === leadIndex) ?? null;
 }
 
-async function currentTmuxIdentity(): Promise<{ sessionName: string; windowIndex: number } | null> {
+async function currentTmuxIdentity(d: ResolvedDoneDeps): Promise<{ sessionName: string; windowIndex: number } | null> {
   try {
-    const raw = (await tmux.run("display-message", "-p", "#{session_name}\t#{window_index}")).trim();
+    const raw = (await d.tmux.run("display-message", "-p", "#{session_name}\t#{window_index}")).trim();
     const [sessionName, indexRaw] = raw.split("\t");
     const windowIndex = Number(indexRaw);
     if (sessionName && Number.isInteger(windowIndex)) return { sessionName, windowIndex };
   } catch {
-    // Outside tmux or tmux unavailable. Keep from blocking; lead context is
-    // impossible to verify from this execution path.
-    return null;
+    // Outside tmux or tmux unavailable. Treat as non-lead for the guard.
   }
   return null;
 }
 
+/**
+ * Fail-closed lead-window guard: refuse to done a session's lead window unless
+ * the caller is provably running inside that lead window. When tmux identity
+ * cannot be confirmed (no current identity), refuse rather than allow — done is
+ * destructive.
+ */
 async function assertDoneMayTargetWindow(
   session: DoneSession,
   windowIndex: number,
   windowName: string,
+  d: ResolvedDoneDeps,
 ): Promise<void> {
   const lead = leadWindow(session);
   if (!lead || lead.index !== windowIndex) return;
 
-  const current = await currentTmuxIdentity();
-  if (!current) {
-    return;
-  }
+  const current = await currentTmuxIdentity(d);
   if (current?.sessionName === session.name && current.windowIndex === lead.index) return;
 
   const message = `refusing to done lead window '${windowName}' in session '${session.name}' from a non-lead context`;
-  console.error(`  \x1b[31m✗\x1b[0m ${message}`);
-  console.error(`  \x1b[90m  run from the lead window, or target a non-lead agent window\x1b[0m`);
+  d.logger.error(`  \x1b[31m✗\x1b[0m ${message}`);
+  d.logger.error(`  \x1b[90m  run from the lead window, or target a non-lead agent window\x1b[0m`);
   throw new Error(message);
 }
 
@@ -219,15 +221,16 @@ async function assertDoneMayTargetWindow(
  * maw done <window-name> [--force] [--dry-run] [--clean-branch]
  *
  * Clean up a finished worktree window:
- * 0. Send /rrr to agent + git auto-save (unless --force)
+ * 0. Send engine-aware retro to agent + git auto-save (unless --force)
  * 1. Kill the tmux window
  * 2. Remove git worktree (if it is one)
  * 3. Remove from fleet config JSON
  */
-export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
+export async function cmdDone(windowName_: string, opts: DoneOpts = {}, deps: DoneDeps = {}) {
+  const d = doneDeps(deps);
   let windowName = normalizeTarget(windowName_);
-  const sessions = await listSessions();
-  const reposRoot = join(getGhqRoot(), "github.com");
+  const sessions = await d.listSessions();
+  const reposRoot = join(d.ghqRoot, "github.com");
 
   const windowNameLower = windowName.toLowerCase();
   let sessionName: string | null = null;
@@ -242,90 +245,97 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   }
 
   if (matchedSession && windowIndex !== null) {
-    await assertDoneMayTargetWindow(matchedSession, windowIndex, windowName);
+    await assertDoneMayTargetWindow(matchedSession, windowIndex, windowName, d);
   }
 
-  // 0. Signal parent inbox (#81) — write before kill so parent knows
-  if (sessionName && !opts.dryRun) {
-    await signalParentInbox(windowName, sessionName, sessions as any);
-  }
-
-  // 0.5. Auto-save: send /rrr + git commit + push (unless --force)
+  // 0. Auto-save FIRST — retro + git commit + push (unless --force). This is the
+  // pre-kill preservation step; if it throws (e.g. fleet/config read failure) we
+  // exit here, before signaling the parent or tearing anything down, so a
+  // "completed" signal is never emitted for work that was not preserved.
   if (sessionName !== null && windowIndex !== null && !opts.force) {
-    await autoSave(windowName, sessionName, opts);
+    await autoSave(windowName, sessionName, opts, deps);
     // NOTE: no early return on dry-run — continue through the (dry-run-guarded)
     // kill-window + worktree-resolution steps so the preview reflects what would
     // actually happen (worktree resolvable or not), instead of an optimistic claim.
   } else if (opts.dryRun) {
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
+    d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
+  }
+
+  // 0.5. Signal parent inbox (#81) only after preservation has succeeded (or was
+  // skipped with --force), and only for a real done (dry-run returned above).
+  // The completion signal is thus causally bound to successful preservation and
+  // still lands before the destructive kill.
+  if (sessionName && !opts.dryRun) {
+    signalParentInbox(windowName, sessionName, sessions, deps);
   }
 
   // 1. Kill tmux window
   if (sessionName !== null && windowIndex !== null) {
     if (opts.dryRun) {
-      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would kill window ${sessionName}:${windowName}`);
+      d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would kill window ${sessionName}:${windowName}`);
     } else {
       try {
-        await tmux.killWindow(`${sessionName}:${windowName}`);
-        console.log(`  \x1b[32m✓\x1b[0m killed window ${sessionName}:${windowName}`);
+        await d.tmux.killWindow(`${sessionName}:${windowName}`);
+        d.logger.log(`  \x1b[32m✓\x1b[0m killed window ${sessionName}:${windowName}`);
       } catch {
-        console.log(`  \x1b[33m⚠\x1b[0m could not kill window (may already be closed)`);
+        d.logger.log(`  \x1b[33m⚠\x1b[0m could not kill window (may already be closed)`);
       }
     }
   } else {
-    console.log(`  \x1b[90m○\x1b[0m window '${windowName}' not running`);
+    d.logger.log(`  \x1b[90m○\x1b[0m window '${windowName}' not running`);
   }
 
   // 2. Remove git worktree
-  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, opts);
+  let removedWorktree = await removeWorktreeViaConfig(windowNameLower, reposRoot, deps, opts);
   if (!removedWorktree) {
-    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, opts);
+    removedWorktree = await removeWorktreeByGhqScan(windowName, reposRoot, deps, opts);
   }
   if (!removedWorktree) {
-    console.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
+    d.logger.log(`  \x1b[90m○\x1b[0m no worktree to remove (may be a main window)`);
   } else if (!opts.dryRun && opts.cwd) {
-    await warnRemainingWorktrees(windowName, reposRoot);
+    await warnRemainingWorktrees(windowName, reposRoot, deps);
   }
 
   const matchedWindow = sessionName !== null && windowIndex !== null;
   if (opts.dryRun) {
-    if (!matchedWindow && !removedWorktree) failMissingDoneTarget(windowName);
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove '${windowNameLower}' from fleet config if present`);
-    console.log();
+    if (!matchedWindow && !removedWorktree) failMissingDoneTarget(windowName, d);
+    d.logger.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove '${windowNameLower}' from fleet config if present`);
+    d.logger.log();
     return;
   }
 
   // 3. Remove from fleet config
-  const removedFromConfig = removeFromFleetConfig(windowNameLower);
+  const removedFromConfig = removeFromFleetConfig(windowNameLower, deps);
   if (!removedFromConfig) {
-    console.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
+    d.logger.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
   }
-  if (!matchedWindow && !removedWorktree && !removedFromConfig) failMissingDoneTarget(windowName);
+  if (!matchedWindow && !removedWorktree && !removedFromConfig) failMissingDoneTarget(windowName, d);
 
   // Snapshot after done
-  takeSnapshot("done").catch(() => {});
+  d.takeSnapshot("done").catch(() => {});
 
-  console.log();
+  d.logger.log();
 }
 
 /**
  * maw done --all [--force] [--dry-run]
  *
  * Batch-clean all non-lead windows in the current tmux session. Reuses the
- * single-window lifecycle so /rrr, auto-save, worktree cleanup, fleet cleanup,
+ * single-window lifecycle so retro, auto-save, worktree cleanup, fleet cleanup,
  * and snapshots stay consistent with `maw done <window>`.
  */
-export async function cmdDoneAll(opts: DoneOpts = {}): Promise<DoneAllSummary> {
+export async function cmdDoneAll(opts: DoneOpts = {}, deps: DoneDeps = {}): Promise<DoneAllSummary> {
+  const d = doneDeps(deps);
   const originalCwd = process.cwd();
-  const sessions = await listSessions() as DoneSession[];
+  const sessions = await d.listSessions() as DoneSession[];
   let sessionName: string | null = null;
   try {
     if (opts.oracle) {
       const resolved = await resolveOracle(opts.oracle);
       process.chdir(resolved.repoPath);
-      sessionName = await currentSessionName(sessions, resolved.repoName);
+      sessionName = await currentSessionName(sessions, d, resolved.repoName);
     } else {
-      sessionName = await currentSessionName(sessions);
+      sessionName = await currentSessionName(sessions, d);
     }
   } finally {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd);
@@ -337,39 +347,39 @@ export async function cmdDoneAll(opts: DoneOpts = {}): Promise<DoneAllSummary> {
       : sessions.length === 0
         ? "no tmux sessions to clean"
         : "could not identify current tmux session; run inside tmux";
-    console.log(`  \x1b[90m○\x1b[0m ${reason}`);
+    d.logger.log(`  \x1b[90m○\x1b[0m ${reason}`);
     return { sessionName: null, processed: [], skipped: [] };
   }
 
   const session = sessions.find(s => s.name === sessionName);
   if (!session) {
-    console.log(`  \x1b[90m○\x1b[0m current tmux session '${sessionName}' not found`);
+    d.logger.log(`  \x1b[90m○\x1b[0m current tmux session '${sessionName}' not found`);
     return { sessionName, processed: [], skipped: [] };
   }
 
   const targets = nonLeadWindows(session);
   if (targets.length === 0) {
-    console.log(`  \x1b[90m○\x1b[0m no non-lead windows in ${sessionName}`);
+    d.logger.log(`  \x1b[90m○\x1b[0m no non-lead windows in ${sessionName}`);
     return { sessionName, processed: [], skipped: [] };
   }
 
   const mode = opts.dryRun ? "would process" : "processing";
-  console.log(`  \x1b[36m⬡\x1b[0m ${mode} ${targets.length} non-lead window(s) in ${sessionName}`);
+  d.logger.log(`  \x1b[36m⬡\x1b[0m ${mode} ${targets.length} non-lead window(s) in ${sessionName}`);
 
   const processed: string[] = [];
   const skipped: string[] = [];
   for (const target of targets) {
-    console.log(`\n\x1b[36m→\x1b[0m done ${sessionName}:${target.name}`);
+    d.logger.log(`\n\x1b[36m→\x1b[0m done ${sessionName}:${target.name}`);
     try {
-      await cmdDone(target.name, { ...opts, sessionName });
+      await cmdDone(target.name, { ...opts, sessionName }, deps);
       processed.push(target.name);
     } catch (e: any) {
       skipped.push(target.name);
-      console.log(`  \x1b[33m⚠\x1b[0m skipped ${target.name}: ${e?.message || e}`);
+      d.logger.log(`  \x1b[33m⚠\x1b[0m skipped ${target.name}: ${e?.message || e}`);
     }
   }
 
   const verb = opts.dryRun ? "would process" : "processed";
-  console.log(`  \x1b[32m✓\x1b[0m done --all ${verb} ${processed.length} window(s)${skipped.length ? `, skipped ${skipped.length}` : ""}`);
+  d.logger.log(`  \x1b[32m✓\x1b[0m done --all ${verb} ${processed.length} window(s)${skipped.length ? `, skipped ${skipped.length}` : ""}`);
   return { sessionName, processed, skipped };
 }

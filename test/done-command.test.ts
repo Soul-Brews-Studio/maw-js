@@ -56,6 +56,8 @@ function createHarness(options: {
   tmuxSendFails?: boolean;
   fsFailReaddir?: boolean;
   fsFailAppend?: boolean;
+  /** Engine to tag every window with in the injected fleet records (D3 retro). */
+  engine?: string;
 } = {}) {
   const logs: string[] = [];
   const errors: string[] = [];
@@ -92,10 +94,28 @@ function createHarness(options: {
     hostExec: async (command: string) => {
       commands.push(command);
       if (options.hostExec) return await options.hostExec(command);
-      if (command.includes("pane_current_path")) return "claude\t/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
+      if (command.includes("pane_current_path")) return "/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1\n";
       if (command.startsWith("find ")) return "";
       return "";
     },
+    // D3: the retro form comes from the window's authoritative fleet engine,
+    // not the pane command. Tag every window with `options.engine` (claude).
+    loadFleetEntries: () => sessions.map((s, i) => ({
+      file: `${i}-${s.name}.json`,
+      num: i,
+      groupName: s.name,
+      session: {
+        name: s.name,
+        windows: s.windows.map((w) => ({
+          name: w.name,
+          repo: "org/repo",
+          runtime: { engine: options.engine ?? "claude", cwd: "/repos", nativeSessionId: "sess", capturedAt: "2026-05-17T00:00:00.000Z" },
+        })),
+      },
+    })) as any,
+    readWorktreeEngineFile: () => undefined,
+    reunion: async () => undefined,
+    soulSync: async () => undefined,
     tmux: {
       killWindow: async (target: string) => {
         killed.push(target);
@@ -136,27 +156,26 @@ afterEach(() => {
 });
 
 describe("cmdDone", () => {
-  test("dry-run on a running window signals parent and stops before destructive cleanup", async () => {
+  test("dry-run on a running window previews without side effects or destructive cleanup", async () => {
     const h = createHarness();
 
     await cmdDone(" tile-1/ ", { dryRun: true }, h.deps);
 
-    expect(h.commands).toEqual(["tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'"]);
+    // Honest dry-run (alpha c4195acf): the preview continues through the READ-ONLY
+    // worktree resolution (fleet config + ghq scan) so it reflects what a real done
+    // would find, instead of returning early with an optimistic claim.
+    expect(h.commands).toEqual([
+      "tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'",
+      "find '/repos/github.com' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null",
+    ]);
     expect(h.killed).toEqual([]);
     expect(h.snapshots).toEqual([]);
     expect(h.logs.join("\n")).toContain("would send /rrr to work:tile-1");
     expect(h.logs.join("\n")).toContain("would git add + commit + push");
 
-    const inboxPath = "/xdg-data/inbox/leadmain.jsonl";
-    expect(h.dirs).toContain("/xdg-data/inbox");
-    const signal = JSON.parse(h.files.get(inboxPath)!.trim());
-    expect(signal).toEqual({
-      ts: "2026-05-17T01:02:03.004Z",
-      from: "codex-agent",
-      type: "done",
-      msg: "worktree tile-1 completed",
-      thread: null,
-    });
+    // A dry-run must not mutate anything. The parent inbox signal ("worktree
+    // completed") is a real side effect, so it is deferred to a real done.
+    expect(h.files.get("/xdg-data/inbox/leadmain.jsonl")).toBeUndefined();
   });
 
   test("--force skips autosave, kills the window, removes configured worktree, updates fleet, and snapshots", async () => {
@@ -219,6 +238,46 @@ describe("cmdDone", () => {
 
     expect(h.killed).toEqual(["work:tile-1"]);
     expect(h.logs.join("\n")).toContain("killed window work:tile-1");
+  });
+
+  test("a reunion failure is best-effort and never aborts teardown", async () => {
+    const h = createHarness();
+    // Not --force, so autoSave runs; reunion (an auxiliary post-save step) throws.
+    const deps: DoneDeps = { ...h.deps, reunion: async () => { throw new Error("reunion offline"); } };
+
+    await cmdDone("tile-1", {}, deps);
+
+    // Teardown still completed: the reunion error was swallowed and logged.
+    expect(h.logs.join("\n")).toContain("reunion skipped");
+    expect(h.killed).toEqual(["work:tile-1"]);
+    expect(h.snapshots).toEqual(["done"]);
+  });
+
+  test("a preservation (fleet-load) failure aborts before the completion signal or any teardown", async () => {
+    const h = createHarness();
+    // autoSave resolves the retro engine via loadFleetEntries — make it throw to
+    // model a fleet/config read failure during the pre-kill preservation step.
+    const deps: DoneDeps = { ...h.deps, loadFleetEntries: () => { throw new Error("fleet unreadable"); } };
+
+    await expect(cmdDone("tile-1", {}, deps)).rejects.toThrow("fleet unreadable");
+
+    // No "completed" signal was emitted, and nothing was torn down (fail-closed):
+    // the signal is bound to successful preservation, which threw.
+    expect([...h.files.keys()].some((k) => k.includes("/inbox/"))).toBe(false);
+    expect(h.killed).toEqual([]);
+    expect(h.snapshots).toEqual([]);
+  });
+
+  test("the successful path signals the parent exactly once, then tears down", async () => {
+    const h = createHarness();
+
+    await cmdDone("tile-1", {}, h.deps);
+
+    const inboxFiles = [...h.files.entries()].filter(([k]) => k.includes("/inbox/"));
+    expect(inboxFiles).toHaveLength(1);
+    expect(inboxFiles[0]![1].trim().split("\n")).toHaveLength(1); // exactly one signal line
+    expect(h.killed).toEqual(["work:tile-1"]);
+    expect(h.snapshots).toEqual(["done"]);
   });
 
   test("dry-run for a missing window reports lookup paths without mutating cleanup state", async () => {
@@ -310,7 +369,7 @@ describe("done inbox and autosave helpers", () => {
     expect(h.sent).toEqual([{ target: "work:tile-1", text: "/rrr" }]);
     expect(h.sleeps).toEqual([10_000]);
     expect(h.commands).toEqual([
-      "tmux display-message -t 'work:tile-1' -p '#{pane_current_command}\t#{pane_current_path}'",
+      "tmux display-message -t 'work:tile-1' -p '#{pane_current_path}'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' add -A",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' commit -m 'chore: auto-save before done'",
       "git -C '/repos/github.com/Soul-Brews-Studio/maw-js.wt-tile-1' push",
@@ -326,7 +385,7 @@ describe("done inbox and autosave helpers", () => {
 
     const commitPushFail = createHarness({
       hostExec: (command) => {
-        if (command.includes("pane_current_path")) return "claude\t/repo";
+        if (command.includes("pane_current_path")) return "/repo";
         if (command.includes(" commit ")) throw new Error("nothing");
         if (command.endsWith(" push")) throw new Error("denied");
         return "";
@@ -338,7 +397,7 @@ describe("done inbox and autosave helpers", () => {
 
     const addFail = createHarness({
       hostExec: (command) => {
-        if (command.includes("pane_current_path")) return "claude\t/repo";
+        if (command.includes("pane_current_path")) return "/repo";
         if (command.endsWith(" add -A")) throw new Error("add failed");
         return "";
       },
@@ -360,22 +419,60 @@ describe("done inbox and autosave helpers", () => {
     expect(h.logs.join("\n")).not.toContain("would git add + commit + push");
   });
 
-  test("autoSave uses engine-aware retrospective command from shared done", async () => {
-    const omx = createHarness({
-      hostExec: (command) => command.includes("pane_current_path") ? "omx\t/repo" : "",
-    });
-    await autoSave("tile-1", "work", {}, omx.deps);
-    expect(omx.sent).toEqual([{ target: "work:tile-1", text: "$rrr" }]);
-    expect(omx.sleeps).toEqual([10_000]);
-    expect(omx.logs.join("\n")).toContain("$rrr sent (waited 10s)");
-
+  test("autoSave picks the retro form from the window's fleet engine (D3)", async () => {
+    // codex worker → $rrr, from the fleet runtime.engine — NOT the pane command
+    // (a codex pane reports its bash/node wrapper).
     const codex = createHarness({
-      hostExec: (command) => command.includes("pane_current_path") ? "codex\t/repo" : "",
+      engine: "codex",
+      hostExec: (command) => command.includes("pane_current_path") ? "/repo" : "",
     });
     await autoSave("tile-1", "work", {}, codex.deps);
-    expect(codex.sent).toEqual([]);
-    expect(codex.sleeps).toEqual([]);
-    expect(codex.logs.join("\n")).toContain("no retrospective command for this engine");
+    expect(codex.sent).toEqual([{ target: "work:tile-1", text: "$rrr" }]);
+    expect(codex.sleeps).toEqual([10_000]);
+    expect(codex.logs.join("\n")).toContain("$rrr sent (waited 10s)");
+
+    // aider → no retrospective equivalent → skip the retro step.
+    const aider = createHarness({
+      engine: "aider",
+      hostExec: (command) => command.includes("pane_current_path") ? "/repo" : "",
+    });
+    await autoSave("tile-1", "work", {}, aider.deps);
+    expect(aider.sent).toEqual([]);
+    expect(aider.sleeps).toEqual([]);
+    expect(aider.logs.join("\n")).toContain("no retrospective command for this engine");
+  });
+
+  test("autoSave classifies a custom engine key by its loaded processNames family (#8 via deps.loadConfig)", async () => {
+    // A commands-map wrapper (codex-pl-worker) is NOT a built-in name; the live
+    // config declares processNames: ["codex"], so it must get codex-family $rrr —
+    // not the /rrr default. Regression for the dropped loadConfig binding
+    // (MAW-PR5-DELTA-RECHECK-01 P1): a bare/missing loadConfig silently yields
+    // config {} and /rrr.
+    const wrapper = createHarness({
+      engine: "codex-pl-worker",
+      hostExec: (command) => command.includes("pane_current_path") ? "/repo" : "",
+    });
+    const loadConfigCalls: number[] = [];
+    const deps: DoneDeps = {
+      ...wrapper.deps,
+      loadConfig: () => {
+        loadConfigCalls.push(1);
+        return { engines: { "codex-pl-worker": { cmd: "pl-codex-worker.sh", processNames: ["codex"] } } } as any;
+      },
+    };
+    await autoSave("tile-1", "work", { dryRun: true }, deps);
+    expect(loadConfigCalls).toEqual([1]);
+    expect(wrapper.logs.join("\n")).toContain("would send $rrr to work:tile-1");
+    expect(wrapper.logs.join("\n")).not.toContain("would send /rrr");
+
+    // Without the config binding (config {}), the same engine falls to /rrr —
+    // the exact failure Riddler falsified at 4472b8e3.
+    const bare = createHarness({
+      engine: "codex-pl-worker",
+      hostExec: (command) => command.includes("pane_current_path") ? "/repo" : "",
+    });
+    await autoSave("tile-1", "work", { dryRun: true }, { ...bare.deps, loadConfig: () => ({}) });
+    expect(bare.logs.join("\n")).toContain("would send /rrr to work:tile-1");
   });
 });
 
