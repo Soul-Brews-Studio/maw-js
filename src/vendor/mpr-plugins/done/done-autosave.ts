@@ -61,7 +61,7 @@ export async function autoSave(
   // Pass the live config so a custom engine key (e.g. a commands-map wrapper that
   // execs codex) is classified by its declared process family, not its name.
   let config: Partial<MawConfig> = {};
-  try { config = loadConfig(); } catch { /* fall back to built-in classification */ }
+  try { config = d.loadConfig(); } catch { /* fall back to built-in classification */ }
   const retrospectiveCommand = retrospectiveCommandForEngine(engine, config);
 
   if (opts.dryRun) {

@@ -6,6 +6,8 @@ import { homedir } from "os";
 // lifecycle without a missing-export SyntaxError for tmux/takeSnapshot/etc.
 import * as sdk from "maw-js/sdk";
 import { getGhqRoot } from "maw-js/config/ghq-root";
+import { loadConfig } from "maw-js/config";
+import type { MawConfig } from "maw-js/config/types";
 import { fleetDirsForRead } from "maw-js/commands/shared/fleet-load";
 import { mawDataPath } from "../../../core/xdg";
 import type { FleetEntry } from "../../../core/fleet/fleet-load-core";
@@ -52,6 +54,8 @@ export interface DoneDeps {
   sleep?: (ms: number) => Promise<void>;
   fs?: Partial<DoneFs>;
   logger?: DoneLogger;
+  /** Live config, so a custom engine key is classified by its declared process family (#8). */
+  loadConfig?: () => Partial<MawConfig>;
   /** Authoritative fleet records, for D3 engine-aware retro resolution. */
   loadFleetEntries?: () => FleetEntry[];
   /** Reads a worktree's `.maw-engine` marker; may throw on an invalid marker. */
@@ -89,6 +93,7 @@ export function doneDeps(deps: DoneDeps = {}) {
       writeFileSync: deps.fs?.writeFileSync ?? writeFileSync,
     },
     logger: deps.logger ?? console,
+    loadConfig: deps.loadConfig ?? (() => loadConfig() as Partial<MawConfig>),
     loadFleetEntries: deps.loadFleetEntries ?? (() => sdk.loadFleetEntries()),
     readWorktreeEngineFile: deps.readWorktreeEngineFile
       ?? ((wtPath: string) => (require("../../../commands/shared/wake-session") as typeof import("../../../commands/shared/wake-session")).readWorktreeEngineFile(wtPath)),

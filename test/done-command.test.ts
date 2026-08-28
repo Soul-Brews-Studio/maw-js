@@ -441,6 +441,39 @@ describe("done inbox and autosave helpers", () => {
     expect(aider.sleeps).toEqual([]);
     expect(aider.logs.join("\n")).toContain("no retrospective command for this engine");
   });
+
+  test("autoSave classifies a custom engine key by its loaded processNames family (#8 via deps.loadConfig)", async () => {
+    // A commands-map wrapper (codex-pl-worker) is NOT a built-in name; the live
+    // config declares processNames: ["codex"], so it must get codex-family $rrr —
+    // not the /rrr default. Regression for the dropped loadConfig binding
+    // (MAW-PR5-DELTA-RECHECK-01 P1): a bare/missing loadConfig silently yields
+    // config {} and /rrr.
+    const wrapper = createHarness({
+      engine: "codex-pl-worker",
+      hostExec: (command) => command.includes("pane_current_path") ? "/repo" : "",
+    });
+    const loadConfigCalls: number[] = [];
+    const deps: DoneDeps = {
+      ...wrapper.deps,
+      loadConfig: () => {
+        loadConfigCalls.push(1);
+        return { engines: { "codex-pl-worker": { cmd: "pl-codex-worker.sh", processNames: ["codex"] } } } as any;
+      },
+    };
+    await autoSave("tile-1", "work", { dryRun: true }, deps);
+    expect(loadConfigCalls).toEqual([1]);
+    expect(wrapper.logs.join("\n")).toContain("would send $rrr to work:tile-1");
+    expect(wrapper.logs.join("\n")).not.toContain("would send /rrr");
+
+    // Without the config binding (config {}), the same engine falls to /rrr —
+    // the exact failure Riddler falsified at 4472b8e3.
+    const bare = createHarness({
+      engine: "codex-pl-worker",
+      hostExec: (command) => command.includes("pane_current_path") ? "/repo" : "",
+    });
+    await autoSave("tile-1", "work", { dryRun: true }, { ...bare.deps, loadConfig: () => ({}) });
+    expect(bare.logs.join("\n")).toContain("would send /rrr to work:tile-1");
+  });
 });
 
 describe("cleanupDoneBranch", () => {
