@@ -166,6 +166,22 @@ describe("resolveMyName — environment attribution", () => {
 
     expect(resolveMyName({ node: "m5" } as never)).toBe("mawjs-codex");
   });
+
+  test("without $TMUX_PANE falls back to config.node — never guesses from the active client", () => {
+    delete process.env.CLAUDE_AGENT_NAME;
+    const tmux = process.env.TMUX;
+    const pane = process.env.TMUX_PANE;
+    // $TMUX set but pane context lost (hook/detached subprocess) — the exact
+    // shape of the mac-tor 2026-08 misattribution. Must NOT shell out.
+    process.env.TMUX = "/tmp/tmux-501/default,1,0";
+    delete process.env.TMUX_PANE;
+    try {
+      expect(resolveMyName({ node: "m5" } as never)).toBe("m5");
+    } finally {
+      if (tmux === undefined) delete process.env.TMUX; else process.env.TMUX = tmux;
+      if (pane === undefined) delete process.env.TMUX_PANE; else process.env.TMUX_PANE = pane;
+    }
+  });
 });
 
 describe("formatSignedMessage — edge branches", () => {
