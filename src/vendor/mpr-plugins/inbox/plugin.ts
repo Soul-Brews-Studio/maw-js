@@ -9,7 +9,7 @@ export default definePlugin({
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "inbox",
-    "help": "maw inbox [--unread] [--from <peer>] [--last N] | status [oracle-name] [--json] [--all] | drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run] | read <id> | show [N] | write <msg> | pending | approve <id> | reject <id> | show-pending <id>"
+    "help": "maw inbox [--unread] [--from <peer>] [--last N] | status [oracle-name] [--json] [--all] | drain [oracle-name] (--safe | --all) [--max N] [--older-than-hours H] [--json] [--dry-run] | read <id> | show [N] | write <msg> | pending | approve <id> | reject <id> | show-pending <id>"
   },
   "weight": 30,
   "tier": "standard",
