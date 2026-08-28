@@ -281,7 +281,7 @@ describe("inbox plugin index", () => {
 
     expect(await invoke(["drain"])).toEqual({
       ok: false,
-      error: "usage: maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]",
+      error: "usage: maw inbox drain [oracle-name] (--safe | --all) [--max N] [--older-than-hours H] [--json] [--dry-run]",
       output: "",
     });
     expect(await invoke(["drain", "mawjs-oracle", "--safe", "--max=7", "--older-than-hours", "12", "--json", "--dry-run"])).toEqual({

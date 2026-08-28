@@ -67,6 +67,8 @@ export interface InboxDrainItem {
   action: "archived" | "would_archive";
 }
 
+export type InboxDrainMode = "safe" | "all";
+
 export interface InboxDrainResult {
   oracle: string;
   scanned: number;
@@ -75,7 +77,8 @@ export interface InboxDrainResult {
   remaining_matches: number;
   max: number;
   dry_run: boolean;
-  safe: true;
+  safe: boolean;
+  mode: InboxDrainMode;
   older_than_seconds: number;
   processed_dir: string;
   items: InboxDrainItem[];
@@ -99,6 +102,10 @@ const OLDEST_RED_SECONDS = 4 * 60 * 60;
 const ARCHIVE_RED_SECONDS = 8 * 60 * 60;
 const SAFE_DRAIN_DEFAULT_MAX = 25;
 const SAFE_DRAIN_DEFAULT_MIN_AGE_SECONDS = OLDEST_RED_SECONDS;
+// `--all` (bulk owner archive) — no content filter, no age floor, no cap unless given.
+const ALL_DRAIN_DEFAULT_MAX = Number.MAX_SAFE_INTEGER;
+const ALL_DRAIN_DEFAULT_MIN_AGE_SECONDS = 0;
+const DRAIN_USAGE = "usage: maw inbox drain [oracle-name] (--safe | --all) [--max N] [--older-than-hours H] [--json] [--dry-run]";
 
 const SAFE_DRAIN_PATTERNS: Array<{ reason: string; pattern: RegExp }> = [
   { reason: "ci-green", pattern: /\bci green confirmed\b/i },
@@ -501,20 +508,28 @@ function parsePositiveInt(value: number | undefined, fallback: number): number {
 
 export async function cmdInboxDrain(
   oracle?: string,
-  opts: { safe?: boolean; max?: number; dryRun?: boolean; json?: boolean; olderThanSeconds?: number } = {},
+  opts: { safe?: boolean; all?: boolean; max?: number; dryRun?: boolean; json?: boolean; olderThanSeconds?: number } = {},
   nowMs = Date.now(),
 ): Promise<InboxDrainResult> {
-  if (!opts.safe) throw new Error("usage: maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]");
+  if (!opts.safe && !opts.all) throw new Error(DRAIN_USAGE);
+  if (opts.safe && opts.all) throw new Error("--safe and --all are mutually exclusive");
+  const mode: InboxDrainMode = opts.all ? "all" : "safe";
 
   const target = await resolveInboxStatusTarget(oracle);
-  const max = parsePositiveInt(opts.max, SAFE_DRAIN_DEFAULT_MAX);
-  const olderThanSeconds = parsePositiveInt(opts.olderThanSeconds, SAFE_DRAIN_DEFAULT_MIN_AGE_SECONDS);
+  const max = parsePositiveInt(opts.max, mode === "all" ? ALL_DRAIN_DEFAULT_MAX : SAFE_DRAIN_DEFAULT_MAX);
+  const olderThanSeconds = parsePositiveInt(
+    opts.olderThanSeconds,
+    mode === "all" ? ALL_DRAIN_DEFAULT_MIN_AGE_SECONDS : SAFE_DRAIN_DEFAULT_MIN_AGE_SECONDS,
+  );
   const processedDir = join(target.inboxDir, "processed", archiveDay(nowMs));
   const messages = loadInboxMessages(target.inboxDir);
   const candidates = messages
     .map((msg) => {
-      const reason = safeDrainReason(msg);
-      const timestampMs = drainTimestampMs(msg);
+      // --all: every top-level message qualifies; reason records read state for the audit trail.
+      const reason = mode === "all"
+        ? (msg.frontmatter.read ? "all:read" : "all:unread")
+        : safeDrainReason(msg);
+      const timestampMs = mode === "all" ? msg.timestamp.getTime() : drainTimestampMs(msg);
       const ageSecondsValue = timestampMs === null ? null : ageSeconds(timestampMs, nowMs);
       return { msg, reason, timestampMs, ageSecondsValue };
     })
@@ -560,7 +575,8 @@ export async function cmdInboxDrain(
     remaining_matches: Math.max(0, candidates.length - items.length),
     max,
     dry_run: Boolean(opts.dryRun),
-    safe: true,
+    safe: mode === "safe",
+    mode,
     older_than_seconds: olderThanSeconds,
     processed_dir: processedDir,
     items,
@@ -572,12 +588,17 @@ export async function cmdInboxDrain(
 
 export function formatInboxDrainResult(result: InboxDrainResult): string {
   const verb = result.dry_run ? "would archive" : "archived";
+  const all = result.mode === "all";
+  const what = all ? "inbox message(s) [--all]" : "safe stale inbox message(s)";
+  const maxLabel = result.max >= Number.MAX_SAFE_INTEGER ? "unlimited" : String(result.max);
   const lines = [
-    `${result.oracle}: ${verb} ${result.archived}/${result.matched} safe stale inbox message(s) (scanned ${result.scanned}, max ${result.max})`,
+    `${result.oracle}: ${verb} ${result.archived}/${result.matched} ${what} (scanned ${result.scanned}, max ${maxLabel})`,
   ];
-  if (result.remaining_matches > 0) lines.push(`   → ${result.remaining_matches} safe match(es) remain after max cap`);
+  if (result.remaining_matches > 0) lines.push(`   → ${result.remaining_matches} ${all ? "" : "safe "}match(es) remain after max cap`);
   if (!result.items.length) {
-    lines.push(`   → no messages matched the safe stale-ack filter`);
+    lines.push(all
+      ? `   → no messages matched (older-than ${formatDuration(result.older_than_seconds)})`
+      : `   → no messages matched the safe stale-ack filter`);
     return lines.join("\n");
   }
   for (const item of result.items.slice(0, 10)) {
