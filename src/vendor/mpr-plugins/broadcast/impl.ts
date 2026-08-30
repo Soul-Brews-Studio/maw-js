@@ -1,4 +1,4 @@
-import { tmux } from "maw-js/sdk";
+import { tmux, isClaudeLikePane } from "maw-js/sdk";
 
 /**
  * maw broadcast <message> — send to ALL Claude windows across ALL sessions
@@ -31,9 +31,8 @@ export async function cmdBroadcast(message: string) {
     for (const w of s.windows) {
       const target = `${s.name}:${w.index}`;
       try {
-        // Check if window is running claude
         const cmd = await tmux.run("display-message", "-t", target, "-p", "#{pane_current_command}");
-        if (!cmd.trim().includes("claude")) {
+        if (!isClaudeLikePane(cmd.trim())) {
           skipped++;
           continue;
         }

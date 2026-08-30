@@ -1,6 +1,6 @@
 import { readdirSync, existsSync } from "fs";
 import { join } from "path";
-import { tmux } from "maw-js/sdk";
+import { tmux, isClaudeLikePane } from "maw-js/sdk";
 import type { TmuxPane } from "maw-js/sdk";
 import { loadFleetEntries } from "maw-js/commands/shared/fleet-load";
 import { TEAMS_DIR, loadTeam } from "./team-helpers";
@@ -103,7 +103,7 @@ export function findZombiePanes(allPanes: TmuxPane[]): ZombiePane[] {
   // (b) not in the fleet/view (by either target OR any other listing of the same pane)
   return allPanes
     .filter(p =>
-      p.command?.includes("claude") &&
+      isClaudeLikePane(p.command) &&
       !knownTeamPaneIds.has(p.id) &&
       !isFleetPane(p.target) &&
       !safePaneIds.has(p.id)
