@@ -1017,6 +1017,6 @@ export function annotatePane(
   if (team) return `team: ${team}`;
   if (fleetSessions.has(session)) return `fleet: ${session.replace(/^\d+-/, "")}`;
   if (session === "maw-view" || /-view$/.test(session)) return `view: ${session}`;
-  if (p.command?.includes("claude")) return "orphan";
+  if (isClaudeLikePane(p.command)) return "orphan";
   return "";
 }

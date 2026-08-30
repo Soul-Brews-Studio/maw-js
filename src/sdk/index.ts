@@ -43,6 +43,7 @@ export {
   HostExecError,
 } from "../core/transport/ssh";
 export type { Session as SshSession, HostExecTransport } from "../core/transport/ssh";
+export { isClaudeLikePane } from "../commands/plugins/tmux/safety";
 export { curlFetch } from "../core/transport/curl-fetch";
 export {
   getPeers, getFederationStatus, findPeerForTarget,
