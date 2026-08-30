@@ -85,6 +85,12 @@ export function findWindow(sessions: Session[], query: string, currentSession?: 
         // literal tmux targets; resolveTarget validates these before calling
         // findWindow on the `maw hey` path.
       } else {
+        // Exact window-name match FIRST, substring fallback second (#414
+        // parity). Without this, `hey session:builder` resolves to a sibling
+        // like `builder-agy` whenever the shadowing window has a lower index.
+        for (const w of sess.windows) {
+          if (w.name.toLowerCase() === winPart) return `${sess.name}:${w.index}${paneSuffix}`;
+        }
         for (const w of sess.windows) {
           if (w.name.toLowerCase().includes(winPart)) return `${sess.name}:${w.index}${paneSuffix}`;
         }
