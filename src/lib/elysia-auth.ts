@@ -74,6 +74,26 @@ export function setBunServer(server: Server): void {
   _bunServer = server;
 }
 
+// Bun's requestIP() resolves the TCP source by Request-object identity, so it
+// returns null for a `req.clone()` — and server.ts feeds clones into
+// api.handle() for protected routes. A null address is treated as
+// non-loopback (fail-closed), which broke the loopback bypass for every local
+// unsigned CLI/probe call once a federationToken was configured. The clone
+// site records the address resolved from the ORIGINAL request here; only
+// server-side code can write this map, so header spoofing cannot reach it.
+const clonedRequestIp = new WeakMap<Request, string>();
+
+/** Record the client address for a cloned Request before handing the clone to
+ *  Elysia. Called only from server.ts with an address resolved via
+ *  requestIP() on the original request. */
+export function rememberClientIp(request: Request, address: string | undefined): void {
+  if (address) clonedRequestIp.set(request, address);
+}
+
+export function resolveClientIp(request: Request): string | undefined {
+  return clonedRequestIp.get(request) ?? _bunServer?.requestIP?.(request)?.address;
+}
+
 const rawBodyBytes = new WeakMap<Request, Uint8Array>();
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const textDecoder = new TextDecoder();
@@ -113,7 +133,7 @@ async function captureBodyForAuth(request: Request, contentType: string): Promis
   const parsed = parseCapturedBody(new Uint8Array(), contentType);
   if (parsed === undefined) return undefined;
 
-  const clientIp = _bunServer?.requestIP?.(request)?.address;
+  const clientIp = resolveClientIp(request);
   if (isLoopback(clientIp)) return undefined;
 
   const body = new Uint8Array(await request.arrayBuffer());
@@ -183,7 +203,7 @@ export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
     if (!isProtected(path, request.method)) return;
 
     // Loopback: same exception as HMAC. Local CLI does not yet from-sign.
-    const clientIp = _bunServer?.requestIP?.(request)?.address;
+    const clientIp = resolveClientIp(request);
     if (isLoopback(clientIp)) return;
 
     // No claimed sender means the HMAC layer already handled the request; do
@@ -272,7 +292,7 @@ export const federationAuth = new Elysia({ name: "federation-auth" })
     // the TCP source legitimately 127.0.0.1). The full fix (Option C in #191)
     // is to remove this bypass entirely and have the local CLI sign all
     // requests; this lands in a follow-up PR.
-    const clientIp = _bunServer?.requestIP?.(request)?.address;
+    const clientIp = resolveClientIp(request);
 
     if (isLoopback(clientIp)) return;
 

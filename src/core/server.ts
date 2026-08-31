@@ -6,7 +6,7 @@ import { api } from "../api";
 import { feedBuffer, feedListeners } from "../api/feed";
 import { setupTriggerListener } from "./runtime/trigger-listener";
 import { createScopedTransportRouter } from "../transports";
-import { isProtected, setBunServer } from "../lib/elysia-auth";
+import { isProtected, rememberClientIp, setBunServer } from "../lib/elysia-auth";
 import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import { discoverLocalPluginDirs } from "../plugin/registry-helpers";
 import {
@@ -441,13 +441,18 @@ export async function startBunGatewayServer(
     if (wsUpgrade.matched) return logAccess(wsUpgrade.response);
     // Elysia handles legacy /api/* routes (has its own CORS). Engine plugin
     // proxy stays first. For protected routes extracted into serve plugins,
-    // preserve Elysia auth hooks by running legacy api.handle(req.clone())
+    // preserve Elysia auth hooks by running legacy api.handle on a clone
     // before the registry and falling through only when legacy returns 404.
     if (url.pathname.startsWith("/api")) {
       const enginePlugin = findEnginePluginRegistration(url.pathname);
       if (enginePlugin) return logAccess(await proxyEnginePluginRequest(req, enginePlugin));
       if (isProtected(apiPath, req.method)) {
-        const authOrLegacyRoute = await api.handle(req.clone());
+        // requestIP() is identity-keyed, so it returns null for a clone; carry
+        // the address resolved from the original request or the loopback
+        // bypass in the auth hooks fails closed for local unsigned callers.
+        const authReq = req.clone();
+        rememberClientIp(authReq, server.requestIP(req)?.address);
+        const authOrLegacyRoute = await api.handle(authReq);
         if (authOrLegacyRoute.status !== 404) return logAccess(authOrLegacyRoute);
         const servedByPlugin = await serveRoutes.handle(req);
         return logAccess(servedByPlugin ? addCors(servedByPlugin) : authOrLegacyRoute);
