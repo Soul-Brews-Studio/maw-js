@@ -62,4 +62,39 @@ describe("findWindow current-session scoped substring pass (#2134)", () => {
   test("without currentSession preserves existing cross-session ambiguity behavior", () => {
     expect(() => findWindow(SESSIONS, "codex-1")).toThrow(AmbiguousMatchError);
   });
+
+  test("ignores maw-pty-* mirror sessions when resolving target window", () => {
+    const sessionsWithPty: Session[] = [
+      {
+        name: "signaltale",
+        windows: [
+          { index: 1, name: "st-orchestrator", active: false },
+          { index: 3, name: "st-oracle-oracle", active: true },
+        ],
+      },
+      {
+        name: "maw-pty-1788431581662-16",
+        windows: [
+          { index: 1, name: "st-orchestrator", active: false },
+          { index: 3, name: "st-oracle-oracle", active: true },
+        ],
+      },
+    ];
+
+    expect(findWindow(sessionsWithPty, "st-oracle-oracle")).toBe("signaltale:3");
+    expect(findWindow(sessionsWithPty, "signaltale:st-oracle-oracle")).toBe("signaltale:3");
+  });
+
+  test("allows explicit query by maw-pty- session name", () => {
+    const sessionsWithPty: Session[] = [
+      {
+        name: "maw-pty-1788431581662-16",
+        windows: [
+          { index: 3, name: "st-oracle-oracle", active: true },
+        ],
+      },
+    ];
+
+    expect(findWindow(sessionsWithPty, "maw-pty-1788431581662-16:3")).toBe("maw-pty-1788431581662-16:3");
+  });
 });
