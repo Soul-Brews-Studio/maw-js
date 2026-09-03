@@ -61,6 +61,12 @@ function matchSession(sessions: Session[], part: string, strict = false): Sessio
 export function findWindow(sessions: Session[], query: string, currentSession?: string): string | null {
   const q = query.toLowerCase();
 
+  // Filter out pty mirror and view sessions unless explicitly querying by pty name (#P3)
+  const isExplicitPty = q.startsWith("maw-pty-") || q.endsWith("-view");
+  const activeSessions = isExplicitPty
+    ? sessions
+    : sessions.filter((s) => !s.name.startsWith("maw-pty-") && !s.name.endsWith("-view"));
+
   // session:window syntax — strict session match to prevent node:agent collision (#186)
   // "white:mawjs" must NOT match "105-whitekeeper" via substring
   if (query.includes(":")) {
@@ -68,7 +74,7 @@ export function findWindow(sessions: Session[], query: string, currentSession?: 
     const paneMatch = rawWinPart.match(/^(.+)\.(\d+)$/);
     const winPart = paneMatch ? paneMatch[1] : rawWinPart;
     const paneSuffix = paneMatch ? `.${paneMatch[2]}` : "";
-    const sess = matchSession(sessions, sessPart, true);
+    const sess = matchSession(activeSessions, sessPart, true);
     if (sess) {
       // Empty window part → return session's first window.
       if (!winPart) {
@@ -109,7 +115,7 @@ export function findWindow(sessions: Session[], query: string, currentSession?: 
   //   substring search (#2134). Multi-candidate inside any pass →
   //   AmbiguousMatchError.
   const exactSessions = new Set<string>();
-  for (const s of sessions) {
+  for (const s of activeSessions) {
     if (s.windows.length > 0) {
       const sn = s.name.toLowerCase();
       if (sn === q || sn.replace(/^\d+-/, "") === q) {
@@ -121,7 +127,7 @@ export function findWindow(sessions: Session[], query: string, currentSession?: 
   if (exactSessions.size > 1) throw new AmbiguousMatchError(query, [...exactSessions]);
 
   const exact = new Set<string>();
-  for (const s of sessions) {
+  for (const s of activeSessions) {
     for (const w of s.windows) {
       if (w.name.toLowerCase() === q) exact.add(`${s.name}:${w.index}`);
     }
@@ -130,7 +136,7 @@ export function findWindow(sessions: Session[], query: string, currentSession?: 
   if (exact.size > 1) throw new AmbiguousMatchError(query, [...exact]);
 
   const current = currentSession
-    ? sessions.find((s) => s.name.toLowerCase() === currentSession.toLowerCase())
+    ? activeSessions.find((s) => s.name.toLowerCase() === currentSession.toLowerCase())
     : undefined;
   if (current) {
     const scopedSub = new Set<string>();
@@ -145,7 +151,7 @@ export function findWindow(sessions: Session[], query: string, currentSession?: 
   }
 
   const sub = new Set<string>();
-  for (const s of sessions) {
+  for (const s of activeSessions) {
     for (const w of s.windows) {
       if (w.name.toLowerCase().includes(q)) sub.add(`${s.name}:${w.index}`);
     }
@@ -163,7 +169,7 @@ export function findWindow(sessions: Session[], query: string, currentSession?: 
   // (e.g. "oracle-world:100-pulse" → peer namedPeer, not local tmux).
   if (query.includes(":")) {
     const [sessPart, winPart] = query.toLowerCase().split(":", 2);
-    const sessExists = matchSession(sessions, sessPart, true);
+    const sessExists = matchSession(activeSessions, sessPart, true);
     if (!sessExists) return null;
     if (!winPart) return query;
     if (/^\d+(?:\.\d+)?$/.test(winPart)) return query;
