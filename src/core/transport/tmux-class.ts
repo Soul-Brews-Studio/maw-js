@@ -24,6 +24,54 @@ const MAX_SUBMIT_ATTEMPTS = 4;
 /** ANSI escape stripper — matches checkPaneIdle in comm-send.ts (#405). */
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
 
+/**
+ * How many lines to capture when locating the input box. Must be tall enough to
+ * clear any status/HUD/footer an engine renders BELOW the prompt (Claude Code's
+ * "accept edits" bar, custom oracle statuslines can be several lines) so the
+ * prompt line itself is inside the capture. The old 5-line window missed it.
+ */
+const INPUT_SCAN_LINES = 24;
+
+/**
+ * A TUI input/prompt line: an optional box border (`│`) then a prompt marker at
+ * the START of the line — Claude/Codex use `>` / `❯` / `›` / `»`, optionally
+ * wrapped as `│ > … │`. Anchored at line-start on purpose: HUD/footer rows put
+ * their content mid-line and can *end* in `%`, `>` etc. (a context percentage,
+ * an arrow), so a looser "marker anywhere / marker at end" pattern would anchor
+ * onto the status bar instead of the input box. Shell prompts (marker mid-line,
+ * e.g. `user@host:~$ `) are handled by the last-3-line fallback below and by the
+ * per-line marker check in the callers.
+ */
+const PROMPT_LINE_RE = /^\s*│?\s*[>❯›»]/;
+
+/**
+ * The slice of a captured pane from the prompt line to the bottom — i.e. the
+ * input box plus whatever status/HUD/footer is drawn under it.
+ *
+ * Why not just the last line / last 3 lines: many engines render a status bar
+ * BELOW the prompt (Claude Code's "⏵⏵ accept edits" footer, a custom oracle HUD
+ * with model/context rows, sometimes a stray artifact row). The line the user's
+ * un-submitted text actually sits on is then NOT the last line, so a last-line
+ * (or last-3-line) needle search reports "submitted" while the message is still
+ * stuck in the box. Anchoring at the bottom-most prompt line fixes that, and
+ * because we search from the prompt DOWNWARD the transcript above (which holds a
+ * copy of the message after it *is* submitted) is excluded — no false "pending".
+ *
+ * Falls back to the last 3 non-empty lines when no prompt marker is found
+ * (unknown engine / odd render), preserving the prior heuristic.
+ */
+export function inputBoxRegion(content: string): string {
+  const lines = content
+    .split("\n")
+    .map(l => l.replace(ANSI_RE, "").replace(/\r/g, ""));
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim() && PROMPT_LINE_RE.test(lines[i])) {
+      return lines.slice(i).join("\n");
+    }
+  }
+  return lines.filter(l => l.trim()).slice(-3).join("\n");
+}
+
 function pendingInputNeedles(sentText: string): string[] {
   const normalized = sentText.replace(/\r/g, "").trim();
   if (!normalized) return [];
@@ -545,16 +593,19 @@ export class Tmux {
    */
   private async paneInputPending(target: string, sentText: string): Promise<boolean> {
     try {
-      const content = await this.capture(target, 5);
-      const lines = content.split("\n").filter(l => l.trim());
-      const last = (lines.at(-1) ?? "").replace(ANSI_RE, "").replace(/\r/g, "");
+      const content = await this.capture(target, INPUT_SCAN_LINES);
+      // The input box, not just the last line — an engine's status/HUD/footer
+      // can sit below the prompt, so the last line is often the footer.
+      const region = inputBoxRegion(content);
+      const promptLine = region.split("\n")[0] ?? "";
       const sentNeedles = pendingInputNeedles(sentText);
-      if (sentNeedles.some(needle => last.includes(needle))) return true;
+      if (sentNeedles.some(needle => region.includes(needle))) return true;
 
-      // Fallback: prompt marker followed by non-whitespace → user/command text
-      // still sitting on the input line. Includes Codex `›` for immediate #2380
-      // relief while sent-text detection handles unknown future engines.
-      return /[#$%>❯»›]\s+\S/.test(last);
+      // Fallback: prompt marker followed by non-whitespace on the prompt line →
+      // user/command text still sitting in the box. Checked per-line (not on the
+      // joined region) so an empty prompt above a border can't match across the
+      // newline. Includes Codex `›` (#2380) for engines with no needle match.
+      return /[#$%>❯»›]\s+\S/.test(promptLine);
     } catch {
       return false;
     }

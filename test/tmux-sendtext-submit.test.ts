@@ -14,7 +14,7 @@
  * tmux process, no module mock (safe for the main suite).
  */
 import { describe, test, expect } from "bun:test";
-import { Tmux } from "../src/core/transport/tmux-class";
+import { Tmux, inputBoxRegion } from "../src/core/transport/tmux-class";
 
 /** Tmux with the tmux-touching primitives stubbed + a scripted capture feed. */
 class FakeTmux extends Tmux {
@@ -159,4 +159,76 @@ describe("Tmux.sendText — confirmed submit (#6)", () => {
     },
     10_000,
   );
+
+  // Claude Code panes (esp. with a custom statusline) draw the input box, then
+  // several rows below it — a separator, model/context HUD rows, the "accept
+  // edits" footer, sometimes a stray artifact. The un-submitted message is then
+  // NOT the last line, so the old last-line check missed it and stopped after a
+  // single Enter. paneInputPending now inspects the input box region.
+  const TUI_STUCK = [
+    "  earlier assistant reply …",
+    "────────────────────────────",
+    "❯ run the deploy",              // input line, message still pending
+    "────────────────────────────",
+    "  Model: Sonnet 5 | 5h:18%",
+    "  ctx:26%/1M | ↑260",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)",
+    "                        /rc",
+  ].join("\n");
+  const TUI_CLEARED = [
+    "  earlier assistant reply …",
+    "❯ run the deploy",              // moved into the transcript (submitted)
+    "────────────────────────────",
+    "❯ ",                            // input line empty
+    "────────────────────────────",
+    "  Model: Sonnet 5 | 5h:18%",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)",
+  ].join("\n");
+
+  test(
+    "retries Enter for a message stuck above a Claude TUI HUD/footer",
+    async () => {
+      const t = new FakeTmux();
+      t.captureScript = [TUI_STUCK, TUI_CLEARED];
+      await t.sendText("sess:win", "run the deploy");
+
+      // pre-fix: last line was the "/rc" footer artifact → 1 blind Enter, no
+      // retry. Now the stuck input line above the HUD is seen → one retry.
+      expect(enterCount(t.calls)).toBe(2);
+      expect(t.calls.at(-1)).toBe("capture");
+    },
+    15_000,
+  );
+});
+
+describe("inputBoxRegion", () => {
+  test("anchors at the prompt line even with a HUD/footer drawn below it", () => {
+    const region = inputBoxRegion(
+      [
+        "  transcript line with the word deploy in it", // above prompt — excluded
+        "────────────",
+        "❯ deploy now",
+        "  Model: Sonnet 5",
+        "  ⏵⏵ accept edits on",
+        "                 /rc",
+      ].join("\n"),
+    );
+    expect(region.startsWith("❯ deploy now")).toBe(true);
+    expect(region.includes("deploy now")).toBe(true);
+    // the transcript copy above the prompt must not be in the region
+    expect(region.includes("transcript line")).toBe(false);
+  });
+
+  test("an empty prompt above a HUD yields a region with no pending text", () => {
+    const region = inputBoxRegion(
+      ["❯ submitted earlier", "────", "❯ ", "  Model: x", "  ⏵⏵ footer"].join("\n"),
+    );
+    expect(region.split("\n")[0]).toBe("❯ ");
+    expect(region.includes("submitted earlier")).toBe(false);
+  });
+
+  test("falls back to the last 3 non-empty lines when no prompt marker exists", () => {
+    const region = inputBoxRegion(["a", "b", "c", "d", "e"].join("\n"));
+    expect(region).toBe("c\nd\ne");
+  });
 });
