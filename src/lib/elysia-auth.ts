@@ -26,6 +26,9 @@ const PROTECTED = new Set([
   "/probe",           // #804 Step 5 — walks the /send write path; same auth surface
   "/wake",            // #798 — clones repos, spawns tmux + agent processes
   "/sleep",           // #798 — kills tmux sessions
+  "/kill",            // lifecycle control — force-kills tmux windows/panes
+  "/stop",            // lifecycle control — stops agent processes
+  "/done",            // lifecycle control — removes worktrees
   "/talk",
   "/transport/send",
   "/triggers/fire",
@@ -41,6 +44,7 @@ const PROTECTED = new Set([
 /** POST-only protected (GET is public for UI, POST needs auth) */
 const PROTECTED_POST = new Set([
   "/feed",
+  "/capture",         // POST invokes the capture plugin (pane arg reaches a shell); GET stays public for the Office UI
 ]);
 
 // Note: GET-only read endpoints (/sessions, /capture, /mirror)

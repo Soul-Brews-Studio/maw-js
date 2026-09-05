@@ -140,6 +140,18 @@ describe("isProtected — route classification extras", () => {
     expect(isProtected("/plugins/demo", "GET")).toBe(false);
     expect(isProtected("/plugin/list-manifest/demo", "GET")).toBe(false);
   });
+
+  test("auto-mounted lifecycle plugin routes are protected", () => {
+    expect(isProtected("/kill", "POST")).toBe(true);
+    expect(isProtected("/stop", "POST")).toBe(true);
+    expect(isProtected("/done", "POST")).toBe(true);
+    expect(isProtected("/sleep", "POST")).toBe(true);
+  });
+
+  test("POST /capture is protected (pane arg reaches a shell); GET stays public for the UI", () => {
+    expect(isProtected("/capture", "POST")).toBe(true);
+    expect(isProtected("/capture", "GET")).toBe(false);
+  });
 });
 
 describe("lookupCachedPubkey — peers store edge cases", () => {
