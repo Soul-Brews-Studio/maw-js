@@ -19,7 +19,13 @@ import {
   mawStateDir,
   mawStatePath,
 } from "maw-js/sdk";
-import { findGaps, summarizeGaps } from "./cross-source-detect";
+import {
+  findCheckoutOnlyEntries,
+  findGaps,
+  formatCheckoutOnlyEntry,
+  summarizeCheckoutOnlyEntries,
+  summarizeGaps,
+} from "./cross-source-detect";
 import { checkMawJsBranch } from "./internal/maw-js-branch-check";
 import { checkStillbornWorktrees } from "./internal/stillborn-worktrees";
 import { checkStalePeers, cmdFixStalePeers } from "./internal/stale-peers";
@@ -1049,10 +1055,12 @@ function checkPeerDuplicates(): DoctorResult["checks"][number] {
  */
 function checkCrossSourceConsistency(opts: { silent?: boolean } = {}): DoctorResult["checks"][number] {
   let gaps: ReturnType<typeof findGaps>;
+  let checkoutOnlyEntries: ReturnType<typeof findCheckoutOnlyEntries>;
   try {
     invalidateManifest();
     const manifest = loadManifestCached();
     gaps = findGaps(manifest);
+    checkoutOnlyEntries = findCheckoutOnlyEntries(manifest);
   } catch (e: any) {
     return {
       name: "manifest:cross-source",
@@ -1066,11 +1074,17 @@ function checkCrossSourceConsistency(opts: { silent?: boolean } = {}): DoctorRes
     for (const line of lines) {
       console.log(`    ${C.yellow}⚠${C.reset} ${line}`);
     }
+    for (const entry of checkoutOnlyEntries) {
+      console.log(`    ${C.gray}→${C.reset} ${formatCheckoutOnlyEntry(entry)}`);
+    }
   }
+  const checkoutSummary = checkoutOnlyEntries.length > 0
+    ? `; ${summarizeCheckoutOnlyEntries(checkoutOnlyEntries)}`
+    : "";
   return {
     name: "manifest:cross-source",
     ok: true,
-    message: headline,
+    message: `${headline}${checkoutSummary}`,
   };
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   INBOX_BADGE_BASE_OPTION,
   formatInboxStatusBadge,
+  incrementInboxStatusBadge,
   stripInboxStatusBadge,
   updateInboxStatusBadge,
 } from "../src/commands/shared/inbox-status-badge";
@@ -66,6 +67,21 @@ describe("persistent inbox status badge (#2793)", () => {
     expect(h.options.get(INBOX_BADGE_BASE_OPTION)).toBe("%H:%M");
     expect(h.options.get("status-right")).toBe("#[fg=colour220,bold]📬 inbox:5#[default] %H:%M");
     expect(h.calls).not.toContainEqual(["set-option", "-t", "50-atlas", INBOX_BADGE_BASE_OPTION, "%H:%M"]);
+  });
+
+  test("increments only arrivals since the receiver last checked the inbox", async () => {
+    const h = fakeTmux({ "status-right": "%H:%M" });
+
+    await expect(incrementInboxStatusBadge("50-atlas:atlas-oracle", h)).resolves.toMatchObject({
+      status: "set",
+      unread: 1,
+    });
+    await expect(incrementInboxStatusBadge("50-atlas:atlas-oracle", h)).resolves.toMatchObject({
+      status: "set",
+      unread: 2,
+    });
+
+    expect(h.options.get("status-right")).toBe("#[fg=colour220,bold]📬 inbox:2#[default] %H:%M");
   });
 
   test("clears badge and restores status-right once unread reaches zero", async () => {

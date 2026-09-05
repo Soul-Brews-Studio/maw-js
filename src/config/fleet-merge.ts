@@ -16,8 +16,9 @@ import { fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
  *
  * Fix:
  *   On every `loadConfig()` call, scan state-first fleet directories and inject
- *   `<window-name> → "local"` for every fleet window that isn't already in
- *   `config.agents`. Additive only —
+ *   `<window-name> → "local"` for every `*-oracle` fleet window that isn't
+ *   already in `config.agents`. Helper windows are tmux layout, not agent
+ *   identities. Additive only —
  *   never overwrites a hand-tuned mapping. Pure in-memory: does NOT write to
  *   maw.config.json. Persistence stays the responsibility of `maw fleet
  *   --init-agents` and `maw wake`.
@@ -45,9 +46,8 @@ export function fleetAgentDirsForRead(): string[] {
 /**
  * Merge fleet window names into the agents map.
  *
- * Pure function — no I/O, fully testable. Mirrors the local-fleet branch of
- * `cmdFleetInitAgents` so behaviour stays consistent between load-time auto-merge
- * and the explicit `maw fleet --init-agents` reconcile.
+ * Pure function — no I/O, fully testable. Load-time auto-merge is intentionally
+ * narrower than tmux fleet layout: only `*-oracle` windows are agent identities.
  */
 export function mergeFleetIntoAgents(
   existing: Record<string, string>,
@@ -57,7 +57,7 @@ export function mergeFleetIntoAgents(
   const proposed: Record<string, string> = { ...existing };
   for (const sess of fleet) {
     for (const w of sess?.windows || []) {
-      if (!w?.name) continue;
+      if (!w?.name?.endsWith("-oracle")) continue;
       if (!(w.name in proposed)) proposed[w.name] = localNode;
     }
   }

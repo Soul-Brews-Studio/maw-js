@@ -72,6 +72,7 @@ describe("ensureFleetSessionEntry worktree repo", () => {
     );
     expect(result.status).toBe("created");
     const parsed = JSON.parse(written);
+    expect(parsed.schemaVersion).toBe(2);
     expect(parsed.windows[0].repo).toBe("github.com/acme/repo");
   });
 });

@@ -43,11 +43,10 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   a: "Attach to a tmux session; use --shell for a repo shell pane",
   kill: "Kill a tmux pane or session",
   split: "Split pane and attach to a session",
-  open: "Bring back hidden panes (join-pane)",
-  close: "Hide panes without killing (break-pane)",
+  open: "Join other one-pane windows; with a target, split/show that session (not last-close undo)",
+  close: "Break panes into detached one-pane windows; processes keep running",
   t: "Team — create, spawn, send, shutdown",
   layout: "Apply tmux layout to the current window",
-  zoom: "Toggle zoom on a pane",
   panes: "List all panes across sessions",
   tile: "Tile current window or spawn N panes tiled",
   bring: "Bring an oracle HERE — thin alias for `wake --split`",
@@ -58,7 +57,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
   work: "Alias for `wake --work .` from cwd (derive oracle)",
   new: "Create a plain tmux workspace session",
-  preflight: "Pre-flight check — version, plugins, dead agents, config",
+  preflight: "Pre-flight check — version, plugins, agent visibility, config",
   snapshots: "List and inspect fleet recovery snapshots",
   wtf: "Read-only team drift doctor for the current tmux team",
 };
@@ -72,7 +71,6 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   close: ["tmux", "close"],
   t: ["team"],
   layout: { kind: "direct", handler: "cmdLayout" },
-  zoom: ["tmux", "zoom"],
   panes: ["tmux", "ls", "--all", "--verbose"],
   tile: ["tile"],
   bring: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
@@ -319,6 +317,8 @@ export interface TopAliasHandlerDeps {
   lsFederated?: (opts: Parameters<typeof lsFederated>[0]) => MaybePromise<{ ok: boolean; output?: string; error?: string }>;
   cmdTmuxLayout?: (target: string, preset: string) => MaybePromise;
   cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
+  /** #peer-wake — cross-node forward; injected in tests. Defaults to the wake plugin's forwardToPeer. */
+  forwardToPeer?: (alias: string, oracle: string, flags: Record<string, any>) => MaybePromise<{ ok: boolean; output?: string; error?: string }>;
   cmdNew?: (argv: string[]) => MaybePromise;
   cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
   cmdPromote?: (argv: string[]) => MaybePromise;
@@ -433,6 +433,11 @@ export async function invokeDirectHandler(
       "--prompt": String, "-p": "--prompt",
       "--incubate": String,
       "--fresh": Boolean, "--new": "--fresh",
+      // #wake-fresh-session — launch a FRESH conversation (strip the engine's
+      // `--continue`). Declared on the plugin manifest but previously ABSENT
+      // here, so this direct fast path dropped it into flags._ and the main
+      // window still launched with `--continue`. Keep parity with the plugin.
+      "--fresh-session": Boolean, "--no-continue": "--fresh-session",
       "--pick": Boolean,
       "--name": String,
       "--bud": Boolean,
@@ -456,6 +461,8 @@ export async function invokeDirectHandler(
       "--session-id": String,
       "--wait": Boolean,
       "--wait-engine": "--wait",
+      // #peer-wake — cross-node forward target (federation peer alias).
+      "--peer": String,
     }, 0);
 
     const positional = flags._;
@@ -465,6 +472,26 @@ export async function invokeDirectHandler(
       throw new UserError(`${verb}: missing oracle name`);
     }
 
+    // #peer-wake — forward to a federation peer's /api/wake instead of spawning
+    // locally. The wake PLUGIN owns forwardToPeer, but `wake`/`awake` dispatch
+    // through THIS direct handler, which exits the pipeline before the plugin
+    // runs — so a `--peer` invocation would otherwise fall through to a LOCAL
+    // wake (cloning/spawning on the wrong node). Same shadow seam as
+    // #wake-fresh-session. EXPLICIT `--peer <alias>` ONLY: a `<node>:<repo>`
+    // shorthand was rejected (Riddler r2) because an unresolved prefix (typo /
+    // removed alias) would silently fall through to a LOCAL wake on the wrong
+    // target. `flags._` still carries the oracle at [0]; strip it so the
+    // receiver's positional[0]=task convention holds on the remote.
+    if (flags["--peer"]) {
+      const forward = deps.forwardToPeer
+        ?? (await import("../vendor/mpr-plugins/wake/index")).forwardToPeer;
+      const fwdFlags = { ...flags, _: (positional as string[]).slice(1) };
+      const res = await forward(flags["--peer"] as string, oracle, fwdFlags);
+      if (res.output) log(res.output);
+      if (!res.ok) throw new UserError(res.error ?? `peer wake failed: ${flags["--peer"]}`);
+      return;
+    }
+
     const opts: {
       task?: string;
       wt?: string;
@@ -472,6 +499,7 @@ export async function invokeDirectHandler(
       prompt?: string;
       incubate?: string;
       fresh?: boolean;
+      freshSession?: boolean;
       pick?: boolean;
       name?: string;
       attach?: boolean;
@@ -508,6 +536,7 @@ export async function invokeDirectHandler(
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];
     if (flags["--fresh"]) opts.fresh = true;
+    if (flags["--fresh-session"]) opts.freshSession = true;
     if (flags["--pick"]) opts.pick = true;
     if (flags["--name"]) opts.name = flags["--name"];
     if (flags["--bud"]) opts.bud = true;

@@ -154,16 +154,13 @@ describe("wake plugin standalone boundary", () => {
     const res = await wakeHandler({ source: "cli", args: ["neo", "task", "--peer", "gpu", "--wt", "slot", "--task", "remote prompt", "--issue", "11", "--repo", "Soul/neo", "--fresh", "--pick", "--name", "stable"] } as any);
     expect(res.ok).toBe(true);
     expect(stripAnsi(res.output)).toContain("forwarded wake → gpu");
+    // #peer-wake: only receiver-bound keys are forwarded; --task-prompt/--issue/
+    // --repo/--pick/--name are dropped (WakeBody rejects unknown keys).
     expect(peerCalls).toEqual([{ url: "https://gpu.invalid", body: {
       oracle: "neo",
       task: "task",
       wt: "slot",
-      prompt: "remote prompt",
-      issue: 11,
-      repo: "Soul/neo",
       fresh: true,
-      pick: true,
-      name: "stable",
     } }]);
   });
 });

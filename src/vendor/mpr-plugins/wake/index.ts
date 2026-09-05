@@ -45,7 +45,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--layout": String,
         "--incubate": String, "--issue": Number,
         "--pr": Number, "--repo": String, "--task": String,
-        "--fresh": Boolean, "--new": "--fresh", "--pick": Boolean, "--name": String, "--attach": Boolean, "-a": "--attach",
+        "--fresh": Boolean, "--new": "--fresh", "--fresh-session": Boolean, "--no-continue": "--fresh-session", "--pick": Boolean, "--name": String, "--attach": Boolean, "-a": "--attach",
         "--no-attach": Boolean, // #823 Bug B — register so it doesn't fall through to positional → wakeOpts.task
         "--list": Boolean, "--ls": "--list",
         "--dry-run": Boolean,
@@ -68,7 +68,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const wakeOpts: {
         task?: string; wt?: string; prompt?: string;
-        incubate?: string; fresh?: boolean; pick?: boolean; name?: string; attach?: boolean; listWt?: boolean;
+        incubate?: string; fresh?: boolean; freshSession?: boolean; pick?: boolean; name?: string; attach?: boolean; listWt?: boolean;
         dryRun?: boolean; noRehydrate?: boolean;
         split?: boolean; urlRepoName?: string; allLocal?: boolean;
         fromSnapshot?: boolean; snapshotId?: string;
@@ -99,6 +99,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       if (flags["--incubate"]) wakeOpts.incubate = flags["--incubate"];
       if (flags["--fresh"]) wakeOpts.fresh = true;
+      if (flags["--fresh-session"]) wakeOpts.freshSession = true;
       if (flags["--pick"]) wakeOpts.pick = true;
       if (flags["--name"]) wakeOpts.name = flags["--name"];
       if (flags["--attach"]) wakeOpts.attach = true;
@@ -216,7 +217,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
  * `prompt`, `issue`/`pr`/`repo`, `fresh`. Attach is intentionally not
  * forwarded — there is no local tmux to attach to on the remote node.
  */
-async function forwardToPeer(
+export async function forwardToPeer(
   alias: string,
   oracle: string,
   flags: Record<string, any>,
@@ -225,18 +226,18 @@ async function forwardToPeer(
   const peer = resolvePeer(alias);
   if (!peer) return { ok: false, error: `unknown peer alias: ${alias} (see: maw peers list)` };
 
+  // #peer-wake — send ONLY the keys the receiver's WakeBody binds (it rejects
+  // unknown keys). PL needs work/wt/engine/wait/fresh; task is the worktree slug.
+  // Fields the receiver never applied (layout/prompt/issue/pr/repo/pick/name) are
+  // intentionally not forwarded — they were dropped server-side anyway.
   const positionals: string[] = Array.isArray(flags._) ? flags._ : [];
   const body: Record<string, unknown> = { oracle };
   if (positionals.length > 0) body.task = positionals[0];
+  if (flags["--work"]) body.work = true;
   if (flags["--wt"]) body.wt = flags["--wt"];
-  if (flags["--layout"]) body.layout = flags["--layout"];
-  if (flags["--task"]) body.prompt = flags["--task"];
-  if (flags["--issue"]) body.issue = flags["--issue"];
-  if (flags["--pr"]) body.pr = flags["--pr"];
-  if (flags["--repo"]) body.repo = flags["--repo"];
+  if (flags["--engine"]) body.engine = flags["--engine"];
+  if (flags["--wait"]) body.wait = true;
   if (flags["--fresh"]) body.fresh = true;
-  if (flags["--pick"]) body.pick = true;
-  if (flags["--name"]) body.name = flags["--name"];
 
   const { callPeerWake } = await import("./internal/peer-call");
   let res: { ok: boolean; status?: number; data?: any };

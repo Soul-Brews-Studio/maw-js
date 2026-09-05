@@ -5,9 +5,40 @@ import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleet
 export interface FleetWindow {
   name: string;
   repo: string;
+  /** Worktree slot path rel reposRoot (e.g. "org/repo/agents/1-slug") for a
+   *  --work worker window. `repo` keeps the base repo (org/repo) for its
+   *  existing consumers; this additive field lets `maw done` remove the exact
+   *  slot when several work windows share one base repo. Absent on main/oracle
+   *  windows and on legacy records (they fall back to the ghq worktree scan).
+   *  Optional + backward-compatible — no schema-version bump required. */
+  worktree?: string;
+  runtime?: FleetRuntimeIdentity;
+}
+
+export interface FleetRuntimeIdentity {
+  engine: string;
+  cwd: string;
+  nativeSessionId: string;
+  capturedAt: string;
+  /** Canonical persistent launch binding (#dept-roster D-5): what fleet
+   *  recovery must restore beyond bare `cd <cwd> && <engine> resume` —
+   *  a dedicated home/env (e.g. CODEX_HOME) and the ratified workRoot.
+   *  Absent on legacy windows; recovery then behaves exactly as before. */
+  launch?: FleetRuntimeLaunchBinding;
+}
+
+export interface FleetRuntimeLaunchBinding {
+  /** Ratified workRoot to recover into; overrides the captured cwd. */
+  cwd?: string;
+  /** Env exported ahead of the resume command (e.g. CODEX_HOME). */
+  env?: Record<string, string>;
+  /** Canonical fresh-launch argv (launcher + args) for wake paths that
+   *  start a new process instead of resuming; stored for those consumers. */
+  argv?: string[];
 }
 
 export interface FleetSession {
+  schemaVersion?: number;
   name: string;
   windows: FleetWindow[];
   skip_command?: boolean;

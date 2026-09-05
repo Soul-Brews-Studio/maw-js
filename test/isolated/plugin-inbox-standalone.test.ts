@@ -194,9 +194,106 @@ describe("inbox plugin standalone boundary (#2329)", () => {
       "tmux display-message -p '#S'",
     ]);
     expect(statusBadgeCalls).toEqual([
-      { target: "mock-session", unread: 1 },
+      { target: "mock-session", unread: 0 },
       { target: "mock-session", unread: 0 },
     ]);
+  });
+
+  test("mark-read upgrades a legacy message without frontmatter", async () => {
+    const inbox = join(psiPath, "inbox");
+    const legacy = join(inbox, "2026-06-09_00-03_legacy.md");
+    const body = "# Legacy review request\n\nKeep this body byte-for-byte.\n";
+    writeFileSync(legacy, body);
+
+    await cmdInboxMarkRead("legacy");
+
+    const updated = readFileSync(legacy, "utf8");
+    expect(updated).toStartWith("---\n");
+    expect(updated).toContain("read: true");
+    expect(updated).toContain("readAt:");
+    expect(updated.endsWith(body)).toBe(true);
+
+    const listed = await handler({ source: "cli", args: ["--unread", "--last", "5"] } as any);
+    expect(listed.ok).toBe(true);
+    expect(listed.output).not.toContain("Legacy review request");
+  });
+
+  test("checking the inbox clears the arrival badge without rewriting unread history", async () => {
+    const inbox = join(psiPath, "inbox");
+    const message = join(inbox, "2026-06-09_00-03_sender_unread.md");
+    writeFileSync(message, [
+      "---",
+      "from: sender",
+      "timestamp: 2026-06-09T00:03:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "new arrival",
+    ].join("\n"));
+
+    const prevTmux = process.env.TMUX;
+    process.env.TMUX = "/tmp/tmux-test/default,123,0";
+    try {
+      const listed = await handler({ source: "cli", args: ["--unread", "--last", "5"] } as any);
+      expect(listed.ok).toBe(true);
+      expect(listed.output).toContain("new arrival");
+    } finally {
+      if (prevTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = prevTmux;
+    }
+
+    expect(readFileSync(message, "utf8")).toContain("read: false");
+    expect(statusBadgeCalls).toEqual([{ target: "mock-session", unread: 0 }]);
+  });
+
+  test("read displays the selected message and marks it read", async () => {
+    const inbox = join(psiPath, "inbox");
+    const message = join(inbox, "2026-06-09_00-04_sender_consume.md");
+    writeFileSync(message, [
+      "---",
+      "from: sender",
+      "timestamp: 2026-06-09T00:04:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "consume me",
+    ].join("\n"));
+
+    const result = await handler({ source: "cli", args: ["read", "1"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("consume me");
+    expect(result.output).toContain("marked read");
+    expect(readFileSync(message, "utf8")).toContain("read: true");
+  });
+
+  test("unread listing keeps absolute positions so deep reads mark the displayed message", async () => {
+    const inbox = join(psiPath, "inbox");
+    let unreadPath = "";
+    for (let position = 45; position >= 1; position -= 1) {
+      const minute = String(46 - position).padStart(2, "0");
+      const path = join(inbox, `2026-06-09_00-${minute}_sender_message-${position}.md`);
+      const unread = position === 45;
+      if (unread) unreadPath = path;
+      writeFileSync(path, [
+        "---",
+        "from: sender",
+        `timestamp: 2026-06-09T00:${minute}:00.000Z`,
+        `read: ${unread ? "false" : "true"}`,
+        "---",
+        "",
+        `message ${position}`,
+      ].join("\n"));
+    }
+
+    const listed = await handler({ source: "cli", args: ["--unread", "--last", "5"] } as any);
+    const displayedPosition = Number(listed.output?.match(/\n\s+(\d+)\s+/)?.[1]);
+    expect(displayedPosition).toBe(45);
+
+    const read = await handler({ source: "cli", args: ["read", String(displayedPosition)] } as any);
+    expect(read.ok).toBe(true);
+    expect(read.output).toContain("message 45");
+    expect(readFileSync(unreadPath, "utf8")).toContain("read: true");
   });
 
   test("local inbox write and relative time are non-destructive and deterministic", async () => {

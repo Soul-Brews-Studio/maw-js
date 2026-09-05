@@ -136,7 +136,6 @@ describe("top alias resolution table", () => {
       [["open", "target"], ["tmux", "open", "target"]],
       [["close", "target"], ["tmux", "close", "target"]],
       [["t", "send"], ["team", "send"]],
-      [["zoom", "42"], ["tmux", "zoom", "42"]],
       [["panes"], ["tmux", "ls", "--all", "--verbose"]],
       [["tile", "4"], ["tile", "4"]],
       [["scaffold", "neo"], ["bud", "--scaffold-only", "neo"]],

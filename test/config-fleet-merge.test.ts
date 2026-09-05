@@ -13,7 +13,7 @@ import {
 // ---- Pure merge logic --------------------------------------------------
 
 describe("mergeFleetIntoAgents (#736 Phase 1.1)", () => {
-  test("adds every fleet window to agents as 'local' when map is empty", () => {
+  test("adds every oracle fleet window to agents as 'local' when map is empty", () => {
     const result = mergeFleetIntoAgents({}, [
       { name: "01-pulse", windows: [{ name: "pulse-oracle" }, { name: "neo-oracle" }] },
       { name: "08-mawjs", windows: [{ name: "mawjs-oracle" }] },
@@ -23,6 +23,37 @@ describe("mergeFleetIntoAgents (#736 Phase 1.1)", () => {
       "neo-oracle": "local",
       "mawjs-oracle": "local",
     });
+  });
+
+  test("ignores finance helper windows that are not oracle identities", () => {
+    const result = mergeFleetIntoAgents({}, [
+      {
+        name: "14-wallent",
+        windows: [
+          { name: "finance-oracle" },
+          { name: "MARA" },
+          { name: "Ohmycodex" },
+        ],
+      },
+    ]);
+
+    expect(result).toEqual({ "finance-oracle": "local" });
+  });
+
+  test("ignores non-oracle helper windows in multi-window sessions", () => {
+    const result = mergeFleetIntoAgents({}, [
+      {
+        name: "05-nntn",
+        windows: [
+          { name: "nntn-oracle" },
+          { name: "nntn-codex" },
+          { name: "cookbook" },
+          { name: "cookbook-dev" },
+        ],
+      },
+    ]);
+
+    expect(result).toEqual({ "nntn-oracle": "local" });
   });
 
   test("never overwrites a hand-tuned agents entry", () => {

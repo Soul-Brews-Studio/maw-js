@@ -466,6 +466,34 @@ describe("comm-send thirteenth-pass cmdSend branches", () => {
     expect(logs.join("\n")).toContain("target not live; persisted for receiver inbox polling");
   });
 
+  test("--inbox on a sleeping target never consults auto-wake and persists inbox-only (#dept-roster)", async () => {
+    config.node = "local";
+    resolveTargetReturn = { type: "error", reason: "not_live", detail: "'ghost' found but no active session", hint: "maw wake ghost" };
+    shouldWakeReturn = { wake: true }; // would wake if (wrongly) consulted
+    defaultInboxResult = { ok: true, oracle: "ghost", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" };
+
+    await runCmd(() => cmdSend("local:ghost", "cold message", false, { inboxOnly: true }));
+
+    expect(exitCode).toBeUndefined();
+    expect(shouldWakeCalls).toHaveLength(0);
+    expect(sendKeysCalls).toEqual([]);
+    expect(defaultInboxCalls.length).toBeGreaterThan(0);
+  });
+
+  test("--inbox on an ACTIVE target skips pane injection but still persists (#dept-roster)", async () => {
+    config.node = "local";
+    resolveTargetReturn = { type: "local", target: "session:oracle.0" };
+    defaultInboxResult = { ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" };
+
+    await runCmd(() => cmdSend("local:oracle", "live but quiet", false, { inboxOnly: true }));
+
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([]);
+    expect(shouldWakeCalls).toHaveLength(0);
+    expect(defaultInboxCalls.length).toBeGreaterThan(0);
+    expect(logs.join("\n")).toContain("--inbox requested; pane injection skipped");
+  });
+
   test("local auto-wake helper errors are best-effort and fall through to normal delivery", async () => {
     config.node = "local";
     resolveTargetReturn = { type: "local", target: "session:oracle.0" };

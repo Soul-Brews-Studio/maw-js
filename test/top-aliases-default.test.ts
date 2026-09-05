@@ -62,7 +62,6 @@ describe("top alias resolution table", () => {
       [["open", "target"], ["tmux", "open", "target"]],
       [["close", "target"], ["tmux", "close", "target"]],
       [["t", "send"], ["team", "send"]],
-      [["zoom", "42"], ["tmux", "zoom", "42"]],
       [["panes"], ["tmux", "ls", "--all", "--verbose"]],
       [["tile", "4"], ["tile", "4"]],
       [["scaffold", "neo"], ["bud", "--scaffold-only", "neo"]],
@@ -75,6 +74,7 @@ describe("top alias resolution table", () => {
     // #1902 — cleanup alias deleted; bare 'maw cleanup' resolves via the
     // cleanup plugin in the registry, not via top-aliases.
     expect(resolveTopAlias(["cleanup"])).toBeNull();
+    expect(resolveTopAlias(["zoom", "42"])).toBeNull();
     expect(ALIAS_DESCRIPTIONS.cleanup).toBeUndefined();
     expect(ALIAS_DESCRIPTIONS.layout).toContain("current window");
     expect(ALIAS_DESCRIPTIONS.bring).toContain("Bring");

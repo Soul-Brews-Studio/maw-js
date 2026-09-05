@@ -247,16 +247,17 @@ describe("inbox plugin index", () => {
   });
 
   test("routes legacy read, show, write, and list commands with parsed flags", async () => {
-    expect(await invoke(["read", "abc"])).toEqual({ ok: true, output: "marked abc" });
-    expect(await invoke(["read"])).toEqual({ ok: true, output: "marked missing" });
-    expect(markReadCalls).toEqual(["abc", ""]);
+    expect(await invoke(["read", "abc"])).toEqual({ ok: true, output: "read abc\nread stderr abc" });
+    expect(await invoke(["read"])).toEqual({ ok: false, error: "usage: maw inbox read <id|N>", output: "" });
+    expect(markReadCalls).toEqual([]);
+    expect(inboxReadCalls).toEqual(["abc"]);
 
     let writes: string[] = [];
     const showResultWithWriter = await invoke(["show", "2"], (...parts: unknown[]) => {
       writes.push(parts.map(String).join(" "));
     });
     expect(showResultWithWriter).toEqual({ ok: true, output: undefined });
-    expect(inboxReadCalls).toEqual(["2"]);
+    expect(inboxReadCalls).toEqual(["abc", "2"]);
     expect(writes).toEqual(["read 2", "read stderr 2"]);
 
     expect(await invoke(["status"])).toEqual({ ok: true, output: "status current" });
@@ -280,7 +281,7 @@ describe("inbox plugin index", () => {
 
     expect(await invoke(["drain"])).toEqual({
       ok: false,
-      error: "usage: maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]",
+      error: "usage: maw inbox drain [oracle-name] (--safe | --all) [--max N] [--older-than-hours H] [--json] [--dry-run]",
       output: "",
     });
     expect(await invoke(["drain", "mawjs-oracle", "--safe", "--max=7", "--older-than-hours", "12", "--json", "--dry-run"])).toEqual({

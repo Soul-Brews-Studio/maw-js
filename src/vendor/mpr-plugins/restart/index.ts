@@ -7,7 +7,7 @@ type DualCtx = InvokeContext | string[];
 
 export const command = {
   name: "restart",
-  description: "Restart the maw server with optional update.",
+  description: "Restart the WHOLE maw fleet (stop + wake all) with optional update.",
 };
 
 const HELP_TEXT = [

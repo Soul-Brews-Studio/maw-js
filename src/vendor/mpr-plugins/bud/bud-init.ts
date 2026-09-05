@@ -94,16 +94,45 @@ Run \`/awaken\` for the full identity setup ceremony.
   console.log(`  \x1b[32m✓\x1b[0m CLAUDE.md generated`);
 }
 
-/** Step 3.5: Create .claude/settings.json with status-reporter hooks. */
-export function generateClaudeSettings(budRepoPath: string): void {
+export interface GenerateClaudeSettingsDeps {
+  existsSync?: (path: string) => boolean;
+  writeFileSync?: (path: string, data: string) => void;
+  mkdirSync?: (path: string, opts?: { recursive?: boolean }) => void;
+  homeDir?: string;
+  logger?: Pick<typeof console, "log">;
+}
+
+/**
+ * Step 3.5: Create .claude/settings.json wiring the status-reporter hooks — but
+ * only when the hook script actually exists.
+ *
+ * maw-js does not ship `~/.config/maw/hooks/status-reporter.sh`, so scaffolding
+ * the SessionStart/Stop hooks unconditionally left every budded oracle with dead
+ * hooks pointing at a missing script (they fire and fail on each session). Guard
+ * on the script's existence: if it is not installed, skip settings.json rather
+ * than write a broken hook. When maw ships or the operator installs the script,
+ * the hooks scaffold as before.
+ */
+export function generateClaudeSettings(budRepoPath: string, deps: GenerateClaudeSettingsDeps = {}): void {
+  const existsSyncFn = deps.existsSync ?? existsSync;
+  const writeFileSyncFn = deps.writeFileSync ?? writeFileSync;
+  const mkdirSyncFn = deps.mkdirSync ?? mkdirSync;
+  const homeDir = deps.homeDir ?? process.env.HOME!;
+  const logger = deps.logger ?? console;
+
   const settingsDir = join(budRepoPath, ".claude");
   const settingsPath = join(settingsDir, "settings.json");
-  if (existsSync(settingsPath)) {
-    console.log(`  \x1b[90m○\x1b[0m .claude/settings.json exists`);
+  if (existsSyncFn(settingsPath)) {
+    logger.log(`  \x1b[90m○\x1b[0m .claude/settings.json exists`);
     return;
   }
 
-  const hookScript = join(process.env.HOME!, ".config/maw/hooks/status-reporter.sh");
+  const hookScript = join(homeDir, ".config/maw/hooks/status-reporter.sh");
+  if (!existsSyncFn(hookScript)) {
+    logger.log(`  \x1b[90m○\x1b[0m .claude/settings.json skipped (status-reporter hook not installed: ${hookScript})`);
+    return;
+  }
+
   const makeHook = (event: string) => ({
     matcher: "",
     hooks: [{ type: "command", command: `CLAUDE_HOOK_EVENT=${event} ${hookScript}` }],
@@ -116,9 +145,9 @@ export function generateClaudeSettings(budRepoPath: string): void {
     },
   };
 
-  mkdirSync(settingsDir, { recursive: true });
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  console.log(`  \x1b[32m✓\x1b[0m .claude/settings.json + status hooks`);
+  mkdirSyncFn(settingsDir, { recursive: true });
+  writeFileSyncFn(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  logger.log(`  \x1b[32m✓\x1b[0m .claude/settings.json + status hooks`);
 }
 
 /** Step 4: Create or update fleet config. Returns the fleet file path. */

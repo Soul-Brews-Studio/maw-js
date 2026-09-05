@@ -105,10 +105,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     // ─── Legacy ψ/inbox/ subcommands ───
     if (sub === "read") {
-      // maw inbox read <id>  — mark as read
-      await cmdInboxMarkRead(args[1] ?? "");
+      // maw inbox read <id|N> — display and mark as read
+      if (!args[1]) return { ok: false, error: "usage: maw inbox read <id|N>", output: out() };
+      await cmdInboxRead(args[1]);
     } else if (sub === "drain") {
-      // maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]
+      // maw inbox drain [oracle-name] (--safe | --all) [--max N] [--older-than-hours H] [--json] [--dry-run]
+      //   --safe: stale-ack pattern filter, default min age 4h, default max 25
+      //   --all : owner bulk archive of every top-level message (no filter), default min age 0, no cap
       const rest = args.slice(1);
       const positions = positionalArgs(rest);
       const maxRaw = flagValue(rest, "--max");
@@ -117,8 +120,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const olderHours = olderRaw === undefined ? undefined : parseFloat(olderRaw);
       const hasMaxFlag = rest.some(arg => arg === "--max" || arg.startsWith("--max="));
       const hasOlderFlag = rest.some(arg => arg === "--older-than-hours" || arg.startsWith("--older-than-hours="));
-      if (positions.length > 1 || !rest.includes("--safe")) {
-        return { ok: false, error: "usage: maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]", output: out() };
+      const safe = rest.includes("--safe");
+      const all = rest.includes("--all");
+      if (positions.length > 1 || (!safe && !all)) {
+        return { ok: false, error: "usage: maw inbox drain [oracle-name] (--safe | --all) [--max N] [--older-than-hours H] [--json] [--dry-run]", output: out() };
+      }
+      if (safe && all) {
+        return { ok: false, error: "--safe and --all are mutually exclusive", output: out() };
       }
       if (hasMaxFlag && (maxRaw === undefined || maxRaw === "" || !Number.isFinite(max) || max < 0)) {
         return { ok: false, error: "--max must be a non-negative integer", output: out() };
@@ -127,7 +135,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         return { ok: false, error: "--older-than-hours must be a non-negative number", output: out() };
       }
       await cmdInboxDrain(positions[0], {
-        safe: true,
+        safe,
+        all,
         json: rest.includes("--json"),
         dryRun: rest.includes("--dry-run"),
         max,

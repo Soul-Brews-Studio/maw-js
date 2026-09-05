@@ -108,7 +108,10 @@ export async function cmdPreflight(opts: { fix?: boolean } = {}, deps: Partial<P
     fail++;
   }
 
-  // 3. Sessions + dead agent detection
+  // 3. Sessions + agent detection. A non-agent command does not prove that a
+  // pane is dead: Codex can run beneath bash, and registered windows can be
+  // intentional shells or services. Without declared window intent, keep the
+  // classification informational and never overwrite the pane under --fix.
   const sessions = await io.listSessions().catch(() => []);
   const targets: string[] = [];
   const windowMeta: { session: string; window: string; target: string }[] = [];
@@ -122,14 +125,14 @@ export async function cmdPreflight(opts: { fix?: boolean } = {}, deps: Partial<P
 
   const infos = await io.getPaneInfos(targets);
   let aliveCount = 0;
-  const dead: typeof windowMeta = [];
+  const unclassified: typeof windowMeta = [];
 
   for (const wm of windowMeta) {
     const info = infos[wm.target];
     if (info && io.isAgentCommand(info.command)) {
       aliveCount++;
     } else if (info) {
-      dead.push(wm);
+      unclassified.push(wm);
     }
   }
 
@@ -140,24 +143,13 @@ export async function cmdPreflight(opts: { fix?: boolean } = {}, deps: Partial<P
     pass++;
   }
 
-  if (dead.length > 0) {
-    io.log(`  \x1b[31m✗\x1b[0m dead agents: ${dead.length} pane${dead.length === 1 ? "" : "s"} with no agent`);
-    for (const d of dead) {
+  if (unclassified.length > 0) {
+    io.log(`  \x1b[90m○\x1b[0m unclassified panes: ${unclassified.length} pane${unclassified.length === 1 ? "" : "s"} with no detected agent`);
+    for (const d of unclassified) {
       const info = infos[d.target];
-      io.log(`      \x1b[31m●\x1b[0m ${d.session}:${d.window} \x1b[90m(${info?.command || "?"})\x1b[0m`);
+      io.log(`      \x1b[90m●\x1b[0m ${d.session}:${d.window} \x1b[90m(${info?.command || "?"})\x1b[0m`);
     }
-    if (opts.fix) {
-      io.log(`\n  \x1b[36m→ reviving ${dead.length} dead agent${dead.length === 1 ? "" : "s"}…\x1b[0m`);
-      for (const d of dead) {
-        const cmd = io.buildCommandInDir(d.window, infos[d.target]?.cwd || "");
-        await io.tmux.sendText(d.target, cmd);
-        io.log(`    \x1b[32m✓\x1b[0m ${d.session}:${d.window}`);
-        fixed++;
-      }
-    } else {
-      io.log(`\n  \x1b[90m  → maw preflight --fix   to revive dead agents\x1b[0m`);
-    }
-    fail++;
+    io.log(`      \x1b[90mmanual inspection required; --fix will not write to these panes\x1b[0m`);
   }
 
   // 4. Config check

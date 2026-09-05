@@ -353,8 +353,10 @@ describe("doctor impl extra branch coverage", () => {
     const manifest = await doctorModule.cmdDoctor(["manifest"]);
     expect(manifest.ok).toBe(true);
     expect(invalidateCalls).toBe(1);
-    expect(manifest.checks[0]?.message).toContain("1 cross-source gap");
-    expect(logs.join("\n")).toContain("[oracles-json-without-runtime]");
+    expect(manifest.checks[0]?.message).toBe(
+      "no cross-source inconsistencies; 1 checkout-only filesystem entry (informational)",
+    );
+    expect(logs.join("\n")).toContain("[oracles-json-checkout-only]");
 
     manifestError = new Error("manifest boom");
     expect((await doctorModule.cmdDoctor(["manifest"])).checks[0]?.message)

@@ -8,12 +8,13 @@ import {
   loadFleetEntries as loadFleetEntriesCore,
   type DisabledFleetEntry,
   type FleetEntry,
+  type FleetRuntimeIdentity,
   type FleetSession,
   type FleetWindow,
 } from "../../core/fleet/fleet-load-core";
 import { resolveFleetWindowSessionTarget } from "../../core/matcher/resolve-target";
 
-export type { DisabledFleetEntry, FleetEntry, FleetSession, FleetWindow };
+export type { DisabledFleetEntry, FleetEntry, FleetRuntimeIdentity, FleetSession, FleetWindow };
 
 export function fleetDirsForRead(): string[] {
   return coreFleetDirsForRead((sdk as any).FLEET_DIR as string | undefined);

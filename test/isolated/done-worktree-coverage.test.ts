@@ -324,7 +324,7 @@ describe("removeWorktreeByGhqScan", () => {
     };
 
     const output = await captureConsole(async () => {
-      expect(await removeWorktreeByGhqScan("mawjs-trio-coder", REPOS_ROOT, { cwd: join(REPOS_ROOT, "github.com", "Soul-Brews-Studio", "mawjs-oracle") })).toBe(true);
+      expect(await removeWorktreeByGhqScan("mawjs-trio-coder", REPOS_ROOT, {}, { cwd: join(REPOS_ROOT, "github.com", "Soul-Brews-Studio", "mawjs-oracle") })).toBe(true);
     });
 
     expect(output).toContain("scoped ambiguous worktree 'trio-coder'");
@@ -337,7 +337,7 @@ describe("removeWorktreeByGhqScan", () => {
       throw new Error(`dry-run should not mutate: ${command}`);
     };
     const dryRunOutput = await captureConsole(async () => {
-      expect(await removeWorktreeByGhqScan("mawjs-trio-coder", REPOS_ROOT, { dryRun: true })).toBe(true);
+      expect(await removeWorktreeByGhqScan("mawjs-trio-coder", REPOS_ROOT, {}, { dryRun: true })).toBe(true);
     });
     expect(hostExecCalls).toEqual([`find '${REPOS_ROOT}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`]);
     expect(dryRunOutput).toContain("[dry-run] would remove worktree agents/1-trio-coder");

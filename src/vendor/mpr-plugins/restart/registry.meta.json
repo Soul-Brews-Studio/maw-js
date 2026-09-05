@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "source": "soul-brews-studio/maw-plugin-registry/restart@v0.1.0-restart",
   "sha256": "7b7f84d68499518e54a37cead3a7b3f6459aa2ed5d44134690977de1973b8883",
-  "summary": "Restart the maw server with optional update.",
+  "summary": "Restart the WHOLE maw fleet (stop + wake all) with optional update.",
   "author": "Soul-Brews-Studio",
   "license": "MIT",
   "homepage": "https://github.com/Soul-Brews-Studio/maw-plugin-registry",

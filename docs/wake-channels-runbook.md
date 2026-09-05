@@ -1,5 +1,9 @@
 # Runbook — `maw wake` with Channels (Discord/Telegram bots)
 
+> **SPECIALIZED — channel-enabled wake only.** Scope: `maw wake` for
+> Discord/Telegram bot oracles. Everything else (health, restart, backup,
+> install identity) is owned by `docs/RUNBOOK.md` (canonical).
+
 How `maw wake <oracle>` auto-configures Claude Code for channel-enabled oracles
 (Discord bots, Telegram bots, etc.) with `--continue`, `--channels`, and
 `--dangerously-skip-permissions`.

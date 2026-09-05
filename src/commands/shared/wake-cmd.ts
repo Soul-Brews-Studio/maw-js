@@ -1,6 +1,6 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { resolve } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync as fsRealpathSync } from "fs";
 import { join } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
@@ -30,6 +30,7 @@ import {
   type SnapshotSession,
 } from "../../core/fleet/snapshot";
 import type { FleetSession } from "./fleet-load";
+import { buildFleetWindowResumeCommand, isFleetRuntimeIdentity } from "../../core/fleet/runtime-state";
 import { listClaudeSessions, type ClaudeSession } from "../../core/fleet/claude-sessions";
 import { UserError } from "../../core/util/user-error";
 import {
@@ -406,6 +407,11 @@ export interface WakeOptions {
   session?: string;
   incubate?: string;
   fresh?: boolean;
+  /** Launch the engine with a FRESH conversation — strip the resume/`--continue`
+   *  placeholder so the seat does not resume its latest conversation (#wake-fresh
+   *  -session). Distinct from `fresh` (a fresh worktree slot); this is the
+   *  user-facing form of the internal `freshLaunch`. */
+  freshSession?: boolean;
   pick?: boolean;
   /** Stable reusable worktree name used with --wt/--task (#1768). */
   name?: string;
@@ -473,21 +479,56 @@ function isAttachOnlyWake(opts: WakeOptions): boolean {
     && !opts.snapshotId;
 }
 
-type WakeCommandOptions = Pick<WakeOptions, "engine" | "parentSessionId" | "sessionId" | "channels"> & {
+export type WakeCommandOptions = Pick<WakeOptions, "engine" | "parentSessionId" | "sessionId" | "channels" | "freshSession"> & {
   /** Strip engine resume/continue placeholders for reboot-rehydrated dead panes (#2391). */
   freshLaunch?: boolean;
 };
 
-function buildWakeCommand(windowName: string, cwd: string, opts: WakeCommandOptions): string {
+export function buildWakeCommand(windowName: string, cwd: string, opts: WakeCommandOptions): string {
+  // `freshSession` is the user flag; `freshLaunch` the internal reboot-rehydrate
+  // marker — both strip the engine's resume/`--continue` placeholder.
+  const fresh = opts.freshLaunch || opts.freshSession;
   const commandOpts = opts.channels
-    ? { engine: opts.engine, channels: ["plugin:discord@claude-plugins-official"], fresh: opts.freshLaunch }
-    : opts.freshLaunch
+    ? { engine: opts.engine, channels: ["plugin:discord@claude-plugins-official"], fresh }
+    : fresh
       ? { engine: opts.engine, fresh: true }
       : opts.engine;
   return prefixCommandWithSpawnSessionEnv(
     buildCommandInDir(windowName, cwd, commandOpts),
     { explicit: opts.parentSessionId, sessionId: opts.sessionId, cwd },
   );
+}
+
+/** Work-mode wake must not resume a live owner's conversation. Engine
+ * defaults include `--continue`, which resumes the newest conversation for
+ * the launch cwd — when a live agent pane already runs in that directory (the
+ * repo's owner session), a work window launched with `--continue` forks that
+ * owner's conversation. Pure classifier; caller supplies live panes. */
+export function ownerAgentPaneInCwd(
+  cwd: string,
+  panes: Array<{ target: string; command?: string; cwd?: string }>,
+  realpath: (p: string) => string = (p) => { try { return fsRealpathSync(p); } catch { return p; } },
+): string | null {
+  const wanted = realpath(cwd);
+  const owner = panes.find((pane) =>
+    pane.cwd && realpath(pane.cwd) === wanted && isAgentCommand(pane.command));
+  return owner?.target ?? null;
+}
+
+async function forceFreshIfOwnerLiveInCwd(
+  opts: WakeCommandOptions,
+  cwd: string,
+  mode: WakeSessionMode,
+): Promise<WakeCommandOptions> {
+  if (mode !== "work" || opts.freshLaunch) return opts;
+  try {
+    const ownerTarget = ownerAgentPaneInCwd(cwd, await tmux.listPanes());
+    if (!ownerTarget) return opts;
+    console.log(`\x1b[33m⚠\x1b[0m live agent already runs in ${cwd} (${ownerTarget}) — launching FRESH (no --continue) so its conversation is not forked; to talk to the owner use: maw hey ${ownerTarget}`);
+    return { ...opts, freshLaunch: true };
+  } catch {
+    return opts;
+  }
 }
 
 async function buildWakeCommandForPane(windowName: string, cwd: string, opts: WakeCommandOptions, target: string): Promise<string> {
@@ -895,6 +936,67 @@ async function loadWakeFleetSessions(): Promise<FleetSession[]> {
   }
 }
 
+async function recoverExactFleetChildWindow(
+  requestedTarget: string,
+  opts: WakeOptions,
+): Promise<string | null> {
+  const matches = (await loadWakeFleetSessions()).flatMap((session) =>
+    session.windows
+      .filter((window) => window.name === requestedTarget)
+      .map((window) => ({ session, window })));
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    throw new Error(`fleet child target is ambiguous: ${requestedTarget}`);
+  }
+  const match = matches[0]!;
+  if (match.window.repo?.trim() && !match.window.runtime) return null;
+  if (!isFleetRuntimeIdentity(match.window.runtime)) {
+    throw new Error(`fleet child ${match.session.name}:${match.window.name} is missing recoverable runtime identity; refusing fresh launch`);
+  }
+  if (opts.fresh || opts.task || opts.wt || opts.incubate || opts.repoPath || opts.urlRepoName) {
+    throw new Error(`fleet child recovery does not accept fresh/worktree overrides for ${match.session.name}:${match.window.name}`);
+  }
+  if (opts.engine && opts.engine !== match.window.runtime.engine) {
+    throw new Error(`fleet child recovery engine mismatch: state=${match.window.runtime.engine}, requested=${opts.engine}`);
+  }
+
+  const target = `${match.session.name}:${match.window.name}`;
+  const sessionExists = await tmux.hasSession(match.session.name);
+  const windows = sessionExists
+    ? await tmux.listWindows(match.session.name)
+    : [];
+  const windowExists = windows.some((window) => window.name === match.window.name);
+
+  if (opts.dryRun) {
+    console.log(`\x1b[90mdry-run — would recover ${target} with ${match.window.runtime.engine} session ${match.window.runtime.nativeSessionId}\x1b[0m`);
+    return target;
+  }
+
+  if (windowExists) {
+    console.log(`\x1b[36m→\x1b[0m fleet child window already exists: ${target}; recovery not injected into an existing pane`);
+    if (opts.attach) {
+      await tmux.selectWindow(target);
+      await wakeSession.attachToSession(match.session.name);
+    }
+    return target;
+  }
+
+  if (sessionExists) {
+    await tmux.newWindow(match.session.name, match.window.name, { cwd: match.window.runtime.cwd });
+  } else {
+    await tmux.newSession(match.session.name, { window: match.window.name, cwd: match.window.runtime.cwd });
+  }
+  const command = buildFleetWindowResumeCommand(match.window.runtime, opts.prompt);
+  await tmux.sendText(target, command);
+  if (opts.wait) await wakeSession.waitForEngine(target, getPaneInfos, isAgentCommand);
+  console.log(`\x1b[32m↻\x1b[0m recovered ${target} from ${match.window.runtime.engine} session ${match.window.runtime.nativeSessionId}`);
+  if (opts.attach) {
+    await tmux.selectWindow(target);
+    await wakeSession.attachToSession(match.session.name);
+  }
+  return target;
+}
+
 const DEFAULT_WAKE_FLEET_GHQ_GET_TIMEOUT_MS = 10_000;
 
 function wakeFleetGhqGetTimeoutMs(): number {
@@ -1020,6 +1122,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
+
+  const recoveredFleetChild = await recoverExactFleetChildWindow(oracle, opts);
+  if (recoveredFleetChild) return recoveredFleetChild;
 
   // #2569 — zero-arg wake: `maw wake` (or `maw wake .`) inside an oracle repo
   // derives the oracle from the current directory, then runs the normal flow.
@@ -1351,12 +1456,17 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
     session = foreignSession || await chooseWakeSessionName(oracle, opts.urlRepoName);
+    // Guard BEFORE our own session exists so the only agent panes visible in
+    // this cwd are the live owner's — a fresh work session in an owner's repo
+    // must not launch the --continue form (it would fork the owner's
+    // conversation). Computed once; the retry step must stay deterministic.
+    const mainLaunchOpts = await forceFreshIfOwnerLiveInCwd(opts, repoPath, sessionContext.mode);
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
     await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session), {
       hasSession: tmux.hasSession,
     });
     await retryFreshSessionTmuxStep(session, "launch main window", () => {
-      const command = buildWakeCommand(mainWindowName, repoPath, opts);
+      const command = buildWakeCommand(mainWindowName, repoPath, mainLaunchOpts);
       return sendWakeCommandAndPrompt(`${session}:${mainWindowName}`, opts.prompt, command, opts.engine);
     }, {
       hasSession: tmux.hasSession,
@@ -1699,7 +1809,12 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   registerWorktreeWindow();
-  const cmd = buildWakeCommand(windowName, targetPath, opts);
+  // targetPath-based on purpose: this also covers a second work window opened
+  // into the SAME worktree while its first agent is still live — that
+  // duplicate would fork the worktree conversation exactly like the main-repo
+  // case, so it gets the same fresh-launch downgrade.
+  const cmd = buildWakeCommand(windowName, targetPath,
+    await forceFreshIfOwnerLiveInCwd(opts, targetPath, sessionContext.mode));
   if (opts.prompt) {
     await sendWakeCommandAndPrompt(`${session}:${windowName}`, opts.prompt, cmd, opts.engine);
   } else {

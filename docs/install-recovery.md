@@ -1,5 +1,12 @@
 # Install Recovery Runbook
 
+> **GENERIC / UPSTREAM INSTALLS ONLY.** This document describes recovery for a
+> standard `bun add -g` install from upstream Soul-Brews-Studio. **On the TTT3P
+> machine the live install is a symlink to the fork checkout — do NOT run the
+> recovery paths below there; they would replace the live fork install.** For
+> TTT3P operations use `docs/RUNBOOK.md` (canonical), which owns install
+> identity, health, and restore for that machine.
+
 > What to do when `maw: command not found` appears out of nowhere.
 > Tracking issue: [#531](https://github.com/Soul-Brews-Studio/maw-js/issues/531).
 
@@ -24,7 +31,7 @@ You are looking at the #531 sweep if:
 
 - [ ] `maw` worked yesterday, today `command -v maw` is empty.
 - [ ] `~/.bun/bin/maw` is missing or a dangling symlink.
-- [ ] `~/.bun/install/global/node_modules/maw` may or may not still be present.
+- [ ] `~/.bun/install/global/node_modules/maw-js` may or may not still be present.
 - [ ] You did not run `bun remove -g maw`, `maw uninstall`, or edit `$PATH`.
 
 If any of those do not match, check your shell rc files first — this may
@@ -55,7 +62,7 @@ bunx -p github:Soul-Brews-Studio/maw-js maw doctor
 What it does:
 
 1. Resolves whether `~/.bun/bin/maw` exists and points at a real file.
-2. Verifies `~/.bun/install/global/node_modules/maw` is installed and
+2. Verifies `~/.bun/install/global/node_modules/maw-js` is installed and
    matches the manifest.
 3. If either check fails, re-runs `bun add -g github:Soul-Brews-Studio/maw-js`
    and re-verifies.
@@ -71,7 +78,7 @@ from your shell rc so every new shell checks itself:
 
 ```bash
 # In ~/.bashrc or ~/.zshrc
-. "$HOME/.ghq/github.com/Soul-Brews-Studio/maw-js/scripts/maw-heal.sh"
+. "$(ghq root)/github.com/Soul-Brews-Studio/maw-js/scripts/maw-heal.sh"
 ```
 
 The hook is silent in the happy path. If `maw` is missing, it prints a
@@ -99,7 +106,7 @@ with:
 - The last 20 commands you ran (`history | tail -20`) — especially any
   `bun`, `npm`, `pnpm`, or `brew` calls.
 - Contents of `~/.bun/install/global/package.json`.
-- Whether `~/.bun/install/global/node_modules/maw` still exists.
+- Whether `~/.bun/install/global/node_modules/maw-js` still exists.
 
 That dataset is what the investigator agent on team `persist-531` needs
 to narrow the sweep mechanism.

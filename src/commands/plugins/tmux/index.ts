@@ -381,12 +381,16 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
       console.log(`\x1b[32m✓\x1b[0m toggled zoom on ${resolved}`);
 
     } else if (!sub || sub === "--help" || sub === "-h") {
-      console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|layout|pipe|sync|attach> [args]");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|zoom|layout|pipe|sync|attach> [args]");
       console.log("  ls [--all]              list panes with fleet + team annotations");
       console.log("  peek <target>           read content of a tmux pane");
       console.log("  send <target> <cmd>     send keys to a pane (with safety gates)");
       console.log("  split <target>          split a pane (--vertical, --pct, --cmd)");
       console.log("  kill <target>           kill a pane or --session (fleet-safe)");
+      console.log("  open                    join panes from other one-pane windows; not a last-close undo");
+      console.log("  open <target>           split/show a target session; does not pair with the previous close");
+      console.log("  close [pane]            break panes into detached one-pane windows; processes keep running");
+      console.log("  zoom <target>           toggle zoom on a pane");
       console.log("  layout <target> <preset> apply a tmux layout preset");
       console.log("  pipe <target> [cmd]      pipe pane output/input (`pipe-pane`)");
       console.log("  sync <target> <on|off>  toggle synchronize-panes");
@@ -394,7 +398,7 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
       return { ok: true, output: logs.join("\n") || undefined };
     } else {
       console.log(`unknown tmux subcommand: ${sub}`);
-      console.log("usage: maw tmux <ls|peek|send|split|kill|layout|pipe|sync|attach>");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|zoom|layout|pipe|sync|attach>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

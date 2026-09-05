@@ -104,6 +104,10 @@ describe("vendor park index extra coverage", () => {
       ok: true,
       output: "park:list",
     });
+    await expect(park.default({ source: "cli", args: ["--list"] } as InvokeCtx)).resolves.toEqual({
+      ok: true,
+      output: "park:list",
+    });
     await expect(park.default({ source: "api", args: { ignored: true } } as InvokeCtx)).resolves.toEqual({
       ok: true,
       output: "park:current",
@@ -112,8 +116,18 @@ describe("vendor park index extra coverage", () => {
       { fn: "park", args: ["review"] },
       { fn: "ls", args: [] },
       { fn: "ls", args: [] },
+      { fn: "ls", args: [] },
       { fn: "park", args: [] },
     ]);
+  });
+
+  test("rejects unknown flags before parking a window", async () => {
+    await expect(park.default({ source: "cli", args: ["--bogus"] } as InvokeCtx)).resolves.toEqual({
+      ok: false,
+      error: "maw park: unknown flag --bogus",
+      output: undefined,
+    });
+    expect(parkCalls).toEqual([]);
   });
 
   test("writer path avoids buffered output and errors prefer captured logs before message", async () => {

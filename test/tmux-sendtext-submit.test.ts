@@ -159,4 +159,35 @@ describe("Tmux.sendText — confirmed submit (#6)", () => {
     },
     10_000,
   );
+  test(
+    "engine status bar as final line is not pending input — no retry, no warning (2026-08-16 false-warning regression)",
+    async () => {
+      const t = new FakeTmux();
+      // Exact captured shape from a live Claude Code pane right after a
+      // successful maw hey submit: content line, Working spinner, dim ghost
+      // suggestion, then the status bar as the final nonempty line. The old
+      // unanchored fallback matched "% l" in "62% left" and spun 4 Enters.
+      t.captureScript = [
+        [
+          "› [local:croo] [CROO][crooclose delta commit] PASS. ...",
+          "Working (47s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close",
+          "› Find and fix a bug in @filename",
+          "  gpt-5.6-sol high · Context 62% left",
+        ].join("\n"),
+      ];
+
+      const warnings: string[] = [];
+      const origWarn = console.warn;
+      console.warn = (...args: unknown[]) => { warnings.push(args.join(" ")); };
+      try {
+        await t.sendText("17-riddler:1", "any freshly sent brief");
+      } finally {
+        console.warn = origWarn;
+      }
+
+      expect(enterCount(t.calls)).toBe(1);
+      expect(warnings).toEqual([]);
+    },
+    10_000,
+  );
 });
