@@ -13,12 +13,64 @@
  */
 
 import { execSync } from "child_process";
-import { resolve } from "path";
+import { appendFileSync, readdirSync, rmdirSync } from "fs";
+import { join, resolve } from "path";
 import { hostExec } from "../transport/ssh";
+import { getGhqRoot } from "../../config/ghq-root";
+import { legacyMawPath } from "../xdg";
 import type { RepoDetectResult, RepoDiscovery } from "./types";
 
 function normalize(out: string): string[] {
   return out.split("\n").filter(Boolean).map((p) => p.replace(/\\/g, "/"));
+}
+
+/**
+ * Self-heal the ghq-root poison pill before every `ghq list --full-path`.
+ *
+ * A still-unidentified short-lived writer periodically creates an EMPTY
+ * `.git` directory right at the ghq root (see oracle-watchdog.sh and
+ * `~/.maw/ghq-root-intruder.log` — 407 sightings traced 2026-08-26/27,
+ * still recurring 2026-09-19 as often as every few minutes). ghq reads
+ * that `.git` as "this whole tree is one repository" and `ghq list
+ * --full-path` collapses from every real repo underneath to a single
+ * entry (the root itself) — so `ghqFind`/`ghqList` go blind fleet-wide,
+ * and `maw wake` reports a perfectly-cloned oracle as "not cloned
+ * locally" (job-1789785225-27090 — a day of ezweb-pm downtime).
+ *
+ * oracle-watchdog.sh already sweeps this every 5 minutes with the same
+ * empty-dir-only removal, but the pill has been observed recurring faster
+ * than that cadence (multiple sightings inside one 5-minute window on
+ * 2026-09-19 morning) — the cron alone leaves a real gap. Doing the
+ * identical, already-proven-safe check inline, right before the command
+ * that would otherwise go blind, closes that gap instead of racing it.
+ *
+ * `readdirSync().length === 0` before removing: this must never touch a
+ * `.git` a human (or ghq itself) put at the root on purpose. A non-empty
+ * `.git` there is left alone — same contract as `rmdir` (fails on
+ * non-empty), just checked explicitly so a failure never throws past this
+ * best-effort helper.
+ *
+ * T13, job-1789785225-27090: don't just make the symptom go away quietly —
+ * warn loudly (stderr) so whoever's running `maw` sees the cause, not "repo
+ * missing", and keep logging every sighting to the same
+ * `~/.maw/ghq-root-intruder.log` the original 2026-08-26/27 hunt used, so
+ * the writer still has a chance of being caught by volume of evidence even
+ * though nobody has identified it yet.
+ */
+function healGhqRootPoisonPill(): void {
+  try {
+    const staleGit = join(getGhqRoot(), ".git");
+    if (readdirSync(staleGit).length !== 0) return; // a real repo — leave it alone
+    rmdirSync(staleGit);
+    const message = `an empty .git at the ghq root (${staleGit}) was hiding every repo from ghq — removed it, not the cause of a real missing clone`;
+    console.error(`\x1b[33m⚠\x1b[0m ${message}`);
+    try {
+      appendFileSync(legacyMawPath("ghq-root-intruder.log"), `${new Date().toISOString()} maw self-heal: ${message}\n`);
+    } catch { /* logging is best-effort — never block on it */ }
+  } catch {
+    // ENOENT (no .git there — the common case), ENOTDIR, or getGhqRoot()
+    // itself failing — all mean "leave it alone".
+  }
 }
 
 /**
@@ -95,11 +147,13 @@ export const GhqDiscovery: RepoDiscovery = {
   name: "ghq",
 
   async list(): Promise<string[]> {
+    healGhqRootPoisonPill();
     const out = await hostExec("ghq list --full-path").catch(() => "");
     return normalize(out);
   },
 
   listSync(): string[] {
+    healGhqRootPoisonPill();
     try {
       return normalize(execSync("ghq list --full-path", {
         encoding: "utf-8",
