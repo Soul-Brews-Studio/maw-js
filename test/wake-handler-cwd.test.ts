@@ -11,6 +11,15 @@ const mockFleets = [
     name: "02-neo",
     windows: [{ name: "neo-oracle", repo: "neo-oracle" }],
   },
+  {
+    // multi-window session with DIFFERENT repos per window — the off-by-one
+    // made `:1` resolve to the second window's repo (wrong owner inbox).
+    name: "31-erp",
+    windows: [
+      { name: "erp-oracle", repo: "erp-oracle" },
+      { name: "erp-worker", repo: "erp-worker-repo" },
+    ],
+  },
 ];
 
 // Mock the WHOLE module surface — partial mocks pollute the bun test process
@@ -58,11 +67,27 @@ describe("extractOracleName", () => {
 });
 
 describe("resolveTargetCwd", () => {
-  test("session:window-index resolves via fleet config (the bug case)", () => {
-    // The original handler did target.split(":").pop() which returned "0".
-    // The fix needs to look up by index when the second segment is numeric.
-    expect(resolveTargetCwd("05-acme:0")).toBe("/tmp/ghq/acme-app");
-    expect(resolveTargetCwd("02-neo:0")).toBe("/tmp/ghq/neo-oracle");
+  test("session:window-number resolves via fleet config — tmux numbers are 1-based", () => {
+    // tmux base-index=1: window `1` is the first window = fleet.windows[0].
+    expect(resolveTargetCwd("05-acme:1")).toBe("/tmp/ghq/acme-app");
+    expect(resolveTargetCwd("02-neo:1")).toBe("/tmp/ghq/neo-oracle");
+  });
+
+  // Regression: the off-by-one (indexing fleet.windows directly by the tmux
+  // window number) made `:1` on a 1-window session resolve to null, and on a
+  // multi-window session resolve to the NEXT window's repo (wrong-owner inbox).
+  test("off-by-one: a 1-window session addressed as :1 resolves (was null)", () => {
+    expect(resolveTargetCwd("02-neo:1")).toBe("/tmp/ghq/neo-oracle");
+  });
+
+  test("off-by-one: multi-window :1 → first repo, :2 → second repo (no cross-owner)", () => {
+    expect(resolveTargetCwd("31-erp:1")).toBe("/tmp/ghq/erp-oracle");
+    expect(resolveTargetCwd("31-erp:2")).toBe("/tmp/ghq/erp-worker-repo");
+  });
+
+  test("window :0 has no window under base-index=1 → null", () => {
+    expect(resolveTargetCwd("05-acme:0")).toBeNull();
+    expect(resolveTargetCwd("31-erp:0")).toBeNull();
   });
 
   test("session:window-name resolves via fleet config", () => {

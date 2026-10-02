@@ -58,10 +58,16 @@ export function resolveTargetCwd(target: string): string | null {
   const fleet = fleets.find(f => f.name === session);
   if (!fleet?.windows?.length) return null;
 
+  // tmux window numbers are 1-based (the fleet convention uses the default
+  // base-index=1), but fleet.windows is a 0-based array. Map the tmux number to
+  // the array with `n - 1`; a 1-window session addressed as `:1` must resolve to
+  // that window, not fall off the end (the off-by-one made `<session>:1` → null,
+  // and in a multi-window session `:1` wrongly selected the SECOND window's repo).
+  // `:0` has no window under base-index=1, so it correctly resolves to nothing.
   const win = !winRef
     ? fleet.windows[0]
     : /^\d+$/.test(winRef)
-      ? fleet.windows[parseInt(winRef, 10)]
+      ? fleet.windows[parseInt(winRef, 10) - 1]
       : fleet.windows.find(w => w.name === winRef);
   if (!win?.repo) return null;
 
