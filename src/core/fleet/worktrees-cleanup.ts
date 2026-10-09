@@ -6,6 +6,7 @@ import { join } from "path";
 import { parseWorktreePath } from "./worktree-layout";
 import { resolveWorktreeTarget } from "../matcher/resolve-target";
 import { loadFleetEntries } from "../../commands/shared/fleet-load";
+import { recordTombstone } from "./tombstone";
 
 /**
  * Clean up a single worktree by path.
@@ -60,6 +61,22 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
   // 2. Get branch, remove worktree
   let branch = "";
   try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected: worktree may be corrupt */ }
+
+  // BL-226 — tombstone before the (force) remove so an orphan's uncommitted or
+  // un-merged state is recorded, not lost. Cleanup is force-by-design (orphans),
+  // so we record + surface the blocker but still proceed.
+  try {
+    const baseBranch = /\/maw-js$/.test(mainPath) ? "alpha" : "main";
+    const tomb = await recordTombstone(
+      { mainPath, wtPath, branch, baseBranch },
+      { slug: dirName, reason: "maw cleanup --worktrees (orphan)" },
+      { exec: (cmd) => hostExec(cmd), writeFile: async (p, c) => { writeFileSync(p, c); } },
+    );
+    log.push(`tombstone: ${tomb.path}`);
+    if (tomb.blocker.blocked) log.push(`  ⚠ ${tomb.blocker.reasons.join("; ")} (force-removing orphan)`);
+  } catch (e: any) {
+    log.push(`tombstone skipped: ${e?.message || e}`);
+  }
 
   try {
     await hostExec(`git -C '${mainPath}' worktree remove '${wtPath}' --force`);

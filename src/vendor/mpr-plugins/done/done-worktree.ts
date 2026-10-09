@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
 import { fleetDirsForRead } from "maw-js/commands/shared/fleet-load";
 import { parseWorktreePath } from "maw-js/core/fleet/worktree-layout";
+import { recordTombstone } from "maw-js/core/fleet/tombstone";
 
 export interface DoneBranchCleanupOpts {
   cleanBranch?: boolean;
@@ -190,12 +191,34 @@ export async function removeWorktreeViaConfig(
       const mainPath = parsed.mainPath;
 
       try {
-        if (opts.dryRun) {
-          console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree ${win.repo}`);
-          return true;
-        }
         let branch = "";
         try { branch = (await hostExec(`git -C '${fullPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }
+        const baseBranch = branchBaseFor(mainPath, opts);
+        // BL-226 — record a tombstone BEFORE removal so nothing vanishes silently,
+        // and get a blocker verdict (dirty / not-merged / unverifiable).
+        const tomb = await recordTombstone(
+          { mainPath, wtPath: fullPath, branch, baseBranch },
+          { slug: windowNameLower, reason: opts.dryRun ? "maw done --dry-run" : "maw done", born: config.created_at, dryRun: opts.dryRun },
+          { exec: (cmd) => hostExec(cmd), writeFile: async (p, c) => { writeFileSync(p, c); } },
+        );
+        if (opts.dryRun) {
+          console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would remove worktree ${win.repo}  · tombstone: ${tomb.path}`);
+          if (tomb.blocker.blocked) {
+            // "exit 0 is only a claim": a dry-run that finds an unsafe removal must
+            // NOT report success. Surface the blocker and fail the exit code.
+            console.error(`  \x1b[31m✗\x1b[0m [dry-run] BLOCKED — removal unsafe without --force:`);
+            for (const r of tomb.blocker.reasons) console.error(`  \x1b[90m    • ${r}\x1b[0m`);
+            process.exitCode = 1;
+          }
+          return true;
+        }
+        // Fail-closed: the tombstone IS the audit record that justifies destroying the
+        // worktree (BL-226). --force waives only the dirty-tree refusal, never the record
+        // requirement — if the record could not be written, refuse removal regardless of
+        // --force (no contract exempts --force from tombstone persistence).
+        if (!tomb.wrote) {
+          throw new Error(`tombstone/audit record could not be written for ${fullPath} (${tomb.path}); refusing removal — the ψ/memory/tombstones record is required before a worktree is destroyed`);
+        }
         // Try without --force first; only --force for dirty worktrees (#2065/#2098).
         try {
           await hostExec(`git -C ${shellArg(mainPath)} worktree remove ${shellArg(fullPath)}`);
@@ -216,6 +239,8 @@ export async function removeWorktreeViaConfig(
         await cleanupDoneBranch(mainPath, branch, opts);
         return true;
       } catch (e: any) {
+        // A missing-audit refusal must never fall through to the orphan-dir move below.
+        if (/audit record could not be written/.test(String(e?.message || e))) throw e;
         if (isDirtyWorktreeRemovalError(e)) throw e;
         if (isNotWorkingTreeError(e) && await movePrunedWorktreeDir(fullPath, mainPath)) {
           return true;
@@ -225,6 +250,7 @@ export async function removeWorktreeViaConfig(
       break;
     }
   } catch (e) {
+    if (/audit record could not be written/.test(String((e as any)?.message || e))) throw e;
     if (isDirtyWorktreeRemovalError(e)) throw e;
     console.error(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e}`);
   }

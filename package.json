@@ -83,6 +83,7 @@
     "./core/fleet/nicknames": "./src/core/fleet/nicknames.ts",
     "./core/fleet/validate": "./src/core/fleet/validate.ts",
     "./core/fleet/worktree-layout": "./src/core/fleet/worktree-layout.ts",
+    "./core/fleet/tombstone": "./src/core/fleet/tombstone.ts",
     "./core/ghq": "./src/core/ghq.ts",
     "./core/gateway": "./src/core/gateway.ts",
     "./core/resolve": "./src/core/resolve.ts",
