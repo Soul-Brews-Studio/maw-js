@@ -258,6 +258,26 @@ describe("engine team scanning and broadcast", () => {
     expect(teams.some(t => t.name === "broken")).toBe(false);
   });
 
+  test("scanTeams strips member spawn prompts but keeps other member fields and liveness", async () => {
+    tmuxRunResult = "%7\n";
+    writeTeam("prompted", {
+      name: "prompted",
+      description: "",
+      members: [
+        { name: "team-lead", agentType: "team-lead", prompt: "x".repeat(10_000) },
+        { name: "worker", backendType: "tmux", tmuxPaneId: "%7", prompt: "do the work" },
+      ],
+    });
+
+    const team = (await scanTeams()).find(t => t.name === "prompted")!;
+    expect(team.alive).toBe(true);
+    expect(team.members).toEqual([
+      { name: "team-lead", agentType: "team-lead" },
+      { name: "worker", backendType: "tmux", tmuxPaneId: "%7" },
+    ]);
+    expect(JSON.stringify(team)).not.toContain("do the work");
+  });
+
   test("broadcastTeams skips empty clients, suppresses unchanged payloads, and sends changed team state", async () => {
     writeTeam("alpha", { name: "alpha", description: "", members: [] });
     const lastJson = { value: "" };
