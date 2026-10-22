@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   mkdirSync,
-  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -79,7 +78,7 @@ function initGitRepo(path: string) {
   });
 }
 
-const execSyncFixture: NonNullable<ClaudeSessionDeps["execSync"]> = (cmd) => {
+const execSyncFixture: NonNullable<ClaudeSessionDeps["execSync"]> = async (cmd) => {
   const remoteMatch = cmd.match(/^git -C '([^']+)' remote get-url origin/);
   if (remoteMatch) {
     if (remoteMatch[1].endsWith("/repo")) return "git@github.com:Org/claude-repo.git\n";
@@ -92,14 +91,6 @@ const execSyncFixture: NonNullable<ClaudeSessionDeps["execSync"]> = (cmd) => {
       return `worktree ${worktreeMatch[1]}\nHEAD fixture\nbranch refs/heads/main\n\n`;
     }
     throw new Error(`not a git fixture: ${worktreeMatch[1]}`);
-  }
-
-  const tailMatch = cmd.match(/^tail -100 '([^']+)'/);
-  if (tailMatch) return readFileSync(tailMatch[1], "utf-8").split("\n").slice(-100).join("\n");
-
-  const lineCountMatch = cmd.match(/^awk 'END \{ print NR \}' '([^']+)'/);
-  if (lineCountMatch) {
-    return `${readFileSync(lineCountMatch[1], "utf-8").split("\n").filter(Boolean).length}\n`;
   }
 
   throw new Error(`unexpected fixture exec: ${cmd}`);

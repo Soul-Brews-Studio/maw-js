@@ -1,7 +1,7 @@
 import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync, writeFileSync as fsWriteFileSync } from "fs";
 import { basename, isAbsolute, join } from "path";
 import { getGhqRoot as defaultGetGhqRoot } from "../../config/ghq-root";
-import { ghqFindSync as defaultGhqFindSync } from "../../core/ghq";
+import { ghqFind as defaultGhqFind } from "../../core/ghq";
 import { loadManifestCached, type OracleManifestEntry } from "../../lib/oracle-manifest";
 import { resolveTargetCwd as defaultResolveTargetCwd } from "./target-cwd";
 
@@ -42,7 +42,7 @@ interface ReceiverInboxDeps {
   writeFileSync?: typeof fsWriteFileSync;
   loadManifest?: () => OracleManifestEntry[];
   getGhqRoot?: typeof defaultGetGhqRoot;
-  ghqFindSync?: typeof defaultGhqFindSync;
+  ghqFind?: typeof defaultGhqFind;
   resolveTargetCwd?: typeof defaultResolveTargetCwd;
   now?: () => Date;
 }
@@ -98,11 +98,11 @@ export function resolveReceiverOracle(input: ReceiverInboxInput): string | null 
     ?? normalizeOracleName(input.query);
 }
 
-function repoPathCandidates(
+async function repoPathCandidates(
   oracle: string,
   input: ReceiverInboxInput,
-  deps: Required<Pick<ReceiverInboxDeps, "existsSync" | "loadManifest" | "getGhqRoot" | "ghqFindSync" | "resolveTargetCwd">>,
-): string[] {
+  deps: Required<Pick<ReceiverInboxDeps, "existsSync" | "loadManifest" | "getGhqRoot" | "ghqFind" | "resolveTargetCwd">>,
+): Promise<string[]> {
   const candidates: string[] = [];
 
   if (input.config?.psiPath && input.config.oracle && normalizeOracleName(input.config.oracle) === oracle) {
@@ -135,7 +135,7 @@ function repoPathCandidates(
   }
 
   try {
-    const ghqPath = deps.ghqFindSync(`/${oracle}-oracle$`);
+    const ghqPath = await deps.ghqFind(`/${oracle}-oracle$`);
     if (ghqPath) candidates.push(ghqPath);
   } catch {
     // Best effort.
@@ -191,7 +191,7 @@ function isExistingFileError(error: unknown): boolean {
   );
 }
 
-export function persistReceiverInbox(input: ReceiverInboxInput, deps: ReceiverInboxDeps = {}): ReceiverInboxResult {
+export async function persistReceiverInbox(input: ReceiverInboxInput, deps: ReceiverInboxDeps = {}): Promise<ReceiverInboxResult> {
   const existsSync = deps.existsSync ?? fsExistsSync;
   const mkdirSync = deps.mkdirSync ?? fsMkdirSync;
   const writeFileSync = deps.writeFileSync ?? fsWriteFileSync;
@@ -199,14 +199,14 @@ export function persistReceiverInbox(input: ReceiverInboxInput, deps: ReceiverIn
     existsSync,
     loadManifest: deps.loadManifest ?? loadManifestCached,
     getGhqRoot: deps.getGhqRoot ?? defaultGetGhqRoot,
-    ghqFindSync: deps.ghqFindSync ?? defaultGhqFindSync,
+    ghqFind: deps.ghqFind ?? defaultGhqFind,
     resolveTargetCwd: deps.resolveTargetCwd ?? defaultResolveTargetCwd,
   };
 
   const oracle = resolveReceiverOracle(input);
   if (!oracle) return { ok: false, reason: "receiver oracle could not be inferred" };
 
-  const repoPath = repoPathCandidates(oracle, input, resolvedDeps)[0];
+  const repoPath = (await repoPathCandidates(oracle, input, resolvedDeps))[0];
   if (!repoPath) return { ok: false, oracle, reason: `receiver repo not found for ${oracle}` };
 
   const now = deps.now?.() ?? new Date();

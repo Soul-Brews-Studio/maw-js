@@ -8,4 +8,5 @@ export {
   detectSession,
   setSessionEnv,
   sanitizeBranchName,
+  fleetRepoDiskPath,
 } from "./wake-resolve-impl";

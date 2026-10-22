@@ -17,6 +17,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { WorktreeInfo } from "../src/core/fleet/worktrees-scan";
+import { resetGhqRootCache } from "../src/config/ghq-root";
 
 const fleetRoot = mkdtempSync(join(tmpdir(), "maw-wake-resolve-fleet-"));
 const stateRoot = mkdtempSync(join(tmpdir(), "maw-wake-resolve-state-"));
@@ -371,6 +372,37 @@ describe("resolveOracle runtime paths", () => {
     expect(errors.some((line) => line.includes("fleet-pinned Org/broken-oracle is not cloned locally"))).toBe(true);
     expect(errors.some((line) => line.includes("ghq get github.com/Org/broken-oracle && maw wake broken"))).toBe(true);
     expect(exitCalls).toContain(1);
+  });
+
+  test("job-1789785225-27090 — a clone that exists on disk gets an honest message, not a re-clone suggestion", async () => {
+    // Reproduces the ghq-root poison pill: ghqFind (discovery) never finds
+    // the repo, but the clone is really sitting on disk. maw must say so
+    // instead of claiming "not cloned locally" and pointing at a `ghq get`
+    // that would just fail against the existing directory.
+    const ghqRootDir = mkdtempSync(join(tmpdir(), "maw-wake-resolve-ghqroot-"));
+    mkdirSync(join(ghqRootDir, "github.com", "Org", "present-oracle"), { recursive: true });
+    const originalGhqRootEnv = process.env.GHQ_ROOT;
+    process.env.GHQ_ROOT = ghqRootDir;
+    resetGhqRootCache();
+
+    try {
+      writeFleet("14-present", [{ name: "present-oracle", repo: "Org/present-oracle" }]);
+      ghqFindImpl = async () => null; // discovery stays blind the whole way through
+      hostExecImpl = async () => ""; // `ghq get` itself "succeeds" (no-op on an existing clone)
+      scanSuggestResult = { repoPath: "/after/fleet-fail", repoName: "after", parentDir: "/after" };
+
+      await expect(resolveOracle("present")).resolves.toEqual(scanSuggestResult);
+
+      const diskPath = join(ghqRootDir, "github.com", "Org", "present-oracle");
+      expect(errors.some((line) => line.includes(`looks cloned at ${diskPath}`) && line.includes("can't see it"))).toBe(true);
+      expect(errors.some((line) => line.includes("do NOT re-clone"))).toBe(true);
+      expect(errors.some((line) => line.includes("is not cloned locally"))).toBe(false);
+      expect(exitCalls).toContain(1);
+    } finally {
+      process.env.GHQ_ROOT = originalGhqRootEnv;
+      resetGhqRootCache();
+      rmSync(ghqRootDir, { recursive: true, force: true });
+    }
   });
 
   test("probes configured GitHub orgs and clones the first visible oracle repo", async () => {

@@ -6,7 +6,7 @@ import {
   listSessions, capture, sendKeys, isAgentCommand, findPeerForTarget, resolveTarget,
   curlFetch, runHook,
 } from "../../sdk";
-import { Tmux } from "../../core/transport/tmux";
+import { Tmux, inputBoxRegion } from "../../core/transport/tmux";
 import { AmbiguousMatchError } from "../../core/runtime/find-window";
 import { detectWindowMismatch } from "../../core/routing";
 import { loadConfig, cfgLimit } from "../../config";
@@ -468,15 +468,21 @@ export interface VerifySubmitResult {
   warning?: string;
 }
 
+/** Lines to capture when verifying a submit — tall enough to include the input
+ * box even under a multi-row status/HUD/footer drawn below the prompt. */
+const SUBMIT_VERIFY_SCAN_LINES = 24;
+
 /**
  * #1907 — verify that the implicit Enter from `tmux send-keys` actually
  * submitted, by peeking the target pane and re-sending Enter if the message
  * text still sits in the input area. Up to 2 Enter retries before giving up.
  *
- * Heuristic: capture last 10 lines, search the last 3 for the first 80 chars
- * of the message. The input line is the bottommost; chat history scrolls up
- * and out of the 3-line tail under normal Claude TUI rendering. False-positive
- * cost is a benign extra Enter (no-op in most TUIs).
+ * Heuristic: capture the input box (via inputBoxRegion, which anchors at the
+ * bottom-most prompt line so a status/HUD/footer rendered BELOW the prompt does
+ * not hide the input line) and search it for the first 80 chars of the message.
+ * The message copy in the scrollback above the prompt is excluded, so a submitted
+ * message reads as delivered while one still stuck in the box reads as pending.
+ * False-positive cost is a benign extra Enter (no-op in most TUIs).
  */
 export async function verifySubmitDelivered(
   target: string,
@@ -498,14 +504,18 @@ export async function verifySubmitDelivered(
     await sleepFn(delayMs);
     let content: string;
     try {
-      content = await captureFn(target, 10, host);
+      content = await captureFn(target, SUBMIT_VERIFY_SCAN_LINES, host);
     } catch (e: unknown) {
       const reason = e instanceof Error ? e.message : String(e);
       return { delivered: false, retriesNeeded: attempt,
         warning: `submit unverified — capture-pane failed: ${reason}` };
     }
-    const tail = content.split("\n").slice(-3).join("\n");
-    if (!tail.includes(needle)) {
+    // The input box, not the last 3 lines: engines render a status/HUD/footer
+    // BELOW the prompt (Claude's "accept edits" bar, custom oracle statuslines),
+    // so an un-submitted message sits above the tail and a last-3-line search
+    // wrongly reports it delivered. inputBoxRegion anchors at the prompt line.
+    const region = inputBoxRegion(content);
+    if (!region.includes(needle)) {
       return { delivered: true, retriesNeeded: attempt };
     }
     if (attempt < maxRetries) {
@@ -945,8 +955,11 @@ export async function cmdSend(
     // for live use; opt out per-call with --no-verify-submit; auto-skip
     // under MAW_TEST_MODE so existing cmdSend mock harnesses (which don't
     // stub capture-pane) don't have to adopt the verify seam.
+    // submitVerified stays true when verification is skipped (opt-out / test).
+    let submitVerified = true;
     if (!opts.noVerifySubmit && process.env.MAW_TEST_MODE !== "1") {
       const verify = await verifySubmitDelivered(target, outboundMessage);
+      submitVerified = verify.delivered;
       if (verify.warning) {
         console.log(`  \x1b[33m⚠\x1b[0m ${verify.warning}`);
       } else if (verify.retriesNeeded > 0) {
@@ -961,7 +974,7 @@ export async function cmdSend(
     try { const content = await capture(target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
     emitMessageFeed({
       direction: "outbound",
-      state: "delivered",
+      state: submitVerified ? "delivered" : "queued",
       channel: "hey",
       route: "local",
       from: senderIdentity.display,
@@ -971,7 +984,15 @@ export async function cmdSend(
       lastLine,
       signed: true,
     }, config.port || 3456);
-    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
+    if (submitVerified) {
+      console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
+    } else {
+      // The message was persisted to the receiver's ψ/inbox before injection
+      // (#1967), so it is not lost — but the live pane wake-up could not be
+      // confirmed, so don't print a green "delivered" the operator will trust.
+      console.log(`\x1b[33msent (submit unconfirmed)\x1b[0m → ${target}: ${outboundMessage}`);
+      console.log(`  \x1b[90mqueued in receiver inbox; live pane wake-up unconfirmed — check the target pane\x1b[0m`);
+    }
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
     await runPluginEventHooks("transport:after_send", {
       event: "transport:after_send",

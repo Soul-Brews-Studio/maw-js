@@ -77,6 +77,11 @@ export async function scanTeams(): Promise<TeamData[]> {
             .filter(Boolean);
         } catch { /* expected: tasks dir may not exist */ }
         const alive = isTeamAlive(config.members || [], panes);
+        // Member spawn prompts dominate the payload and are re-sent on every WS
+        // teams broadcast; the UI never reads them. GET /api/teams/:name keeps them.
+        if (Array.isArray(config.members)) {
+          config.members = config.members.map(({ prompt: _prompt, ...member }: Record<string, unknown>) => member);
+        }
         return { ...config, tasks, alive };
       } catch { return null; }
     }).filter(Boolean) as TeamData[];

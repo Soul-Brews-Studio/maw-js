@@ -7,7 +7,7 @@
 
 export type { TmuxPane, TmuxWindow, TmuxSession } from "./tmux-types";
 export { resolveSocket, tmuxCmd } from "./tmux-types";
-export { Tmux, tmux } from "./tmux-class";
+export { Tmux, tmux, inputBoxRegion } from "./tmux-class";
 export type { SplitWindowLockedOpts } from "./tmux-pane-lock";
 export { withPaneLock, splitWindowLocked } from "./tmux-pane-lock";
 export type { TagPaneOpts, PaneTags } from "./tmux-pane-tags";

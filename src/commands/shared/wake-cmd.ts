@@ -11,7 +11,7 @@ import { prefixCommandWithSpawnSessionEnv } from "../../core/fleet/parent-sessio
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { canonicalSessionName } from "../../core/fleet/session-name";
-import { resolveOracle, findWorktrees, findReusableWorktreeBySlug, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
+import { resolveOracle, findWorktrees, findReusableWorktreeBySlug, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName, fleetRepoDiskPath } from "./wake-resolve";
 import { stripOracleRepoSuffix, bringCwdMetadata, deriveOracleFromCwd } from "./wake-cwd";
 // #2569 — re-export so the wake barrel surface still exposes deriveOracleFromCwd.
 export { deriveOracleFromCwd } from "./wake-cwd";
@@ -949,6 +949,17 @@ async function resolveWakeFleetSessionRepo(meta: WakeFleetSessionMetadata): Prom
   if (cloned) {
     console.log(`\x1b[32m✓\x1b[0m found at ${cloned}`);
     return { repoPath: cloned, repoName: cloned.split("/").pop()!, parentDir: cloned.replace(/\/[^/]+$/, "") };
+  }
+  // #???? — see fleetRepoDiskPath's doc comment (wake-resolve-impl.ts):
+  // ghqFind coming back empty doesn't only mean "not cloned" — ghq's own
+  // discovery going blind is a documented, recurring case
+  // (job-1789785225-27090). Check the filesystem before claiming the repo
+  // is missing and pointing at a re-clone that would just fail loudly.
+  const diskPath = fleetRepoDiskPath(cloneSlug);
+  if (existsSync(diskPath)) {
+    console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${meta.repo} for session ${meta.session} looks cloned at ${diskPath}, but ghq's own discovery (\`ghq list\`) can't see it.`);
+    console.error(`\x1b[90m  do NOT re-clone — that would just fail against the existing directory. Retry \`maw wake ${meta.oracle}\` shortly, or inspect ${diskPath} manually.\x1b[0m`);
+    throw new Error(`fleet-pinned ${meta.repo} for session ${meta.session} exists on disk at ${diskPath} but ghq discovery can't see it; do not re-clone, retry the wake`);
   }
   console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${meta.repo} for session ${meta.session} is not cloned locally`);
   console.error(`\x1b[90m  run manually: ${hint}\x1b[0m`);

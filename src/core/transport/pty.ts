@@ -4,7 +4,11 @@ import type { MawWS } from "../types";
 
 type PtyProc = ReturnType<typeof Bun.spawn>;
 type PtySpawn = typeof Bun.spawn;
-type PtySpawnSync = typeof Bun.spawnSync;
+// Async capture-pane seam. Returns decoded stdout bytes (matches the binary
+// frame shape the websocket wants) and the process exit code. Replaces the
+// old spawnSync-based seam so replayCapture no longer blocks the event loop.
+export type PtyCaptureResult = { stdout: Uint8Array; exitCode: number };
+export type PtySpawnCapture = (args: string[]) => Promise<PtyCaptureResult>;
 // listSessionGroups is optional: production always has it (real `tmux` is
 // spread into ptyDeps), but injected test mocks may omit it — in which case
 // the orphan sweep (#P2) and attach-time grouped-orphan kill (#P3) no-op
@@ -19,12 +23,20 @@ export interface PtyDeps {
   cfgTimeout: typeof cfgTimeout;
   cfgLimit: typeof cfgLimit;
   spawn: PtySpawn;
-  spawnSync: PtySpawnSync;
+  /** Async replacement for the old `spawnSync` capture-pane seam. */
+  spawnCapture: PtySpawnCapture;
   env: () => NodeJS.ProcessEnv;
   platform: () => NodeJS.Platform;
   now: () => number;
   setTimeout: typeof setTimeout;
   clearTimeout: typeof clearTimeout;
+}
+
+async function defaultSpawnCapture(args: string[]): Promise<PtyCaptureResult> {
+  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "ignore" });
+  const stdout = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+  const exitCode = await proc.exited;
+  return { stdout, exitCode };
 }
 
 export function ptyDeps(overrides: Partial<PtyDeps> = {}): PtyDeps {
@@ -35,7 +47,7 @@ export function ptyDeps(overrides: Partial<PtyDeps> = {}): PtyDeps {
     cfgTimeout,
     cfgLimit,
     spawn: ((args, opts) => Bun.spawn(args, opts)) as PtySpawn,
-    spawnSync: ((args) => Bun.spawnSync(args)) as PtySpawnSync,
+    spawnCapture: defaultSpawnCapture,
     env: () => process.env,
     platform: () => process.platform,
     now: () => Date.now(),
@@ -67,10 +79,14 @@ function replayLinesFromControl(value: unknown): number {
   return Math.max(0, Math.min(10_000, Math.floor(n)));
 }
 
-function replayCapture(ws: MawWS, target: string, lines: number, io: PtyDeps) {
+// Runs tmux capture-pane asynchronously and sends the scrollback to `ws`.
+// Ordering guarantee: callers must not let live PTY output reach `ws` until
+// this promise settles (see attach()'s two call sites for how each is kept
+// safe now that capture is no longer a blocking spawnSync call).
+async function replayCapture(ws: MawWS, target: string, lines: number, io: PtyDeps): Promise<void> {
   if (lines <= 0) return;
   try {
-    const cap = io.spawnSync(["tmux", "capture-pane", "-t", target, "-p", "-e", "-J", "-S", `-${lines}`]);
+    const cap = await io.spawnCapture(["tmux", "capture-pane", "-t", target, "-p", "-e", "-J", "-S", `-${lines}`]);
     if (cap.stdout && cap.stdout.length > 0) {
       ws.send(cap.stdout);
       ws.send(new TextEncoder().encode("\r\n"));
@@ -164,12 +180,35 @@ function handlePtyMessage(ws: MawWS, msg: string | Buffer) {
     const data = JSON.parse(msg);
     if (data.type === "attach") attach(ws, data.target, data.cols || 120, data.rows || 40, replayLinesFromControl(data.replayLines));
     else if (data.type === "resize") resize(ws, data.cols, data.rows);
-    else if (data.type === "detach") detach(ws);
+    else if (data.type === "detach") { detach(ws); bumpAttachEpoch(ws); }
   } catch { /* expected: malformed WS message */ }
 }
 
 function handlePtyClose(ws: MawWS) {
   detach(ws);
+  bumpAttachEpoch(ws);
+}
+
+// Per-ws attach epoch. Because replayCapture() is now async, an attach() has a
+// suspension window (the awaited capture) during which the socket can close,
+// send {type:"detach"}, or fire another {type:"attach"} — and by the time it
+// resumes, registering `ws` as a live viewer or sending "attached" may be
+// wrong. Each of those events bumps this counter; attach() snapshots it at
+// entry (`myEpoch`) and re-checks after every await that precedes viewer
+// registration or a ws.send. If it changed, a newer event superseded this
+// attach, so it aborts its registration. This is correct under all
+// interleavings — a *stale* detach can never abort a *later* attach, because
+// that later attach bumped the epoch past the detach's value. (The previous
+// one-shot `abandonedAttach` WeakSet flag was not: a detach set a sticky flag
+// that a subsequent re-attach on the same socket would wrongly consume,
+// silently dropping the re-attach. A duplicate concurrent attach likewise just
+// bumps the epoch, so the newest attach wins and the older in-flight one aborts
+// — which also subsumes the old `joiningCached` guard.)
+const attachEpoch = new WeakMap<MawWS, number>();
+function bumpAttachEpoch(ws: MawWS): number {
+  const next = (attachEpoch.get(ws) ?? 0) + 1;
+  attachEpoch.set(ws, next);
+  return next;
 }
 
 async function attach(ws: MawWS, target: string, cols: number, rows: number, replayLines: number) {
@@ -180,19 +219,32 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
   // Detach from any existing session
   detach(ws);
 
+  // Snapshot the attach epoch: any detach/close/re-attach on this socket during
+  // an awaited replayCapture() below bumps it, and we re-check before joining.
+  const myEpoch = bumpAttachEpoch(ws);
+
   // Join existing PTY session?
-  let session = sessions.get(safe);
-  if (session) {
-    if (session.cleanupTimer) {
-      io.clearTimeout(session.cleanupTimer);
-      session.cleanupTimer = null;
+  const cached = sessions.get(safe);
+  if (cached) {
+    if (cached.cleanupTimer) {
+      io.clearTimeout(cached.cleanupTimer);
+      cached.cleanupTimer = null;
     }
-    session.viewers.add(ws);
-    // Late viewer: cached PTY only streams *new* output, so without a replay
-    // the screen stays empty until something happens in the pane → looks like
-    // "black pane covering tmux". Mirror the new-session capture-pane block.
-    replayCapture(ws, safe, replayLines, io);
-    ws.send(JSON.stringify({ type: "attached", target: safe }));
+    // ORDERING GUARANTEE: the replay must reach `ws` before any live PTY
+    // output does. The PTY output loop below only ever sends to sockets in
+    // `session.viewers` — so as long as `ws` is deferred out of that set
+    // until replayCapture() has finished sending, no live frame can reach it
+    // early. That's exactly what happens here: `ws` is not added to
+    // `cached.viewers` until after the await below, so this is a deferred
+    // *registration* rather than a buffer-and-flush — there is nothing to
+    // buffer because `ws` was never a valid delivery target during capture.
+    await replayCapture(ws, safe, replayLines, io);
+
+    // Socket closed/detached, or a newer attach for this socket started, while
+    // capture was in flight → don't (re)join or write further (see attachEpoch).
+    if (attachEpoch.get(ws) !== myEpoch) return;
+    cached.viewers.add(ws);
+    try { ws.send(JSON.stringify({ type: "attached", target: safe })); } catch { /* expected: viewer may have disconnected */ }
     return;
   }
 
@@ -227,7 +279,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
   } catch {
     creatingPtyNames.delete(ptySessionName);
     attaching.delete(safe);
-    ws.send(JSON.stringify({ type: "error", message: "Failed to create PTY session" }));
+    try { ws.send(JSON.stringify({ type: "error", message: "Failed to create PTY session" })); } catch { /* expected: viewer may have disconnected */ }
     return;
   }
 
@@ -235,7 +287,13 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
   // attach only redraws current pane → viewer's local buffer has no history.
   // capture-pane reads tmux server-side history (limit set by history-limit).
   // -p stdout, -e include ANSI attrs, -S -2000 last 2000 lines, -J join wrapped.
-  replayCapture(ws, safe, replayLines, io);
+  //
+  // ORDERING GUARANTEE: this is awaited BEFORE io.spawn() below creates the
+  // live PTY wrapper process. No PTY process (and therefore no live output
+  // loop) exists yet at this point, so there is no possibility of live data
+  // reaching `ws` ahead of the replay — the guarantee holds structurally
+  // rather than by buffering.
+  await replayCapture(ws, safe, replayLines, io);
 
   // Spawn PTY wrapper — attach to our grouped session (not the original).
   //
@@ -277,7 +335,16 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number, rep
     windowsHide: true,
   });
 
-  session = { proc, target: safe, ptySessionName, viewers: new Set([ws]), cleanupTimer: null };
+  // Viewer may have closed/detached (or started a newer attach) while we were
+  // creating the grouped tmux session and awaiting replayCapture() above. The
+  // grouped session is still spawned and tracked either way — abandoning it
+  // here would leak an untracked maw-pty-* session outside `sessions`
+  // (unreachable by #P2/#P3 until the wrapper process exits on its own) — but
+  // we don't register the departed/superseded socket as a viewer, matching the
+  // pre-async behavior where a vanished `ws` simply wouldn't receive further
+  // sends (see attachEpoch).
+  const initialViewers = attachEpoch.get(ws) === myEpoch ? [ws] : [];
+  const session: PtySession = { proc, target: safe, ptySessionName, viewers: new Set(initialViewers), cleanupTimer: null };
   sessions.set(safe, session);
   creatingPtyNames.delete(ptySessionName); // now tracked via `sessions`
   attaching.delete(safe);

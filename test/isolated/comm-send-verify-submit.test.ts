@@ -190,4 +190,76 @@ describe("verifySubmitDelivered (#1907)", () => {
     expect(result.delivered).toBe(false);
     expect(result.retriesNeeded).toBe(2);
   });
+
+  // --- Claude-TUI layout: prompt line sits ABOVE a status/HUD/footer ---------
+  // A Claude Code pane (esp. with a custom oracle statusline) renders the input
+  // box, then several rows BELOW it: a separator, model/context HUD rows, the
+  // "⏵⏵ accept edits" footer, sometimes a stray artifact row. The un-submitted
+  // message is therefore NOT in the last 3 lines. The pre-fix last-3-line search
+  // reported these as delivered while the message sat stuck in the box — the
+  // exact silent-loss failure mode. inputBoxRegion anchors at the prompt line.
+  const stuckAboveHud = [
+    "  previous assistant output …",
+    "────────────────────────────────",
+    "❯ deploy the thing now",            // ← message stuck on the input line
+    "────────────────────────────────",
+    "  Model: Sonnet 5 | 5h:18%(2h47m)",
+    "  ctx:26%/1M | ↑260",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · 2 feedback dra…",
+    "                                   /rc", // stray artifact on the last line
+  ].join("\n");
+  const clearedAboveHud = [
+    "  previous assistant output …",
+    "❯ deploy the thing now",            // ← now in the transcript (submitted)
+    "────────────────────────────────",
+    "❯ ",                                 // ← input line empty
+    "────────────────────────────────",
+    "  Model: Sonnet 5 | 5h:18%(2h47m)",
+    "  ctx:26%/1M | ↑260",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · 2 feedback dra…",
+  ].join("\n");
+
+  test("stuck message above a HUD footer is caught (not falsely delivered)", async () => {
+    let enterCalls = 0;
+    const result = await verifySubmitDelivered("sess:0", "deploy the thing now", {
+      delayMs: 0,
+      captureFn: async () => stuckAboveHud, // never clears
+      sendKeysFn: async () => { enterCalls += 1; },
+      sleepFn: async () => {},
+    });
+    // Pre-fix this returned { delivered: true } — silently — because the message
+    // was outside the last-3-line tail.
+    expect(result.delivered).toBe(false);
+    expect(result.warning).toContain("submit unverified");
+    expect(enterCalls).toBe(2);
+  });
+
+  test("retry recovers a message stuck above a HUD footer", async () => {
+    let captureCalls = 0;
+    let enterCalls = 0;
+    const result = await verifySubmitDelivered("sess:0", "deploy the thing now", {
+      delayMs: 0,
+      captureFn: async () => {
+        captureCalls += 1;
+        return captureCalls === 1 ? stuckAboveHud : clearedAboveHud;
+      },
+      sendKeysFn: async () => { enterCalls += 1; },
+      sleepFn: async () => {},
+    });
+    expect(result).toEqual({ delivered: true, retriesNeeded: 1 });
+    expect(enterCalls).toBe(1);
+  });
+
+  test("submitted message in scrollback above an empty prompt is not false-pending", async () => {
+    // The transcript copy of the message is ABOVE the (empty) input line, so it
+    // must not be mistaken for un-submitted input — inputBoxRegion searches from
+    // the prompt DOWNWARD only.
+    const result = await verifySubmitDelivered("sess:0", "deploy the thing now", {
+      delayMs: 0,
+      captureFn: async () => clearedAboveHud,
+      sendKeysFn: async () => { throw new Error("must not retry — already submitted"); },
+      sleepFn: async () => {},
+    });
+    expect(result).toEqual({ delivered: true, retriesNeeded: 0 });
+  });
 });

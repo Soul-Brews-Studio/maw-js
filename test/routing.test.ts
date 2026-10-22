@@ -89,6 +89,46 @@ describe("resolveTarget", () => {
     expect(r).toEqual({ type: "local", target: "20-homekeeper:2.0" });
   });
 
+  // session:window prefix-shadow: an exact window-name match must beat a
+  // substring match against a sibling whose name extends the query
+  // (e.g. `signaltale:st-builder` vs windows `st-builder-agy`, `st-builder`).
+  // Mirrors the bare-name two-pass logic from #414.
+  test("session:window exact window-name beats substring sibling (#414 parity)", () => {
+    const sessions: Session[] = [
+      {
+        name: "signaltale",
+        windows: [
+          { index: 4, name: "st-builder-agy", active: false },
+          { index: 5, name: "st-builder", active: true },
+          { index: 6, name: "st-builder-2", active: false },
+          { index: 7, name: "st-builder-senior", active: false },
+        ],
+      },
+    ];
+    expect(resolveTarget("signaltale:st-builder", BASE_CONFIG, sessions))
+      .toEqual({ type: "local", target: "signaltale:5" });
+    expect(resolveTarget("signaltale:st-builder-2", BASE_CONFIG, sessions))
+      .toEqual({ type: "local", target: "signaltale:6" });
+    expect(resolveTarget("signaltale:st-builder-senior", BASE_CONFIG, sessions))
+      .toEqual({ type: "local", target: "signaltale:7" });
+    expect(resolveTarget("signaltale:st-builder-agy", BASE_CONFIG, sessions))
+      .toEqual({ type: "local", target: "signaltale:4" });
+  });
+
+  test("session:window substring fallback still matches partial window names", () => {
+    const sessions: Session[] = [
+      {
+        name: "signaltale",
+        windows: [
+          { index: 1, name: "st-orchestrator", active: true },
+          { index: 3, name: "st-oracle", active: false },
+        ],
+      },
+    ];
+    expect(resolveTarget("signaltale:oracle", BASE_CONFIG, sessions))
+      .toEqual({ type: "local", target: "signaltale:3" });
+  });
+
   // #3: NODE:AGENT → REMOTE PEER
   test("node:agent resolves to remote peer", () => {
     const r = resolveTarget("mba:homekeeper", BASE_CONFIG, SESSIONS);

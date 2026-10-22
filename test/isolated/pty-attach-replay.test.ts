@@ -35,10 +35,40 @@ const originalSpawnSync = Bun.spawnSync;
 let spawnCalls: unknown[][] = [];
 let spawnSyncImpl: (args: string[]) => { stdout: Uint8Array } = () => ({ stdout: encode("captured-pane") });
 
+// capture-pane now runs via Bun.spawn (async, streamed to completion) instead
+// of the old blocking Bun.spawnSync — see pty.ts's default spawnCapture. This
+// mock detects the ["tmux","capture-pane",...] shape and answers it with a
+// one-shot ReadableStream built from spawnSyncImpl's result, while any other
+// Bun.spawn call (the live PTY wrapper) keeps the original never-resolving
+// reader stub used throughout this file.
+function isCapturePaneArgs(args: unknown[]): boolean {
+  return args[0] === "tmux" && args[1] === "capture-pane";
+}
+
 function installSpawnMocks() {
   spawnCalls = [];
   (Bun as any).spawnSync = (args: string[]) => spawnSyncImpl(args);
   (Bun as any).spawn = (args: unknown[]) => {
+    if (isCapturePaneArgs(args)) {
+      let result: { stdout: Uint8Array };
+      let thrown: unknown;
+      try {
+        result = spawnSyncImpl(args as string[]);
+      } catch (err) {
+        thrown = err;
+        result = { stdout: new Uint8Array(0) };
+      }
+      return {
+        stdout: new ReadableStream<Uint8Array>({
+          start(controller) {
+            if (thrown) { controller.error(thrown); return; }
+            controller.enqueue(result.stdout);
+            controller.close();
+          },
+        }),
+        exited: thrown ? Promise.reject(thrown).catch(() => 1) : Promise.resolve(0),
+      };
+    }
     spawnCalls.push(args);
     return {
       stdin: { write() {}, flush() {} },
@@ -87,6 +117,11 @@ describe("PTY attach scrollback replay (#1588)", async () => {
     const lateViewer = makeWs();
     handlePtyMessage(lateViewer as any, JSON.stringify({ type: "attach", target }));
 
+    // Capture-pane is async now (Bun.spawn instead of Bun.spawnSync), so the
+    // "attached" control message — sent only after the deferred join
+    // completes — arrives on a later microtask/tick than this call.
+    await eventually(() => lateViewer.sent.length >= 3, "cached replay + attached delivery");
+
     expect(lateViewer.sent.map(decode)).toEqual([
       "cached screen",
       "\r\n",
@@ -103,6 +138,18 @@ describe("PTY attach scrollback replay (#1588)", async () => {
       return { stdout: encode("fresh screen") };
     };
     (Bun as any).spawn = (args: unknown[]) => {
+      if (isCapturePaneArgs(args)) {
+        const result = spawnSyncImpl(args as string[]);
+        return {
+          stdout: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(result.stdout);
+              controller.close();
+            },
+          }),
+          exited: Promise.resolve(0),
+        };
+      }
       sequence.push(`spawn:${JSON.stringify(args)}`);
       spawnCalls.push(args);
       return {
@@ -137,6 +184,8 @@ describe("PTY attach scrollback replay (#1588)", async () => {
     spawnSyncImpl = () => { throw new Error("tmux target disappeared"); };
     const lateViewer = makeWs();
     handlePtyMessage(lateViewer as any, JSON.stringify({ type: "attach", target }));
+
+    await eventually(() => lateViewer.sent.length >= 1, "attached delivery despite capture failure");
 
     expect(lateViewer.sent.map(decode)).toEqual([
       JSON.stringify({ type: "attached", target }),

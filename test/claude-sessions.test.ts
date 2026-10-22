@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const tempDirs: string[] = [];
@@ -71,8 +71,7 @@ describe("Claude Code session discovery", () => {
 
     const { listClaudeSessions } = await freshModule();
     const sessions = await listClaudeSessions({
-      execSync: (command) => {
-        if (command.startsWith("tail ")) return readFileSync(freshSession, "utf-8");
+      execSync: async (command) => {
         throw new Error(`unexpected execSync call: ${command}`);
       },
     });
@@ -118,14 +117,12 @@ describe("Claude Code session discovery", () => {
     const { listClaudeSessions, __resetClaudeSessionCachesForTests } = await freshModule();
     __resetClaudeSessionCachesForTests();
     const commands: string[] = [];
-    const execSync = (command: string) => {
+    const execSync = async (command: string) => {
       commands.push(command);
       if (command.startsWith("ps -eo")) return `123 45 claude --dangerously-skip-permissions`;
       if (command.startsWith("readlink /proc/123/cwd")) return `${projectPath}\n`;
       if (command.startsWith("lsof -p 123")) return `n${projectPath}\n`;
       if (command.startsWith("ps -o comm=,ppid= -p 45")) return "tmux 1\n";
-      if (command.startsWith("tail ")) return readFileSync(sessionFile, "utf-8");
-      if (command.startsWith("awk ")) return "2\n";
       if (command.includes("remote get-url") || command.includes("worktree list")) throw new Error("not a git repo");
       throw new Error(`unexpected execSync call: ${command}`);
     };

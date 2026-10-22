@@ -265,9 +265,11 @@ describe("Tmux command wrapper coverage", () => {
       "exitModeIfNeeded:s:main.0",
       "sendKeysLiteral:pending",
       "sendKeys:Enter",
-      "capture:5",
+      // capture depth widened (was 5) so the input box is included even when a
+      // status/HUD/footer is drawn below the prompt (INPUT_SCAN_LINES).
+      "capture:24",
       "sendKeys:Enter",
-      "capture:5",
+      "capture:24",
     ]);
   });
 

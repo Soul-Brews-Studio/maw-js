@@ -115,10 +115,50 @@ const SAFE_DRAIN_PATTERNS: Array<{ reason: string; pattern: RegExp }> = [
   { reason: "council", pattern: /\bstage\s+\d+\s+closed\b/i },
 ];
 
-export function resolveInboxDir(): string {
+function resolveFleetInboxDir(oracle: string): string | null {
+  const wantedRepo = `${oracle}-oracle`.toLowerCase();
+  const ghqRoot = process.env.GHQ_ROOT || join(homedir(), "ghq");
+  for (const entry of loadFleetEntries()) {
+    for (const window of entry.session?.windows ?? []) {
+      const repo = window.repo?.split("/").filter(Boolean).pop()?.toLowerCase();
+      const name = window.name?.toLowerCase();
+      if (repo !== wantedRepo && name !== wantedRepo) continue;
+      if (!window.repo) continue;
+      const repoPath = join(ghqRoot, "github.com", window.repo);
+      if (existsSync(repoPath)) return inboxDirForRepo(repoPath);
+    }
+  }
+  return null;
+}
+
+async function resolveActiveTmuxInboxDir(): Promise<string | null> {
+  if (!process.env.TMUX) return null;
+  try {
+    const pane = process.env.TMUX_PANE;
+    const target = pane && /^%\d+$/.test(pane) ? ` -t ${pane}` : "";
+    const window = (await hostExec(`${tmuxCmd()} display-message -p${target} '#W'`)).trim();
+    const candidates = [...new Set([window, window.replace(/-oracle$/i, "")].filter(Boolean))];
+    for (const oracle of candidates) {
+      const fleetInbox = resolveFleetInboxDir(oracle);
+      if (fleetInbox) return fleetInbox;
+      const repoPath = await resolveOracleRepo(oracle);
+      if (repoPath) return inboxDirForRepo(repoPath);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveInboxDir(): Promise<string> {
   const config = loadConfig();
   if (config.psiPath) return join(config.psiPath, "inbox");
   const local = join(process.cwd(), "ψ", "inbox");
+  if (existsSync(local) && (basename(process.cwd()).endsWith("-oracle") || canonicalRepoFromCwd())) return local;
+  // Workspace tools may cd away from an agent repo. Keep their inbox bound to
+  // active tmux agent window instead of silently reading workspace ψ/inbox.
+  const tmuxInbox = await resolveActiveTmuxInboxDir();
+  if (tmuxInbox) return tmuxInbox;
   if (existsSync(local)) return local;
   return join(process.cwd(), "psi", "inbox");
 }
@@ -252,7 +292,7 @@ async function resolveInboxStatusTarget(oracleArg?: string): Promise<InboxStatus
   const repoPath = (await resolveOracleRepo(oracle)) ?? canonicalRepoFromCwd();
   if (repoPath) return { oracle, inboxDir: inboxDirForRepo(repoPath) };
   if (config.psiPath) return { oracle: config.oracle || oracle, inboxDir: join(config.psiPath, "inbox") };
-  return { oracle, inboxDir: resolveInboxDir() };
+  return { oracle, inboxDir: await resolveInboxDir() };
 }
 
 export function oracleNameFromFleetWindow(window: { name?: string; repo?: string }): string | null {
@@ -647,7 +687,7 @@ async function refreshCurrentInboxStatusBadge(messages: InboxMessage[]): Promise
   }
 }
 export async function cmdInboxLs(opts: { unread?: boolean; from?: string; last?: number } = {}) {
-  const inboxDir = resolveInboxDir();
+  const inboxDir = await resolveInboxDir();
   let msgs = loadInboxMessages(inboxDir);
   await refreshCurrentInboxStatusBadge(msgs);
   if (opts.unread) msgs = msgs.filter(m => !m.frontmatter.read);
@@ -688,7 +728,8 @@ function markInboxFrontmatterRead(content: string, timestamp = new Date().toISOS
 
 export async function cmdInboxMarkRead(id: string) {
   if (!id) { console.error("usage: maw inbox read <id>"); return; }
-  const msgs = loadInboxMessages(resolveInboxDir());
+  const inboxDir = await resolveInboxDir();
+  const msgs = loadInboxMessages(inboxDir);
   const msg = msgs.find(m => m.id === id || m.filename.includes(id));
   if (!msg) { console.error(`\x1b[31merror\x1b[0m: message not found: ${id}`); return; }
   if (msg.frontmatter.read) { console.log(`\x1b[90malready read:\x1b[0m ${msg.filename}`); return; }
@@ -699,13 +740,13 @@ export async function cmdInboxMarkRead(id: string) {
     return;
   }
   writeFileSync(msg.path, updated);
-  await refreshCurrentInboxStatusBadge(loadInboxMessages(resolveInboxDir()));
+  await refreshCurrentInboxStatusBadge(loadInboxMessages(inboxDir));
   console.log(`\x1b[32m✓\x1b[0m marked read: ${msg.filename}`);
 }
 
 // Legacy write shim — used by the oracle inbox skill
 export async function cmdInboxRead(target?: string) {
-  const msgs = loadInboxMessages(resolveInboxDir());
+  const msgs = loadInboxMessages(await resolveInboxDir());
   await refreshCurrentInboxStatusBadge(msgs);
   if (!msgs.length) { console.log("\x1b[90mno inbox messages\x1b[0m"); return; }
   const n = target ? parseInt(target) : NaN;
@@ -719,7 +760,7 @@ export async function cmdInboxRead(target?: string) {
 
 // Legacy write shim
 export async function cmdInboxWrite(note: string) {
-  const inboxDir = resolveInboxDir();
+  const inboxDir = await resolveInboxDir();
   if (!existsSync(inboxDir)) { console.error(`\x1b[31merror\x1b[0m: inbox not found: ${inboxDir}`); return; }
   const config = loadConfig();
   const filename = writeInboxFile(inboxDir, config.node ?? "cli", config.node ?? "local", note);

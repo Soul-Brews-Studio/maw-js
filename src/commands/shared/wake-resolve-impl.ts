@@ -1,5 +1,6 @@
 import { hostExec, tmux, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
+import { getGhqRoot } from "../../config/ghq-root";
 import { ghqFind } from "../../core/ghq";
 import {
   pickOracle,
@@ -52,6 +53,32 @@ function wakeFleetGhqGetTimeoutMs(): number {
 
 function isWakeFleetCloneTimeout(error: unknown): boolean {
   return error instanceof Error && /timed out after \d+ms/.test(error.message);
+}
+
+/**
+ * #???? — before declaring a fleet-pinned repo "not cloned locally" (and
+ * suggesting a `ghq get` that would just fail loudly against an already-
+ * existing directory — see job-1789785225-27090, a day of ezweb-pm
+ * downtime), check the filesystem directly. `ghqFind` coming back empty
+ * doesn't only mean "not cloned" — ghq's own discovery going blind is a
+ * documented, recurring case (see `healGhqRootPoisonPill` in
+ * `core/repo-discovery/ghq-discovery.ts`). A directory already sitting
+ * where the clone should be is strong evidence discovery is lying, not
+ * that the repo is missing, so the two cases get different messages.
+ */
+export function fleetRepoDiskPath(fleetRepo: string): string {
+  return join(getGhqRoot(), "github.com", fleetRepo);
+}
+
+function reportFleetCloneNotFound(fleetRepo: string, oracle: string, hint: string): void {
+  const diskPath = fleetRepoDiskPath(fleetRepo);
+  if (existsSync(diskPath)) {
+    console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} looks cloned at ${diskPath}, but ghq's own discovery (\`ghq list\`) can't see it.`);
+    console.error(`\x1b[90m  do NOT re-clone — that would just fail against the existing directory. Retry \`maw wake ${oracle}\` shortly, or inspect ${diskPath} manually.\x1b[0m`);
+  } else {
+    console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} is not cloned locally`);
+    console.error(`\x1b[90m  run manually: ${hint}\x1b[0m`);
+  }
 }
 
 async function hostExecWakeFleetGhqGet(command: string, timeoutMs: number): Promise<void> {
@@ -465,8 +492,7 @@ export async function resolveOracle(
       console.log(`\x1b[32m✓\x1b[0m found at ${cloned}`);
       return { repoPath: cloned, repoName: cloned.split("/").pop()!, parentDir: cloned.replace(/\/[^/]+$/, "") };
     }
-    console.error(`\x1b[31merror\x1b[0m: fleet-pinned ${fleetRepo} is not cloned locally`);
-    console.error(`\x1b[90m  run manually: ${hint}\x1b[0m`);
+    reportFleetCloneNotFound(fleetRepo, oracle, hint);
     process.exit(1);
   }
 

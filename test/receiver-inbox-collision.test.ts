@@ -5,7 +5,7 @@ import { join } from "path";
 import { persistReceiverInbox } from "../src/commands/shared/receiver-inbox";
 
 describe("receiver inbox filename collisions (#1967)", () => {
-  test("keeps same-minute messages with matching first six words", () => {
+  test("keeps same-minute messages with matching first six words", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-receiver-inbox-collision-"));
     const repo = join(root, "digger-oracle");
     mkdirSync(repo, { recursive: true });
@@ -13,17 +13,17 @@ describe("receiver inbox filename collisions (#1967)", () => {
       resolveTargetCwd: () => repo,
       loadManifest: () => [],
       getGhqRoot: () => root,
-      ghqFindSync: () => null,
+      ghqFind: async () => null,
       now: () => new Date("2026-05-17T08:00:42.000Z"),
     };
 
-    const first = persistReceiverInbox({
+    const first = await persistReceiverInbox({
       query: "digger",
       target: "54-digger:digger-oracle.0",
       from: "m5:sender",
       message: "one two three four five six alpha",
     }, deps);
-    const second = persistReceiverInbox({
+    const second = await persistReceiverInbox({
       query: "digger",
       target: "54-digger:digger-oracle.0",
       from: "m5:sender",

@@ -70,12 +70,23 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     let approve = false;
     let trust = false;
     let noVerifySubmit = false;
+    // #maw-hey-flag-guard — ทุก token ที่ไม่ตรง flag ที่รู้จัก เคยตกลงไปเป็น "เนื้อข้อความ"
+    // แล้วคืน rc=0 ⇒ พิมพ์ `--file x` ผิด = ผู้รับได้บรรทัดเดียวว่า `--file x` โดยไม่มีอะไรเตือน
+    // (volt พลาดข้อนี้ 3 ครั้งใน 4 วัน · morse ชี้ว่าเป็น fail-open ⇒ วินัยคนพิมพ์กันไม่ได้)
+    // `--` = end-of-flags สำหรับคนที่ตั้งใจส่งข้อความขึ้นต้นด้วยขีดสองอัน
+    let endOfFlags = false;
     let from: string | undefined;
     let target: string | undefined;
     const msgArgs: string[] = [];
 
     for (let i = 0; i < rest.length; i += 1) {
       const arg = rest[i];
+      if (!endOfFlags && arg === "--") { endOfFlags = true; continue; }
+      if (endOfFlags) {
+        if (!target) target = arg;
+        else msgArgs.push(arg);
+        continue;
+      }
       if (arg === "--force") { force = true; continue; }
       if (arg === "--inbox") { inboxOnly = true; continue; }
       if (arg === "--approve") { approve = true; continue; }
@@ -94,6 +105,18 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       if (arg.startsWith("--from=")) {
         from = arg.slice("--from=".length);
         continue;
+      }
+      // ด่าน fail-closed: flag ที่ไม่รู้จักซึ่งโผล่ "ก่อนเนื้อข้อความเริ่ม" = พิมพ์ผิด ไม่ใช่ข้อความ
+      // ผูกกับ msgArgs.length === 0 เพื่อไม่ให้ข้อความที่มี `--` อยู่กลางประโยคพัง
+      // 📎 แม่ Labubu 18.08 (near-miss จาก traffic จริง 3,913 บรรทัด): `startsWith("--")` ยิงใส่ `---` ด้วย
+      //    ซึ่งคือบรรทัดแรกของ YAML frontmatter ⇒ เอกสาร markdown เต็มใบ **4 ใบที่เคยส่งสำเร็จ** จะถูกปฏิเสธ
+      //    (morse 2 · volt 1 · echo 1) · flag จริงมีตัวอักษรตามหลังขีดเสมอ ⇒ แคบด่านลงเป็น `--` + ตัวอักษร
+      if (/^--[A-Za-z]/.test(arg) && msgArgs.length === 0) {
+        console.error(`\x1b[31m✗\x1b[0m unknown flag: ${arg}`);
+        console.error(`  \x1b[33mhint\x1b[0m: maw ${cmd} รับเฉพาะ --from --inbox --force --approve --trust --no-verify-submit`);
+        console.error(`  ถ้าตั้งใจให้ข้อความขึ้นต้นด้วย ${arg} ให้คั่นด้วย -- ก่อน: maw ${cmd} <target> -- "${arg} ..."`);
+        printCommUsage(cmd, console.error);
+        throw new UserError(`unknown flag: ${arg}`);
       }
       if (!target) target = arg;
       else msgArgs.push(arg);
